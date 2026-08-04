@@ -1,0 +1,210 @@
+from __future__ import annotations
+
+import json
+import logging
+from typing import TYPE_CHECKING, Any
+
+from prodagent.core.exceptions import ToolCallParseError
+from prodagent.core.types import LLMResponse, MessageList, StopReason, ToolCall
+from prodagent.llm.base import LLMConfig, normalise_content
+from prodagent.resilience.transport.http_retry import with_http_retry
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+logger = logging.getLogger(__name__)
+
+
+class OpenAIAdapter:
+    """Wraps the OpenAI Python SDK (and OpenAI-compatible endpoints)."""
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        default_config: LLMConfig | None = None,
+        *,
+        model: str | None = None,
+        cost_per_million_input: float | None = None,
+        cost_per_million_output: float | None = None,
+    ) -> None:
+        try:
+            import openai
+        except ImportError as exc:
+            raise ImportError(
+                "openai package is required for OpenAIAdapter. "
+                "Install it with: pip install 'prodagent[openai]'"
+            ) from exc
+
+        self._client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
+        if default_config is not None:
+            self._default_config = default_config
+        else:
+            self._default_config = LLMConfig(
+                model=model or "gpt-4o",
+                cost_per_million_input=cost_per_million_input or 5.0,
+                cost_per_million_output=cost_per_million_output or 15.0,
+            )
+
+    async def complete(
+        self,
+        messages: MessageList,
+        *,
+        system: str | list[dict[str, Any]] = "",
+        tools: list[dict[str, Any]] | None = None,
+        config: LLMConfig | None = None,
+        on_chunk: Callable[[str], Awaitable[None]],
+    ) -> LLMResponse:
+        cfg = config or self._default_config
+        full_messages = self._build_messages(messages, system)
+        return await with_http_retry(
+            lambda: self._stream(full_messages, tools=tools, cfg=cfg, on_chunk=on_chunk)
+        )
+
+    def _build_messages(
+        self, messages: MessageList, system: str | list[dict[str, Any]]
+    ) -> MessageList:
+        # cache_control is Anthropic-only; OpenAI caches server-side via prompt_tokens_details.
+        full: MessageList = []
+        if system:
+            if isinstance(system, str):
+                system_text = system
+            else:
+                system_text = "\n\n".join(
+                    b.get("text", "") for b in system if b.get("type") == "text"
+                )
+            if system_text:
+                full.append({"role": "system", "content": system_text})
+        for msg in messages:
+            content = msg.get("content")
+            normalised = normalise_content(content, join_text_blocks=True)
+            full.append({**msg, "content": normalised} if normalised is not content else msg)
+        return full
+
+    @staticmethod
+    def _build_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t.get("description", ""),
+                    "parameters": t.get("input_schema", t.get("parameters", {})),
+                },
+            }
+            for t in tools
+        ]
+
+    async def _stream(
+        self,
+        messages: MessageList,
+        *,
+        tools: list[dict[str, Any]] | None,
+        cfg: LLMConfig,
+        on_chunk: Callable[[str], Awaitable[None]],
+    ) -> LLMResponse:
+        kwargs: dict[str, Any] = {
+            "model": cfg.model,
+            "messages": messages,
+            "temperature": cfg.temperature,
+            "max_tokens": cfg.max_tokens,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        if cfg.timeout_seconds is not None:
+            kwargs["timeout"] = cfg.timeout_seconds
+
+        if tools:
+            kwargs["tools"] = self._build_tools(tools)
+            kwargs["tool_choice"] = "auto"
+
+        content_parts: list[str] = []
+        reasoning_parts: list[str] = []
+        tool_call_chunks: dict[int, dict[str, Any]] = {}
+        finish_reason: str = "end_turn"
+        usage_input: int = 0
+        usage_output: int = 0
+        usage_cache_read: int = 0
+        model_name: str = cfg.model
+        chunk_count = 0
+
+        async for chunk in await self._client.chat.completions.create(**kwargs):
+            chunk_count += 1
+
+            if chunk.usage:
+                usage_input = chunk.usage.prompt_tokens or 0
+                usage_output = chunk.usage.completion_tokens or 0
+                details = getattr(chunk.usage, "prompt_tokens_details", None)
+                if details is not None:
+                    usage_cache_read = getattr(details, "cached_tokens", 0) or 0
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            delta = choice.delta
+            if choice.finish_reason:
+                finish_reason = choice.finish_reason
+            if chunk.model:
+                model_name = chunk.model
+
+            if delta.content:
+                content_parts.append(delta.content)
+                await on_chunk(delta.content)
+
+            # o1/o3/deepseek-r1-style models stream reasoning_content separately
+            delta_reasoning = getattr(delta, "reasoning_content", "") or ""
+            if delta_reasoning:
+                reasoning_parts.append(delta_reasoning)
+
+            for tc_delta in delta.tool_calls or []:
+                idx = tc_delta.index
+                if idx not in tool_call_chunks:
+                    tool_call_chunks[idx] = {
+                        "id": tc_delta.id or "",
+                        "name": "",
+                        "arguments": "",
+                    }
+                if tc_delta.function:
+                    if tc_delta.function.name:
+                        tool_call_chunks[idx]["name"] += tc_delta.function.name
+                    if tc_delta.function.arguments:
+                        tool_call_chunks[idx]["arguments"] += tc_delta.function.arguments
+
+        tool_calls = []
+        for tc in tool_call_chunks.values():
+            raw_args = tc["arguments"] or "{}"
+            try:
+                params = json.loads(raw_args)
+            except json.JSONDecodeError as exc:
+                raise ToolCallParseError(
+                    f"OpenAI tool call {tc['name']!r} had non-JSON arguments",
+                    tool_name=tc["name"],
+                    args_fragment=raw_args[:200],
+                ) from exc
+            tool_calls.append(ToolCall(name=tc["name"], params=params, call_id=tc["id"]))
+
+        return LLMResponse(
+            content="".join(content_parts),
+            tool_calls=tool_calls,
+            stop_reason=_map_stop_reason(finish_reason),
+            input_tokens=usage_input,
+            output_tokens=usage_output,
+            model=model_name,
+            cache_read_tokens=usage_cache_read,
+            reasoning_content="".join(reasoning_parts),
+        )
+
+
+# OpenAI finish_reason → Anthropic stop_reason (canonical form the framework speaks).
+_OPENAI_STOP_MAP: dict[str, StopReason] = {
+    "stop": StopReason.END_TURN,
+    "tool_calls": StopReason.TOOL_USE,
+    "length": StopReason.MAX_TOKENS,
+    "content_filter": StopReason.CONTENT_FILTER,
+    "function_call": StopReason.TOOL_USE,
+}
+
+
+def _map_stop_reason(finish_reason: str | None) -> StopReason:
+    if not finish_reason:
+        return StopReason.END_TURN
+    return _OPENAI_STOP_MAP.get(finish_reason, StopReason.coerce(finish_reason))

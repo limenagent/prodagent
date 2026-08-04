@@ -1,0 +1,262 @@
+"""AgentRun — the single run-state object."""
+
+from __future__ import annotations
+
+import time
+from dataclasses import asdict, dataclass, field
+from typing import TYPE_CHECKING, Any, Generic
+
+from typing_extensions import TypeVar
+
+from prodagent.core.types import (
+    LLMResponse,
+    MessageList,
+    RunPhase,
+    RunState,
+    ToolCall,
+)
+
+if TYPE_CHECKING:
+    from prodagent.core.aliases import JsonDict
+
+CHILD_SEPARATOR = "::"
+
+_TERMINAL_ERROR = "run ended without a terminal event"
+
+
+def is_child_run_id(run_id: str) -> bool:
+    """True when run_id is a child-agent-scoped id (parent::child)."""
+    return CHILD_SEPARATOR in run_id
+
+
+def make_failed_run(run_id: str, task: str, *, last_error: str = _TERMINAL_ERROR) -> AgentRun:
+    """Synthetic FAILED run for a stream that ended without a terminal event."""
+    return AgentRun(run_id=run_id, task=task, state=RunState.FAILED, last_error=last_error)
+
+
+def child_run_id(parent_run_id: str, child_name: str) -> str:
+    return f"{parent_run_id}{CHILD_SEPARATOR}{child_name}"
+
+
+def is_child_subordinate(run: AgentRun) -> bool:
+    """Child-agent run whose side-effects are owned by the parent (not a peer continuation)."""
+    return run.parent_run_id is not None and not run.is_peer_continuation
+
+
+@dataclass
+class PendingHandoff:
+    """A run's pending transfer of control to a peer agent."""
+
+    peer_name: str
+    task: str
+    input_refs: dict[str, str] = field(default_factory=dict)
+    prior_output: str = ""
+    peer_run_id: str | None = None
+
+    def to_dict(self) -> JsonDict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: JsonDict | None) -> PendingHandoff | None:
+        if d is None:
+            return None
+        if isinstance(d, PendingHandoff):
+            return d
+        return cls(
+            peer_name=d.get("peer_name", ""),
+            task=d.get("task", ""),
+            input_refs=dict(d.get("input_refs") or {}),
+            prior_output=d.get("prior_output", ""),
+            peer_run_id=d.get("peer_run_id"),
+        )
+
+
+def _toolcall_to_dict(call: ToolCall | JsonDict) -> JsonDict:
+    if isinstance(call, dict):
+        return call
+    return call.to_dict()
+
+
+def _toolcall_from_dict(d: ToolCall | JsonDict) -> ToolCall:
+    if isinstance(d, ToolCall):
+        return d
+    return ToolCall.from_dict(d)
+
+
+@dataclass
+class RunMetrics:
+    """Token/cost/turn accounting for a run — a single cohesive unit consumed
+    by budget checks and spawn accounting."""
+
+    turn_count: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cost_usd: float = 0.0
+
+    def to_dict(self) -> JsonDict:
+        return {
+            "turn_count": self.turn_count,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "cache_read_tokens": self.cache_read_tokens,
+            "cost_usd": self.cost_usd,
+        }
+
+    @classmethod
+    def from_dict(cls, d: JsonDict | None) -> RunMetrics:
+        if d is None:
+            return cls()
+        return cls(
+            turn_count=d.get("turn_count", 0),
+            input_tokens=d.get("input_tokens", 0),
+            output_tokens=d.get("output_tokens", 0),
+            cache_read_tokens=d.get("cache_read_tokens", 0),
+            cost_usd=d.get("cost_usd", 0.0),
+        )
+
+
+_RunT = TypeVar("_RunT", default=Any)
+
+
+@dataclass
+class AgentRun(Generic[_RunT]):
+    """Central mutable state object for a single agent execution."""
+
+    run_id: str
+    task: str
+    state: RunState = RunState.RUNNING
+    phase: RunPhase = RunPhase.PREPARE
+
+    metrics: RunMetrics = field(default_factory=RunMetrics)
+    start_time: float = field(default_factory=time.time)
+    parent_run_id: str | None = None
+
+    # Mutable working transcript during this turn; copied whole into
+    # ConversationSession.messages at complete_turn. See session.py docstring.
+    messages: MessageList = field(default_factory=list)
+    tool_history: list[ToolCall] = field(default_factory=list)
+    tool_failures: int = 0
+    last_action: str | None = None
+    retry_counter: dict[str, int] = field(default_factory=dict)
+    pending_tool_call: ToolCall | None = None
+    pending_approval_id: str | None = None
+    pending_handoff: PendingHandoff | None = None
+    last_error: str | None = None
+    plan_state: JsonDict | None = None
+    plan_last_seq: int = 0
+    checkpoint_version: int = 0
+    checkpoint_failed: bool = False
+
+    final_output: str | None = None
+    structured_output: _RunT | None = None
+    is_peer_continuation: bool = False
+
+    @property
+    def turn_count(self) -> int:
+        return self.metrics.turn_count
+
+    @property
+    def input_tokens(self) -> int:
+        return self.metrics.input_tokens
+
+    @property
+    def output_tokens(self) -> int:
+        return self.metrics.output_tokens
+
+    @property
+    def cache_read_tokens(self) -> int:
+        return self.metrics.cache_read_tokens
+
+    @property
+    def cost_usd(self) -> float:
+        return self.metrics.cost_usd
+
+    def retry_count(self, tool_name: str) -> int:
+        return self.retry_counter.get(tool_name, 0)
+
+    def increment_retry(self, tool_name: str) -> int:
+        c = self.retry_counter.get(tool_name, 0) + 1
+        self.retry_counter[tool_name] = c
+        return c
+
+    def reset_retry(self, tool_name: str) -> None:
+        self.retry_counter[tool_name] = 0
+
+    @property
+    def total_tokens(self) -> int:
+        return self.metrics.input_tokens + self.metrics.output_tokens
+
+    def elapsed_seconds(self) -> float:
+        return time.time() - self.start_time
+
+    def add_tokens(self, response: LLMResponse, *, cost_usd: float) -> None:
+        """cost_usd is pre-computed by the caller from the model's pricing,
+        keeping core free of any LLM package type."""
+        self.metrics.input_tokens += response.input_tokens
+        self.metrics.output_tokens += response.output_tokens
+        self.metrics.cache_read_tokens += response.cache_read_tokens
+        self.metrics.cost_usd += cost_usd
+
+    def to_dict(self) -> JsonDict:
+        """Durable subset needed to resume a crashed run losslessly:
+        transcript, retry/pending counters (no double side effects / lost
+        approval), and error/last_error (crash scene)."""
+        return {
+            "run_id": self.run_id,
+            "task": self.task,
+            "state": self.state.value,
+            "phase": self.phase.value,
+            "messages": list(self.messages),
+            "tool_history": [_toolcall_to_dict(c) for c in self.tool_history],
+            "final_output": self.final_output,
+            "structured_output": (
+                self.structured_output.model_dump()
+                if self.structured_output is not None
+                and hasattr(self.structured_output, "model_dump")
+                else None
+            ),
+            "metrics": self.metrics.to_dict(),
+            "parent_run_id": self.parent_run_id,
+            "tool_failures": self.tool_failures,
+            "last_action": self.last_action,
+            "start_time": self.start_time,
+            "retry_counter": dict(self.retry_counter),
+            "pending_tool_call": (
+                self.pending_tool_call.to_dict() if self.pending_tool_call else None
+            ),
+            "pending_approval_id": self.pending_approval_id,
+            "pending_handoff": self.pending_handoff.to_dict() if self.pending_handoff else None,
+            "last_error": self.last_error,
+            "plan_state": self.plan_state,
+            "plan_last_seq": self.plan_last_seq,
+            "is_peer_continuation": self.is_peer_continuation,
+        }
+
+    @classmethod
+    def from_dict(cls, d: JsonDict) -> AgentRun[Any]:
+        return cls(
+            run_id=d["run_id"],
+            task=d["task"],
+            state=RunState(d.get("state", RunState.RUNNING.value)),
+            phase=RunPhase(d.get("phase", RunPhase.PREPARE.value)),
+            messages=list(d.get("messages", [])),
+            tool_history=[_toolcall_from_dict(c) for c in d.get("tool_history", [])],
+            final_output=d.get("final_output"),
+            structured_output=d.get("structured_output"),
+            metrics=RunMetrics.from_dict(d.get("metrics")),
+            parent_run_id=d.get("parent_run_id"),
+            tool_failures=d.get("tool_failures", 0),
+            last_action=d.get("last_action"),
+            start_time=d.get("start_time", time.time()),
+            retry_counter=dict(d.get("retry_counter", {})),
+            pending_tool_call=(
+                _toolcall_from_dict(d["pending_tool_call"]) if d.get("pending_tool_call") else None
+            ),
+            pending_approval_id=d.get("pending_approval_id"),
+            pending_handoff=PendingHandoff.from_dict(d.get("pending_handoff")),
+            last_error=d.get("last_error"),
+            plan_state=d.get("plan_state"),
+            plan_last_seq=d.get("plan_last_seq", 0),
+            is_peer_continuation=d.get("is_peer_continuation", False),
+        )

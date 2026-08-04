@@ -1,0 +1,22 @@
+[project]
+name = "code-detective-agent"
+version = "0.1.0"
+description = "ProdAgent example — MCP tools + PLAN_FIRST + replan + learning synthesis for autonomous bug fixing."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = ["prodagent"]
+
+[tool.uv.sources]
+prodagent = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["code_detective"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100

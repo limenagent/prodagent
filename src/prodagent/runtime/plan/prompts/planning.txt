@@ -1,0 +1,35 @@
+RESPOND WITH JSON ONLY. The first character of your response MUST be '{' and the last must be '}'. No chain-of-thought, no preamble, no markdown fences, no explanation before or after the JSON.
+
+Analyse the task and output a structured execution plan as JSON.
+
+Return ONLY a JSON object with exactly this shape:
+{
+  "steps": [
+    {
+      "id":         "<step_id>",
+      "action":     "<tool_name>",
+      "params":     {<key>: <value>},
+      "depends_on": ["<step_id>", ...],
+      "terminal":   false
+    },
+    ...
+  ]
+}
+
+When a step needs a value produced by an earlier step, use a template reference in params: "{{<dep_step_id>.output.<field>}}". The executor resolves it from the dep step's return value at run time. Example: if step_1 produces a record with an 'id' field and step_2 needs that id, set step_2's id param to "{{step_1.output.id}}" and add "step_1" to step_2's depends_on.
+
+Template refs are STRICTLY limited to one of these three forms:
+  "{{<step_id>}}"                — the whole return value
+  "{{<step_id>.output}}"         — same as above, explicit
+  "{{<step_id>.output.<field>}}" — one top-level key only
+
+NO array indexing, NO nested paths, NO expressions. These are all INVALID and will be passed through as a literal string (causing 404 / type errors):
+  "{{step_1.output.results[0].url}}"   ✗ no array index
+  "{{step_1.output.results.0.url}}"    ✗ no nested path
+  "{{step_1.output.url.lower()}}"      ✗ no function calls
+
+If a tool returns a list and you need one element, do NOT index it in a template. Instead: (a) call the tool yourself in an earlier step and hardcode the specific value you picked into the dependent step's params, or (b) restructure so the dependent step takes the whole list via "{{step_id.output}}" and the tool itself iterates. When in doubt, hardcode concrete values (URLs, IDs) you saw in earlier step outputs rather than templating them.
+
+Mark exactly ONE step as terminal=true — the step whose output is the user-facing result of the whole plan. The terminal step's return value becomes the run's final_output. If no step is terminal, the last-executed tool's return value is used (wrong when the last step is a side-effect with no meaningful return). The terminal step is usually the last step in dependency order.
+
+Now output your execution plan as JSON.

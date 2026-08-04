@@ -1,0 +1,23 @@
+A step in the execution plan failed. Your job is incremental replanning:
+1. Preserve every COMPLETED step — do NOT repeat their work.
+2. Produce replacement steps that pick up from where the failure occurred.
+3. Each replacement step must declare 'replaces' with the failed step's id.
+4. CASCADE: when a step fails, all downstream steps that depend on it (directly or transitively) are marked OBSOLETE. You MUST provide replacement steps for ALL of them, not just the failed one — otherwise the new steps will reference OBSOLETE dependencies and the run will error out. Walk the dependency chain forward from the failure and emit a 'replaces' for every obsolete step.
+
+Return ONLY a JSON object:
+{
+  "steps": [
+    {
+      "id":         "<step_id>",
+      "action":     "<tool_name>",
+      "params":     {<key>: <value>},
+      "depends_on": ["<step_id>", ...],
+      "terminal":   false,
+      "replaces":   "<failed_or_obsolete_step_id>"
+    },
+    ...
+  ]
+}
+Each replacement step adds a 'replaces' field naming the failed or obsolete step id it supersedes.
+
+Template refs in params are STRICTLY limited to: "{{<step_id>}}", "{{<step_id>.output}}", or "{{<step_id>.output.<field>}}" (one top-level key only). NO array indexing ("{{step.output.results[0].url}}" is INVALID — it gets passed through as a literal string and causes 404 errors). If a step failed because of a literal "{{...}}" being passed as a value, the fix is to hardcode the concrete value you saw in the dependency step's output, not to re-template it.

@@ -1,0 +1,53 @@
+# --- Secrets / local config (contains real API keys) ---
+.env
+.env.*
+!.env.example
+
+# --- Runtime state (created by runs — never check in) ---
+.prodagent/
+examples/*/.prodagent/
+src/prodagent/.prodagent/
+.memory/
+examples/*/traces/
+examples/*/.sessions/
+examples/*/.experiences/
+
+# --- Auto-synthesised skills (generated at runtime) ---
+examples/**/skills/*
+examples/**/fixture/auth.py
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# --- Type-checker / linter caches ---
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# --- Coverage ---
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# --- Virtualenv (local dev only) ---
+.venv/
+venv/
+
+# --- IDE / editor ---
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# --- Docs / notebooks artifacts ---
+docs/_build/
+.ipynb_checkpoints/
