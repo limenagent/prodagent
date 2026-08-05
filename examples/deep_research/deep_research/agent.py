@@ -127,7 +127,7 @@ def build_deep_research_agent(
     return (
         Agent(
             "deep_research",
-            context=_SYSTEM_PROMPT,
+            system_prompt=_SYSTEM_PROMPT,
             tools=[web_search, web_fetch, cross_check, synthesize_report],
             skills=skills,
             llm=llm,

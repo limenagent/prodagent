@@ -38,7 +38,7 @@ async def test_workflow_runs_dag_and_picks_terminal_output(fake_llm, hook_regist
 
     agent = Agent(
         name="wf-agent",
-        context="test",
+        system_prompt="test",
         llm=fake_llm,
         hooks=hook_registry,
     ).workflow(wf)
@@ -59,7 +59,7 @@ async def test_workflow_allow_replan_false_caps_max_replans(fake_llm, hook_regis
 
     agent = Agent(
         name="wf-agent",
-        context="test",
+        system_prompt="test",
         llm=fake_llm,
         hooks=hook_registry,
     ).workflow(wf, allow_replan=False)
@@ -81,7 +81,7 @@ async def test_workflow_default_max_replans_is_two(fake_llm, hook_registry):
 
     agent = Agent(
         name="wf-agent",
-        context="test",
+        system_prompt="test",
         llm=fake_llm,
         hooks=hook_registry,
     ).workflow(wf)
@@ -175,7 +175,7 @@ async def test_workflow_llm_step_binds_lazy_resolved_llm():
     wf.llm_step("think", prompt="say hi", is_terminal=True)
 
     # llm=None — simulates real-LLM mode where Agent.llm lazy-resolves from fw.
-    agent = Agent(name="wf-lazy-llm", context="test", framework_config=fw).workflow(wf)
+    agent = Agent(name="wf-lazy-llm", system_prompt="test", framework_config=fw).workflow(wf)
 
     # The workflow's _llm must have been resolved (not None) at .workflow() time.
     assert wf._llm is not None, "workflow._llm must be bound via Agent.llm property"

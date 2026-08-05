@@ -18,11 +18,11 @@ def hook_registry():
 
 
 def _reactive_agent(name: str, *, context: str = "") -> Agent:
-    return Agent(name, context=context, mode=ExecutionMode.REACTIVE)
+    return Agent(name, system_prompt=context, mode=ExecutionMode.REACTIVE)
 
 
 def test_handoff_tool_schema_per_peer():
-    peer = Agent("Summarizer", context="summarizes text").description("Summarizes text")
+    peer = Agent("Summarizer", system_prompt="summarizes text").description("Summarizes text")
     tools = build_peer_tools_for_agent([peer], ctx=ParentRuntime(peer_specs=[peer]))
 
     assert len(tools) == 1
@@ -79,7 +79,7 @@ async def test_peer_handoff_basic_plan_first(hook_registry):
     peer_b = _reactive_agent("B", context="you are B")
     peer_b.config.llm = script({"content": "B says: plan-first done!"})
 
-    agent_a = Agent("A", context="you are A").peers([peer_b])
+    agent_a = Agent("A", system_prompt="you are A").peers([peer_b])
     plan_json = (
         '{"steps": [{"id": "delegate", "action": "handoff_to_B", '
         '"params": {"task": "handle this"}, "depends_on": [], "is_terminal": true}]}'

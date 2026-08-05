@@ -43,7 +43,7 @@ def build_sar_submitter(llm: LLMClient | None = None) -> Agent:
     return (
         Agent(
             "sar_submitter",
-            context=(
+            system_prompt=(
                 "你是 SAR 提交 agent。拿到上游两份 LLM 分析(可疑标注 + 实体关联),"
                 "综合成一段 sar_summary 并调 submit_to_regulator 提交 SAR 报告。"
                 "suspicious_tx_ids 填所有 risk=medium/high 的 tx_id。"
@@ -73,7 +73,7 @@ def build_audit_workflow_agent(
     return (
         Agent(
             "audit_workflow",
-            context=(
+            system_prompt=(
                 "你是合规审计 workflow agent。DAG 写死: "
                 "extract_transactions → flag_suspicious ‖ enrich_entity → submit_sar。"
                 "你不需要生成 plan —— 直接执行。"
@@ -116,7 +116,7 @@ def build_compliance_audit_agent(
     return (
         Agent(
             "compliance_audit",
-            context=(
+            system_prompt=(
                 "你是合规审计编排 agent。用户想审计交易流水时,调 "
                 "``spawn_agent(name=\"audit_workflow\", task=...)`` 委派给固定的 "
                 "审计 workflow(extract → flag ‖ enrich → submit_sar)。"

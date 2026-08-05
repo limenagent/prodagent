@@ -527,7 +527,7 @@ class TestAgentMcpIntegration:
             ),
         )
 
-        agent = Agent(name="t", context="g", llm=fake_llm, hooks=hook_registry).mcp([cfg])
+        agent = Agent(name="t", system_prompt="g", llm=fake_llm, hooks=hook_registry).mcp([cfg])
 
         agent.mcp_registry = MCPRegistry([cfg])
         assert agent.mcp_registry is not None

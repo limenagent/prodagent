@@ -32,7 +32,7 @@ from prodagent.hooks import fire as _fire
 from prodagent.hooks import save_and_fire_checkpoint
 from prodagent.hooks.events import HookEvent
 from prodagent.llm.base import LLMConfig
-from prodagent.runtime.coordination.comm import check_spawn_budget
+from prodagent.runtime.coordination.accounting import check_spawn_budget
 from prodagent.tooling.runner import ToolRunner
 
 if TYPE_CHECKING:
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from prodagent.hooks.registry import HookRegistry
     from prodagent.llm.base import LLMClient
     from prodagent.ports import CheckpointStore
-    from prodagent.runtime.coordination.comm import SpawnAccumulator
+    from prodagent.runtime.coordination.accounting import SpawnAccumulator
     from prodagent.tooling.dispatcher import ToolDispatcher
 
 logger = logging.getLogger(__name__)

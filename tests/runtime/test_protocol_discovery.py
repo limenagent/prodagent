@@ -14,7 +14,7 @@ from prodagent.llm.fake import script
 def test_find_approval_gate_returns_gate_via_protocol():
     gate = ApprovalGate()
     agent = (
-        Agent(name="t", context="x", llm=script({"content": "ok"}), hooks=HookRegistry())
+        Agent(name="t", system_prompt="x", llm=script({"content": "ok"}), hooks=HookRegistry())
         .reactive()
         .extend(ApprovalHooks(gate=gate))
     )
@@ -24,7 +24,7 @@ def test_find_approval_gate_returns_gate_via_protocol():
 
 
 def test_find_approval_gate_returns_none_without_bundle():
-    agent = Agent(name="t", context="x", llm=script({"content": "ok"}))
+    agent = Agent(name="t", system_prompt="x", llm=script({"content": "ok"}))
     assert agent._find_approval_gate() is None
 
 
@@ -34,7 +34,7 @@ def test_memory_manager_returns_manager_via_protocol(tmp_path):
         facts=FileGraphStore(tmp_path),
     )
     agent = (
-        Agent(name="t", context="x", llm=script({"content": "ok"}), hooks=HookRegistry())
+        Agent(name="t", system_prompt="x", llm=script({"content": "ok"}), hooks=HookRegistry())
         .reactive()
         .extend(MemoryHooks(manager))
     )
@@ -44,5 +44,5 @@ def test_memory_manager_returns_manager_via_protocol(tmp_path):
 
 
 def test_memory_manager_returns_none_without_bundle():
-    agent = Agent(name="t", context="x", llm=script({"content": "ok"}))
+    agent = Agent(name="t", system_prompt="x", llm=script({"content": "ok"}))
     assert agent.memory_manager is None

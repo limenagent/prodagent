@@ -17,7 +17,7 @@ from prodagent.core.exceptions import (
     RunIdCollisionError,
     UnknownApprovalError,
 )
-from prodagent.core.state.run import CHILD_SEPARATOR, make_failed_run
+from prodagent.core.state.run import CHILD_SEPARATOR
 from prodagent.core.state.session import ConversationSession
 from prodagent.core.types import ExecutionMode, MessageList, RunState
 from prodagent.guardrail.approval import ApprovalDecision, ApprovalProvider
@@ -25,8 +25,10 @@ from prodagent.hooks.bundles.memory import MemoryHooks
 from prodagent.hooks.bundles.security import ApprovalHooks
 from prodagent.hooks.registry import HookRegistry
 from prodagent.runtime.config import AgentConfig, merge_tools_by_name
+from prodagent.runtime.coordination.accounting import SpawnAccumulator
+from prodagent.runtime.coordination.fork import ParentRuntime
 from prodagent.runtime.fluent import AgentFluentMixin
-from prodagent.runtime.runner import drive_stream
+from prodagent.runtime.runner import collect_final_run, drive_stream
 from prodagent.tooling.reliability.locks import LockRegistry
 
 if TYPE_CHECKING:
@@ -34,7 +36,7 @@ if TYPE_CHECKING:
 
     from prodagent.core.events import AgentEvent
     from prodagent.core.state.run import AgentRun
-    from prodagent.ports import SessionStore, Tool
+    from prodagent.ports import CheckpointStore, EventLog, SessionStore, Tool
     from prodagent.runtime.session import RunContext
 
 logger = logging.getLogger(__name__)
@@ -112,15 +114,12 @@ class Agent(AgentFluentMixin):
                 "For an interactive prompt loop, use prodagent.repl.repl_loop(agent) or the "
                 "`prodagent` CLI instead."
             )
-        final_run: AgentRun | None = None
-        async for event in self.chat_stream(
-            message or "", session_id=session_id, resume=resume, mode=mode
-        ):
-            if isinstance(event, (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)):
-                final_run = event.run
-        if final_run is None:
-            return make_failed_run(session_id or str(uuid.uuid4()), message or "")
-        return final_run
+        stream = self.chat_stream(message or "", session_id=session_id, resume=resume, mode=mode)
+        return await collect_final_run(
+            stream,
+            fallback_run_id=session_id or str(uuid.uuid4()),
+            fallback_task=message or "",
+        )
 
     async def submit_approval(
         self,
@@ -206,8 +205,8 @@ class Agent(AgentFluentMixin):
         parts: list[str] = []
         if self.config.name:
             parts.append(f"# {self.config.name} Agent")
-        if self.config.context:
-            parts.append(f"## Context\n{self.config.context}")
+        if self.config.system_prompt:
+            parts.append(f"## Context\n{self.config.system_prompt}")
         if self.config.constraints:
             lines = "\n".join(f"- {c}" for c in self.config.constraints)
             parts.append(f"## Hard Constraints\n{lines}")
@@ -271,13 +270,75 @@ class Agent(AgentFluentMixin):
                 return peer
         return None
 
+    def _build_fork_skeleton(self, runtime: ParentRuntime) -> Agent:
+        return Agent(
+            self.name,
+            tools=list(self.inline_tools),
+            system_prompt=self.system_prompt,
+            llm=runtime.llm,
+            hooks=runtime.hooks,
+            framework_config=runtime.framework_config,
+            constraints=list(runtime.constraints),
+            budget=runtime.budget,
+            lock_registry=runtime.lock_registry,
+            mode=self.mode,
+            checkpoint=runtime.checkpoint,
+            event_log=runtime.event_log,
+            spawn_accumulator=runtime.accumulator,
+        )
+
+    def fork_as_peer(
+        self,
+        parent: Agent,
+        parent_run_id: str | None,
+        *,
+        checkpoint: CheckpointStore | None = None,
+        event_log: EventLog | None = None,
+    ) -> Agent:
+        runtime = ParentRuntime(
+            llm=self.config.llm,
+            hooks=parent.hooks,
+            framework_config=parent.framework_config,
+            constraints=parent.constraints,
+            budget=self.budget_config,
+            lock_registry=parent.lock_registry,
+            checkpoint=checkpoint if checkpoint is not None else parent.config.checkpoint,
+            event_log=event_log if event_log is not None else parent.config.event_log,
+            accumulator=self.config.spawn_accumulator or SpawnAccumulator(),
+        )
+        forked = self._build_fork_skeleton(runtime)
+        forked.config.extensions = list(parent.config.extensions)
+        forked.config.injectors = list(parent.config.injectors)
+        forked.config.checkers = list(parent.config.checkers)
+        forked.config.event_handlers = list(parent.config.event_handlers)
+        forked.config.mcp_configs = list(parent.config.mcp_configs)
+        forked._fluent_wired = parent._fluent_wired
+        forked.config.peer_agents = list(self.config.peer_agents)
+        forked.config.description = self.config.description
+        return forked
+
+    def fork_as_spawn(self, runtime: ParentRuntime) -> Agent:
+        forked = self._build_fork_skeleton(runtime)
+        forked.config.extensions = list(self.config.extensions)
+        forked.config.injectors = list(self.config.injectors)
+        forked.config.checkers = list(self.config.checkers)
+        forked.config.event_handlers = list(self.config.event_handlers)
+        forked.config.mcp_configs = list(self.config.mcp_configs)
+        forked._fluent_wired = self._fluent_wired
+        if self.config.initial_plan is not None:
+            forked.config.initial_plan = self.config.initial_plan
+            forked.config.max_replans = self.config.max_replans
+        if self.config.description:
+            forked.config.description = self.config.description
+        return forked
+
     @property
     def name(self) -> str:
         return self.config.name
 
     @property
     def system_prompt(self) -> str:
-        return self.config.context
+        return self.config.system_prompt
 
     @property
     def mode(self) -> ExecutionMode:

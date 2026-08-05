@@ -9,7 +9,7 @@ from prodagent.runtime.agent import Agent
 def _agent() -> Agent:
     return Agent(
         name="fluent-ext",
-        context="verify",
+        system_prompt="verify",
         llm=script({"content": "ok"}),
         hooks=HookRegistry(),
     ).reactive()

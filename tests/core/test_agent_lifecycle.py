@@ -35,7 +35,7 @@ async def test_agent_lifecycle_full_roundtrip():
 
         agent = Agent(
             name="lifecycle-agent",
-            context="Echo the input",
+            system_prompt="Echo the input",
             tools=[echo_tool],
             budget=HardBudget(max_turns=2),
             llm=script({"content": "Echoed: hello world"}),
@@ -62,7 +62,7 @@ async def test_agent_lifecycle_with_early_termination():
 
         agent = Agent(
             name="early-term-agent",
-            context="Count up",
+            system_prompt="Count up",
             tools=[increment_tool],
             budget=HardBudget(max_turns=1),
             llm=script({"content": "Calling increment"}),
@@ -106,7 +106,7 @@ async def test_agent_lifecycle_with_hooks():
 
         agent = Agent(
             name="hooks-agent",
-            context="Echo input",
+            system_prompt="Echo input",
             tools=[echo_tool],
             budget=HardBudget(max_turns=2),
             llm=script({"content": "Echoed: test"}),
@@ -127,7 +127,7 @@ async def test_agent_lifecycle_crash_recovery():
 
         agent = Agent(
             name="crash-agent",
-            context="Echo input",
+            system_prompt="Echo input",
             tools=[echo_tool],
             budget=HardBudget(max_turns=2),
             llm=script({"content": "Echoed: before crash"}),
@@ -142,7 +142,7 @@ async def test_agent_lifecycle_crash_recovery():
         # A fresh agent instance loading the same session can re-chat (new turn).
         recovery_agent = Agent(
             name="recovery-agent",
-            context="Echo input",
+            system_prompt="Echo input",
             tools=[echo_tool],
             budget=HardBudget(max_turns=2),
             llm=script({"content": "Echoed: after recovery"}),

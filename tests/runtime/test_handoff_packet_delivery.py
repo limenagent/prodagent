@@ -63,7 +63,9 @@ def _child_with_tools(tool_names: list[str]) -> Agent:
     tools = [
         FunctionTool(name=n, fn=lambda: {"ok": 1}, meta=_meta(n), schema={}) for n in tool_names
     ]
-    return Agent("worker", context="do the work", tools=tools).description("worker").reactive()
+    return (
+        Agent("worker", system_prompt="do the work", tools=tools).description("worker").reactive()
+    )
 
 
 @pytest.mark.asyncio

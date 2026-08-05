@@ -13,7 +13,7 @@ from prodagent.core.types import LLMResponse
 from prodagent.hooks import HookRegistry
 from prodagent.hooks.checkpoint import BlockingResult, CheckPoint
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.executors.plan_first import PlanExecutor
+from prodagent.runtime.plan.executor import PlanExecutor
 
 _TERMINAL = (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)
 

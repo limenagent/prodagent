@@ -32,7 +32,7 @@ async def test_plan_first_child_reports_completed_not_failed():
         return {"summary": "all good"}
 
     child = Agent(
-        "worker", context="do the work", tools=[collect, report], llm=_plan_llm()
+        "worker", system_prompt="do the work", tools=[collect, report], llm=_plan_llm()
     ).description("A PLAN_FIRST worker")
     assert child.mode is ExecutionMode.PLAN_FIRST
 

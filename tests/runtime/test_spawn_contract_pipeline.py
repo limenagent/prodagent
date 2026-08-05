@@ -8,8 +8,8 @@ from prodagent.core.config import FrameworkConfig
 from prodagent.core.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.agent import Agent
-from prodagent.runtime.coordination.comm import HandoffContract
 from prodagent.runtime.coordination.fork import ParentRuntime
+from prodagent.runtime.coordination.handoff import HandoffContract
 from prodagent.runtime.coordination.spawn import SpawnPipeline
 
 if TYPE_CHECKING:
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 def _reactive_child(*, output_contract: HandoffContract | None = None) -> Agent:
     return (
-        Agent("responder", context="reply with status", output_contract=output_contract)
+        Agent("responder", system_prompt="reply with status", output_contract=output_contract)
         .description("Returns a status string")
         .reactive()
     )

@@ -18,7 +18,7 @@ from prodagent.tooling import tool
 def _simple_agent(llm, **kwargs) -> Agent:
     return Agent(
         name="test-agent",
-        context="Verify system status.",
+        system_prompt="Verify system status.",
         llm=llm,
         hooks=HookRegistry(),
         **kwargs,
@@ -60,7 +60,7 @@ def test_agent_with_tools():
     )
     agent = Agent(
         name="ops",
-        context="Run health check.",
+        system_prompt="Run health check.",
         tools=[health_check],
         llm=llm,
         hooks=HookRegistry(),
@@ -83,7 +83,7 @@ def test_agent_constraints_in_system_prompt():
 
     agent = Agent(
         name="constrained",
-        context="Check things.",
+        system_prompt="Check things.",
         constraints=["ALWAYS validate input", "NEVER skip logging"],
         llm=CaptureLLM(),
         hooks=HookRegistry(),
@@ -107,7 +107,7 @@ def test_agent_context_in_system_prompt():
 
     agent = Agent(
         name="ctx-agent",
-        context="Incident INC-001: payment service down",
+        system_prompt="Incident INC-001: payment service down",
         llm=CaptureLLM(),
         hooks=HookRegistry(),
     ).reactive()
@@ -170,7 +170,7 @@ def test_agent_saves_to_session_dir():
         )
         agent = Agent(
             name="session-agent",
-            context="Do some work.",
+            system_prompt="Do some work.",
             llm=llm,
             hooks=HookRegistry(),
             framework_config=fw,
@@ -192,7 +192,7 @@ def test_agent_budget_respected():
 
     agent = Agent(
         name="budget-test",
-        context="Keep going.",
+        system_prompt="Keep going.",
         llm=InfiniteLoopLLM(),
         hooks=HookRegistry(),
         budget=HardBudget(max_turns=2, max_seconds=30.0),
@@ -216,7 +216,7 @@ def test_agent_stream_yields_events():
     )
     agent = Agent(
         name="stream-test",
-        context="Check systems.",
+        system_prompt="Check systems.",
         tools=[probe],
         llm=llm,
         hooks=HookRegistry(),
@@ -249,7 +249,7 @@ def test_agent_stream_run_failed_event_on_budget_exhaustion():
 
     agent = Agent(
         name="budget-stream",
-        context="Loop forever.",
+        system_prompt="Loop forever.",
         llm=LoopingLLM(),
         hooks=HookRegistry(),
         budget=HardBudget(max_turns=2, max_seconds=30.0),
@@ -282,7 +282,7 @@ async def test_plan_first_failed_run_does_not_raise_attribute_error():
 
     agent = Agent(
         name="plan-fail",
-        context="Parse my plan.",
+        system_prompt="Parse my plan.",
         llm=bad_plan_llm,
         hooks=HookRegistry(),
     )
@@ -305,4 +305,4 @@ def test_agent_name_with_child_separator_rejected():
     """Agent name containing '::' is rejected at construction — it would
     collide with the parent::child run_id derivation."""
     with pytest.raises(ValueError, match="::"):
-        Agent(name="bad::name", context="", llm=script({"content": "x"}))
+        Agent(name="bad::name", system_prompt="", llm=script({"content": "x"}))

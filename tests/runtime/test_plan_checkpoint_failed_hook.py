@@ -10,7 +10,7 @@ from prodagent.core.types import LLMResponse
 from prodagent.hooks.events import HookEvent
 from prodagent.hooks.registry import HookRegistry
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.executors.plan_first import PlanExecutor
+from prodagent.runtime.plan.executor import PlanExecutor
 
 
 class _RecordingExecutor:

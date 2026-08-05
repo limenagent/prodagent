@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 
 from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.core.state.run import AgentRun, make_failed_run
-from prodagent.runtime.coordination.fork import fork_as_peer
 from prodagent.runtime.coordination.peer import find_suspended_peer
 from prodagent.runtime.coordination.run_loop import RunLoop
 from prodagent.runtime.session import RunContext
@@ -62,19 +61,30 @@ async def drive(
     initial_messages: MessageList | None = None,
 ) -> AgentRun:
     """Drive an agent to terminal state and return the final run. Used by spawn."""
-    final_run: AgentRun | None = None
-    async for event in drive_stream(
+    root_run_id = run_id or str(_uuid.uuid4())
+    stream = drive_stream(
         agent,
         task,
-        run_id=run_id,
+        run_id=root_run_id,
         forced_mode=forced_mode,
         initial_messages=initial_messages,
         parent_run_id=parent_run_id,
-    ):
+    )
+    return await collect_final_run(stream, fallback_run_id=root_run_id, fallback_task=task)
+
+
+async def collect_final_run(
+    stream: AsyncGenerator[AgentEvent, None],
+    *,
+    fallback_run_id: str,
+    fallback_task: str,
+) -> AgentRun:
+    final_run: AgentRun | None = None
+    async for event in stream:
         if isinstance(event, (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)):
             final_run = event.run
     if final_run is None:
-        return make_failed_run(run_id or str(_uuid.uuid4()), task)
+        return make_failed_run(fallback_run_id, fallback_task)
     return final_run
 
 
@@ -104,7 +114,7 @@ async def _resume_peer_context(
         peer_run_id,
     )
     return RunContext(
-        agent=fork_as_peer(peer_spec, agent, root_run_id),
+        agent=peer_spec.fork_as_peer(agent, root_run_id),
         task="",
         run_id=peer_run_id,
         depth=1,

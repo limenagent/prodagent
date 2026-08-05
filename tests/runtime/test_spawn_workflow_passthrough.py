@@ -38,7 +38,7 @@ async def test_workflow_child_runs_preset_dag_via_spawn():
     child = (
         Agent(
             "wf_worker",
-            context="do the work",
+            system_prompt="do the work",
             tools=[fetch],
             llm=llm,
         )
@@ -73,7 +73,9 @@ async def test_workflow_child_forwarded_max_replans_is_zero():
     wf.tool_step("s1", "boom")
 
     llm = script({"content": "x"})
-    child = Agent("wf_boom", context="", tools=[boom], llm=llm).workflow(wf, allow_replan=False)
+    child = Agent("wf_boom", system_prompt="", tools=[boom], llm=llm).workflow(
+        wf, allow_replan=False
+    )
     assert child.max_replans == 0
 
     spawn = build_spawn_tools_for_agent([child], llm=llm, context=ParentRuntime())

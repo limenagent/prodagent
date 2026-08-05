@@ -20,7 +20,7 @@ async def _run_batch(runner: ToolRunner, run: AgentRun, calls: list[ToolCall]) -
 
 async def test_runner_injects_stable_key_and_retry_dedupes_via_handoff():
     fake_llm = script({"content": "done"})
-    worker = build_spawn_tools_for_agent([Agent("worker", context="work")], llm=fake_llm)
+    worker = build_spawn_tools_for_agent([Agent("worker", system_prompt="work")], llm=fake_llm)
     assert worker is not None
     dispatcher = ToolDispatcher({"spawn_agent": worker.tool})
     runner = ToolRunner(dispatcher)
@@ -39,7 +39,7 @@ async def test_runner_injects_stable_key_and_retry_dedupes_via_handoff():
 
 async def test_different_batch_index_gets_a_different_key_and_is_not_deduped():
     fake_llm = script({"content": "done"}, {"content": "done"})
-    worker = build_spawn_tools_for_agent([Agent("worker", context="work")], llm=fake_llm)
+    worker = build_spawn_tools_for_agent([Agent("worker", system_prompt="work")], llm=fake_llm)
     assert worker is not None
     dispatcher = ToolDispatcher({"spawn_agent": worker.tool})
     runner = ToolRunner(dispatcher)

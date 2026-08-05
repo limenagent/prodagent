@@ -30,7 +30,7 @@ class TestDefaultCacheWiring:
     def test_resolve_llm_wraps_with_caching_client(self):
         from prodagent.runtime.session import _resolve_llm
 
-        agent = Agent("t", context="x", llm=_CountingLLM())
+        agent = Agent("t", system_prompt="x", llm=_CountingLLM())
         llm = _resolve_llm(agent)
         assert isinstance(llm, CachingLLMClient)
 
@@ -39,7 +39,7 @@ class TestDefaultCacheWiring:
 
         inner = _CountingLLM()
         user_cached = CachingLLMClient(inner, None)  # type: ignore[arg-type]
-        agent = Agent("t", context="x", llm=user_cached)
+        agent = Agent("t", system_prompt="x", llm=user_cached)
         llm = _resolve_llm(agent)
         assert llm is user_cached
 
@@ -50,14 +50,14 @@ class TestDefaultCacheWiring:
         plain = _CountingLLM()
         assert not isinstance(plain, CachingLLM)
 
-        agent = Agent("t", context="x", llm=plain)
+        agent = Agent("t", system_prompt="x", llm=plain)
         llm = _resolve_llm(agent)
         assert isinstance(llm, CachingLLMClient)
         assert llm is not plain
 
     async def test_intra_run_cache_hit_skips_billing(self):
         llm = _CountingLLM()
-        agent = Agent("billing", context="x", llm=llm).reactive()
+        agent = Agent("billing", system_prompt="x", llm=llm).reactive()
         from prodagent.runtime.session import _resolve_llm
 
         wrapped = _resolve_llm(agent)
@@ -75,7 +75,7 @@ class TestDefaultCacheWiring:
         llm = _CountingLLM()
         from prodagent.runtime.session import _resolve_llm
 
-        agent = Agent("t", context="x", llm=llm)
+        agent = Agent("t", system_prompt="x", llm=llm)
         wrapped = _resolve_llm(agent)
 
         cfg = LLMConfig(model="m", temperature=0.7, max_tokens=100)
@@ -95,14 +95,14 @@ class TestDefaultCacheWiring:
         """
         from prodagent.runtime.session import _resolve_llm
 
-        agent = Agent("t", context="x")
+        agent = Agent("t", system_prompt="x")
         assert agent.config.llm is None
         resolved = _resolve_llm(agent)
         assert isinstance(resolved, CachingLLMClient)
         assert agent.config.llm is None
 
         declared = _CountingLLM()
-        agent_with_llm = Agent("t", context="x", llm=declared)
+        agent_with_llm = Agent("t", system_prompt="x", llm=declared)
         _resolve_llm(agent_with_llm)
         assert agent_with_llm.config.llm is declared
 
@@ -112,7 +112,7 @@ class TestDefaultCacheWiring:
         from prodagent.core.config import FrameworkConfig
         from prodagent.runtime.session import RunContext
 
-        agent = Agent("t", context="x", framework_config=FrameworkConfig.default())
+        agent = Agent("t", system_prompt="x", framework_config=FrameworkConfig.default())
         assert agent.config.checkpoint is None
         assert agent.config.event_log is None
         async with RunContext(agent=agent, task="t", run_id="r1") as ctx:
@@ -128,7 +128,7 @@ class TestCostSkipping:
 
         run = AgentRun(run_id="r1", task="t")
 
-        from prodagent.runtime.executors.reactive import AgentLoop
+        from prodagent.runtime.reactive import AgentLoop
 
         loop = object.__new__(AgentLoop)
         loop._llm_config = LLMConfig(model="m")
@@ -155,7 +155,7 @@ class TestCostSkipping:
         from prodagent.core.state.run import AgentRun
 
         run = AgentRun(run_id="r1", task="t")
-        from prodagent.runtime.executors.reactive import AgentLoop
+        from prodagent.runtime.reactive import AgentLoop
 
         loop = object.__new__(AgentLoop)
         loop._llm_config = LLMConfig(

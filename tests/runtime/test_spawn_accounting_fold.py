@@ -9,12 +9,12 @@ from prodagent.hooks.registry import HookRegistry
 from prodagent.llm.base import LLMConfig
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.agent import Agent
-from prodagent.runtime.coordination.comm import SpawnAccumulator, fold_spawn_accounting
+from prodagent.runtime.coordination.accounting import SpawnAccumulator, fold_spawn_accounting
 from prodagent.runtime.coordination.spawn import ChildResult
 
 
 def _reactive_agent(name: str, *, context: str = "") -> Agent:
-    return Agent(name, context=context, mode=ExecutionMode.REACTIVE)
+    return Agent(name, system_prompt=context, mode=ExecutionMode.REACTIVE)
 
 
 def test_fold_spawn_accounting_adds_onto_existing_run_totals():
@@ -104,7 +104,7 @@ async def test_concurrent_spawns_fold_into_parent_run_end_to_end(monkeypatch):
     # below only check totals, not per-child attribution.
     parent = Agent(
         "parent",
-        context="delegates to A and B",
+        system_prompt="delegates to A and B",
         mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_cost_usd=100.0, max_tokens=10_000_000),
     ).agents([child_a, child_b])
@@ -155,12 +155,12 @@ async def test_spawned_child_run_has_parent_run_id(tmp_path, monkeypatch):
     fw = FrameworkConfig.default()
     fw.orchestration.runs_dir = str(tmp_path / "runs")
 
-    child = Agent("childA", context="does A", mode=ExecutionMode.REACTIVE)
+    child = Agent("childA", system_prompt="does A", mode=ExecutionMode.REACTIVE)
     child.config.hooks = HookRegistry()
 
     parent = Agent(
         "parent",
-        context="delegates to A",
+        system_prompt="delegates to A",
         mode=ExecutionMode.REACTIVE,
         framework_config=fw,
     ).agents([child])

@@ -24,7 +24,7 @@ async def test_agent_run_fires_checkpoint_failed_once_across_both_save_sites(tmp
 
     agent = Agent(
         name="checkpoint-fail-agent",
-        context="Say hi",
+        system_prompt="Say hi",
         llm=script({"content": "hi"}),
         hooks=hooks,
         checkpoint=FileCheckpointStore(tmp_path / "checkpoints"),
@@ -45,7 +45,7 @@ async def test_agent_run_never_fires_checkpoint_failed_when_healthy(tmp_path):
 
     agent = Agent(
         name="checkpoint-ok-agent",
-        context="Say hi",
+        system_prompt="Say hi",
         llm=script({"content": "hi"}),
         hooks=hooks,
         checkpoint=FileCheckpointStore(tmp_path / "checkpoints"),

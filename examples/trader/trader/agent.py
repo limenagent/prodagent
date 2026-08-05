@@ -143,7 +143,7 @@ def build_trader_agent(
     return (
         Agent(
             "trader",
-            context=_SYSTEM_PROMPT,
+            system_prompt=_SYSTEM_PROMPT,
             tools=[propose_order, place_order],
             llm=llm,
             framework_config=fw,

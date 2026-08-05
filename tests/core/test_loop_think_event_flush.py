@@ -10,7 +10,7 @@ from prodagent.hooks.events import HookEvent
 from prodagent.hooks.registry import HookRegistry
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.resilience.observability.audit import AuditLogger
-from prodagent.runtime.executors.reactive import AgentLoop
+from prodagent.runtime.reactive import AgentLoop
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 

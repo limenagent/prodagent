@@ -4,10 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Literal, cast
-
-_RelationalKind = Literal["file", "postgres"]
-_EphemeralKind = Literal["memory", "redis"]
+from typing import Literal
 
 
 @dataclass
@@ -78,12 +75,6 @@ class BackendConfig:
     """Pick the backend for each data type — each kind of data goes to the
     store built for it, not one store stretched to cover everything.
 
-    The old ``durable``/``ephemeral`` split was too coarse: it forced graph
-    and vector data into whichever KV or relational backend held the rest of
-    the state, which is how we ended up with a "Redis graph" that was a JSON
-    blob and a "Postgres vector store" that was pgvector. Both are the wrong
-    tool. Now each data type has its own field:
-
     - Relational/durable state (documents, checkpoint, event_log, span) →
       ``file`` (single host) or ``postgres`` (multi-replica).
     - Ephemeral/in-flight state (cache, lock, idempotency, approval,
@@ -151,49 +142,43 @@ class FrameworkConfig:
         ``PRODAGENT_BACKEND_<KIND>`` when you want a mix.
         """
         fw = cls.default()
-        prod = os.getenv("PRODAGENT_BACKEND", "").lower() == "prod"
+        if os.getenv("PRODAGENT_BACKEND", "").lower() != "prod":
+            _apply_conn_env(fw.backend)
+            return fw
 
-        def _env(name: str, default: str) -> str:
-            return os.getenv(name, default)
-
-        if prod:
-            fw.backend.document = cast(
-                "_RelationalKind", _env("PRODAGENT_BACKEND_DOCUMENT", "postgres")
-            )
-            fw.backend.checkpoint = cast(
-                "_RelationalKind", _env("PRODAGENT_BACKEND_CHECKPOINT", "postgres")
-            )
-            fw.backend.event_log = cast(
-                "_RelationalKind", _env("PRODAGENT_BACKEND_EVENT_LOG", "postgres")
-            )
-            fw.backend.span = cast("_RelationalKind", _env("PRODAGENT_BACKEND_SPAN", "postgres"))
-            fw.backend.cache = cast("_EphemeralKind", _env("PRODAGENT_BACKEND_CACHE", "redis"))
-            fw.backend.lock = cast("_EphemeralKind", _env("PRODAGENT_BACKEND_LOCK", "redis"))
-            fw.backend.idempotency = cast(
-                "_EphemeralKind", _env("PRODAGENT_BACKEND_IDEMPOTENCY", "redis")
-            )
-            fw.backend.approval = cast(
-                "_EphemeralKind", _env("PRODAGENT_BACKEND_APPROVAL", "redis")
-            )
-            fw.backend.dead_letter = cast(
-                "_EphemeralKind", _env("PRODAGENT_BACKEND_DEAD_LETTER", "redis")
-            )
-            fw.backend.graph = cast(
-                "Literal['file', 'neo4j']", _env("PRODAGENT_BACKEND_GRAPH", "neo4j")
-            )
-            fw.backend.vector = cast(
-                "Literal['memory', 'qdrant']", _env("PRODAGENT_BACKEND_VECTOR", "qdrant")
-            )
-
-        fw.backend.postgres_namespace = _env("PRODAGENT_NAMESPACE", "prodagent")
-        fw.backend.redis_namespace = _env("PRODAGENT_NAMESPACE", "prodagent")
-        fw.backend.neo4j_uri = _env("NEO4J_URI", fw.backend.neo4j_uri)
-        fw.backend.neo4j_user = _env("NEO4J_USER", fw.backend.neo4j_user)
-        fw.backend.neo4j_password = _env("NEO4J_PASSWORD", fw.backend.neo4j_password)
-        fw.backend.qdrant_url = _env("QDRANT_URL", fw.backend.qdrant_url)
-        fw.backend.qdrant_collection = _env("QDRANT_COLLECTION", fw.backend.qdrant_collection)
-        run_ns = os.getenv("PRODAGENT_RUN_NAMESPACE")
-        if run_ns:
-            fw.backend.postgres_namespace = f"{fw.backend.postgres_namespace}-{run_ns}"
-            fw.backend.redis_namespace = f"{fw.backend.redis_namespace}-{run_ns}"
+        for field_name, prod_default in _PROD_BACKEND_DEFAULTS.items():
+            env_name = f"PRODAGENT_BACKEND_{field_name.upper()}"
+            setattr(fw.backend, field_name, os.getenv(env_name, prod_default))
+        _apply_conn_env(fw.backend)
         return fw
+
+
+_PROD_BACKEND_DEFAULTS: dict[str, str] = {
+    "document": "postgres",
+    "checkpoint": "postgres",
+    "event_log": "postgres",
+    "span": "postgres",
+    "cache": "redis",
+    "lock": "redis",
+    "idempotency": "redis",
+    "approval": "redis",
+    "dead_letter": "redis",
+    "graph": "neo4j",
+    "vector": "qdrant",
+}
+
+
+def _apply_conn_env(backend: BackendConfig) -> None:
+    """Apply connection-string + namespace env vars onto a BackendConfig."""
+    ns = os.getenv("PRODAGENT_NAMESPACE", "prodagent")
+    backend.postgres_namespace = ns
+    backend.redis_namespace = ns
+    run_ns = os.getenv("PRODAGENT_RUN_NAMESPACE")
+    if run_ns:
+        backend.postgres_namespace = f"{ns}-{run_ns}"
+        backend.redis_namespace = f"{ns}-{run_ns}"
+    backend.neo4j_uri = os.getenv("NEO4J_URI", backend.neo4j_uri)
+    backend.neo4j_user = os.getenv("NEO4J_USER", backend.neo4j_user)
+    backend.neo4j_password = os.getenv("NEO4J_PASSWORD", backend.neo4j_password)
+    backend.qdrant_url = os.getenv("QDRANT_URL", backend.qdrant_url)
+    backend.qdrant_collection = os.getenv("QDRANT_COLLECTION", backend.qdrant_collection)

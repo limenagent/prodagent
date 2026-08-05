@@ -21,7 +21,8 @@ if TYPE_CHECKING:
     from prodagent.mcp.config import MCPServerConfig
     from prodagent.ports import CheckpointStore, EventLog, SessionStore, Tool
     from prodagent.runtime.agent import Agent
-    from prodagent.runtime.coordination.comm import HandoffContract, SpawnAccumulator
+    from prodagent.runtime.coordination.accounting import SpawnAccumulator
+    from prodagent.runtime.coordination.handoff import HandoffContract
     from prodagent.runtime.plan.dag import Plan
     from prodagent.tooling.registry import ToolRegistry
 
@@ -36,7 +37,7 @@ class AgentConfig:
     skills: SkillRegistry | None = None
     budget: HardBudget | None = None
     constraints: list[str] = field(default_factory=list)
-    context: str = ""
+    system_prompt: str = ""
     framework_config: FrameworkConfig | None = None
     hooks: HookRegistry | None = None
     mode: ExecutionMode = ExecutionMode.PLAN_FIRST
@@ -70,4 +71,14 @@ def merge_tools_by_name(existing: list[Tool], new: Iterable[Tool]) -> list[Tool]
             existing.append(tool)
             names.add(tool.name)
             added.append(tool)
+    return added
+
+
+def attach_tools(
+    active_tools: list[Tool],
+    tool_schemas: list[dict[str, Any]],
+    new_tools: Iterable[Tool],
+) -> list[Tool]:
+    added = merge_tools_by_name(active_tools, new_tools)
+    tool_schemas.extend(t.schema for t in added)
     return added

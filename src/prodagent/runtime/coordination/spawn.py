@@ -19,15 +19,14 @@ from prodagent.core.types import (
 )
 from prodagent.hooks.checkpoint import CheckPoint
 from prodagent.hooks.events import HookEvent
-from prodagent.runtime.config import merge_tools_by_name
-from prodagent.runtime.coordination.comm import (
+from prodagent.runtime.config import attach_tools
+from prodagent.runtime.coordination.fork import ParentRuntime, describe_agent
+from prodagent.runtime.coordination.handoff import (
     HandoffContract,
     HandoffInterceptor,
     HandoffPacket,
-    IdempotentMessageHandler,
-    SpawnAccumulator,
 )
-from prodagent.runtime.coordination.fork import ParentRuntime, describe_agent, fork_agent
+from prodagent.runtime.coordination.idempotency import IdempotentMessageHandler
 from prodagent.tooling.base import FunctionTool
 
 if TYPE_CHECKING:
@@ -36,6 +35,7 @@ if TYPE_CHECKING:
     from prodagent.ports.dead_letter import DeadLetterStore
     from prodagent.ports.llm import LLMClient
     from prodagent.runtime.agent import Agent
+    from prodagent.runtime.coordination.accounting import SpawnAccumulator
     from prodagent.runtime.session import RunContext
 
 logger = logging.getLogger(__name__)
@@ -322,7 +322,7 @@ class SpawnPipeline:
             framework_config=self._framework_config,
             budget=ctx.budget or spec.budget_config,
         )
-        child = fork_agent(spec, spec, runtime=runtime, mode="spawn")
+        child = spec.fork_as_spawn(runtime)
 
         try:
             from prodagent.runtime.runner import drive
@@ -454,6 +454,5 @@ def assemble_spawn_tools(
     )
     if spawn_tools is None:
         return None
-    added = merge_tools_by_name(active_tools, [spawn_tools.tool])
-    tool_schemas.extend(t.schema for t in added)
+    attach_tools(active_tools, tool_schemas, [spawn_tools.tool])
     return spawn_tools.accumulator

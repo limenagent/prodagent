@@ -32,7 +32,7 @@ class _Store:
 def _agent() -> Agent:
     return Agent(
         name="mem-bundle",
-        context="verify",
+        system_prompt="verify",
         llm=script({"content": "ok"}),
         hooks=HookRegistry(),
     ).reactive()
@@ -72,7 +72,7 @@ async def test_memory_hooks_plugs_in_via_extend():
     manager = _Store()
     agent = Agent(
         name="mem-bundle",
-        context="verify",
+        system_prompt="verify",
         llm=script({"content": "ok"}),
         hooks=HookRegistry(),
     ).reactive()

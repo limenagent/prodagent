@@ -135,7 +135,7 @@ async def search(query: str) -> str:
 agent = (
     Agent(
         "demo",
-        context="Find answers.",
+        system_prompt="Find answers.",
         tools=[search],
     )
     .reactive()

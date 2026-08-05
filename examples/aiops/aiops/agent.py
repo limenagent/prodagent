@@ -78,7 +78,7 @@ def build_aiops_agent(
             tools=[page_oncall],
             tool_registry=build_aiops_tool_registry(),
             skills=SkillRegistry.from_dir(SKILLS_DIR),
-            context=_SYSTEM_PROMPT,
+            system_prompt=_SYSTEM_PROMPT,
             llm=resolved_llm,
             framework_config=framework_config,
         )

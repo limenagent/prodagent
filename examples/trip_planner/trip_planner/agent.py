@@ -98,7 +98,7 @@ def build_trip_planner_agent(
     return (
         Agent(
             "trip_planner",
-            context=_SYSTEM_PROMPT,
+            system_prompt=_SYSTEM_PROMPT,
             tools=[],  # 工具全在 peer agent 上
             skills=skills,
             llm=llm,

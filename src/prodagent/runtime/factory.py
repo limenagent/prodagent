@@ -14,8 +14,8 @@ from prodagent.mcp.registry import MCPRegistry
 from prodagent.runtime.config import merge_tools_by_name
 from prodagent.runtime.coordination.peer import assemble_peer_tools
 from prodagent.runtime.coordination.spawn import assemble_spawn_tools
-from prodagent.runtime.executors.plan_first import PlanExecutor
-from prodagent.runtime.executors.reactive import AgentLoop
+from prodagent.runtime.plan.executor import PlanExecutor
+from prodagent.runtime.reactive import AgentLoop
 from prodagent.tooling.builtin.read_tool_result import make_read_tool_result
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from prodagent.hooks.registry import HookRegistry
     from prodagent.ports import LeafExecutor
     from prodagent.runtime.agent import Agent
-    from prodagent.runtime.coordination.comm import SpawnAccumulator
+    from prodagent.runtime.coordination.accounting import SpawnAccumulator
     from prodagent.runtime.session import RunContext
 
 logger = logging.getLogger(__name__)

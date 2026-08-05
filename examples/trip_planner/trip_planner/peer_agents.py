@@ -26,7 +26,7 @@ def itinerary_peer_agent() -> Agent:
     return (
         Agent(
             "itinerary",
-            context=(
+            system_prompt=(
                 "你是日本行程规划专家。拿到用户偏好(duration / budget / interests / "
                 "cities)后:1) search_hotels 选酒店;2) get_weather 看每天天气;"
                 "3) 输出按城市分配天数的行程,雨天替换室外活动。"
@@ -47,7 +47,7 @@ def restaurant_peer_agent() -> Agent:
     return (
         Agent(
             "restaurant",
-            context=(
+            system_prompt=(
                 "你是日本餐厅预订专家。拿到用户偏好(cuisine 偏好 + 每个城市的天数)后:"
                 "1) search_restaurants 找餐厅;2) 对每天的主餐厅 book_restaurant。"
                 "用紧凑 JSON 返回: {\"bookings\": [{\"day\": 1, \"city\": \"...\", "
@@ -67,7 +67,7 @@ def transport_peer_agent() -> Agent:
     return (
         Agent(
             "transport",
-            context=(
+            system_prompt=(
                 "你是日本交通规划专家。拿到用户偏好(origin / cities 顺序 / 日期)后:"
                 "1) search_flights 排往返航班;2) search_trains 排城际火车。\n"
                 "工具接受城市名(Tokyo/Osaka/Kyoto)或 IATA 代码,日期接受多种格式。\n"

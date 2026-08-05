@@ -89,7 +89,7 @@ def build_triage_workflow_agent(
     builder = (
         Agent(
             "triage_workflow",
-            context=_WORKFLOW_SYSTEM,
+            system_prompt=_WORKFLOW_SYSTEM,
             tools=[read_inbox, archive_email, mark_read, delete_email, forward_external],
             llm=llm,
             framework_config=framework_config,
@@ -138,7 +138,7 @@ def build_email_triage_agent(
     return (
         Agent(
             "email_triage",
-            context=_MAIN_SYSTEM,
+            system_prompt=_MAIN_SYSTEM,
             tools=[read_inbox, archive_email, mark_read],
             llm=resolved_llm,
             framework_config=framework_config,

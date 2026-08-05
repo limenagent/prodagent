@@ -34,7 +34,7 @@ def build_greeter_agent(*, framework_config: FrameworkConfig | None = None) -> A
     return (
         Agent(
             "greeter",
-            context="你是友好的 greeter。用 greet 工具按名字跟用户打招呼。",
+            system_prompt="你是友好的 greeter。用 greet 工具按名字跟用户打招呼。",
             tools=[greet],
             framework_config=framework_config,
         )

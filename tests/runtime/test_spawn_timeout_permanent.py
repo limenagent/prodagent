@@ -4,7 +4,7 @@ from prodagent.core.state.run import AgentRun
 from prodagent.core.types import ErrorSeverity, ToolOutcome, ToolResult
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.agent import Agent
-from prodagent.runtime.coordination.comm import SpawnAccumulator
+from prodagent.runtime.coordination.accounting import SpawnAccumulator
 from prodagent.runtime.coordination.fork import ParentRuntime
 from prodagent.runtime.coordination.run_loop import RunLoop
 from prodagent.runtime.coordination.spawn import (
@@ -15,7 +15,7 @@ from prodagent.runtime.session import RunContext
 
 
 async def test_spawn_timeout_returns_permanent_error(monkeypatch) -> None:
-    child = Agent("blocker", context="plan something").description("A child that times out")
+    child = Agent("blocker", system_prompt="plan something").description("A child that times out")
 
     async def _fake_run_with_timeout(self, spec, task, packet, child_run_id):
         return _short_result(spec.name, "timeout", "Sub-agent timed out after 2s")
@@ -55,7 +55,7 @@ async def test_finalize_run_folds_spawn_accounting_without_hooks() -> None:
     sit before the fold call, silently dropping sub-agent spend/turns/tokens
     whenever a run had no hooks registry.
     """
-    agent = Agent("solo", context="ctx")
+    agent = Agent("solo", system_prompt="ctx")
     ctx = RunContext(agent=agent, task="t", run_id="r1", depth=0)
     loop = RunLoop(root_agent=agent, initial_ctx=ctx, root_run_id="r1", output_schema=None)
 

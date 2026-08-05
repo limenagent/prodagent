@@ -38,7 +38,7 @@ def _workflow_agent(tmp_path) -> Agent:
     wf.llm_step("answer", "Reply with the result.", is_terminal=True)
     return Agent(
         "wf_chat",
-        context="Reply briefly.",
+        system_prompt="Reply briefly.",
         llm=script({"content": "first reply"}, {"content": "second reply"}),
         framework_config=_fw(tmp_path),
     ).workflow(wf, allow_replan=False)
@@ -47,7 +47,7 @@ def _workflow_agent(tmp_path) -> Agent:
 def _reactive_agent(tmp_path) -> Agent:
     return Agent(
         "reactive_chat",
-        context="Reply briefly.",
+        system_prompt="Reply briefly.",
         llm=script({"content": "first reply"}, {"content": "second reply"}),
         framework_config=_fw(tmp_path),
     ).reactive()
@@ -56,7 +56,7 @@ def _reactive_agent(tmp_path) -> Agent:
 def _plan_first_agent(tmp_path) -> Agent:
     return Agent(
         "plan_first_chat",
-        context="Reply briefly.",
+        system_prompt="Reply briefly.",
         llm=script(
             {
                 "content": '{"steps":[{"id":"s1","action":"reply","params":{},"depends_on":[],"terminal":true}]}'
@@ -183,7 +183,7 @@ def test_construction_asserts_initial_plan_requires_plan_first():
 
     agent = Agent(
         "bad",
-        context="",
+        system_prompt="",
         llm=script({"content": "x"}),
         mode=ExecutionMode.REACTIVE,
     )

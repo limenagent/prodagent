@@ -3,30 +3,23 @@
 from __future__ import annotations
 
 import asyncio
-import copy
 import logging
-import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from prodagent.core.events import (
-    AgentEvent,
-    RunCompletedEvent,
-    RunFailedEvent,
-    RunSuspendedEvent,
     StepCompletedEvent,
     StepFailedEvent,
     StepStartedEvent,
 )
-from prodagent.core.exceptions import LLMError, SuspendPendingApproval
-from prodagent.core.state.run import AgentRun
+from prodagent.core.exceptions import LLMError
 from prodagent.core.types import MessageList, RunState, StepStatus
 from prodagent.hooks import fire as _fire
-from prodagent.hooks.checkpoint import CheckPoint
 from prodagent.hooks.events import HookEvent
-from prodagent.runtime.coordination.comm import check_spawn_budget
-from prodagent.runtime.plan.dag import Plan, PlanStep
+from prodagent.runtime.coordination.accounting import check_spawn_budget
+from prodagent.runtime.plan.bootstrap import PlanBootstrap
 from prodagent.runtime.plan.event_log import PlanEventLog
+from prodagent.runtime.plan.finalize import finalize_run, terminal_event
 from prodagent.runtime.plan.planner import Planner
 from prodagent.runtime.plan.step_runner import (
     StepFailed,
@@ -36,7 +29,6 @@ from prodagent.runtime.plan.step_runner import (
     StepSuccess,
     StepSuspended,
     ToolExecutor,
-    _format_step_output,
     commit_transcript,
 )
 
@@ -44,10 +36,13 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Iterator
 
     from prodagent.core.budget import HardBudget
+    from prodagent.core.events import AgentEvent
+    from prodagent.core.state.run import AgentRun
     from prodagent.hooks.registry import HookRegistry
     from prodagent.llm.base import LLMClient
     from prodagent.ports import CheckpointStore, EventLog
-    from prodagent.runtime.coordination.comm import SpawnAccumulator
+    from prodagent.runtime.coordination.accounting import SpawnAccumulator
+    from prodagent.runtime.plan.dag import Plan, PlanStep
     from prodagent.tooling.dispatcher import ToolDispatcher
 
 logger = logging.getLogger(__name__)
@@ -56,13 +51,6 @@ _MAX_ITERS_PER_STEP = 3
 _MAX_ITERS_SLOP = 5
 
 __all__ = ["PlanExecutor"]
-
-
-def _steps_to_hook_dict(
-    steps: list[PlanStep], *, include_terminal: bool = False
-) -> list[dict[str, Any]]:
-    """One shared shape for step payloads in plan gates / PLAN_READY events."""
-    return [s.to_hook_dict(include_terminal=include_terminal) for s in steps]
 
 
 @dataclass(slots=True)
@@ -104,7 +92,6 @@ class PlanExecutor:
         self._budget = budget
         self._spawn_accumulators = spawn_accumulators or []
         self._max_replans = max_replans
-        self._initial_plan = initial_plan
         self._log = PlanEventLog(
             event_log=event_log,
             checkpoint_store=checkpoint_store,
@@ -119,6 +106,17 @@ class PlanExecutor:
             framework_config=framework_config,
         )
         self._step_runner = StepRunner(tool_executor, self._log, hooks=hooks, agent_name=agent_name)
+        self._bootstrap = PlanBootstrap(
+            self._log,
+            self._planner,
+            system=system,
+            messages=self._messages,
+            hooks=hooks,
+            agent_name=agent_name,
+            initial_plan=initial_plan,
+            dispatcher=dispatcher,
+            check_budget=self._check_budget,
+        )
         self._dispatcher = dispatcher
         self._replan_count = 0
 
@@ -132,172 +130,14 @@ class PlanExecutor:
         run_id: str | None = None,
         parent_run_id: str | None = None,
     ) -> AsyncGenerator[AgentEvent, None]:
-        run, plan = await self._prepare_run(task, run_id, parent_run_id=parent_run_id)
+        run, plan = await self._bootstrap.prepare(task, run_id, parent_run_id=parent_run_id)
         if plan is not None:
-            plan = await self._gate_plan(plan, run)
+            plan = await self._bootstrap.gate(plan, run)
         if plan is not None:
             async for event in self._execute_plan_events(plan, run):
                 yield event
-        self._finalize_run(run, plan)
-        yield self._terminal_event(run)
-
-    async def _gate_plan(self, plan: Plan, run: AgentRun) -> Plan | None:
-        if self._hooks is None:
-            return plan
-        try:
-            veto = await self._hooks.check_blocking(
-                CheckPoint.PLAN_APPROVAL,
-                plan_id=plan.plan_id,
-                version=plan.version,
-                agent=self._agent_name,
-                steps=_steps_to_hook_dict(plan.steps, include_terminal=True),
-                run_id=run.run_id,
-                pending_approval_id=run.pending_approval_id,
-            )
-        except SuspendPendingApproval as exc:
-            run.state = RunState.SUSPENDED
-            run.pending_approval_id = exc.request_id
-            run.last_error = f"plan suspended pending approval: {exc}"
-            await self._log.save_snapshot(run, plan=plan)
-            logger.info(
-                "[Plan] plan=%s SUSPENDED for HITL review (request_id=%s)",
-                plan.plan_id,
-                exc.request_id,
-            )
-            return None
-        if veto.blocked:
-            run.state = RunState.FAILED
-            run.last_error = veto.reason or "plan rejected by HITL reviewer"
-            run.pending_approval_id = None
-            logger.info("[Plan] plan=%s REJECTED by HITL — run fails", plan.plan_id)
-            return None
-        run.pending_approval_id = None
-        return plan
-
-    async def _prepare_run(
-        self, task: str, run_id: str | None, *, parent_run_id: str | None = None
-    ) -> tuple[AgentRun, Plan | None]:
-        rid = run_id or str(uuid.uuid4())
-        run = AgentRun(run_id=rid, task=task, parent_run_id=parent_run_id)
-        run.messages = list(self._messages)
-
-        if await self._log.has_resumable_state(rid):
-            state = await self._log.restore_plan(run)
-            plan_a: Plan = Plan.from_state(state, plan_id=rid)
-            plan_a.task_input = task
-            if run.pending_approval_id is not None:
-                if self._dispatcher is not None:
-                    self._dispatcher.set_pending_approval_id(run.pending_approval_id)
-                plan_a.requeue_suspended()
-            logger.info(
-                "[Plan] resuming run=%s — %d step(s), v%d",
-                rid,
-                len(plan_a.steps),
-                plan_a.version,
-            )
-            return run, plan_a
-
-        await self._log.rebaseline_checkpoint(run)
-
-        plan: Plan | None = None
-        if self._initial_plan is not None:
-            plan = copy.deepcopy(self._initial_plan)
-            plan.plan_id = rid
-            plan.task_input = task
-            await self._log.record_plan_created(plan, run)
-            await _fire(
-                self._hooks,
-                HookEvent.PLAN_READY,
-                plan_id=plan.plan_id,
-                version=plan.version,
-                agent=self._agent_name,
-                steps=_steps_to_hook_dict(plan.steps),
-                run_id=run.run_id,
-            )
-            logger.info(
-                "[Plan] using hand-written workflow plan=%s — %d step(s)", rid, len(plan.steps)
-            )
-            self._check_budget(run)
-            return run, plan
-
-        plan = await self._generate_plan(task, rid, run)
-        if plan is None:
-            if not run.last_error:
-                logger.warning("[PlanExecutor] Failed to parse plan JSON — no steps to execute")
-                run.state = RunState.FAILED
-                run.last_error = "Failed to parse plan JSON — no steps to execute"
-        else:
-            self._check_budget(run)
-        return run, plan
-
-    async def _generate_plan(self, task: str, rid: str, run: AgentRun) -> Plan | None:
-        try:
-            draft = await self._planner.generate(task, self._system, self._messages, run)
-        except LLMError as exc:
-            logger.error("[PlanExecutor] planning LLM call failed: %s", exc)
-            run.state = RunState.FAILED
-            run.last_error = str(exc)
-            return None
-        if draft.plan is None:
-            return None
-        plan = draft.plan
-        plan.plan_id = rid
-        plan.task_input = task
-        run.messages.append({"role": "assistant", "content": draft.raw_text})
-        await self._log.record_plan_created(plan, run)
-        await _fire(
-            self._hooks,
-            HookEvent.PLAN_READY,
-            plan_id=plan.plan_id,
-            version=plan.version,
-            agent=self._agent_name,
-            steps=_steps_to_hook_dict(plan.steps),
-            run_id=run.run_id,
-        )
-        return plan
-
-    @staticmethod
-    def _terminal_event(run: AgentRun) -> AgentEvent:
-        if run.state is RunState.SUSPENDED:
-            return RunSuspendedEvent(run=run)
-        if run.state is RunState.FAILED:
-            return RunFailedEvent(run=run, error=run.last_error or "")
-        return RunCompletedEvent(run=run)
-
-    @staticmethod
-    def _finalize_run(run: AgentRun, plan: Plan | None) -> None:
-        if run.state is RunState.RUNNING:
-            run.state = RunState.COMPLETED
-        if run.pending_handoff is not None:
-            return
-        if plan is None:
-            return
-
-        terminal = next(
-            (
-                s.output_ref
-                for s in plan.steps
-                if s.is_terminal and s.status is StepStatus.COMPLETED
-            ),
-            None,
-        )
-        if terminal is not None:
-            run.final_output = _format_step_output(terminal)
-            return
-
-        sink = PlanExecutor._select_terminal_step(plan)
-        if sink is not None:
-            run.final_output = _format_step_output(sink.output_ref)
-
-    @staticmethod
-    def _select_terminal_step(plan: Plan) -> PlanStep | None:
-        completed = [s for s in plan.steps if s.status is StepStatus.COMPLETED]
-        if not completed:
-            return None
-        timed = [s for s in completed if s.completed_at > 0]
-        if timed:
-            return max(timed, key=lambda s: s.completed_at)
-        return completed[-1]
+        finalize_run(run, plan)
+        yield terminal_event(run)
 
     async def _execute_plan_events(
         self,

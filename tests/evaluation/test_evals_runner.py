@@ -129,7 +129,7 @@ def test_evalrunner_save_report():
 
 def test_evalrunner_scripted_llm_through_full_stack():
     from prodagent.core.budget import HardBudget
-    from prodagent.runtime.executors.reactive import AgentLoop
+    from prodagent.runtime.reactive import AgentLoop
 
     async def factory(example: GoldenExample) -> AgentRun:
         llm = script({"content": "done processing"})

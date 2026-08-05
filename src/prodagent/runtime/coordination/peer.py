@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from prodagent.core.error_reason import ErrorReason
 from prodagent.core.types import RunState, SideEffectLevel, ToolError, ToolMeta, ToolResult
-from prodagent.runtime.config import merge_tools_by_name
+from prodagent.runtime.config import attach_tools
 from prodagent.runtime.coordination.fork import ParentRuntime, describe_agent
 from prodagent.tooling.base import FunctionTool
 
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from prodagent.core.state.run import PendingHandoff
     from prodagent.ports import CheckpointStore
     from prodagent.runtime.agent import Agent
-    from prodagent.runtime.coordination.comm import SpawnAccumulator
+    from prodagent.runtime.coordination.accounting import SpawnAccumulator
     from prodagent.runtime.session import RunContext
 
 logger = logging.getLogger(__name__)
@@ -152,8 +152,7 @@ def assemble_peer_tools(
         accumulator=spawn_acc,
     )
     peer_tools = build_peer_tools_for_agent(agent.config.peer_agents, ctx=peer_ctx)
-    added = merge_tools_by_name(active_tools, peer_tools)
-    tool_schemas.extend(t.schema for t in added)
+    attach_tools(active_tools, tool_schemas, peer_tools)
 
 
 async def resolve_suspended_peer_run_id(

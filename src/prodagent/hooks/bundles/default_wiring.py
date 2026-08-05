@@ -71,10 +71,8 @@ class PermissionDefaultBundle:
         for ext in agent.config.extensions:
             if isinstance(ext, PermissionHooks):
                 return
-        monitor = ContextTaintMonitor(tool_registry=agent.config.tool_registry)
-        PermissionHooks(taint_monitor=monitor, tool_registry=agent.config.tool_registry).attach(
-            registry
-        )
+        monitor = ContextTaintMonitor(tool_registry=agent.tool_registry)
+        PermissionHooks(taint_monitor=monitor, tool_registry=agent.tool_registry).attach(registry)
 
 
 class LearningDefaultBundle:

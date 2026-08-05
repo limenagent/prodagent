@@ -5,12 +5,12 @@ import time
 import pytest
 
 from prodagent.core.exceptions import ContractViolationError
-from prodagent.runtime.coordination.comm import (
+from prodagent.runtime.coordination.handoff import (
     HandoffContract,
     HandoffInterceptor,
     HandoffPacket,
-    IdempotentMessageHandler,
 )
+from prodagent.runtime.coordination.idempotency import IdempotentMessageHandler
 
 
 async def test_handler_initially_empty():

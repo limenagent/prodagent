@@ -15,7 +15,7 @@ def _child_that_fails_to_plan() -> Agent:
     llm = FakeLLMAdapter(
         responses=[LLMResponse(content="not valid json at all", stop_reason="end_turn")]
     )
-    return Agent("broken_planner", context="plan something", llm=llm).description(
+    return Agent("broken_planner", system_prompt="plan something", llm=llm).description(
         "A child whose planner fails"
     )
 
@@ -71,7 +71,7 @@ async def test_run_child_returns_failed_when_executor_raises(tmp_path: Path) -> 
             raise RuntimeError("simulated LLM explosion")
 
     child = (
-        Agent("exploder", context="will crash", llm=_BoomLLM())  # type: ignore[arg-type]
+        Agent("exploder", system_prompt="will crash", llm=_BoomLLM())  # type: ignore[arg-type]
         .description("A child whose LLM raises")
         .reactive()
     )

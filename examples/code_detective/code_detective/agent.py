@@ -100,7 +100,7 @@ def build_code_detective_agent(
     return (
         Agent(
             "code_detective",
-            context=_SYSTEM_PROMPT,
+            system_prompt=_SYSTEM_PROMPT,
             tools=[],  # 工具全从 MCP 来
             skills=skills,
             llm=llm,

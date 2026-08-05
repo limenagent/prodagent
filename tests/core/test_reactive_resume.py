@@ -8,7 +8,7 @@ from prodagent.core.events import RunCompletedEvent
 from prodagent.core.state import AgentRun
 from prodagent.core.types import LLMResponse, ToolCall
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.executors.reactive import AgentLoop
+from prodagent.runtime.reactive import AgentLoop
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 

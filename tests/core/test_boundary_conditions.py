@@ -18,7 +18,7 @@ async def test_budget_turn_limit_exceeded():
 
     agent = Agent(
         name="budget-turn-agent",
-        context="Never stop.",
+        system_prompt="Never stop.",
         tools=[never_finish_tool],
         budget=HardBudget(max_turns=2),
         llm=script({"content": "Keep calling never_finish"}),
@@ -40,7 +40,7 @@ async def test_budget_cost_limit_exceeded():
 
     agent = Agent(
         name="budget-cost-agent",
-        context="Spend money.",
+        system_prompt="Spend money.",
         tools=[expensive_tool],
         budget=HardBudget(max_cost_usd=0.0001),
         llm=script({"content": "Call expensive"}),
@@ -63,7 +63,7 @@ async def test_budget_time_limit_exceeded():
 
     agent = Agent(
         name="budget-time-agent",
-        context="Take time.",
+        system_prompt="Take time.",
         tools=[slow_tool],
         budget=HardBudget(max_seconds=1.0),
         llm=script({"content": "Call slow tool"}),
@@ -85,7 +85,7 @@ async def test_context_window_overflow():
 
     agent = Agent(
         name="context-overflow-agent",
-        context="Fill context.",
+        system_prompt="Fill context.",
         tools=[grow_context_tool],
         budget=HardBudget(max_turns=5),
         framework_config=FrameworkConfig(context=ContextConfig(max_tokens=500)),
@@ -109,7 +109,7 @@ async def test_tool_execution_timeout():
 
     agent = Agent(
         name="timeout-agent",
-        context="Test timeout.",
+        system_prompt="Test timeout.",
         tools=[hangs_tool],
         budget=HardBudget(max_turns=1),
         llm=script({"content": "Call hangs"}),
@@ -130,7 +130,7 @@ async def test_infinite_loop_detection():
 
     agent = Agent(
         name="infinite-loop-agent",
-        context="Repeat forever.",
+        system_prompt="Repeat forever.",
         tools=[repeat_tool],
         budget=HardBudget(max_turns=10),
         llm=script({"content": "Call repeat"}),
@@ -152,7 +152,7 @@ async def test_tool_parameter_validation_failure():
 
     agent = Agent(
         name="validation-agent",
-        context="Test validation.",
+        system_prompt="Test validation.",
         tools=[validated_tool],
         budget=HardBudget(max_turns=5),
         llm=script({"content": "Call validated"}),
@@ -174,7 +174,7 @@ async def test_memory_overflow():
 
     agent = Agent(
         name="memory-agent",
-        context="Test memory limit.",
+        system_prompt="Test memory limit.",
         tools=[consume_memory_tool],
         budget=HardBudget(max_turns=3),
         llm=script({"content": "Consume memory"}),
@@ -196,7 +196,7 @@ async def test_empty_tool_result():
 
     agent = Agent(
         name="empty-agent",
-        context="Test empty result.",
+        system_prompt="Test empty result.",
         tools=[empty_tool],
         budget=HardBudget(max_turns=5),
         llm=script({"content": "Empty result"}),
@@ -218,7 +218,7 @@ async def test_rapid_sequential_runs():
 
     agent = Agent(
         name="rapid-agent",
-        context="Run fast.",
+        system_prompt="Run fast.",
         tools=[fast_tool],
         budget=HardBudget(max_turns=1),
         llm=script({"content": "Fast"}),
@@ -244,7 +244,7 @@ async def test_graceful_shutdown():
 
     agent = Agent(
         name="shutdown-agent",
-        context="Test shutdown.",
+        system_prompt="Test shutdown.",
         tools=[interruptible_tool],
         budget=HardBudget(max_turns=1),
         llm=script({"content": "Call tool"}),

@@ -10,7 +10,7 @@ from prodagent.backends.file.event_log import FileEventLog
 from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.core.types import LLMResponse, ToolOutcome, ToolResult
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.executors.plan_first import PlanExecutor
+from prodagent.runtime.plan.executor import PlanExecutor
 
 _TERMINAL = (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)
 
@@ -199,7 +199,7 @@ async def test_resume_after_approval_reexecutes_suspended_step(tmp_path):
     agent = (
         Agent(
             name="remediator",
-            context="Fix the incident.",
+            system_prompt="Fix the incident.",
             tools=[rollback, verify],
             llm=llm,
             hooks=HookRegistry(),

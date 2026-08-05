@@ -21,7 +21,9 @@ async def test_spawned_child_trips_on_spend_already_committed_by_a_sibling():
     ctx.accumulator.cost_usd = 0.95
     ctx.accumulator.spawn_count = 1
 
-    child = Agent("worker", context="do work", llm=_plan_llm()).description("A PLAN_FIRST worker")
+    child = Agent("worker", system_prompt="do work", llm=_plan_llm()).description(
+        "A PLAN_FIRST worker"
+    )
     pipeline = SpawnPipeline([child], llm=_plan_llm(), hooks=None, framework_config=None, ctx=ctx)
 
     result = await pipeline.spawn("worker", "do something")
@@ -36,7 +38,9 @@ async def test_spawned_child_completes_when_sibling_spend_stays_under_ceiling():
     ctx.accumulator.cost_usd = 0.1
     ctx.accumulator.spawn_count = 1
 
-    child = Agent("worker", context="do work", llm=_plan_llm()).description("A PLAN_FIRST worker")
+    child = Agent("worker", system_prompt="do work", llm=_plan_llm()).description(
+        "A PLAN_FIRST worker"
+    )
     pipeline = SpawnPipeline([child], llm=_plan_llm(), hooks=None, framework_config=None, ctx=ctx)
 
     result = await pipeline.spawn("worker", "do something")

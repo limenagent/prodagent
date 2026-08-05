@@ -110,27 +110,16 @@ def _classify_llm(exc: BaseException, *, provider: str, model: str) -> Classifie
     return classified
 
 
-def _classify_basic(exc: BaseException) -> ClassifiedError:
-    """Timeout / connection / unknown — shared by runtime and tool layers."""
-    if isinstance(exc, TimeoutError):
-        reason = ErrorReason.TIMEOUT
-    elif isinstance(exc, (ConnectionError, OSError)):
-        reason = ErrorReason.CONNECTION
-    else:
-        reason = ErrorReason.UNKNOWN
-
-    return ClassifiedError(
-        reason=reason, retryable=reason not in NON_RETRYABLE_REASONS, raw_message=str(exc)
-    )
-
-
 def _classify_runtime(exc: BaseException) -> ClassifiedError:
+    """Runtime layer: budget / loop-detected are terminal; everything else
+    falls through to the shared timeout / connection / unknown classifier."""
     from prodagent.core.exceptions import BudgetExceeded, InfiniteLoopDetected
 
     if isinstance(exc, BudgetExceeded):
-        reason = ErrorReason.BUDGET_EXCEEDED
         return ClassifiedError(
-            reason=reason, retryable=reason not in NON_RETRYABLE_REASONS, raw_message=str(exc)
+            reason=ErrorReason.BUDGET_EXCEEDED,
+            retryable=False,
+            raw_message=str(exc),
         )
     if isinstance(exc, InfiniteLoopDetected):
         return ClassifiedError(
@@ -138,7 +127,20 @@ def _classify_runtime(exc: BaseException) -> ClassifiedError:
             retryable=False,
             raw_message=str(exc),
         )
-    return _classify_basic(exc)
+    return _classify_transport(exc)
+
+
+def _classify_transport(exc: BaseException) -> ClassifiedError:
+    """Timeout / connection / unknown — shared by runtime and tool layers."""
+    if isinstance(exc, TimeoutError):
+        reason = ErrorReason.TIMEOUT
+    elif isinstance(exc, (ConnectionError, OSError)):
+        reason = ErrorReason.CONNECTION
+    else:
+        reason = ErrorReason.UNKNOWN
+    return ClassifiedError(
+        reason=reason, retryable=reason not in NON_RETRYABLE_REASONS, raw_message=str(exc)
+    )
 
 
 def classify_error(
@@ -156,5 +158,5 @@ def classify_error(
     if layer is ErrorLayer.RUNTIME:
         return _classify_runtime(exc)
     if layer is ErrorLayer.TOOL:
-        return _classify_basic(exc)
+        return _classify_transport(exc)
     raise ValueError(f"unknown error layer: {layer!r}")

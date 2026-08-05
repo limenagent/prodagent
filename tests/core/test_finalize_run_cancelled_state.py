@@ -49,7 +49,7 @@ async def test_cancelled_run_reports_failed_state() -> None:
     plan_json = '{"steps": [{"id": "s1", "action": "block", "params": {}, "depends_on": []}]}'
     agent = Agent(
         "cancel_me",
-        context="plan something",
+        system_prompt="plan something",
         tools=[tool],
         llm=FakeLLMAdapter(responses=[LLMResponse(content=plan_json, stop_reason="end_turn")]),
         hooks=hooks,

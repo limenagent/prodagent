@@ -112,7 +112,7 @@ def simple_agent(fake_llm, hook_registry):
 
     return Agent(
         name="test_agent",
-        context="Test goal",
+        system_prompt="Test goal",
         llm=fake_llm,
         hooks=hook_registry,
     )

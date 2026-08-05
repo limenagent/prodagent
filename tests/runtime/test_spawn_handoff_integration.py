@@ -15,7 +15,7 @@ async def test_spawn_tool_respects_duplicate_message_ids():
 
     tool = FunctionTool(name="double", fn=dummy_tool, meta=None, schema={})
     child = (
-        Agent("doubler", context="Double the number", tools=[tool])
+        Agent("doubler", system_prompt="Double the number", tools=[tool])
         .description("Doubles a number")
         .reactive()
     )
@@ -46,7 +46,7 @@ async def test_spawn_tool_different_tasks_not_duplicated():
 
     tool = FunctionTool(name="double", fn=dummy_tool, meta=None, schema={})
     child = (
-        Agent("doubler", context="Double the number", tools=[tool])
+        Agent("doubler", system_prompt="Double the number", tools=[tool])
         .description("Doubles a number")
         .reactive()
     )
@@ -66,7 +66,7 @@ async def test_spawn_tool_different_tasks_not_duplicated():
 
 
 async def test_spawn_tool_creates_handoff_packet():
-    child = Agent("echoer", context="Echo").description("Echoes input").reactive()
+    child = Agent("echoer", system_prompt="Echo").description("Echoes input").reactive()
 
     fake_llm = script({"content": "Echo: test"})
 
@@ -82,7 +82,7 @@ async def test_spawn_tool_creates_handoff_packet():
 
 async def test_spawn_tool_result_has_output_and_state():
     child = (
-        Agent("bad_agent", context="Returns malformed result")
+        Agent("bad_agent", system_prompt="Returns malformed result")
         .description("Returns malformed result")
         .reactive()
     )
@@ -105,7 +105,7 @@ def run_async_test(test_func):
 
 
 def _spec(name="worker"):
-    return Agent(name, context="work").description("worker").reactive()
+    return Agent(name, system_prompt="work").description("worker").reactive()
 
 
 async def test_spawn_tool_meta_allows_parallel_and_idempotent():
@@ -174,12 +174,12 @@ async def test_security_veto_from_child_propagates_not_swallowed():
 
 
 async def test_child_agent_preserves_reactive_mode():
-    child = Agent("child", context="child task").reactive()
+    child = Agent("child", system_prompt="child task").reactive()
 
     rebuilt = Agent(
         child.name,
         tools=list(child.inline_tools),
-        context=child.system_prompt,
+        system_prompt=child.system_prompt,
         mode=child.mode,
     )
     assert rebuilt.mode == ExecutionMode.REACTIVE

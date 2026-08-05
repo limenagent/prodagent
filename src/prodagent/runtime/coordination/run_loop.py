@@ -14,12 +14,8 @@ from prodagent.hooks import fire as _fire
 from prodagent.hooks import save_and_fire_checkpoint
 from prodagent.hooks.checkpoint import CheckPoint
 from prodagent.hooks.events import HookEvent
-from prodagent.runtime.coordination.comm import (
-    HandoffPacket,
-    SpawnAccumulator,
-    fold_spawn_accounting,
-)
-from prodagent.runtime.coordination.fork import fork_as_peer
+from prodagent.runtime.coordination.accounting import SpawnAccumulator, fold_spawn_accounting
+from prodagent.runtime.coordination.handoff import HandoffPacket
 from prodagent.runtime.factory import LeafExecutorFactory
 from prodagent.runtime.session import RunContext
 
@@ -163,8 +159,7 @@ class RunLoop:
             await ctx.checkpoint.save(run, expected_version=run.checkpoint_version)
 
         return RunContext(
-            agent=fork_as_peer(
-                peer_spec,
+            agent=peer_spec.fork_as_peer(
                 self._ctx.agent,
                 self._ctx.run_id,
                 checkpoint=ctx.checkpoint,

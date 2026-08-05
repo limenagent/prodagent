@@ -12,9 +12,3 @@ ToolParams: TypeAlias = dict[str, Any]
 
 #: JSON Schema dict for a single tool's input schema.
 ToolSchema: TypeAlias = dict[str, Any]
-
-#: Open-ended hook event / checkpoint / injection payload.
-HookPayload: TypeAlias = dict[str, Any]
-
-#: Normalized LLM message dict (role, content, tool_calls, ...).
-MessageDict: TypeAlias = dict[str, Any]

@@ -4,8 +4,9 @@ from typing import Any
 
 from prodagent.core.state.run import AgentRun
 from prodagent.core.types import RunState
-from prodagent.runtime.executors.plan_first import PlanExecutor
 from prodagent.runtime.plan.dag import Plan, PlanStep, StepStatus
+from prodagent.runtime.plan.executor import PlanExecutor
+from prodagent.runtime.plan.finalize import finalize_run
 
 
 class _FakePlanner:
@@ -57,7 +58,7 @@ class TestFinalizeRunTerminalStep:
                 output_ref={"restarted": True},
             ),
         }
-        PlanExecutor._finalize_run(run, plan)
+        finalize_run(run, plan)
 
         assert run.state is RunState.COMPLETED
         assert run.final_output == str({"restarted": True})
@@ -77,7 +78,7 @@ class TestFinalizeRunTerminalStep:
                 output_ref={"sent": True},
             ),
         }
-        PlanExecutor._finalize_run(run, plan)
+        finalize_run(run, plan)
 
         assert run.final_output == "Incident report: root cause was X"
         assert run.final_output != str({"sent": True})
@@ -89,7 +90,7 @@ class TestFinalizeRunTerminalStep:
             "step_a": _make_step("step_a", output_ref={"a": 1}),
             "step_b": _make_step("step_b", output_ref={"b": 2}),
         }
-        PlanExecutor._finalize_run(run, plan)
+        finalize_run(run, plan)
 
         assert run.final_output == str({"b": 2})
 
@@ -105,7 +106,7 @@ class TestFinalizeRunTerminalStep:
                 output_ref=None,
             ),
         }
-        PlanExecutor._finalize_run(run, plan)
+        finalize_run(run, plan)
 
         assert run.final_output == str({"a": 1})
 
@@ -116,7 +117,7 @@ class TestFinalizeRunTerminalStep:
         plan._steps = {
             "terminal": _make_step("terminal", is_terminal=True, output_ref="result"),
         }
-        PlanExecutor._finalize_run(run, plan)
+        finalize_run(run, plan)
 
         assert run.state is RunState.SUSPENDED
         assert run.final_output == "result"
@@ -142,7 +143,7 @@ class TestFinalizeRunTerminalStep:
                 output_ref=child_result,
             ),
         }
-        PlanExecutor._finalize_run(run, plan)
+        finalize_run(run, plan)
 
         assert run.final_output == "✅ SAR 报告已成功提交至监管系统。"
         assert "agent" not in run.final_output

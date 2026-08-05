@@ -25,7 +25,7 @@ def _high_tool_agent(llm, hitl: ApprovalHooks, *, store=None) -> Agent:
     return (
         Agent(
             name="ops",
-            context="Restart the pod.",
+            system_prompt="Restart the pod.",
             tools=[restart_pod],
             llm=llm,
             hooks=HookRegistry(),
@@ -101,7 +101,7 @@ def test_no_bundle_suspends_high_tool():
     llm = script({"tool": "restart_pod", "params": {"service": "api"}})
     agent = Agent(
         name="ops",
-        context="Restart.",
+        system_prompt="Restart.",
         tools=[restart_pod],
         llm=llm,
         hooks=HookRegistry(),

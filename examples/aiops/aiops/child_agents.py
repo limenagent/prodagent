@@ -32,7 +32,7 @@ def log_analysis_agent() -> Agent:
     return (
         Agent(
             "log_analysis",
-            context=(
+            system_prompt=(
                 "用 tail_logs 拉故障服务的日志（如果涉及某个 pod，也调 "
                 "get_pod_status）。报告主要的错误签名和 pod；如果日志为空，"
                 "报告 '无有效信号'。"
@@ -52,7 +52,7 @@ def deploy_correlation_agent() -> Agent:
     return (
         Agent(
             "deploy_correlation",
-            context=(
+            system_prompt=(
                 "用 get_recent_deploys（对任何可疑 SHA 调 get_pr_diff）判断"
                 "近期部署是否与故障相关。如果是: 报告可疑 SHA 和要回滚到的"
                 "上一个好 SHA。如果不是: 报告 '无相关部署'。"
@@ -72,7 +72,7 @@ def metric_anomaly_agent() -> Agent:
     return (
         Agent(
             "metric_anomaly",
-            context=(
+            system_prompt=(
                 "用 query_metrics 量化异常和 SLO burn rate。以数字形式报告"
                 " burn rate 和驱动的指标；如果一切正常，报告 '指标正常'。"
             ),
@@ -96,7 +96,7 @@ def remediator_agent(*, llm: LLMClient | None = None) -> Agent:
     return (
         Agent(
             "remediator",
-            context=(
+            system_prompt=(
                 "你为已确认的故障执行修复 playbook。\n\n"
                 "输入是 investigator 的 IncidentReport（作为 prior agent "
                 "output 附在任务里）。始终先 open_incident，在任何 HIGH "

@@ -50,7 +50,7 @@ def _workflow_child(llm, gate: ApprovalGate, fw) -> Agent:
     return (
         Agent(
             "wf_child",
-            context="delete the record via DAG",
+            system_prompt="delete the record via DAG",
             tools=[delete_record],
             llm=llm,
             framework_config=fw,
@@ -65,7 +65,7 @@ def _reactive_parent(child: Agent, llm, gate: ApprovalGate, fw) -> Agent:
     return (
         Agent(
             "parent",
-            context="Spawn wf_child to delete the record.",
+            system_prompt="Spawn wf_child to delete the record.",
             llm=llm,
             framework_config=fw,
         )

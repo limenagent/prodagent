@@ -1,11 +1,11 @@
-"""Fork an Agent spec for peer handoff or sub-agent spawn."""
+"""Parent-side runtime context threaded into forked agents."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
-from prodagent.runtime.coordination.comm import SpawnAccumulator
+from prodagent.runtime.coordination.accounting import SpawnAccumulator
 
 if TYPE_CHECKING:
     from prodagent.core.budget import HardBudget
@@ -68,81 +68,3 @@ class ParentRuntime:
             hooks=agent.hooks,
             framework_config=agent.framework_config,
         )
-
-
-def fork_agent(
-    source: Agent,
-    parent: Agent,
-    *,
-    runtime: ParentRuntime,
-    mode: Literal["peer", "spawn"],
-) -> Agent:
-    """Build a fresh ``Agent`` from ``source``'s declarative spec, wired with
-    ``runtime``'s parent-side fields.
-    """
-    from prodagent.runtime.agent import Agent
-
-    forked = Agent(
-        source.name,
-        tools=list(source.inline_tools),
-        context=source.system_prompt,
-        llm=runtime.llm,
-        hooks=runtime.hooks,
-        framework_config=runtime.framework_config,
-        constraints=list(runtime.constraints),
-        budget=runtime.budget,
-        lock_registry=runtime.lock_registry,
-        mode=source.mode,
-        checkpoint=runtime.checkpoint,
-        event_log=runtime.event_log,
-        spawn_accumulator=runtime.accumulator,
-    )
-    wiring_source = parent if mode == "peer" else source
-    forked.config.extensions = list(wiring_source.config.extensions)
-    forked.config.injectors = list(wiring_source.config.injectors)
-    forked.config.checkers = list(wiring_source.config.checkers)
-    forked.config.event_handlers = list(wiring_source.config.event_handlers)
-    forked.config.mcp_configs = list(wiring_source.config.mcp_configs)
-    forked._fluent_wired = wiring_source._fluent_wired
-    if mode == "peer":
-        forked.config.peer_agents = list(source.config.peer_agents)
-        forked.config.description = source.config.description
-    else:
-        if source.config.initial_plan is not None:
-            forked.config.initial_plan = source.config.initial_plan
-            forked.config.max_replans = source.config.max_replans
-        if source.config.description:
-            forked.config.description = source.config.description
-    return forked
-
-
-def fork_as_peer(
-    source: Agent,
-    parent: Agent,
-    parent_run_id: str | None,
-    *,
-    checkpoint: CheckpointStore | None = None,
-    event_log: EventLog | None = None,
-) -> Agent:
-    """Build a peer continuation of ``parent`` from the ``source`` spec.
-
-    ``checkpoint``/``event_log`` override the parent's declarative config
-    when the caller already holds resolved values (e.g. from a live
-    ``RunContext``), since ``parent.config.checkpoint`` may still be unset.
-    """
-    return fork_agent(
-        source,
-        parent,
-        runtime=ParentRuntime(
-            llm=source.config.llm,
-            hooks=parent.hooks,
-            framework_config=parent.framework_config,
-            constraints=parent.constraints,
-            budget=source.budget_config,
-            lock_registry=parent.lock_registry,
-            checkpoint=checkpoint if checkpoint is not None else parent.config.checkpoint,
-            event_log=event_log if event_log is not None else parent.config.event_log,
-            accumulator=source.config.spawn_accumulator or SpawnAccumulator(),
-        ),
-        mode="peer",
-    )

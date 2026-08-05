@@ -24,7 +24,7 @@ def _high_tool_agent(llm, gate: ApprovalGate, *, store) -> Agent:
     return (
         Agent(
             name="ops",
-            context="Restart the pod.",
+            system_prompt="Restart the pod.",
             tools=[restart_pod],
             llm=llm,
             hooks=HookRegistry(),
