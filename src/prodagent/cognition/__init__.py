@@ -12,7 +12,7 @@ from prodagent.cognition.context.compression import (
 from prodagent.cognition.context.manager import ContextManager
 from prodagent.cognition.context.tool_results import reduce_on_append
 from prodagent.cognition.memory.classification import MemoryClassifier
-from prodagent.cognition.memory.manager import MemoryManager
+from prodagent.cognition.memory.manager import MemoryManager, build_memory_manager
 from prodagent.cognition.memory.storage import (
     MemoryRecord,
     MemoryType,
@@ -36,4 +36,5 @@ __all__ = [
     "StoredMemory",
     "MemoryType",
     "MemoryClassifier",
+    "build_memory_manager",
 ]

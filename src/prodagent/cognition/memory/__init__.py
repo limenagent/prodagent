@@ -18,7 +18,7 @@ from prodagent.cognition.memory.conflict import (
 )
 from prodagent.cognition.memory.embedder import HashEmbedder, cosine
 from prodagent.cognition.memory.forgetting import RECALL_FLOOR, activation
-from prodagent.cognition.memory.manager import MemoryManager, MemoryProvider
+from prodagent.cognition.memory.manager import MemoryManager, MemoryProvider, build_memory_manager
 from prodagent.cognition.memory.storage import (
     MemoryRecord,
     MemoryType,
@@ -54,4 +54,5 @@ __all__ = [
     "TouchBackWorker",
     "MemoryManager",
     "MemoryProvider",
+    "build_memory_manager",
 ]

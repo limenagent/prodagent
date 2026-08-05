@@ -39,10 +39,10 @@ class MemoryDefaultBundle:
     def attach(self, agent: Agent, fw: FrameworkConfig | None, registry: HookRegistry) -> None:
         if fw is None:
             return
-        from prodagent.cognition.memory import MemoryManager
+        from prodagent.cognition.memory import build_memory_manager
         from prodagent.hooks.bundles.memory import MemoryHooks
 
-        manager = MemoryManager(framework_config=fw, constraints=list(agent.constraints))
+        manager = build_memory_manager(framework_config=fw, constraints=list(agent.constraints))
         MemoryHooks(manager).attach(registry)
         agent.config.memory_manager = manager
 

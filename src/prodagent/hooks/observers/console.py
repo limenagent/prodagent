@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any, cast
 
-from prodagent.cognition.context.budget import Layer
+from prodagent.core.types import Layer
 from prodagent.hooks.events import HookEvent
 from prodagent.hooks.observers._ansi import (
     _BLUE,

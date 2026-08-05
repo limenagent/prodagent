@@ -5,13 +5,12 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+from prodagent.backends._shared.document_write import build_stored_memory
 from prodagent.cognition.memory.storage import (
-    EPISODIC_DEFAULT_TTL_DAYS,
     MAX_SOFT_MEMORIES,
     MemoryRecord,
     MemoryType,
     StoredMemory,
-    mem_id,
 )
 from prodagent.core.time import now_timestamp
 
@@ -64,17 +63,8 @@ class PostgresDocumentStore:
             conn.commit()
 
     def append_soft(self, record: MemoryRecord) -> None:
-        ttl = record.ttl_days
-        if ttl is None and record.memory_type is MemoryType.EPISODIC:
-            ttl = EPISODIC_DEFAULT_TTL_DAYS
-
-        mid = mem_id(record.content)
-        stored = StoredMemory.from_record(
-            record,
-            id=mid,
-            created_at=now_timestamp(),
-        )
-        stored.ttl_days = ttl
+        stored = build_stored_memory(record)
+        mid = stored.id
 
         blob = json.dumps(stored.to_dict(), ensure_ascii=False)
         with self._pool.connection() as conn, conn.cursor() as cur:

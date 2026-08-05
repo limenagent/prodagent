@@ -11,9 +11,10 @@ from prodagent.hooks.events import HookEvent
 
 if TYPE_CHECKING:
     from prodagent.core.config import FrameworkConfig
+    from prodagent.core.observability import AgentSpan
     from prodagent.hooks.registry import HookRegistry
     from prodagent.ports.span import SpanExporter
-    from prodagent.resilience.observability.audit import AgentSpan, AuditLogger
+    from prodagent.resilience.observability.audit import AuditLogger
 
 logger = logging.getLogger(__name__)
 

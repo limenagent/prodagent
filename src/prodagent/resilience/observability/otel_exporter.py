@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from prodagent.resilience.observability.audit import AgentSpan
+    from prodagent.core.observability import AgentSpan
 
 logger = logging.getLogger(__name__)
 

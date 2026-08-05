@@ -1,4 +1,4 @@
-"""File-backed span exporters — JSONL trace file + Python logging sink."""
+"""File-backed span exporter — append-only JSONL trace file."""
 
 from __future__ import annotations
 
@@ -9,24 +9,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from prodagent.resilience.observability.audit import AgentSpan
+    from prodagent.core.observability import AgentSpan
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["FileSpanExporter", "LogExporter"]
-
-
-class LogExporter:
-    """Structured JSON to the Python logging system. Zero dependencies."""
-
-    def export(self, span: AgentSpan) -> None:
-        if span.error:
-            logger.error("AUDIT %s", span.to_log_line())
-        else:
-            logger.info("AUDIT %s", span.to_log_line())
-
-    def shutdown(self) -> None:
-        pass
+__all__ = ["FileSpanExporter"]
 
 
 class FileSpanExporter:

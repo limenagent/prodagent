@@ -64,7 +64,7 @@ class TestEmbeddingCache:
             entity_id="pod-x",
         )
         await mgr.add_memory(record)
-        facts = mgr._load_facts()
+        facts = mgr._facts.load_all()
         assert len(facts) == 1
         assert facts[0].embedding is not None
 
@@ -121,7 +121,7 @@ class TestEmbeddingCache:
             embedding=embedder.embed("user prefers dark theme"),
         )
         embedder.calls.clear()
-        mgr._candidate_filter.candidates(new_mem, mgr._documents)
+        mgr._conflict_pipeline._filter.candidates(new_mem, mgr._documents)
         assert "user prefers dark mode" not in embedder.calls
 
     def test_fallback_to_embedder_when_embedding_none(self, stores):

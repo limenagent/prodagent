@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+from prodagent.backends.postgres._versioned import lock_and_check_version
 from prodagent.backends.postgres.schema import ensure_schema_via_pool_async
 from prodagent.core.exceptions import VersionConflict
 from prodagent.core.state.run import AgentRun
@@ -37,22 +38,15 @@ class PostgresCheckpointStore:
         await ensure_schema_via_pool_async(self._pool)
         async with self._pool.connection() as conn:
             async with conn.cursor() as cur:
-                await cur.execute(
-                    "SELECT pg_advisory_xact_lock(hashtext(%s))",
-                    (f"{self._ns}:{run.run_id}",),
-                )
-                await cur.execute(
+                current = await lock_and_check_version(
+                    cur,
+                    f"{self._ns}:{run.run_id}",
                     "SELECT COALESCE(MAX(version), 0) FROM pa_checkpoint "
                     "WHERE namespace = %s AND run_id = %s",
                     (self._ns, run.run_id),
+                    expected_version,
+                    f"run {run.run_id}",
                 )
-                row = await cur.fetchone()
-                current = int(row[0]) if row else 0
-                if expected_version is not None and current != expected_version:
-                    raise VersionConflict(
-                        f"expected version {expected_version} for run {run.run_id}, "
-                        f"found {current} — concurrent writer won"
-                    )
                 new_version = current + 1
                 run.checkpoint_version = new_version
                 blob = json.dumps(run.to_dict(), ensure_ascii=False)
@@ -122,6 +116,17 @@ class PostgresCheckpointStore:
                 row = await cur.fetchone()
                 if row is None:
                     raise KeyError(f"run {run_id} v{at_version} not found")
+                await cur.execute(
+                    "SELECT COALESCE(MAX(version), 0) FROM pa_checkpoint "
+                    "WHERE namespace = %s AND run_id = %s",
+                    (self._ns, new_run_id),
+                )
+                existing_row = await cur.fetchone()
+                if existing_row and int(existing_row[0]) != 0:
+                    raise VersionConflict(
+                        f"fork target run_id={new_run_id} already has checkpoints — "
+                        "pass a fresh new_run_id."
+                    )
                 data: dict[str, Any] = json.loads(row[0])
                 data["run_id"] = new_run_id
                 new_blob = json.dumps(data, ensure_ascii=False)

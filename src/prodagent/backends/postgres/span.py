@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from psycopg_pool import ConnectionPool
 
-    from prodagent.resilience.observability.audit import AgentSpan
+    from prodagent.core.observability import AgentSpan
 
 __all__ = ["PostgresSpanExporter"]
 

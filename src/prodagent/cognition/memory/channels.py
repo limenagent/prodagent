@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from prodagent.cognition.memory.embedder import HashEmbedder, cosine
 from prodagent.cognition.memory.storage import MemoryType
+from prodagent.core.text import tokenize_cjk
 
 if TYPE_CHECKING:
     from prodagent.cognition.context.budget import TokenCounter
@@ -45,8 +46,6 @@ _SNIPPET_MAX_CHARS = 250
 
 
 def _keywords(query: str, *, min_len: int = 2) -> set[str]:
-    from prodagent.core.text import tokenize_cjk
-
     return set(tokenize_cjk(query, min_len=min_len))
 
 

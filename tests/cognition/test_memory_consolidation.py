@@ -11,7 +11,7 @@ from prodagent.backends.memory import InMemoryGraphStore
 from prodagent.cognition.memory.classification import MemoryClassifier
 from prodagent.cognition.memory.conflict import DefaultConflictPolicy, EmbeddingCandidateFilter
 from prodagent.cognition.memory.forgetting import activation
-from prodagent.cognition.memory.manager import MemoryManager
+from prodagent.cognition.memory.manager import MemoryManager, build_memory_manager
 from prodagent.cognition.memory.storage import (
     MemoryRecord,
     MemoryType,
@@ -171,7 +171,7 @@ async def test_consolidator_extracts_distilled_content():
 def make_store(tmp: Path, **kw) -> MemoryManager:
     docs = FileDocumentStore(tmp)
     facts = InMemoryGraphStore()
-    return MemoryManager(docs, facts, **kw)
+    return build_memory_manager(docs, facts, **kw)
 
 
 def _make_store_with_llm(tmp: Path, llm: _FakeLLM, **kw) -> MemoryManager:

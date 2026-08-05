@@ -4,7 +4,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from prodagent.cognition.context.budget import TokenCounter
+from prodagent.cognition.context.budget import BudgetTracker, TokenCounter
 from prodagent.cognition.memory.channels import (
     DEFAULT_MERGE_ORDER,
     EntityChannel,
@@ -22,16 +22,12 @@ from prodagent.cognition.memory.conflict import (
     SupersedeAction,
 )
 from prodagent.cognition.memory.embedder import HashEmbedder
+from prodagent.cognition.memory.facts import FactStore
 from prodagent.cognition.memory.forgetting import RECALL_FLOOR, activation
-from prodagent.cognition.memory.storage import (
-    MemoryRecord,
-    MemoryType,
-    StoredMemory,
-    mem_id,
-)
+from prodagent.cognition.memory.storage import MemoryRecord, MemoryType
 from prodagent.cognition.memory.touch_worker import TouchBackWorker
 from prodagent.core.state.run import is_child_subordinate
-from prodagent.core.time import now_timestamp, now_utc
+from prodagent.core.time import now_utc
 from prodagent.core.types import RunState
 from prodagent.hooks.checkpoint import CheckPoint
 from prodagent.hooks.events import HookEvent
@@ -47,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_BUDGET = 4_000
 
-__all__ = ["MemoryManager", "MemoryProvider"]
+__all__ = ["MemoryManager", "MemoryProvider", "build_memory_manager"]
 
 
 @runtime_checkable
@@ -64,50 +60,22 @@ class MemoryManager:
     """Orchestrator over a :class:`DocumentStore` + :class:`GraphStore`."""
 
     _documents: DocumentStore
-    _facts: GraphStore
+    _facts: FactStore
 
     def __init__(
         self,
-        documents: DocumentStore | None = None,
-        facts: GraphStore | None = None,
+        documents: DocumentStore,
+        facts: GraphStore,
         *,
-        framework_config: FrameworkConfig | None = None,
         constraints: list[str] | None = None,
         embedder: HashEmbedder | None = None,
         channels: list[Any] | None = None,
         classifier: MemoryClassifier | None = None,
-        candidate_filter: EmbeddingCandidateFilter | None = None,
-        conflict_policy: DefaultConflictPolicy | None = None,
+        conflict_pipeline: ConflictPipeline | None = None,
         budget: int = _DEFAULT_BUDGET,
     ) -> None:
-        if documents is None:
-            if framework_config is None:
-                raise ValueError(
-                    "MemoryManager requires either explicit documents or a framework_config"
-                )
-            from prodagent.backends.factory import resolve_document
-
-            documents = resolve_document(framework_config)
-        if facts is None:
-            if framework_config is None:
-                raise ValueError(
-                    "MemoryManager requires either explicit facts or a framework_config"
-                )
-            from prodagent.backends.factory import resolve_graph
-
-            facts = resolve_graph(framework_config)
-        # Aux LLM drives classify + conflict — lazy-resolved from framework_config.
-        if classifier is None and framework_config is not None:
-            from prodagent.backends.factory import resolve_llm
-            from prodagent.cognition.memory.classification import MemoryClassifier
-
-            classifier = MemoryClassifier(resolve_llm(framework_config))
-        if conflict_policy is None and framework_config is not None:
-            from prodagent.backends.factory import resolve_llm
-
-            conflict_policy = DefaultConflictPolicy(llm_client=resolve_llm(framework_config))
         self._documents = documents
-        self._facts = facts
+        self._facts = FactStore(facts)
         self._static_constraints: list[str] = list(constraints or [])
         self._budget = budget
         self._hooks: Any | None = None
@@ -125,10 +93,9 @@ class MemoryManager:
         self._merge_order = DEFAULT_MERGE_ORDER
 
         self._classifier: MemoryClassifier | None = classifier
-        self._candidate_filter = candidate_filter or EmbeddingCandidateFilter(self._embedder)
-        self._conflict_pipeline = ConflictPipeline(
-            self._candidate_filter,
-            conflict_policy,
+        self._conflict_pipeline = conflict_pipeline or ConflictPipeline(
+            EmbeddingCandidateFilter(self._embedder),
+            None,
             SupersedeAction(documents),
         )
 
@@ -142,51 +109,12 @@ class MemoryManager:
             self._write_lock = asyncio.Lock()
         return self._write_lock
 
-    def _write_fact(self, record: MemoryRecord) -> None:
-        # Each fact is one graph node (label ``Fact``); re-writing the same
-        # entity_id merges properties so the latest content/version wins.
-        # Edges between entities are the caller's job.
-        eid = record.entity_id or mem_id(record.content)
-        existing = self._facts.get_node(eid)
-        version = (existing["properties"].get("version", 0) + 1) if existing else 1
-        self._facts.add_node(
-            eid,
-            labels=["Fact"],
-            properties={
-                "content": record.content,
-                "entity_id": eid,
-                "domain": record.domain,
-                "source": record.source,
-                "version": version,
-                "created_at": now_timestamp(),
-                "embedding": record.embedding,
-            },
-        )
-
-    def _load_facts(self) -> list[StoredMemory]:
-        out: list[StoredMemory] = []
-        for node in self._facts.list_nodes(label="Fact"):
-            p = node["properties"]
-            out.append(
-                StoredMemory(
-                    id=node["id"],
-                    content=p.get("content", ""),
-                    memory_type=MemoryType.FACT,
-                    domain=p.get("domain", "general"),
-                    entity_id=node["id"],
-                    created_at=p.get("created_at", ""),
-                    version=p.get("version", 1),
-                    embedding=p.get("embedding"),
-                )
-            )
-        return out
-
     async def recall(self, query: str, domain: str | None = None) -> str:
         now = now_utc()
         async with self._get_write_lock():
             constraints = self._documents.load_constraints()
             documents = self._documents.load_memories()
-            facts = self._load_facts()
+            facts = self._facts.load_all()
         ctx = RecallContext(
             constraints=constraints,
             documents=documents,
@@ -202,7 +130,7 @@ class MemoryManager:
                 by_stage.setdefault(item.recall_stage, []).append(item)
 
         blocks: list[str] = []
-        budget_left = self._budget
+        budget = BudgetTracker(self._budget)
         recalled: list[str] = []
         seen_ids: set[str] = set()
 
@@ -224,14 +152,11 @@ class MemoryManager:
                             token_count=item.token_count,
                             source_mem=stored,
                         )
-                if budget_left - item.token_count < 0:
+                if not budget.try_take(item.token_count):
                     continue
                 recalled.append(item.content)
-                budget_left -= item.token_count
                 if stored is not None and stored.id:
                     seen_ids.add(stored.id)
-                # Touch-back reinforces retrieval for soft memories only —
-                # constraints are force-recalled, facts use versioning.
                 if (
                     stored is not None
                     and stored.id
@@ -305,7 +230,7 @@ class MemoryManager:
                 record.embedding = self._embedder.embed(record.content)
 
             if record.memory_type is MemoryType.FACT:
-                self._write_fact(record)
+                self._facts.write(record)
                 return
 
             discarded = (
@@ -325,3 +250,85 @@ class MemoryManager:
 
     async def add_memory(self, record: MemoryRecord) -> None:
         await self._persist(record, run_conflict=False)
+
+
+def _resolve_documents(
+    documents: DocumentStore | None, framework_config: FrameworkConfig | None
+) -> DocumentStore:
+    if documents is not None:
+        return documents
+    if framework_config is None:
+        raise ValueError("MemoryManager requires either explicit documents or a framework_config")
+    from prodagent.backends.factory import resolve_document
+
+    return resolve_document(framework_config)
+
+
+def _resolve_facts(
+    facts: GraphStore | None, framework_config: FrameworkConfig | None
+) -> GraphStore:
+    if facts is not None:
+        return facts
+    if framework_config is None:
+        raise ValueError("MemoryManager requires either explicit facts or a framework_config")
+    from prodagent.backends.factory import resolve_graph
+
+    return resolve_graph(framework_config)
+
+
+def _resolve_classifier(
+    classifier: MemoryClassifier | None, framework_config: FrameworkConfig | None
+) -> MemoryClassifier | None:
+    if classifier is not None or framework_config is None:
+        return classifier
+    from prodagent.backends.factory import resolve_llm
+    from prodagent.cognition.memory.classification import MemoryClassifier
+
+    return MemoryClassifier(resolve_llm(framework_config))
+
+
+def _resolve_conflict_policy(
+    conflict_policy: DefaultConflictPolicy | None, framework_config: FrameworkConfig | None
+) -> DefaultConflictPolicy | None:
+    if conflict_policy is not None or framework_config is None:
+        return conflict_policy
+    from prodagent.backends.factory import resolve_llm
+
+    return DefaultConflictPolicy(llm_client=resolve_llm(framework_config))
+
+
+def build_memory_manager(
+    documents: DocumentStore | None = None,
+    facts: GraphStore | None = None,
+    *,
+    framework_config: FrameworkConfig | None = None,
+    constraints: list[str] | None = None,
+    embedder: HashEmbedder | None = None,
+    channels: list[Any] | None = None,
+    classifier: MemoryClassifier | None = None,
+    candidate_filter: EmbeddingCandidateFilter | None = None,
+    conflict_policy: DefaultConflictPolicy | None = None,
+    budget: int = _DEFAULT_BUDGET,
+) -> MemoryManager:
+    resolved_documents = _resolve_documents(documents, framework_config)
+    resolved_facts = _resolve_facts(facts, framework_config)
+    resolved_classifier = _resolve_classifier(classifier, framework_config)
+    resolved_conflict_policy = _resolve_conflict_policy(conflict_policy, framework_config)
+    resolved_embedder = embedder or HashEmbedder()
+
+    conflict_pipeline = ConflictPipeline(
+        candidate_filter or EmbeddingCandidateFilter(resolved_embedder),
+        resolved_conflict_policy,
+        SupersedeAction(resolved_documents),
+    )
+
+    return MemoryManager(
+        resolved_documents,
+        resolved_facts,
+        constraints=constraints,
+        embedder=resolved_embedder,
+        channels=channels,
+        classifier=resolved_classifier,
+        conflict_pipeline=conflict_pipeline,
+        budget=budget,
+    )

@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from prodagent.cognition.memory import MemoryManager
+from prodagent.cognition.memory import MemoryManager, build_memory_manager
 from prodagent.core.config import FrameworkConfig
 
 _CONSTRAINTS = [
@@ -25,7 +25,7 @@ def build_memory(
         framework_config: 父 fw。不传时用默认。
     """
     fw = framework_config or FrameworkConfig.default()
-    return MemoryManager(
+    return build_memory_manager(
         framework_config=fw,
         constraints=list(_CONSTRAINTS),
     )

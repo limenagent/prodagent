@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TypeAlias
 
+from prodagent.core.exceptions import VersionConflict
 from prodagent.core.state.run import AgentRun
 from prodagent.ports.checkpoint import CheckpointStore
 
@@ -61,3 +62,20 @@ async def run_checkpoint_fork_conformance(make_store: Factory) -> None:
     assert forked is not None
     assert forked.run_id == "fork-dst"
     assert forked.task == "t"
+
+
+async def run_checkpoint_fork_refuses_existing_conformance(make_store: Factory) -> None:
+    """``fork`` refuses to overwrite a ``new_run_id`` that already has checkpoints."""
+    store = make_store()
+    await store.save(AgentRun(run_id="fork-src2", task="t"))
+    await store.save(AgentRun(run_id="fork-taken", task="t"))
+
+    versions = await store.list_versions("fork-src2")
+    if not versions:
+        return  # backend without version history skips fork
+
+    try:
+        await store.fork("fork-src2", at_version=versions[-1], new_run_id="fork-taken")
+    except VersionConflict:
+        return
+    raise AssertionError("fork onto an existing run_id must raise VersionConflict")

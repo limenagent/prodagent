@@ -181,6 +181,13 @@ class RunPhase(StrEnum):
     DONE = "done"
 
 
+class Layer(StrEnum):
+    L0 = "L0"
+    L1 = "L1"
+    L2 = "L2"
+    L3 = "L3"
+
+
 class ExecutionMode(StrEnum):
     """Controls how an Agent decides which tools to call and in what order."""
 

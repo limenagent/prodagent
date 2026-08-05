@@ -6,15 +6,14 @@ import asyncio
 import json
 import logging
 import re
+import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from prodagent.backends.file._locking import _exclusive
 from prodagent.core.exceptions import CorruptedCheckpointError, VersionConflict
 from prodagent.core.io import safe_filename_component, write_atomic_json
-
-if TYPE_CHECKING:
-    from prodagent.core.state.run import AgentRun
+from prodagent.core.state.run import AgentRun
 
 logger = logging.getLogger(__name__)
 
@@ -91,8 +90,6 @@ class FileCheckpointStore:
         return await asyncio.to_thread(self._load_sync, run_id, version)
 
     def _load_sync(self, run_id: str, version: int | None = None) -> AgentRun | None:
-        from prodagent.core.state.run import AgentRun
-
         if version is None:
             version = self._latest_version(run_id)
             if version == 0:
@@ -154,14 +151,12 @@ class FileCheckpointStore:
         return await asyncio.to_thread(self._fork_sync, run_id, at_version, new_run_id)
 
     def _fork_sync(self, run_id: str, at_version: int, new_run_id: str | None) -> str:
-        import uuid as _uuid
-
         source = self._load_sync(run_id, at_version)
         if source is None:
             raise CorruptedCheckpointError(
                 f"cannot fork: no checkpoint for run={run_id} at version={at_version}"
             )
-        forked_id = new_run_id or f"{run_id}:fork-v{at_version}-{_uuid.uuid4().hex[:8]}"
+        forked_id = new_run_id or f"{run_id}:fork-v{at_version}-{uuid.uuid4().hex[:8]}"
         source.run_id = forked_id
         source.plan_last_seq = 0
         source.checkpoint_version = 0

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import time
 import uuid
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
+from prodagent.core.observability import AgentSpan as AgentSpan
 from prodagent.resilience.observability.scrubber import PassthroughScrubber
 
 if TYPE_CHECKING:
@@ -26,45 +26,17 @@ def _new_span_id() -> str:
     return os.urandom(8).hex()
 
 
-@dataclass
-class AgentSpan:
-    """Decision snapshot — what happened, where it fits, why the model chose it."""
+class LogExporter:
+    """Structured JSON to the Python logging system. Zero dependencies."""
 
-    span_id: str
-    trace_id: str
-    run_id: str
-    action: str
-    input_payload: dict[str, Any]
-    timestamp: float
+    def export(self, span: AgentSpan) -> None:
+        if span.error:
+            logger.error("AUDIT %s", span.to_log_line())
+        else:
+            logger.info("AUDIT %s", span.to_log_line())
 
-    parent_span_id: str | None = None
-    system_prompt_version: str = ""
-    retrieved_context: list[str] = field(default_factory=list)
-    llm_reasoning: str = ""
-    output: Any = None
-    error: str | None = None
-    latency_ms: float = 0.0
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cost_usd: float = 0.0
-    sampled: bool = True
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-    def to_log_line(self) -> str:
-        return json.dumps(
-            {
-                "span_id": self.span_id,
-                "trace_id": self.trace_id,
-                "parent_span_id": self.parent_span_id,
-                "run_id": self.run_id,
-                "action": self.action,
-                "latency_ms": round(self.latency_ms, 1),
-                "cost_usd": round(self.cost_usd, 6),
-                "error": self.error,
-            }
-        )
+    def shutdown(self) -> None:
+        pass
 
 
 class AuditLogger:
@@ -85,8 +57,6 @@ class AuditLogger:
 
     def _resolved_exporter(self) -> SpanExporter:
         if self._exporter is None:
-            from prodagent.backends.file.span import LogExporter
-
             self._exporter = LogExporter()
         return self._exporter
 

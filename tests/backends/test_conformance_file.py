@@ -10,6 +10,7 @@ from __future__ import annotations
 from prodagent.backends.conformance import (
     run_checkpoint_conformance,
     run_checkpoint_fork_conformance,
+    run_checkpoint_fork_refuses_existing_conformance,
     run_checkpoint_versioning_conformance,
     run_document_conformance,
     run_document_constraint_storage_conformance,
@@ -72,6 +73,10 @@ async def test_file_checkpoint_versioning_conformance(tmp_path):
 
 async def test_file_checkpoint_fork_conformance(tmp_path):
     await run_checkpoint_fork_conformance(_file_checkpoint(tmp_path))
+
+
+async def test_file_checkpoint_fork_refuses_existing_conformance(tmp_path):
+    await run_checkpoint_fork_refuses_existing_conformance(_file_checkpoint(tmp_path))
 
 
 # ── event_log ─────────────────────────────────────────────────────────────────

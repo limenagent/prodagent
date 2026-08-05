@@ -25,6 +25,7 @@ import pytest
 from prodagent.backends.conformance import (
     run_checkpoint_conformance,
     run_checkpoint_fork_conformance,
+    run_checkpoint_fork_refuses_existing_conformance,
     run_checkpoint_versioning_conformance,
     run_document_conformance,
     run_document_constraint_storage_conformance,
@@ -156,6 +157,12 @@ async def test_pg_checkpoint_versioning_conformance(async_pool, clean_async):
 
 async def test_pg_checkpoint_fork_conformance(async_pool, clean_async):
     await run_checkpoint_fork_conformance(
+        lambda: PostgresCheckpointStore(async_pool, namespace=clean_async)
+    )
+
+
+async def test_pg_checkpoint_fork_refuses_existing_conformance(async_pool, clean_async):
+    await run_checkpoint_fork_refuses_existing_conformance(
         lambda: PostgresCheckpointStore(async_pool, namespace=clean_async)
     )
 

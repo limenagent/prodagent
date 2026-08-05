@@ -6,14 +6,12 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from prodagent.backends.file._locking import _exclusive
 from prodagent.core.exceptions import VersionConflict
 from prodagent.core.io import safe_filename_component, write_atomic_json
-
-if TYPE_CHECKING:
-    from prodagent.core.state.session import ConversationSession
+from prodagent.core.state.session import ConversationSession
 
 logger = logging.getLogger(__name__)
 
@@ -66,8 +64,6 @@ class FileSessionStore:
         return await asyncio.to_thread(self._load_sync, session_id)
 
     def _load_sync(self, session_id: str) -> ConversationSession | None:
-        from prodagent.core.state.session import ConversationSession
-
         path = self._path(session_id)
         if not path.exists():
             return None

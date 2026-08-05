@@ -32,6 +32,7 @@ from prodagent.backends.conformance.cache import (
 from prodagent.backends.conformance.checkpoint import (
     run_checkpoint_conformance,
     run_checkpoint_fork_conformance,
+    run_checkpoint_fork_refuses_existing_conformance,
     run_checkpoint_versioning_conformance,
 )
 from prodagent.backends.conformance.dead_letter import (
@@ -92,6 +93,7 @@ __all__ = [
     "run_cache_key_isolation_conformance",
     "run_checkpoint_conformance",
     "run_checkpoint_fork_conformance",
+    "run_checkpoint_fork_refuses_existing_conformance",
     "run_checkpoint_versioning_conformance",
     "run_dead_letter_conformance",
     "run_dead_letter_escalation_conformance",

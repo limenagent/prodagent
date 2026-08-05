@@ -4,6 +4,8 @@ import hashlib
 import struct
 from typing import TYPE_CHECKING, cast
 
+from prodagent.core.text import tokenize_cjk
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -29,8 +31,6 @@ class HashEmbedder:
     """Bag-of-hashed-tokens pseudo-vectors — swap for a real embedder in production."""
 
     def embed(self, text: str) -> list[float]:
-        from prodagent.core.text import tokenize_cjk
-
         vec = [0.0] * _DIM
         for token in tokenize_cjk(text):
             h = hashlib.blake2b(token.encode(), digest_size=4).digest()

@@ -6,13 +6,12 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
+from prodagent.backends.postgres._versioned import lock_and_check_version
 from prodagent.backends.postgres.schema import ensure_schema_via_pool_async
-from prodagent.core.exceptions import VersionConflict
+from prodagent.core.state.session import ConversationSession
 
 if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
-
-    from prodagent.core.state.session import ConversationSession
 
 logger = logging.getLogger(__name__)
 
@@ -33,21 +32,14 @@ class PostgresSessionStore:
         await ensure_schema_via_pool_async(self._pool)
         async with self._pool.connection() as conn:
             async with conn.cursor() as cur:
-                await cur.execute(
-                    "SELECT pg_advisory_xact_lock(hashtext(%s))",
-                    (f"{self._ns}:{session.session_id}",),
-                )
-                await cur.execute(
+                current = await lock_and_check_version(
+                    cur,
+                    f"{self._ns}:{session.session_id}",
                     "SELECT version FROM pa_session WHERE namespace = %s AND session_id = %s",
                     (self._ns, session.session_id),
+                    expected_version,
+                    f"session {session.session_id}",
                 )
-                row = await cur.fetchone()
-                current = int(row[0]) if row else 0
-                if expected_version is not None and current != expected_version:
-                    raise VersionConflict(
-                        f"expected version {expected_version} for session {session.session_id}, "
-                        f"found {current} — concurrent writer won"
-                    )
                 session.version = current + 1
                 blob = json.dumps(session.to_dict(), ensure_ascii=False)
                 await cur.execute(
@@ -59,8 +51,6 @@ class PostgresSessionStore:
             await conn.commit()
 
     async def load(self, session_id: str) -> ConversationSession | None:
-        from prodagent.core.state.session import ConversationSession
-
         await ensure_schema_via_pool_async(self._pool)
         async with self._pool.connection() as conn, conn.cursor() as cur:
             await cur.execute(

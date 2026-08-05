@@ -1,20 +1,27 @@
 from __future__ import annotations
 
-from enum import Enum, StrEnum
-from typing import TYPE_CHECKING
+from enum import Enum
+from typing import TYPE_CHECKING, TypeVar
+
+from prodagent.core.text import cjk_char_count
+from prodagent.core.types import Layer
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+
     from prodagent.core.config import ContextConfig
     from prodagent.core.types import Message
 
-__all__ = ["Layer", "TokenCounter", "CompressionLevel", "ContextBudget"]
+__all__ = [
+    "Layer",
+    "TokenCounter",
+    "CompressionLevel",
+    "ContextBudget",
+    "BudgetTracker",
+    "fit_within_budget",
+]
 
-
-class Layer(StrEnum):
-    L0 = "L0"
-    L1 = "L1"
-    L2 = "L2"
-    L3 = "L3"
+T = TypeVar("T")
 
 
 class CompressionLevel(int, Enum):
@@ -31,8 +38,6 @@ class TokenCounter:
     def count(self, text: str) -> int:
         if not text:
             return 0
-        from prodagent.core.text import cjk_char_count
-
         cjk = cjk_char_count(text)
         ascii_chars = len(text) - cjk
         return max(1, int(cjk / 1.5) + ascii_chars // 4)
@@ -87,3 +92,35 @@ class ContextBudget:
 
     def breakdown(self) -> dict[str, int]:
         return {layer.value: self._spent[layer] for layer in Layer} | {"free": self.remaining()}
+
+
+class BudgetTracker:
+    """Tracks a shrinking token budget for greedy selection loops."""
+
+    def __init__(self, budget: int) -> None:
+        self._remaining = budget
+
+    def try_take(self, tokens: int) -> bool:
+        if tokens > self._remaining:
+            return False
+        self._remaining -= tokens
+        return True
+
+
+def fit_within_budget(
+    items: Sequence[T],
+    budget: int,
+    token_of: Callable[[T], int],
+    *,
+    separator_tokens: int = 0,
+) -> list[T]:
+    """Keep the longest tail of ``items`` (most recent last) that fits ``budget``."""
+    tracker = BudgetTracker(budget)
+    kept: list[T] = []
+    for item in reversed(items):
+        cost = token_of(item) + (separator_tokens if kept else 0)
+        if not tracker.try_take(cost):
+            break
+        kept.append(item)
+    kept.reverse()
+    return kept

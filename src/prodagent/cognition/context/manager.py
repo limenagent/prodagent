@@ -9,6 +9,7 @@ from prodagent.cognition.context.budget import (
     ContextBudget,
     Layer,
     TokenCounter,
+    fit_within_budget,
 )
 from prodagent.cognition.context.compression import (
     CHARS_PER_TOKEN,
@@ -140,43 +141,11 @@ class ContextManager:
         """
         budget = ContextBudget(self._cfg, self._max)
 
-        budget.alloc(Layer.L0, self._system_tokens)
-        if budget.is_over(Layer.L0):
-            logger.warning(
-                "L0 system prompt %d tokens exceeds L0 quota %d (%.0f%% of window) — "
-                "it will squeeze L3 history. Shorten the system prompt or raise l0_ratio.",
-                budget.layer_spent(Layer.L0),
-                budget.layer_budget(Layer.L0),
-                self._cfg.l0_ratio * 100,
-            )
+        state_block, state_tokens = self._alloc_state_block(budget, run)
+        memory_block, memory_tokens = await self._alloc_memory_block(
+            budget, run, hooks, memory_snippets
+        )
 
-        state_block = format_state(run)
-        state_tokens = self._counter.count(state_block)
-        budget.alloc(Layer.L1, state_tokens)
-        if budget.is_over(Layer.L1):
-            logger.warning(
-                "L1 state block %d tokens exceeds L1 quota %d — check run state size.",
-                budget.layer_spent(Layer.L1),
-                budget.layer_budget(Layer.L1),
-            )
-
-        memory_snippets = await self._collect_memory(run, hooks, memory_snippets)
-        memory_block = "\n".join(memory_snippets) if memory_snippets else ""
-        memory_tokens = self._counter.count(memory_block)
-        budget.alloc(Layer.L2, memory_tokens)
-
-        # Prune L2 to its quota BEFORE history compression so an oversized
-        # memory injection trims itself rather than evicting L3 history.
-        if budget.is_over(Layer.L2):
-            memory_snippets = self._prune_layer(
-                memory_snippets or [], budget.layer_budget(Layer.L2), self._counter
-            )
-            memory_block = "\n".join(memory_snippets) if memory_snippets else ""
-            memory_tokens = self._counter.count(memory_block)
-            budget.alloc(Layer.L2, memory_tokens)
-
-        # Invoked-skills block — re-injected every turn from the dispatcher's
-        # side-state so it survives L3 compression.
         skills_block = self._build_invoked_skills_block(invoked_skills or {})
         skills_tokens = self._counter.count(skills_block)
 
@@ -185,42 +154,11 @@ class ContextManager:
             run, state_tokens, memory_tokens, skills_tokens
         )
 
-        sandwich = _Sandwich(
-            state_msg={"role": "user", "content": f"[STATE]\n{state_block}"}
-            if state_block
-            else None,
-            memory_msg={"role": "user", "content": f"[MEMORY]\n{memory_block}"}
-            if memory_block
-            else None,
-            skills_msg={"role": "user", "content": skills_block} if skills_block else None,
-            history=list(history),
-            reminder_msg={"role": "user", "content": self._reminder} if self._reminder else None,
-        )
-
-        # L3 debited last — reflects ACTUAL post-compression history sent to
-        # the LLM, not run.messages.
+        sandwich = self._assemble_sandwich(state_block, memory_block, skills_block, history)
         l3_tokens = sum(self._counter.count_message(m) for m in sandwich.history)
         budget.alloc(Layer.L3, l3_tokens)
 
-        messages = sandwich.to_messages()
-        total = self._counter.count(self._system) + sum(
-            self._counter.count_message(m) for m in messages
-        )
-        if total > self._max:
-            logger.error(
-                "Context overflow: %d > %d tokens - truncating to last 2 messages",
-                total,
-                self._max,
-            )
-            sandwich.history = list(sandwich.history[safe_tail_start(sandwich.history, 2) :])
-            budget.alloc(
-                Layer.L3,
-                sum(self._counter.count_message(m) for m in sandwich.history),
-            )
-            messages = sandwich.to_messages()
-            total = self._counter.count(self._system) + sum(
-                self._counter.count_message(m) for m in messages
-            )
+        messages, total = self._enforce_total_budget(sandwich, budget)
 
         run.messages = list(sandwich.history)
 
@@ -242,6 +180,93 @@ class ContextManager:
 
         logger.debug("Context assembled: %d tokens, compression=%s", total, compression.name)
         return self._system, messages
+
+    def _alloc_state_block(self, budget: ContextBudget, run: AgentRun) -> tuple[str, int]:
+        budget.alloc(Layer.L0, self._system_tokens)
+        if budget.is_over(Layer.L0):
+            logger.warning(
+                "L0 system prompt %d tokens exceeds L0 quota %d (%.0f%% of window) — "
+                "it will squeeze L3 history. Shorten the system prompt or raise l0_ratio.",
+                budget.layer_spent(Layer.L0),
+                budget.layer_budget(Layer.L0),
+                self._cfg.l0_ratio * 100,
+            )
+
+        state_block = format_state(run)
+        state_tokens = self._counter.count(state_block)
+        budget.alloc(Layer.L1, state_tokens)
+        if budget.is_over(Layer.L1):
+            logger.warning(
+                "L1 state block %d tokens exceeds L1 quota %d — check run state size.",
+                budget.layer_spent(Layer.L1),
+                budget.layer_budget(Layer.L1),
+            )
+        return state_block, state_tokens
+
+    async def _alloc_memory_block(
+        self,
+        budget: ContextBudget,
+        run: AgentRun,
+        hooks: HookRegistry | None,
+        memory_snippets: list[str] | None,
+    ) -> tuple[str, int]:
+        memory_snippets = await self._collect_memory(run, hooks, memory_snippets)
+        memory_block = "\n".join(memory_snippets) if memory_snippets else ""
+        memory_tokens = self._counter.count(memory_block)
+        budget.alloc(Layer.L2, memory_tokens)
+
+        if budget.is_over(Layer.L2):
+            memory_snippets = self._prune_layer(
+                memory_snippets or [], budget.layer_budget(Layer.L2), self._counter
+            )
+            memory_block = "\n".join(memory_snippets) if memory_snippets else ""
+            memory_tokens = self._counter.count(memory_block)
+            budget.alloc(Layer.L2, memory_tokens)
+
+        return memory_block, memory_tokens
+
+    def _assemble_sandwich(
+        self,
+        state_block: str,
+        memory_block: str,
+        skills_block: str,
+        history: MessageList,
+    ) -> _Sandwich:
+        return _Sandwich(
+            state_msg={"role": "user", "content": f"[STATE]\n{state_block}"}
+            if state_block
+            else None,
+            memory_msg={"role": "user", "content": f"[MEMORY]\n{memory_block}"}
+            if memory_block
+            else None,
+            skills_msg={"role": "user", "content": skills_block} if skills_block else None,
+            history=list(history),
+            reminder_msg={"role": "user", "content": self._reminder} if self._reminder else None,
+        )
+
+    def _enforce_total_budget(
+        self, sandwich: _Sandwich, budget: ContextBudget
+    ) -> tuple[MessageList, int]:
+        messages = sandwich.to_messages()
+        total = self._counter.count(self._system) + sum(
+            self._counter.count_message(m) for m in messages
+        )
+        if total > self._max:
+            logger.error(
+                "Context overflow: %d > %d tokens - truncating to last 2 messages",
+                total,
+                self._max,
+            )
+            sandwich.history = list(sandwich.history[safe_tail_start(sandwich.history, 2) :])
+            budget.alloc(
+                Layer.L3,
+                sum(self._counter.count_message(m) for m in sandwich.history),
+            )
+            messages = sandwich.to_messages()
+            total = self._counter.count(self._system) + sum(
+                self._counter.count_message(m) for m in messages
+            )
+        return messages, total
 
     def _build_invoked_skills_block(self, invoked_skills: dict[str, str]) -> str:
         if not invoked_skills:
@@ -277,20 +302,9 @@ class ContextManager:
 
     @staticmethod
     def _prune_layer(items: list[str], budget_tokens: int, counter: TokenCounter) -> list[str]:
-        if not items:
-            return []
-        kept: list[str] = []
-        used = 0
-        for snippet in reversed(items):
-            t = counter.count(snippet)
-            if kept:
-                t += counter.count("\n")
-            if used + t > budget_tokens:
-                break
-            kept.append(snippet)
-            used += t
-        kept.reverse()
-        return kept
+        return fit_within_budget(
+            items, budget_tokens, counter.count, separator_tokens=counter.count("\n")
+        )
 
     async def _compress_history(
         self,
@@ -299,8 +313,6 @@ class ContextManager:
         memory_tokens: int,
         skills_tokens: int,
     ) -> tuple[MessageList, CompressionLevel]:
-        # current_usage (for level detection) EXCLUDES reminder+margin;
-        # history_budget (for the compressor) INCLUDES them.
         current_usage = (
             self._system_tokens
             + state_tokens
@@ -369,8 +381,6 @@ class ContextManager:
     ) -> list[str]:
         if not hooks:
             return list(memory_snippets) if memory_snippets else []
-
-        from prodagent.hooks.events import HookEvent
 
         if hooks.has_injector_handlers(InjectionPoint.CONTEXT_INJECTOR):
             extra = await hooks.collect(

@@ -15,6 +15,7 @@ from prodagent.cognition.memory import (
     MemoryManager,
     MemoryRecord,
     MemoryType,
+    build_memory_manager,
 )
 from prodagent.cognition.memory.conflict import DefaultConflictPolicy
 from prodagent.core.config import FrameworkConfig
@@ -38,7 +39,7 @@ def build_memory(
     fw = framework_config or FrameworkConfig.default()
     fw = _dc_replace(fw, orchestration=_dc_replace(fw.orchestration, runs_dir=str(MEMORY_DIR)))
 
-    return MemoryManager(
+    return build_memory_manager(
         framework_config=fw,
         classifier=MemoryClassifier(aux_llm),
         conflict_policy=DefaultConflictPolicy(llm_client=aux_llm),

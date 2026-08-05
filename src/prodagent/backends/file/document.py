@@ -5,16 +5,18 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+from prodagent.backends._shared.document_write import build_stored_memory
 from prodagent.backends.file._locking import _exclusive
 from prodagent.cognition.memory.storage import (
-    EPISODIC_DEFAULT_TTL_DAYS,
     MAX_SOFT_MEMORIES,
     MemoryRecord,
     MemoryType,
     StoredMemory,
-    mem_id,
 )
 from prodagent.core.io import write_atomic_json
 from prodagent.core.time import now_timestamp
@@ -66,16 +68,7 @@ class FileDocumentStore:
             _write_json(self._memories_file, [m.to_dict() for m in data[:MAX_SOFT_MEMORIES]])
 
     def append_soft(self, record: MemoryRecord) -> None:
-        ttl = record.ttl_days
-        if ttl is None and record.memory_type is MemoryType.EPISODIC:
-            ttl = EPISODIC_DEFAULT_TTL_DAYS
-
-        stored = StoredMemory.from_record(
-            record,
-            id=mem_id(record.content),
-            created_at=now_timestamp(),
-        )
-        stored.ttl_days = ttl
+        stored = build_stored_memory(record)
         with _exclusive(self._lock_file):
             memories = [
                 StoredMemory.from_dict(m) for m in _read_json(self._memories_file, default=[])
@@ -83,25 +76,23 @@ class FileDocumentStore:
             memories.insert(0, stored)
             _write_json(self._memories_file, [m.to_dict() for m in memories[:MAX_SOFT_MEMORIES]])
 
-    def mark_superseded(self, mem_id: str, superseded: bool) -> None:
+    def _mutate_mem(self, mem_id: str, fn: Callable[[StoredMemory], None]) -> None:
         with _exclusive(self._lock_file):
             memories = [
                 StoredMemory.from_dict(m) for m in _read_json(self._memories_file, default=[])
             ]
             for mem in memories:
                 if mem.id == mem_id:
-                    mem.superseded = superseded
+                    fn(mem)
                     _write_json(self._memories_file, [m.to_dict() for m in memories])
                     return
 
+    def mark_superseded(self, mem_id: str, superseded: bool) -> None:
+        self._mutate_mem(mem_id, lambda mem: setattr(mem, "superseded", superseded))
+
     def touch_memory(self, mem_id: str) -> None:
-        with _exclusive(self._lock_file):
-            memories = [
-                StoredMemory.from_dict(m) for m in _read_json(self._memories_file, default=[])
-            ]
-            for mem in memories:
-                if mem.id == mem_id:
-                    mem.access_count += 1
-                    mem.last_access = now_timestamp()
-                    _write_json(self._memories_file, [m.to_dict() for m in memories])
-                    return
+        def _touch(mem: StoredMemory) -> None:
+            mem.access_count += 1
+            mem.last_access = now_timestamp()
+
+        self._mutate_mem(mem_id, _touch)
