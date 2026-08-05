@@ -26,7 +26,7 @@ def test_attach_default_hooks_survives_unimplemented_experience_backend():
     agent = Agent(
         "learning-degrade",
         skills=SkillRegistry(),
-        framework_config=_fw_with_unimplemented_experience(),
+        framework=_fw_with_unimplemented_experience(),
     )
     # Must not raise NotImplementedError.
     registry = agent.attach_default_hooks()
@@ -40,7 +40,7 @@ def test_attach_default_hooks_with_file_experience_still_wires_learning(tmp_path
     agent = Agent(
         "learning-normal",
         skills=SkillRegistry(),
-        framework_config=fw,
+        framework=fw,
     )
     registry = agent.attach_default_hooks()
     handlers = list(registry.event_handlers(HookEvent.SESSION_END))

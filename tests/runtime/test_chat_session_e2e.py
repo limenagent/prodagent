@@ -17,12 +17,12 @@ from __future__ import annotations
 
 import pytest
 
+from prodagent import Agent, ExecutionMode
 from prodagent.core.config import FrameworkConfig
 from prodagent.core.exceptions import PlanAlreadyCompletedError
 from prodagent.core.state.run import AgentRun
-from prodagent.core.types import ExecutionMode, RunState
+from prodagent.core.types import RunState
 from prodagent.llm.fake import script
-from prodagent.runtime.agent import Agent
 from prodagent.runtime.workflow import Workflow
 
 
@@ -40,8 +40,10 @@ def _workflow_agent(tmp_path) -> Agent:
         "wf_chat",
         system_prompt="Reply briefly.",
         llm=script({"content": "first reply"}, {"content": "second reply"}),
-        framework_config=_fw(tmp_path),
-    ).workflow(wf, allow_replan=False)
+        framework=_fw(tmp_path),
+        workflow=wf,
+        allow_replan=False,
+    )
 
 
 def _reactive_agent(tmp_path) -> Agent:
@@ -49,8 +51,9 @@ def _reactive_agent(tmp_path) -> Agent:
         "reactive_chat",
         system_prompt="Reply briefly.",
         llm=script({"content": "first reply"}, {"content": "second reply"}),
-        framework_config=_fw(tmp_path),
-    ).reactive()
+        framework=_fw(tmp_path),
+        mode=ExecutionMode.REACTIVE,
+    )
 
 
 def _plan_first_agent(tmp_path) -> Agent:
@@ -67,8 +70,9 @@ def _plan_first_agent(tmp_path) -> Agent:
             },
             {"content": "second reply"},
         ),
-        framework_config=_fw(tmp_path),
-    ).plan_first()
+        framework=_fw(tmp_path),
+        mode=ExecutionMode.PLAN_FIRST,
+    )
 
 
 @pytest.mark.asyncio
@@ -91,7 +95,6 @@ async def test_workflow_chat_with_explicit_reactive_mode_continues(tmp_path):
     a workflow agent after its plan has run to completion, instead of replaying
     the stale ``final_output``.
     """
-    from prodagent.core.types import ExecutionMode
 
     agent = _workflow_agent(tmp_path)
     r1 = await agent.chat("first turn", session_id="wf-react-A")
@@ -135,7 +138,7 @@ async def test_workflow_deepcopy_isolates_sessions(tmp_path):
 
 @pytest.mark.asyncio
 async def test_suspended_resume_reuses_run_id_and_rejects_mode_mismatch(tmp_path):
-    from prodagent.core.types import ExecutionMode, RunState
+    from prodagent.core.types import RunState
 
     agent = _reactive_agent(tmp_path)
     r1 = await agent.chat("first", session_id="sus-A")
@@ -178,7 +181,6 @@ def test_construction_asserts_initial_plan_requires_plan_first():
     is defence against a future API breaking that. This test confirms the
     expression itself catches the broken state.
     """
-    from prodagent.core.types import ExecutionMode
     from prodagent.runtime.plan.dag import Plan
 
     agent = Agent(

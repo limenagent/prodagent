@@ -12,14 +12,13 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent import RunState, SideEffectLevel, ToolMeta
+from prodagent import Agent, ExecutionMode, RunState, SideEffectLevel, ToolMeta
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.core.config import FrameworkConfig
 from prodagent.guardrail.approval import ApprovalDecision, ApprovalGate
 from prodagent.hooks.bundles.security import ApprovalHooks
 from prodagent.hooks.registry import HookRegistry
 from prodagent.llm.fake import script
-from prodagent.runtime.agent import Agent
 from prodagent.runtime.workflow import Workflow
 from prodagent.tooling import tool
 
@@ -42,34 +41,31 @@ def _workflow_child(llm, gate: ApprovalGate, store, fw) -> Agent:
     wf.tool_step("s1", "delete_record", params={"record_id": "rec-42"})
 
     hooks = HookRegistry()
-    return (
-        Agent(
-            "wf_child",
-            system_prompt="delete the record via DAG",
-            tools=[delete_record],
-            llm=llm,
-            hooks=hooks,
-            framework_config=fw,
-        )
-        .workflow(wf, allow_replan=False)
-        .extend(ApprovalHooks(gate=gate))
+    return Agent(
+        "wf_child",
+        system_prompt="delete the record via DAG",
+        tools=[delete_record],
+        llm=llm,
+        hooks=hooks,
+        framework=fw,
+        workflow=wf,
+        allow_replan=False,
+        extensions=[ApprovalHooks(gate=gate)],
     )
 
 
 def _reactive_parent(child: Agent, llm, gate: ApprovalGate, store, fw) -> Agent:
     """REACTIVE parent that spawns the workflow child to do the deletion."""
     hooks = HookRegistry()
-    return (
-        Agent(
-            "parent",
-            system_prompt="Spawn wf_child to delete the record.",
-            llm=llm,
-            hooks=hooks,
-            framework_config=fw,
-        )
-        .reactive()
-        .agents([child])
-        .extend(ApprovalHooks(gate=gate))
+    return Agent(
+        "parent",
+        system_prompt="Spawn wf_child to delete the record.",
+        llm=llm,
+        hooks=hooks,
+        framework=fw,
+        mode=ExecutionMode.REACTIVE,
+        agents=[child],
+        extensions=[ApprovalHooks(gate=gate)],
     )
 
 

@@ -29,7 +29,7 @@ def test_extend_preserves_default_observers():
         def attach(self, hooks: HookRegistry) -> None:
             hooks.register_checker(CheckPoint.TOOL_CALL, lambda **_: None)
 
-    agent = Agent("t").extend(NoopBundle())
+    agent = Agent("t", extensions=[NoopBundle()])
 
     resolved = agent.attach_default_hooks()
     assert _has_console_observer(resolved)

@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from prodagent import Agent, HardBudget
+from prodagent import Agent, ExecutionMode, HardBudget
 from prodagent.core.config import ContextConfig, FrameworkConfig
 from prodagent.hooks.registry import HookRegistry
 from prodagent.llm.fake import script
@@ -23,7 +23,8 @@ async def test_budget_turn_limit_exceeded():
         budget=HardBudget(max_turns=2),
         llm=script({"content": "Keep calling never_finish"}),
         hooks=HookRegistry(),
-    ).reactive()
+        mode=ExecutionMode.REACTIVE,
+    )
 
     run = await agent.chat("Start infinite loop")
 
@@ -45,7 +46,8 @@ async def test_budget_cost_limit_exceeded():
         budget=HardBudget(max_cost_usd=0.0001),
         llm=script({"content": "Call expensive"}),
         hooks=HookRegistry(),
-    ).reactive()
+        mode=ExecutionMode.REACTIVE,
+    )
 
     run = await agent.chat("Spend budget")
 
@@ -68,7 +70,8 @@ async def test_budget_time_limit_exceeded():
         budget=HardBudget(max_seconds=1.0),
         llm=script({"content": "Call slow tool"}),
         hooks=HookRegistry(),
-    ).reactive()
+        mode=ExecutionMode.REACTIVE,
+    )
 
     run = await agent.chat("Take time")
 
@@ -88,10 +91,11 @@ async def test_context_window_overflow():
         system_prompt="Fill context.",
         tools=[grow_context_tool],
         budget=HardBudget(max_turns=5),
-        framework_config=FrameworkConfig(context=ContextConfig(max_tokens=500)),
+        framework=FrameworkConfig(context=ContextConfig(max_tokens=500)),
         llm=script({"content": "Starting context"}),
         hooks=HookRegistry(),
-    ).reactive()
+        mode=ExecutionMode.REACTIVE,
+    )
 
     run = await agent.chat("Overflow context")
 
@@ -114,7 +118,8 @@ async def test_tool_execution_timeout():
         budget=HardBudget(max_turns=1),
         llm=script({"content": "Call hangs"}),
         hooks=HookRegistry(),
-    ).reactive()
+        mode=ExecutionMode.REACTIVE,
+    )
 
     run = await asyncio.wait_for(agent.chat("Test timeout"), timeout=2.0)
 
@@ -135,7 +140,8 @@ async def test_infinite_loop_detection():
         budget=HardBudget(max_turns=10),
         llm=script({"content": "Call repeat"}),
         hooks=HookRegistry(),
-    ).reactive()
+        mode=ExecutionMode.REACTIVE,
+    )
 
     run = await agent.chat("Start loop")
 
@@ -157,7 +163,8 @@ async def test_tool_parameter_validation_failure():
         budget=HardBudget(max_turns=5),
         llm=script({"content": "Call validated"}),
         hooks=HookRegistry(),
-    ).reactive()
+        mode=ExecutionMode.REACTIVE,
+    )
 
     run = await agent.chat("Test validation")
 
@@ -179,7 +186,8 @@ async def test_memory_overflow():
         budget=HardBudget(max_turns=3),
         llm=script({"content": "Consume memory"}),
         hooks=HookRegistry(),
-    ).reactive()
+        mode=ExecutionMode.REACTIVE,
+    )
 
     run = await agent.chat("Test memory limit")
 
@@ -201,7 +209,8 @@ async def test_empty_tool_result():
         budget=HardBudget(max_turns=5),
         llm=script({"content": "Empty result"}),
         hooks=HookRegistry(),
-    ).reactive()
+        mode=ExecutionMode.REACTIVE,
+    )
 
     run = await agent.chat("Test empty result")
 
@@ -223,7 +232,8 @@ async def test_rapid_sequential_runs():
         budget=HardBudget(max_turns=1),
         llm=script({"content": "Fast"}),
         hooks=HookRegistry(),
-    ).reactive()
+        mode=ExecutionMode.REACTIVE,
+    )
 
     runs = []
     for i in range(5):
@@ -249,7 +259,8 @@ async def test_graceful_shutdown():
         budget=HardBudget(max_turns=1),
         llm=script({"content": "Call tool"}),
         hooks=HookRegistry(),
-    ).reactive()
+        mode=ExecutionMode.REACTIVE,
+    )
 
     run = await agent.chat("Test shutdown")
 

@@ -1,7 +1,7 @@
 """Greeter —— 最小的端到端 ProdAgent 示例。
 
 本示例展示:
-  - ``Agent`` + ``@tool`` + ``.reactive()`` 是能跑的 agent 的最小骨架。
+  - ``Agent`` + ``@tool`` + ``mode="reactive"`` 是能跑的 agent 的最小骨架。
     没有 hooks、没有记忆、没有预算、没有 checkpoint。
   - ``greet`` 是 readonly LOW 副作用工具 —— 最安全的层级。
   - 没传 hooks 时框架自动挂载 ``ConsoleObserverHooks``,终端免费看到
@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from prodagent import Agent, tool
+from prodagent import Agent, ExecutionMode, tool
 from prodagent.core.config import FrameworkConfig
 
 
@@ -31,12 +31,10 @@ DEFAULT_TASK = "跟 Alice 打个招呼。"
 
 
 def build_greeter_agent(*, framework_config: FrameworkConfig | None = None) -> Agent:
-    return (
-        Agent(
-            "greeter",
-            system_prompt="你是友好的 greeter。用 greet 工具按名字跟用户打招呼。",
-            tools=[greet],
-            framework_config=framework_config,
-        )
-        .reactive()
+    return Agent(
+        "greeter",
+        system_prompt="你是友好的 greeter。用 greet 工具按名字跟用户打招呼。",
+        tools=[greet],
+        framework=framework_config,
+        mode=ExecutionMode.REACTIVE,
     )

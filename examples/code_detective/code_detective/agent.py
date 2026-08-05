@@ -1,7 +1,7 @@
 """Code Detective —— MCP 工具 + REACTIVE 多轮调试 + 学习合成的自主修 bug agent。
 
 本示例展示:
-  - ``.mcp([MCPServerConfig(...)])``: spawn ``code_detective.mcp_server`` 子进程,
+  - ``mcp=[MCPServerConfig(...)]``: spawn ``code_detective.mcp_server`` 子进程,
     桥接 4 个工具(``read_file`` / ``grep`` / ``run_tests`` / ``apply_patch``)
     为 ``mcp__code_detective__<tool>``。
   - ``REACTIVE 多轮调试``: LLM 每 turn 发一个 tool_call,看结果后决定下一步。
@@ -21,7 +21,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from prodagent import Agent
+from prodagent import Agent, ExecutionMode, HardBudget
 from prodagent.core.config import FrameworkConfig
 from prodagent.evaluation.skills.registry import SkillRegistry
 from prodagent.mcp.config import MCPServerConfig
@@ -97,16 +97,14 @@ def build_code_detective_agent(
     llm = build_fake_llm() if use_fake else None
     _reset_fixture()
 
-    return (
-        Agent(
-            "code_detective",
-            system_prompt=_SYSTEM_PROMPT,
-            tools=[],  # 工具全从 MCP 来
-            skills=skills,
-            llm=llm,
-            framework_config=framework_config,
-        )
-        .mcp([_code_detective_mcp_config()])
-        .reactive()
-        .budget(turns=20, cost_usd=0.80, seconds=300.0)
+    return Agent(
+        "code_detective",
+        system_prompt=_SYSTEM_PROMPT,
+        tools=[],
+        skills=skills,
+        llm=llm,
+        framework=framework_config,
+        mcp=[_code_detective_mcp_config()],
+        mode=ExecutionMode.REACTIVE,
+        budget=HardBudget(max_turns=20, max_cost_usd=0.80, max_seconds=300.0),
     )

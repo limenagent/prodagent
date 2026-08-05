@@ -25,7 +25,7 @@ import os
 import sys
 import uuid
 
-from prodagent import Agent
+from prodagent import Agent, ExecutionMode, HardBudget
 from prodagent.cognition.memory import MemoryManager
 from prodagent.core.config import FrameworkConfig
 from prodagent.hooks.bundles.memory import MemoryHooks
@@ -140,15 +140,13 @@ def build_trader_agent(
     use_fake = os.getenv("USE_FAKE_LLM", "").lower() in ("1", "true", "yes")
     llm = _script_negotiation_llm() if use_fake else None
 
-    return (
-        Agent(
-            "trader",
-            system_prompt=_SYSTEM_PROMPT,
-            tools=[propose_order, place_order],
-            llm=llm,
-            framework_config=fw,
-        )
-        .reactive()
-        .budget(turns=20, cost_usd=0.50, seconds=300.0)
-        .extend(MemoryHooks(resolved_memory))
+    return Agent(
+        "trader",
+        system_prompt=_SYSTEM_PROMPT,
+        tools=[propose_order, place_order],
+        llm=llm,
+        framework=fw,
+        mode=ExecutionMode.REACTIVE,
+        budget=HardBudget(max_turns=20, max_cost_usd=0.50, max_seconds=300.0),
+        extensions=[MemoryHooks(resolved_memory)],
     )

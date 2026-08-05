@@ -1,4 +1,4 @@
-"""SpawnPipeline — vertical sub-agent delegation (``.agents()``)."""
+"""SpawnPipeline — vertical sub-agent delegation (``agents=``)."""
 
 from __future__ import annotations
 

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
+from prodagent import Agent, ExecutionMode
 from prodagent.core.state.run import is_child_run_id
-from prodagent.core.types import ExecutionMode, LLMResponse
+from prodagent.core.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter, script
-from prodagent.runtime.agent import Agent
 from prodagent.runtime.coordination.fork import ParentRuntime
 from prodagent.runtime.coordination.peer import PeerPipeline, build_peer_tools_for_agent
 
@@ -17,12 +17,14 @@ def hook_registry():
     return HookRegistry()
 
 
-def _reactive_agent(name: str, *, context: str = "") -> Agent:
-    return Agent(name, system_prompt=context, mode=ExecutionMode.REACTIVE)
+def _reactive_agent(name: str, *, context: str = "", peers=None, agents=None) -> Agent:
+    return Agent(
+        name, system_prompt=context, mode=ExecutionMode.REACTIVE, peers=peers, agents=agents
+    )
 
 
 def test_handoff_tool_schema_per_peer():
-    peer = Agent("Summarizer", system_prompt="summarizes text").description("Summarizes text")
+    peer = Agent("Summarizer", system_prompt="summarizes text", description="Summarizes text")
     tools = build_peer_tools_for_agent([peer], ctx=ParentRuntime(peer_specs=[peer]))
 
     assert len(tools) == 1
@@ -59,7 +61,7 @@ async def test_peer_handoff_basic_reactive(hook_registry):
     peer_b = _reactive_agent("B", context="you are B")
     peer_b.config.llm = script({"content": "B says: done!"})
 
-    agent_a = _reactive_agent("A", context="you are A").peers([peer_b])
+    agent_a = _reactive_agent("A", context="you are A", peers=[peer_b])
     agent_a.config.llm = script({"tool": "handoff_to_B", "params": {"task": "B handle this"}})
     agent_a.config.hooks = hook_registry
     peer_b.config.hooks = hook_registry
@@ -79,7 +81,7 @@ async def test_peer_handoff_basic_plan_first(hook_registry):
     peer_b = _reactive_agent("B", context="you are B")
     peer_b.config.llm = script({"content": "B says: plan-first done!"})
 
-    agent_a = Agent("A", system_prompt="you are A").peers([peer_b])
+    agent_a = Agent("A", system_prompt="you are A", peers=[peer_b])
     plan_json = (
         '{"steps": [{"id": "delegate", "action": "handoff_to_B", '
         '"params": {"task": "handle this"}, "depends_on": [], "is_terminal": true}]}'
@@ -116,7 +118,7 @@ async def test_peer_no_inherit_messages(hook_registry):
         responses=[LLMResponse(content="B done", stop_reason="end_turn")]
     )
 
-    agent_a = _reactive_agent("A", context="you are A").peers([peer_b])
+    agent_a = _reactive_agent("A", context="you are A", peers=[peer_b])
     agent_a.config.llm = script({"tool": "handoff_to_B", "params": {"task": "B do X"}})
     agent_a.config.hooks = hook_registry
     peer_b.config.hooks = hook_registry
@@ -147,7 +149,10 @@ async def test_peer_chain_caps_at_max(hook_registry):
 
     for name in ["A", "B", "C", "D", "E"]:
         next_name = chr(ord(name) + 1)
-        agents[name] = agents[name].peers([agents[next_name]])
+        chain_llm = agents[name].config.llm
+        agents[name] = _reactive_agent(name, context=f"you are {name}", peers=[agents[next_name]])
+        agents[name].config.llm = chain_llm
+        agents[name].config.hooks = hook_registry
 
     agents["F"].config.llm = script({"content": "F final answer"})
 
@@ -171,7 +176,7 @@ async def test_peer_handoff_with_input_refs(hook_registry):
         responses=[LLMResponse(content="B done", stop_reason="end_turn")]
     )
 
-    agent_a = _reactive_agent("A", context="you are A").peers([peer_b])
+    agent_a = _reactive_agent("A", context="you are A", peers=[peer_b])
     agent_a.config.llm = script(
         {
             "tool": "handoff_to_B",
@@ -193,7 +198,7 @@ async def test_peer_handoff_with_input_refs(hook_registry):
 async def test_peer_run_id_uses_child_separator(hook_registry):
     peer_b = _reactive_agent("B")
     peer_b.config.llm = script({"content": "B done"})
-    agent_a = _reactive_agent("A").peers([peer_b])
+    agent_a = _reactive_agent("A", peers=[peer_b])
     agent_a.config.llm = script({"tool": "handoff_to_B", "params": {"task": "go"}})
     agent_a.config.hooks = hook_registry
     peer_b.config.hooks = hook_registry
@@ -208,7 +213,7 @@ async def test_peer_run_id_uses_child_separator(hook_registry):
 async def test_handoff_unknown_peer_at_runtime_returns_error(hook_registry):
     peer_b = _reactive_agent("B")
     peer_b.config.llm = script({"content": "B done"})
-    agent_a = _reactive_agent("A").peers([peer_b])
+    agent_a = _reactive_agent("A", peers=[peer_b])
     agent_a.config.llm = script(
         {"tool": "handoff_to_Ghost", "params": {"task": "x"}},
         {"tool": "handoff_to_B", "params": {"task": "real"}},
@@ -245,7 +250,7 @@ async def test_peer_session_end_fires_for_root_and_peer(hook_registry):
 
     peer_b = _reactive_agent("B", context="you are B")
     peer_b.config.llm = script({"content": "B done"})
-    agent_a = _reactive_agent("A").peers([peer_b])
+    agent_a = _reactive_agent("A", peers=[peer_b])
     agent_a.config.llm = script({"tool": "handoff_to_B", "params": {"task": "go"}})
     agent_a.config.hooks = hook_registry
     peer_b.config.hooks = hook_registry
@@ -274,7 +279,7 @@ async def test_spawn_child_is_not_peer_continuation(hook_registry):
 
     child = _reactive_agent("child", context="child")
     child.config.llm = script({"content": "child done"})
-    agent_a = _reactive_agent("A").agents([child])
+    agent_a = _reactive_agent("A", agents=[child])
     agent_a.config.llm = script(
         {"tool": "spawn_agent", "params": {"name": "child", "task": "do thing"}},
         {"content": "A done"},

@@ -4,10 +4,10 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from prodagent import Agent, ExecutionMode
 from prodagent.core.types import LLMResponse, SideEffectLevel, ToolMeta
 from prodagent.llm.fake import script
 from prodagent.ports.llm import LLMClient
-from prodagent.runtime.agent import Agent
 from prodagent.runtime.coordination.fork import ParentRuntime
 from prodagent.runtime.coordination.spawn import build_spawn_tools_for_agent
 from prodagent.tooling.base import FunctionTool
@@ -63,8 +63,12 @@ def _child_with_tools(tool_names: list[str]) -> Agent:
     tools = [
         FunctionTool(name=n, fn=lambda: {"ok": 1}, meta=_meta(n), schema={}) for n in tool_names
     ]
-    return (
-        Agent("worker", system_prompt="do the work", tools=tools).description("worker").reactive()
+    return Agent(
+        "worker",
+        system_prompt="do the work",
+        tools=tools,
+        description="worker",
+        mode=ExecutionMode.REACTIVE,
     )
 
 

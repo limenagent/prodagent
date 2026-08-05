@@ -41,7 +41,7 @@ Getting an Agent to run, and keeping it alive in production, are two different t
 
 - **Three execution modes** — `PLAN_FIRST` (LLM emits a dynamic PLAN DAG; auditable, HITL-reviewable, resumable from breakpoint) / `REACTIVE` (ReAct loop, step by step) / `Workflow` (hand-written static PLAN DAG).
 
-- **Inter-agent collaboration** — `.agents()` for vertical delegation (parent spawns child, child returns result); `.peers()` for horizontal handoff (terminates the current run, a peer takes over).
+- **Inter-agent collaboration** — `agents=` for vertical delegation (parent spawns child, child returns result); `peers=` for horizontal handoff (terminates the current run, a peer takes over).
 
 - **Context sandwich** — state / memory / skills / history / reminder assembled as a five-layer sandwich; each layer independently controllable and compressible.
 
@@ -102,7 +102,7 @@ Production backends: `make playground-prod` (auto-starts Postgres / Neo4j / Qdra
 
 | # | Example | Scenario | Core Capabilities                                                                                                                             |
 |---|---------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------|
-| 1 | [greeter](examples/greeter) | Minimal runnable agent | `@tool` + `Agent` + `.reactive()` trinity                                                                                                     |
+| 1 | [greeter](examples/greeter) | Minimal runnable agent | `@tool` + `Agent` + `mode="reactive"` trinity                                                                                                     |
 | 2 | [trader](examples/trader) | Bubble-tea order negotiation | Conversational multi-turn negotiation (propose → counter → adjust → place order) + memory-driven replan + HIGH-side-effect HITL approval gate |
 | 3 | [deep_research](examples/deep_research) | Multi-round exploratory research | REACTIVE exploration tree + five-level context compression + injection defense + memory dedup                                                 |
 | 4 | [compliance_audit](examples/compliance_audit) | Financial compliance audit + crash recovery | `Workflow` hardcoded DAG + `FileCheckpointStore` + event log replay + `fork_run` branching + idempotent write tool                            |
@@ -124,7 +124,7 @@ pip install "prodagent[postgres,redis,neo4j,qdrant]"
 ```python
 import asyncio
 
-from prodagent import Agent, tool
+from prodagent import Agent, ExecutionMode, HardBudget, tool
 
 
 @tool(name="search", readonly=True)
@@ -132,14 +132,12 @@ async def search(query: str) -> str:
     return f"results for: {query}"
 
 
-agent = (
-    Agent(
-        "demo",
-        system_prompt="Find answers.",
-        tools=[search],
-    )
-    .reactive()
-    .budget(turns=20, cost_usd=1.0, seconds=1800.0)
+agent = Agent(
+    "demo",
+    system_prompt="Find answers.",
+    tools=[search],
+    mode=ExecutionMode.REACTIVE,
+    budget=HardBudget(max_turns=20, max_cost_usd=1.0, max_seconds=1800.0),
 )
 
 
@@ -165,9 +163,9 @@ Agent is the assembly entry point. Three architectural decisions: execution mode
 ```mermaid
 graph TD
     A[Agent] --> M{mode}
-    M -->|.plan_first| PF[PLAN_FIRST<br/>LLM emits dynamic DAG<br/>auditable · HITL · resumable]
-    M -->|.reactive| RV[REACTIVE<br/>ReAct loop · step by step]
-    M -->|.workflow| WF[Workflow<br/>hand-written static DAG]
+    M -->|mode='plan_first'| PF[PLAN_FIRST<br/>LLM emits dynamic DAG<br/>auditable · HITL · resumable]
+    M -->|mode='reactive'| RV[REACTIVE<br/>ReAct loop · step by step]
+    M -->|workflow=wf| WF[Workflow<br/>hand-written static DAG]
 ```
 
 ### Hook tri-protocol bus

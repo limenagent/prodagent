@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from prodagent import Agent, ExecutionMode
 from prodagent.core.config import FrameworkConfig
 from prodagent.core.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.agent import Agent
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -15,8 +15,11 @@ def _child_that_fails_to_plan() -> Agent:
     llm = FakeLLMAdapter(
         responses=[LLMResponse(content="not valid json at all", stop_reason="end_turn")]
     )
-    return Agent("broken_planner", system_prompt="plan something", llm=llm).description(
-        "A child whose planner fails"
+    return Agent(
+        "broken_planner",
+        system_prompt="plan something",
+        llm=llm,
+        description="A child whose planner fails",
     )
 
 
@@ -70,10 +73,12 @@ async def test_run_child_returns_failed_when_executor_raises(tmp_path: Path) -> 
         async def complete(self, messages, *, system="", tools=None, config=None, on_chunk):
             raise RuntimeError("simulated LLM explosion")
 
-    child = (
-        Agent("exploder", system_prompt="will crash", llm=_BoomLLM())  # type: ignore[arg-type]
-        .description("A child whose LLM raises")
-        .reactive()
+    child = Agent(
+        "exploder",
+        system_prompt="will crash",
+        llm=_BoomLLM(),  # type: ignore[arg-type]
+        description="A child whose LLM raises",
+        mode=ExecutionMode.REACTIVE,
     )
     pipeline = SpawnPipeline(
         [child],

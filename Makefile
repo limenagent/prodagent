@@ -70,19 +70,27 @@ config: _ensure_uv
 	@export PATH="$$HOME/.local/bin:$$PATH"; \
 	uv run python -m prodagent.playground.config_init
 
-lint:
-	uv run ruff check src/prodagent tests
-	uv run ruff format --check src/prodagent tests
+lint: _ensure_uv
+	@export PATH="$$HOME/.local/bin:$$PATH"; \
+	uv sync --extra dev; \
+	uv run ruff check src/prodagent tests; \
+	uv run ruff format --check src/prodagent tests; \
 	uv run mypy src/prodagent
 
-format:
-	uv run ruff format src/prodagent tests
+format: _ensure_uv
+	@export PATH="$$HOME/.local/bin:$$PATH"; \
+	uv sync --extra dev; \
+	uv run ruff format src/prodagent tests; \
 	uv run ruff check --fix src/prodagent tests
 
-test:
+test: _ensure_uv
+	@export PATH="$$HOME/.local/bin:$$PATH"; \
+	uv sync --extra testing; \
 	uv run pytest tests/ -x -q
 
-test-cov:
+test-cov: _ensure_uv
+	@export PATH="$$HOME/.local/bin:$$PATH"; \
+	uv sync --extra testing; \
 	uv run pytest tests/ --cov=prodagent --cov-report=term-missing --cov-report=html
 
 clean:

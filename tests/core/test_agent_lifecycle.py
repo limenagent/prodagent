@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from prodagent import Agent, HardBudget
+from prodagent import Agent, ExecutionMode, HardBudget
 from prodagent.core.config import FrameworkConfig
 from prodagent.hooks.registry import HookEvent, HookRegistry
 from prodagent.llm.fake import script
@@ -40,8 +40,9 @@ async def test_agent_lifecycle_full_roundtrip():
             budget=HardBudget(max_turns=2),
             llm=script({"content": "Echoed: hello world"}),
             hooks=HookRegistry(),
-            framework_config=_fw(tmpdir),
-        ).reactive()
+            framework=_fw(tmpdir),
+            mode=ExecutionMode.REACTIVE,
+        )
 
         run = await agent.chat("hello世界", session_id=session_id)
         assert run is not None
@@ -67,8 +68,9 @@ async def test_agent_lifecycle_with_early_termination():
             budget=HardBudget(max_turns=1),
             llm=script({"content": "Calling increment"}),
             hooks=HookRegistry(),
-            framework_config=_fw(tmpdir),
-        ).reactive()
+            framework=_fw(tmpdir),
+            mode=ExecutionMode.REACTIVE,
+        )
 
         run = await agent.chat("Start counting", session_id=session_id)
 
@@ -111,8 +113,9 @@ async def test_agent_lifecycle_with_hooks():
             budget=HardBudget(max_turns=2),
             llm=script({"content": "Echoed: test"}),
             hooks=hooks,
-            framework_config=_fw(tmpdir),
-        ).reactive()
+            framework=_fw(tmpdir),
+            mode=ExecutionMode.REACTIVE,
+        )
 
         await agent.chat("test", session_id="hooks-1")
 
@@ -132,8 +135,9 @@ async def test_agent_lifecycle_crash_recovery():
             budget=HardBudget(max_turns=2),
             llm=script({"content": "Echoed: before crash"}),
             hooks=HookRegistry(),
-            framework_config=_fw(tmpdir),
-        ).reactive()
+            framework=_fw(tmpdir),
+            mode=ExecutionMode.REACTIVE,
+        )
 
         run1 = await agent.chat("before crash", session_id=session_id)
 
@@ -147,8 +151,9 @@ async def test_agent_lifecycle_crash_recovery():
             budget=HardBudget(max_turns=2),
             llm=script({"content": "Echoed: after recovery"}),
             hooks=HookRegistry(),
-            framework_config=_fw(tmpdir),
-        ).reactive()
+            framework=_fw(tmpdir),
+            mode=ExecutionMode.REACTIVE,
+        )
 
         run2 = await recovery_agent.chat("continue", session_id=session_id)
 

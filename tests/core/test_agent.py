@@ -6,12 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from prodagent import RunState
-from prodagent.core.types import ExecutionMode
+from prodagent import Agent, ExecutionMode, HardBudget, RunState
 from prodagent.hooks.registry import HookRegistry
 from prodagent.llm.fake import script
-from prodagent.resilience.cost import HardBudget
-from prodagent.runtime.agent import Agent
 from prodagent.tooling import tool
 
 
@@ -21,8 +18,9 @@ def _simple_agent(llm, **kwargs) -> Agent:
         system_prompt="Verify system status.",
         llm=llm,
         hooks=HookRegistry(),
+        mode=ExecutionMode.REACTIVE,
         **kwargs,
-    ).reactive()
+    )
 
 
 def test_agent_creation():
@@ -64,7 +62,8 @@ def test_agent_with_tools():
         tools=[health_check],
         llm=llm,
         hooks=HookRegistry(),
-    ).reactive()
+        mode=ExecutionMode.REACTIVE,
+    )
     run = asyncio.run(agent.chat("Is the API healthy?"))
     assert run.state == RunState.COMPLETED
     assert any(tc.name == "health_check" for tc in run.tool_history)
@@ -87,7 +86,8 @@ def test_agent_constraints_in_system_prompt():
         constraints=["ALWAYS validate input", "NEVER skip logging"],
         llm=CaptureLLM(),
         hooks=HookRegistry(),
-    ).reactive()
+        mode=ExecutionMode.REACTIVE,
+    )
     asyncio.run(agent.chat("check"))
 
     assert any("ALWAYS validate input" in s for s in captured_systems)
@@ -110,16 +110,21 @@ def test_agent_context_in_system_prompt():
         system_prompt="Incident INC-001: payment service down",
         llm=CaptureLLM(),
         hooks=HookRegistry(),
-    ).reactive()
+        mode=ExecutionMode.REACTIVE,
+    )
     asyncio.run(agent.chat("handle incident"))
 
     assert any("INC-001" in s for s in captured_systems)
 
 
 def test_fluent_api_inject():
-    agent = Agent(name="test-agent", llm=script({"content": "ok"}))
-    returned = agent.inject(lambda q: f"Context: {q}")
-    assert returned is agent
+    from prodagent.hooks.checkpoint import InjectionPoint
+
+    agent = Agent(
+        name="test-agent",
+        llm=script({"content": "ok"}),
+        injectors=[(InjectionPoint.CONTEXT_INJECTOR, lambda q: f"Context: {q}")],
+    )
     assert len(agent.injectors) == 1
 
 
@@ -135,21 +140,28 @@ def test_extend_human_approval_registers_checker():
 
 
 def test_fluent_api_budget():
-    agent = Agent(name="test-agent", llm=script({"content": "ok"}))
-    returned = agent.budget(turns=10, cost_usd=0.5, seconds=120.0)
-    assert returned is agent
+    agent = Agent(
+        name="test-agent",
+        llm=script({"content": "ok"}),
+        budget=HardBudget(max_turns=10, max_cost_usd=0.5, max_seconds=120.0),
+    )
     assert agent.budget_config is not None
     assert agent.budget_config.max_turns == 10
 
 
 def test_fluent_api_reactive_plan_first():
-    agent = Agent(name="test-agent", llm=script({"content": "ok"}))
+    agent = Agent(
+        name="test-agent",
+        llm=script({"content": "ok"}),
+        mode=ExecutionMode.PLAN_FIRST,
+    )
     assert agent.mode == ExecutionMode.PLAN_FIRST
-    returned = agent.reactive()
-    assert returned is agent
-    assert agent.mode == ExecutionMode.REACTIVE
-    agent.plan_first()
-    assert agent.mode == ExecutionMode.PLAN_FIRST
+    agent2 = Agent(
+        name="test-agent-2",
+        llm=script({"content": "ok"}),
+        mode=ExecutionMode.REACTIVE,
+    )
+    assert agent2.mode == ExecutionMode.REACTIVE
 
 
 def test_agent_saves_to_session_dir():
@@ -173,8 +185,9 @@ def test_agent_saves_to_session_dir():
             system_prompt="Do some work.",
             llm=llm,
             hooks=HookRegistry(),
-            framework_config=fw,
-        ).reactive()
+            framework=fw,
+            mode=ExecutionMode.REACTIVE,
+        )
         run = asyncio.run(agent.chat("save this run", session_id="run-save-001"))
         assert run.state == RunState.COMPLETED
         assert run.run_id == "run-save-001:1"
@@ -196,7 +209,8 @@ def test_agent_budget_respected():
         llm=InfiniteLoopLLM(),
         hooks=HookRegistry(),
         budget=HardBudget(max_turns=2, max_seconds=30.0),
-    ).reactive()
+        mode=ExecutionMode.REACTIVE,
+    )
     run = asyncio.run(agent.chat("test budget"))
     assert run.state in (RunState.COMPLETED, RunState.FAILED)
     assert run.turn_count <= 3
@@ -220,7 +234,8 @@ def test_agent_stream_yields_events():
         tools=[probe],
         llm=llm,
         hooks=HookRegistry(),
-    ).reactive()
+        mode=ExecutionMode.REACTIVE,
+    )
 
     events = []
 
@@ -253,7 +268,8 @@ def test_agent_stream_run_failed_event_on_budget_exhaustion():
         llm=LoopingLLM(),
         hooks=HookRegistry(),
         budget=HardBudget(max_turns=2, max_seconds=30.0),
-    ).reactive()
+        mode=ExecutionMode.REACTIVE,
+    )
 
     events = []
 

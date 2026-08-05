@@ -2,9 +2,8 @@ import asyncio
 
 import pytest
 
-from prodagent.core.types import ExecutionMode
+from prodagent import Agent, ExecutionMode
 from prodagent.llm.fake import script
-from prodagent.runtime.agent import Agent
 from prodagent.tooling.base import FunctionTool
 
 
@@ -14,10 +13,12 @@ async def test_spawn_tool_respects_duplicate_message_ids():
         return x * 2
 
     tool = FunctionTool(name="double", fn=dummy_tool, meta=None, schema={})
-    child = (
-        Agent("doubler", system_prompt="Double the number", tools=[tool])
-        .description("Doubles a number")
-        .reactive()
+    child = Agent(
+        "doubler",
+        system_prompt="Double the number",
+        tools=[tool],
+        description="Doubles a number",
+        mode=ExecutionMode.REACTIVE,
     )
 
     fake_llm = script(
@@ -45,10 +46,12 @@ async def test_spawn_tool_different_tasks_not_duplicated():
         return x * 2
 
     tool = FunctionTool(name="double", fn=dummy_tool, meta=None, schema={})
-    child = (
-        Agent("doubler", system_prompt="Double the number", tools=[tool])
-        .description("Doubles a number")
-        .reactive()
+    child = Agent(
+        "doubler",
+        system_prompt="Double the number",
+        tools=[tool],
+        description="Doubles a number",
+        mode=ExecutionMode.REACTIVE,
     )
 
     fake_llm = script({"tool": "double", "params": {"x": 5}}, {"content": "Result: 10"})
@@ -66,7 +69,9 @@ async def test_spawn_tool_different_tasks_not_duplicated():
 
 
 async def test_spawn_tool_creates_handoff_packet():
-    child = Agent("echoer", system_prompt="Echo").description("Echoes input").reactive()
+    child = Agent(
+        "echoer", system_prompt="Echo", description="Echoes input", mode=ExecutionMode.REACTIVE
+    )
 
     fake_llm = script({"content": "Echo: test"})
 
@@ -81,10 +86,11 @@ async def test_spawn_tool_creates_handoff_packet():
 
 
 async def test_spawn_tool_result_has_output_and_state():
-    child = (
-        Agent("bad_agent", system_prompt="Returns malformed result")
-        .description("Returns malformed result")
-        .reactive()
+    child = Agent(
+        "bad_agent",
+        system_prompt="Returns malformed result",
+        description="Returns malformed result",
+        mode=ExecutionMode.REACTIVE,
     )
 
     fake_llm = script({"content": ""})
@@ -105,7 +111,7 @@ def run_async_test(test_func):
 
 
 def _spec(name="worker"):
-    return Agent(name, system_prompt="work").description("worker").reactive()
+    return Agent(name, system_prompt="work", description="worker", mode=ExecutionMode.REACTIVE)
 
 
 async def test_spawn_tool_meta_allows_parallel_and_idempotent():
@@ -174,7 +180,7 @@ async def test_security_veto_from_child_propagates_not_swallowed():
 
 
 async def test_child_agent_preserves_reactive_mode():
-    child = Agent("child", system_prompt="child task").reactive()
+    child = Agent("child", system_prompt="child task", mode=ExecutionMode.REACTIVE)
 
     rebuilt = Agent(
         child.name,

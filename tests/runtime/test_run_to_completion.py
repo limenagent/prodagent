@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import asyncio
 
-from prodagent import RunState, SideEffectLevel, ToolMeta
+from prodagent import Agent, ExecutionMode, RunState, SideEffectLevel, ToolMeta
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.guardrail.approval import ApprovalGate
 from prodagent.hooks.bundles.security import ApprovalHooks
 from prodagent.hooks.registry import HookRegistry
 from prodagent.llm.fake import script
-from prodagent.runtime.agent import Agent
 from prodagent.tooling import tool
 
 
@@ -21,17 +20,15 @@ async def restart_pod(service: str) -> dict:
 
 
 def _high_tool_agent(llm, gate: ApprovalGate, *, store) -> Agent:
-    return (
-        Agent(
-            name="ops",
-            system_prompt="Restart the pod.",
-            tools=[restart_pod],
-            llm=llm,
-            hooks=HookRegistry(),
-            checkpoint=store,
-        )
-        .reactive()
-        .extend(ApprovalHooks(gate=gate))
+    return Agent(
+        name="ops",
+        system_prompt="Restart the pod.",
+        tools=[restart_pod],
+        llm=llm,
+        hooks=HookRegistry(),
+        checkpoint=store,
+        mode=ExecutionMode.REACTIVE,
+        extensions=[ApprovalHooks(gate=gate)],
     )
 
 

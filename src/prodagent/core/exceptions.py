@@ -91,7 +91,7 @@ class PlanAlreadyCompletedError(AgentError):
     def __init__(self, run_id: str) -> None:
         super().__init__(
             f"workflow plan for run={run_id} already completed — "
-            "preset Plan runs once; use .reactive() or .plan_first() for further turns"
+            "preset Plan runs once; use mode='reactive' or mode='plan_first' for further turns"
         )
         self.run_id = run_id
 

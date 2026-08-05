@@ -3,13 +3,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 
-from prodagent import RunState, SideEffectLevel, ToolMeta
+from prodagent import Agent, ExecutionMode, RunState, SideEffectLevel, ToolMeta
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.guardrail.approval import ApprovalDecision, ApprovalGate
 from prodagent.hooks.bundles.security import ApprovalHooks
 from prodagent.hooks.registry import HookRegistry
 from prodagent.llm.fake import script
-from prodagent.runtime.agent import Agent
 from prodagent.tooling import tool
 
 
@@ -22,17 +21,15 @@ async def restart_pod(service: str) -> dict:
 
 
 def _high_tool_agent(llm, hitl: ApprovalHooks, *, store=None) -> Agent:
-    return (
-        Agent(
-            name="ops",
-            system_prompt="Restart the pod.",
-            tools=[restart_pod],
-            llm=llm,
-            hooks=HookRegistry(),
-            checkpoint=store,
-        )
-        .reactive()
-        .extend(hitl)
+    return Agent(
+        name="ops",
+        system_prompt="Restart the pod.",
+        tools=[restart_pod],
+        llm=llm,
+        hooks=HookRegistry(),
+        checkpoint=store,
+        mode=ExecutionMode.REACTIVE,
+        extensions=[hitl],
     )
 
 
@@ -105,7 +102,8 @@ def test_no_bundle_suspends_high_tool():
         tools=[restart_pod],
         llm=llm,
         hooks=HookRegistry(),
-    ).reactive()
+        mode=ExecutionMode.REACTIVE,
+    )
     run = asyncio.run(agent.chat("restart api"))
     assert run.state == RunState.SUSPENDED
     assert not any(c.name == "restart_pod" for c in run.tool_history)

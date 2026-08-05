@@ -4,7 +4,7 @@
 
     uv run python -m code_detective.mcp_server
 
-当 code_detective Agent 用 ``.mcp([...])`` 启动时,框架把这个脚本作为
+当 code_detective Agent 用 ``mcp=[...]`` 启动时,框架把这个脚本作为
 子进程 spawn,通过 stdin/stdout 说 MCP,把 server 的工具桥接进
 Agent 的工具注册表,名字是 ``mcp__code_detective__<tool>``。
 

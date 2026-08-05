@@ -1,5 +1,5 @@
 """Workflow sub-agent passthrough — ``SpawnPipeline._run_child`` must forward
-``initial_plan`` / ``max_replans`` so a ``.workflow()`` child runs the preset
+``initial_plan`` / ``max_replans`` so a ``workflow=`` child runs the preset
 DAG instead of falling back to LLM planning.
 """
 
@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
+from prodagent import Agent
 from prodagent.llm.fake import script
-from prodagent.runtime.agent import Agent
 from prodagent.runtime.coordination.fork import ParentRuntime
 from prodagent.runtime.coordination.spawn import build_spawn_tools_for_agent
 from prodagent.runtime.workflow import Workflow
@@ -35,15 +35,14 @@ async def test_workflow_child_runs_preset_dag_via_spawn():
 
     # The llm_step calls the LLM once with the step prompt; script a reply.
     llm = script({"content": "summary of fetched"})
-    child = (
-        Agent(
-            "wf_worker",
-            system_prompt="do the work",
-            tools=[fetch],
-            llm=llm,
-        )
-        .description("A workflow worker")
-        .workflow(wf, allow_replan=False)
+    child = Agent(
+        "wf_worker",
+        system_prompt="do the work",
+        tools=[fetch],
+        llm=llm,
+        description="A workflow worker",
+        workflow=wf,
+        allow_replan=False,
     )
 
     assert child.initial_plan is not None
@@ -73,9 +72,10 @@ async def test_workflow_child_forwarded_max_replans_is_zero():
     wf.tool_step("s1", "boom")
 
     llm = script({"content": "x"})
-    child = Agent("wf_boom", system_prompt="", tools=[boom], llm=llm).workflow(
-        wf, allow_replan=False
+    child = Agent(
+        "wf_boom", system_prompt="", tools=[boom], llm=llm, workflow=wf, allow_replan=False
     )
+
     assert child.max_replans == 0
 
     spawn = build_spawn_tools_for_agent([child], llm=llm, context=ParentRuntime())

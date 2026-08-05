@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent import Agent
+from prodagent import Agent, ExecutionMode
 from prodagent.core.types import LLMResponse
 from prodagent.llm.base import LLMConfig, noop_chunk
 from prodagent.llm.cache import CachingLLMClient
@@ -57,7 +57,7 @@ class TestDefaultCacheWiring:
 
     async def test_intra_run_cache_hit_skips_billing(self):
         llm = _CountingLLM()
-        agent = Agent("billing", system_prompt="x", llm=llm).reactive()
+        agent = Agent("billing", system_prompt="x", llm=llm, mode=ExecutionMode.REACTIVE)
         from prodagent.runtime.session import _resolve_llm
 
         wrapped = _resolve_llm(agent)
@@ -112,7 +112,7 @@ class TestDefaultCacheWiring:
         from prodagent.core.config import FrameworkConfig
         from prodagent.runtime.session import RunContext
 
-        agent = Agent("t", system_prompt="x", framework_config=FrameworkConfig.default())
+        agent = Agent("t", system_prompt="x", framework=FrameworkConfig.default())
         assert agent.config.checkpoint is None
         assert agent.config.event_log is None
         async with RunContext(agent=agent, task="t", run_id="r1") as ctx:

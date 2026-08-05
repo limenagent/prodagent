@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from prodagent import Agent, ExecutionMode
 from prodagent.backends.file import FileDocumentStore, FileGraphStore
 from prodagent.cognition.memory.manager import MemoryManager
 from prodagent.cognition.memory.storage import (
@@ -15,7 +16,6 @@ from prodagent.hooks.bundles.security import InjectionDefenseHooks
 from prodagent.hooks.checkpoint import InjectionPoint
 from prodagent.hooks.registry import HookEvent, HookRegistry
 from prodagent.llm.fake import script
-from prodagent.runtime.agent import Agent
 
 
 class _Store:
@@ -35,7 +35,8 @@ def _agent() -> Agent:
         system_prompt="verify",
         llm=script({"content": "ok"}),
         hooks=HookRegistry(),
-    ).reactive()
+        mode=ExecutionMode.REACTIVE,
+    )
 
 
 async def test_memory_hooks_registers_injector_and_classify_event():
@@ -75,8 +76,9 @@ async def test_memory_hooks_plugs_in_via_extend():
         system_prompt="verify",
         llm=script({"content": "ok"}),
         hooks=HookRegistry(),
-    ).reactive()
-    assert agent.extend(MemoryHooks(manager)) is agent
+        mode=ExecutionMode.REACTIVE,
+        extensions=[MemoryHooks(manager)],
+    )
 
     hooks = agent.attach_default_hooks()
     assert await hooks.collect(InjectionPoint.CONTEXT_INJECTOR, query="x") == ["recalled:x"]

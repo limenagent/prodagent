@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent.runtime.agent import Agent
+from prodagent import Agent
 from prodagent.runtime.workflow import Workflow
 
 
@@ -41,7 +41,8 @@ async def test_workflow_runs_dag_and_picks_terminal_output(fake_llm, hook_regist
         system_prompt="test",
         llm=fake_llm,
         hooks=hook_registry,
-    ).workflow(wf)
+        workflow=wf,
+    )
 
     run = await agent.chat("hello world")
 
@@ -62,7 +63,9 @@ async def test_workflow_allow_replan_false_caps_max_replans(fake_llm, hook_regis
         system_prompt="test",
         llm=fake_llm,
         hooks=hook_registry,
-    ).workflow(wf, allow_replan=False)
+        workflow=wf,
+        allow_replan=False,
+    )
 
     assert agent.max_replans == 0
 
@@ -84,7 +87,8 @@ async def test_workflow_default_max_replans_is_two(fake_llm, hook_registry):
         system_prompt="test",
         llm=fake_llm,
         hooks=hook_registry,
-    ).workflow(wf)
+        workflow=wf,
+    )
 
     assert agent.max_replans == 2
 
@@ -161,7 +165,7 @@ def test_workflow_tool_step_references_existing_tool_no_new_function_tool():
 
 @pytest.mark.asyncio
 async def test_workflow_llm_step_binds_lazy_resolved_llm():
-    """Real-LLM mode: Agent(llm=None, framework_config=fw).workflow(wf) must
+    """Real-LLM mode: Agent(llm=None, framework=fw), workflow=wf must
     bind the lazy-resolved LLM (via Agent.llm property), not the raw None
     _llm field. Otherwise llm_step raises "LLM client not bound" at runtime.
 
@@ -175,9 +179,9 @@ async def test_workflow_llm_step_binds_lazy_resolved_llm():
     wf.llm_step("think", prompt="say hi", is_terminal=True)
 
     # llm=None — simulates real-LLM mode where Agent.llm lazy-resolves from fw.
-    agent = Agent(name="wf-lazy-llm", system_prompt="test", framework_config=fw).workflow(wf)
+    agent = Agent(name="wf-lazy-llm", system_prompt="test", framework=fw, workflow=wf)
 
-    # The workflow's _llm must have been resolved (not None) at .workflow() time.
+    # The workflow's _llm must have been resolved (not None) when workflow= is set.
     assert wf._llm is not None, "workflow._llm must be bound via Agent.llm property"
 
     run = await agent.chat("hello")

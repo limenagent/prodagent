@@ -79,13 +79,13 @@ class HookRegistry:
         self._insert(self._injectors[point], priority, _ensure_async(injector))
 
     def attach_extension(self, ext: Any) -> bool:
-        """Attach a ``.extend()`` extension idempotently."""
+        """Attach an ``extensions=`` extension idempotently."""
         key = id(ext)
         if key in self._attached_extensions:
             return False
         attach = getattr(ext, "attach", None)
         if not callable(attach):
-            raise TypeError(f"Extension {ext!r} passed to .extend() has no attach(hooks) method")
+            raise TypeError(f"Extension {ext!r} passed to extensions= has no attach(hooks) method")
         attach(self)
         self._attached_extensions.add(key)
         return True

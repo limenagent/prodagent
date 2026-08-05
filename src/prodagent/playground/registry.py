@@ -136,6 +136,8 @@ def _make_factory(
         kwargs: dict[str, object] = {}
         if "framework_config" in params:
             kwargs["framework_config"] = fw
+        elif "framework" in params:
+            kwargs["framework"] = fw
         if "run_id" in params:
             kwargs["run_id"] = run_id
         return build_fn(**kwargs)

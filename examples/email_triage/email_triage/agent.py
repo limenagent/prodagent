@@ -6,7 +6,7 @@
     委派给 ``triage_workflow`` 子 agent 跑固定 DAG → 拿到汇总后继续
     对话(追问某封邮件、要求重分、讨论分类结果)。DAG 跑完不阻塞
     对话 —— 主 agent 永远可交互。
-  - **workflow 子 agent** —— ``triage_workflow`` 是 ``.workflow()`` 构造的
+  - **workflow 子 agent** —— ``triage_workflow`` 是 ``workflow=`` 构造的
     固定 DAG(read_inbox → 4×classify ‖ → 4×route → summarize),通过
     ``spawn_agent`` 触发。DAG 跑完返回汇总给主 agent。子 agent 是固定
     流程,主 agent 是灵活对话 —— 两者职责分离。
@@ -26,7 +26,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from prodagent import Agent
+from prodagent import Agent, ExecutionMode, HardBudget
 from prodagent.core.config import FrameworkConfig
 from prodagent.guardrail.approval.gate import ApprovalGate
 from prodagent.hooks.bundles.security import ApprovalHooks
@@ -75,7 +75,7 @@ def build_triage_workflow_agent(
 ) -> Agent:
     """triage_workflow 子 agent —— 固定 DAG(read_inbox → classify ‖ → route → summarize)。
 
-    ``.workflow()`` 构造,DAG 写死跳过 LLM planning。classify/summarize 是
+    ``workflow=`` 构造,DAG 写死跳过 LLM planning。classify/summarize 是
     真 LLM 标注,route 用 tool_step 引用已注册工具(HIGH delete_email 走门禁)。
     通过主 agent 的 ``spawn_agent`` 触发。
 
@@ -86,20 +86,21 @@ def build_triage_workflow_agent(
             通过同一个 gate 解锁。不传时子 agent 自建一个独立 gate(只能
             子 agent 自己 submit,父 run 摸不到 —— 演示场景需要父 run 代审批)。
     """
-    builder = (
-        Agent(
-            "triage_workflow",
-            system_prompt=_WORKFLOW_SYSTEM,
-            tools=[read_inbox, archive_email, mark_read, delete_email, forward_external],
-            llm=llm,
-            framework_config=framework_config,
-        )
-        .workflow(build_triage_workflow(), allow_replan=False)
-        .budget(turns=15, cost_usd=0.40, seconds=120.0)
-    )
+    extensions = []
     if approval_gate is not None:
-        builder = builder.extend(ApprovalHooks(gate=approval_gate))
-    return builder
+        extensions.append(ApprovalHooks(gate=approval_gate))
+
+    return Agent(
+        "triage_workflow",
+        system_prompt=_WORKFLOW_SYSTEM,
+        tools=[read_inbox, archive_email, mark_read, delete_email, forward_external],
+        llm=llm,
+        framework=framework_config,
+        workflow=build_triage_workflow(),
+        allow_replan=False,
+        budget=HardBudget(max_turns=15, max_cost_usd=0.40, max_seconds=120.0),
+        extensions=extensions if extensions else None,
+    )
 
 
 DEFAULT_TASK = "分拣收件箱: 归档 newsletter,标记 action-needed 为已读,删除 phishing。"
@@ -135,16 +136,14 @@ def build_email_triage_agent(
         approval_gate=shared_gate,
     )
 
-    return (
-        Agent(
-            "email_triage",
-            system_prompt=_MAIN_SYSTEM,
-            tools=[read_inbox, archive_email, mark_read],
-            llm=resolved_llm,
-            framework_config=framework_config,
-        )
-        .reactive()
-        .agents([triage_workflow])
-        .extend(ApprovalHooks(gate=shared_gate))
-        .budget(turns=20, cost_usd=0.50, seconds=180.0)
+    return Agent(
+        "email_triage",
+        system_prompt=_MAIN_SYSTEM,
+        tools=[read_inbox, archive_email, mark_read],
+        llm=resolved_llm,
+        framework=framework_config,
+        mode=ExecutionMode.REACTIVE,
+        agents=[triage_workflow],
+        extensions=[ApprovalHooks(gate=shared_gate)],
+        budget=HardBudget(max_turns=20, max_cost_usd=0.50, max_seconds=180.0),
     )

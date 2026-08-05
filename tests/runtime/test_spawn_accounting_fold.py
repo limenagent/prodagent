@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import pytest
 
+from prodagent import Agent, ExecutionMode
 from prodagent.core.budget import HardBudget
 from prodagent.core.state.run import AgentRun
-from prodagent.core.types import ExecutionMode, LLMResponse, ToolCall
+from prodagent.core.types import LLMResponse, ToolCall
 from prodagent.hooks.registry import HookRegistry
 from prodagent.llm.base import LLMConfig
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.agent import Agent
 from prodagent.runtime.coordination.accounting import SpawnAccumulator, fold_spawn_accounting
 from prodagent.runtime.coordination.spawn import ChildResult
 
@@ -107,7 +107,8 @@ async def test_concurrent_spawns_fold_into_parent_run_end_to_end(monkeypatch):
         system_prompt="delegates to A and B",
         mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_cost_usd=100.0, max_tokens=10_000_000),
-    ).agents([child_a, child_b])
+        agents=[child_a, child_b],
+    )
     parent.config.hooks = hooks
     parent.config.llm = FakeLLMAdapter(
         responses=[
@@ -162,8 +163,9 @@ async def test_spawned_child_run_has_parent_run_id(tmp_path, monkeypatch):
         "parent",
         system_prompt="delegates to A",
         mode=ExecutionMode.REACTIVE,
-        framework_config=fw,
-    ).agents([child])
+        framework=fw,
+        agents=[child],
+    )
     parent.config.hooks = HookRegistry()
     parent.config.llm = FakeLLMAdapter(
         responses=[

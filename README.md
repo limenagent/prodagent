@@ -43,7 +43,7 @@
 
 - **三执行模式** —— `PLAN_FIRST`（LLM 动态出 PLAN DAG，可审计、可 HITL、可断点续跑）/ `REACTIVE`（ReAct 循环，边走边看）/ `Workflow`（人写静态 PLAN DAG）。
 
-- **Agent 协作** —— `.agents()` 垂直委派（父 spawn 子，子返回结果）；`.peers()` 横向接力（终止当前 run，peer 接力继续）。
+- **Agent 协作** —— `agents=` 垂直委派（父 spawn 子，子返回结果）；`peers=` 横向接力（终止当前 run，peer 接力继续）。
 
 - **上下文三明治** —— state / memory / skills / history / reminder 五段式组装，每段独立可控、独立可压缩。
 
@@ -90,7 +90,7 @@ LLM_MODEL=glm-5.2
 
 | # | Example | 场景 | 核心能力                                                                             |
 |---|---------|------|----------------------------------------------------------------------------------|
-| 1 | [greeter](examples/greeter) | 最小可跑 Agent | `@tool` + `Agent` + `.reactive()` 三件套                                            |
+| 1 | [greeter](examples/greeter) | 最小可跑 Agent | `@tool` + `Agent` + `mode="reactive"` 三件套                                            |
 | 2 | [trader](examples/trader) | 奶茶代购下单协商 | 对话式多轮协商（提案→反驳→调整→下单）+ memory 驱动 replan + HIGH 副作用 HITL 审批                        |
 | 3 | [deep_research](examples/deep_research) | 多轮探索式研究 | REACTIVE 探索树 + 五级 context 压缩 + 注入防御 + 记忆防重复                                      |
 | 4 | [compliance_audit](examples/compliance_audit) | 金融合规审计 + 崩溃恢复 | `Workflow` 写死 DAG + `FileCheckpointStore` + event log 重放 + `fork_run` 分叉 + 幂等写工具 |
@@ -112,7 +112,7 @@ pip install "prodagent[postgres,redis,neo4j,qdrant]"
 ```python
 import asyncio
 
-from prodagent import Agent, tool
+from prodagent import Agent, ExecutionMode, HardBudget, tool
 
 
 @tool(name="search", readonly=True)
@@ -120,14 +120,12 @@ async def search(query: str) -> str:
     return f"results for: {query}"
 
 
-agent = (
-    Agent(
-        "demo",
-        system_prompt="Find answers.",
-        tools=[search],
-    )
-    .reactive()
-    .budget(turns=20, cost_usd=1.0, seconds=1800.0)
+agent = Agent(
+    "demo",
+    system_prompt="Find answers.",
+    tools=[search],
+    mode=ExecutionMode.REACTIVE,
+    budget=HardBudget(max_turns=20, max_cost_usd=1.0, max_seconds=1800.0),
 )
 
 
@@ -153,9 +151,9 @@ Agent 是装配入口。三类架构决策：执行模式可切换、横切能�
 ```mermaid
 graph TD
     A[Agent] --> M{mode}
-    M -->|.plan_first| PF[PLAN_FIRST<br/>LLM 出动态 DAG<br/>可审计 · 可 HITL · 可断点续跑]
-    M -->|.reactive| RV[REACTIVE<br/>ReAct 循环 · 边走边看]
-    M -->|.workflow| WF[Workflow<br/>人写静态 DAG]
+    M -->|mode='plan_first'| PF[PLAN_FIRST<br/>LLM 出动态 DAG<br/>可审计 · 可 HITL · 可断点续跑]
+    M -->|mode='reactive'| RV[REACTIVE<br/>ReAct 循环 · 边走边看]
+    M -->|workflow=wf| WF[Workflow<br/>人写静态 DAG]
 ```
 
 ### Hook 三协议总线

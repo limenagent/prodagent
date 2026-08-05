@@ -44,11 +44,11 @@ class MemoryDefaultBundle:
 
         manager = build_memory_manager(framework_config=fw, constraints=list(agent.constraints))
         MemoryHooks(manager).attach(registry)
-        agent.config.memory_manager = manager
+        agent.config.memory = manager
 
 
 class ApprovalDefaultBundle:
-    """HITL gate for HIGH side-effect tools — dedupes against ``.extend()``."""
+    """HITL gate for HIGH side-effect tools — dedupes against ``extensions=``."""
 
     def attach(self, agent: Agent, fw: FrameworkConfig | None, registry: HookRegistry) -> None:
         from prodagent.hooks.bundles.security import ApprovalHooks
@@ -58,11 +58,11 @@ class ApprovalDefaultBundle:
                 return
         approval_hooks = ApprovalHooks()
         approval_hooks.attach(registry)
-        agent.config.approval_gate = approval_hooks.approval_gate
+        agent.config.approval = approval_hooks.approval_gate
 
 
 class PermissionDefaultBundle:
-    """Taint monitoring — dedupes against ``.extend(PermissionHooks(...))``."""
+    """Taint monitoring — dedupes against ``extensions=[PermissionHooks(...)]``."""
 
     def attach(self, agent: Agent, fw: FrameworkConfig | None, registry: HookRegistry) -> None:
         from prodagent.guardrail.permission import ContextTaintMonitor

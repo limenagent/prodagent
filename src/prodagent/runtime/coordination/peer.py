@@ -1,4 +1,4 @@
-"""PeerPipeline — horizontal peer handoff (``.peers()``)."""
+"""PeerPipeline — horizontal peer handoff (``peers=``)."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ class PeerPipeline:
                     message=(
                         f"Unknown peer {peer_name!r}. Available: {list(self._spec_map.keys())}"
                     ),
-                    hint="Declare the peer via .peers([...]) on the agent.",
+                    hint="Declare the peer via peers=[...] on the agent.",
                 ),
                 tool=f"handoff_to_{peer_name}",
             )
@@ -144,14 +144,14 @@ def assemble_peer_tools(
 ) -> None:
     """Build peer-handoff tools for ``agent.peer_agents`` and append them to ``active_tools``/``tool_schemas``."""
     agent = ctx.agent
-    if not agent.config.peer_agents:
+    if not agent.config.peers:
         return
     peer_ctx = ParentRuntime.from_context(
         ctx,
-        peer_specs=agent.config.peer_agents,
+        peer_specs=agent.config.peers,
         accumulator=spawn_acc,
     )
-    peer_tools = build_peer_tools_for_agent(agent.config.peer_agents, ctx=peer_ctx)
+    peer_tools = build_peer_tools_for_agent(agent.config.peers, ctx=peer_ctx)
     attach_tools(active_tools, tool_schemas, peer_tools)
 
 

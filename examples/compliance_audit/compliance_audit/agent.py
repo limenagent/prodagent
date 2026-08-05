@@ -6,7 +6,7 @@
     委派给 ``audit_workflow`` 子 agent 跑固定 DAG → 拿到 SAR 结果后
     继续对话(追问某笔交易、要求重审、讨论合规结论)。DAG 跑完不阻塞
     对话 —— 主 agent 永远可交互。
-  - **workflow 子 agent** —— ``audit_workflow`` 是 ``.workflow()`` 构造的
+  - **workflow 子 agent** —— ``audit_workflow`` 是 ``workflow=`` 构造的
     固定 DAG(extract → flag ‖ enrich → submit_sar),通过 ``spawn_agent``
     触发。DAG 跑完返回 SAR 结果给主 agent。子 agent 是固定流程,主 agent
     是灵活对话 —— 两者职责分离。
@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import os
 
-from prodagent import Agent
+from prodagent import Agent, ExecutionMode, HardBudget
 from prodagent.core.config import FrameworkConfig
 from prodagent.llm.base import LLMClient
 
@@ -40,21 +40,19 @@ def build_sar_submitter(llm: LLMClient | None = None) -> Agent:
     REACTIVE 模式: 拿到 task(含 s2/s3 标注)→ LLM 综合 → 调 HIGH 副作用写工具。
     poison pill 在 ``submit_to_regulator`` 里: RUN 1 崩,续跑时解除。
     """
-    return (
-        Agent(
-            "sar_submitter",
-            system_prompt=(
-                "你是 SAR 提交 agent。拿到上游两份 LLM 分析(可疑标注 + 实体关联),"
-                "综合成一段 sar_summary 并调 submit_to_regulator 提交 SAR 报告。"
-                "suspicious_tx_ids 填所有 risk=medium/high 的 tx_id。"
-                "submit_to_regulator 幂等 —— 崩溃重试不会重复提交。"
-            ),
-            tools=[submit_to_regulator],
-            llm=llm,
-        )
-        .description("综合可疑标注与实体关联,提交 SAR 报告。")
-        .reactive()
-        .budget(turns=3, cost_usd=0.20, seconds=60.0)
+    return Agent(
+        "sar_submitter",
+        system_prompt=(
+            "你是 SAR 提交 agent。拿到上游两份 LLM 分析(可疑标注 + 实体关联),"
+            "综合成一段 sar_summary 并调 submit_to_regulator 提交 SAR 报告。"
+            "suspicious_tx_ids 填所有 risk=medium/high 的 tx_id。"
+            "submit_to_regulator 幂等 —— 崩溃重试不会重复提交。"
+        ),
+        tools=[submit_to_regulator],
+        llm=llm,
+        description="综合可疑标注与实体关联,提交 SAR 报告。",
+        mode=ExecutionMode.REACTIVE,
+        budget=HardBudget(max_turns=3, max_cost_usd=0.20, max_seconds=60.0),
     )
 
 
@@ -65,26 +63,25 @@ def build_audit_workflow_agent(
 ) -> Agent:
     """audit_workflow 子 agent —— 固定 DAG(extract → flag ‖ enrich → submit_sar)。
 
-    ``.workflow()`` 构造,DAG 写死跳过 LLM planning。s2/s3 是真 LLM 标注,
+    ``workflow=`` 构造,DAG 写死跳过 LLM planning。s2/s3 是真 LLM 标注,
     s4 委派给 sar_submitter 子 agent。通过主 agent 的 ``spawn_agent`` 触发。
     """
     sar_submitter = build_sar_submitter(llm)
     wf = build_audit_workflow(sar_submitter)
-    return (
-        Agent(
-            "audit_workflow",
-            system_prompt=(
-                "你是合规审计 workflow agent。DAG 写死: "
-                "extract_transactions → flag_suspicious ‖ enrich_entity → submit_sar。"
-                "你不需要生成 plan —— 直接执行。"
-            ),
-            tools=[extract_transactions],
-            llm=llm,
-            framework_config=framework_config,
-        )
-        .workflow(wf, allow_replan=False)
-        .agents([sar_submitter])
-        .budget(turns=12, cost_usd=0.40, seconds=120.0)
+    return Agent(
+        "audit_workflow",
+        system_prompt=(
+            "你是合规审计 workflow agent。DAG 写死: "
+            "extract_transactions → flag_suspicious ‖ enrich_entity → submit_sar。"
+            "你不需要生成 plan —— 直接执行。"
+        ),
+        tools=[extract_transactions],
+        llm=llm,
+        framework=framework_config,
+        workflow=wf,
+        allow_replan=False,
+        agents=[sar_submitter],
+        budget=HardBudget(max_turns=12, max_cost_usd=0.40, max_seconds=120.0),
     )
 
 
@@ -113,28 +110,26 @@ def build_compliance_audit_agent(
         framework_config=framework_config,
     )
 
-    return (
-        Agent(
-            "compliance_audit",
-            system_prompt=(
-                "你是合规审计编排 agent。用户想审计交易流水时,调 "
-                "``spawn_agent(name=\"audit_workflow\", task=...)`` 委派给固定的 "
-                "审计 workflow(extract → flag ‖ enrich → submit_sar)。"
-                "workflow 跑完会返回 SAR 提交结果,你把结果讲给用户。\n\n"
-                "## 规则\n"
-                "- 用户说\"审计\"/\"查交易\"/\"有没有可疑\"时,调 spawn_agent 触发 DAG。"
-                "不要自己逐条分析交易 —— 那是 workflow 的事。\n"
-                "- DAG 跑完,把 SAR 结果(提交了哪些可疑交易、为什么)讲给用户。\n"
-                "- 用户追问某笔交易/要求重审/讨论结论时,直接对话 —— 不需要再跑 DAG。\n"
-                "- 用户要重新审计(新一批交易)时,再调一次 spawn_agent。"
-            ),
-            tools=[extract_transactions],
-            llm=resolved_llm,
-            framework_config=framework_config,
-        )
-        .reactive()
-        .agents([audit_workflow])
-        .budget(turns=20, cost_usd=0.60, seconds=180.0)
+    return Agent(
+        "compliance_audit",
+        system_prompt=(
+            "你是合规审计编排 agent。用户想审计交易流水时,调 "
+            "``spawn_agent(name=\"audit_workflow\", task=...)`` 委派给固定的 "
+            "审计 workflow(extract → flag ‖ enrich → submit_sar)。"
+            "workflow 跑完会返回 SAR 提交结果,你把结果讲给用户。\n\n"
+            "## 规则\n"
+            "- 用户说\"审计\"/\"查交易\"/\"有没有可疑\"时,调 spawn_agent 触发 DAG。"
+            "不要自己逐条分析交易 —— 那是 workflow 的事。\n"
+            "- DAG 跑完,把 SAR 结果(提交了哪些可疑交易、为什么)讲给用户。\n"
+            "- 用户追问某笔交易/要求重审/讨论结论时,直接对话 —— 不需要再跑 DAG。\n"
+            "- 用户要重新审计(新一批交易)时,再调一次 spawn_agent。"
+        ),
+        tools=[extract_transactions],
+        llm=resolved_llm,
+        framework=framework_config,
+        mode=ExecutionMode.REACTIVE,
+        agents=[audit_workflow],
+        budget=HardBudget(max_turns=20, max_cost_usd=0.60, max_seconds=180.0),
     )
 
 

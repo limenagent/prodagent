@@ -194,7 +194,7 @@ class Workflow:
         async def _llm_fn(prompt: str, run_id: str = "") -> str:
             if wf._llm is None:
                 raise RuntimeError(
-                    f"llm_step {name!r}: LLM client not bound. Call Agent.workflow(wf) "
+                    f"llm_step {name!r}: LLM client not bound. Pass workflow=wf to Agent() "
                     "to bind the agent's LLM before running."
                 )
             from prodagent.hooks import fire as _fire

@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
+from prodagent import Agent
 from prodagent.core.types import SideEffectLevel, ToolMeta
 from prodagent.guardrail.permission import TaintLevel
 from prodagent.hooks.bundles.security import PermissionHooks
 from prodagent.hooks.checkpoint import CheckPoint
 from prodagent.hooks.registry import HookEvent, HookRegistry
-from prodagent.runtime.agent import Agent
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.registry import ToolRegistry
 
@@ -66,8 +66,10 @@ async def test_default_taint_blocks_exfiltration_after_pii():
 
 
 def test_user_permission_hooks_suppresses_default_taint():
-    agent = Agent("t", tool_registry=_registry_with_exfil_tool()).extend(
-        PermissionHooks(taint_monitor=None)
+    agent = Agent(
+        "t",
+        tool_registry=_registry_with_exfil_tool(),
+        extensions=[PermissionHooks(taint_monitor=None)],
     )
     agent.attach_default_hooks()
     monitor = _find_default_taint_monitor(agent.config.hooks)

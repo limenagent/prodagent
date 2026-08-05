@@ -25,7 +25,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from prodagent import Agent
+from prodagent import Agent, HardBudget
 from prodagent.cognition.memory import MemoryManager
 from prodagent.core.config import FrameworkConfig
 from prodagent.evaluation.skills.registry import SkillRegistry
@@ -95,21 +95,15 @@ def build_trip_planner_agent(
     use_fake = os.getenv("USE_FAKE_LLM", "").lower() in ("1", "true", "yes")
     llm = build_fake_llm() if use_fake else None
 
-    return (
-        Agent(
-            "trip_planner",
-            system_prompt=_SYSTEM_PROMPT,
-            tools=[],  # 工具全在 peer agent 上
-            skills=skills,
-            llm=llm,
-            framework_config=framework_config,
-        )
-        .workflow(wf, allow_replan=True)
-        .agents([itinerary, restaurant, transport])
-        .budget(turns=25, cost_usd=1.5, seconds=900.0)
-        .extend(
-            # 默认 bundle 已挂空 memory 的 MemoryHooks;这里叠一个 pre-seeded
-            # memory 的 —— demo 需要用户偏好(拉面/漫画)注入到 peer task。
-            MemoryHooks(resolved_memory),
-        )
+    return Agent(
+        "trip_planner",
+        system_prompt=_SYSTEM_PROMPT,
+        tools=[],
+        skills=skills,
+        llm=llm,
+        framework=framework_config,
+        workflow=wf,
+        agents=[itinerary, restaurant, transport],
+        budget=HardBudget(max_turns=25, max_cost_usd=1.5, max_seconds=900.0),
+        extensions=[MemoryHooks(resolved_memory)],
     )

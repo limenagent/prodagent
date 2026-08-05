@@ -22,7 +22,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from prodagent import Agent
+from prodagent import Agent, ExecutionMode, HardBudget
 from prodagent.cognition.memory import MemoryManager
 from prodagent.core.config import ContextConfig, FrameworkConfig
 from prodagent.evaluation.skills.registry import SkillRegistry
@@ -124,19 +124,17 @@ def build_deep_research_agent(
     use_fake = os.getenv("USE_FAKE_LLM", "").lower() in ("1", "true", "yes")
     llm = build_fake_llm() if use_fake else None
 
-    return (
-        Agent(
-            "deep_research",
-            system_prompt=_SYSTEM_PROMPT,
-            tools=[web_search, web_fetch, cross_check, synthesize_report],
-            skills=skills,
-            llm=llm,
-            framework_config=fw,
-        )
-        .reactive()
-        .budget(turns=30, cost_usd=1.0, seconds=600.0)
-        .extend(
+    return Agent(
+        "deep_research",
+        system_prompt=_SYSTEM_PROMPT,
+        tools=[web_search, web_fetch, cross_check, synthesize_report],
+        skills=skills,
+        llm=llm,
+        framework=fw,
+        mode=ExecutionMode.REACTIVE,
+        budget=HardBudget(max_turns=30, max_cost_usd=1.0, max_seconds=600.0),
+        extensions=[
             MemoryHooks(resolved_memory),
             InjectionDefenseHooks(pipeline=pipeline),
-        )
+        ],
     )

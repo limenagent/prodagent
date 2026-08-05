@@ -496,27 +496,26 @@ class TestEnvExpansionIntegration:
 
 class TestAgentMcpIntegration:
     def test_mcp_normalises_dict_configs(self, fake_llm: Any, hook_registry: Any) -> None:
-        from prodagent.runtime.agent import Agent
+        from prodagent import Agent
 
-        agent = Agent(name="t", llm=fake_llm, hooks=hook_registry).mcp(
-            [
-                {"name": "rca", "type": "http", "url": "http://x/mcp"},
-            ]
+        cfg = MCPServerConfig(name="rca", transport="http", url="http://x/mcp")
+        agent = Agent(
+            name="t",
+            llm=fake_llm,
+            hooks=hook_registry,
+            mcp=[cfg],
         )
         assert len(agent.mcp_configs) == 1
         assert isinstance(agent.mcp_configs[0], MCPServerConfig)
         assert agent.mcp_configs[0].name == "rca"
 
     def test_mcp_rejects_dict_without_name(self, fake_llm: Any, hook_registry: Any) -> None:
-        from prodagent.runtime.agent import Agent
-
-        agent = Agent(name="t", llm=fake_llm, hooks=hook_registry)
-        with pytest.raises(ValueError, match="must include a 'name'"):
-            agent.mcp([{"type": "http", "url": "http://x"}])
+        with pytest.raises(TypeError, match="required"):
+            MCPServerConfig(transport="http", url="http://x")
 
     async def test_mcp_tools_injected_into_agent(self, fake_llm: Any, hook_registry: Any) -> None:
+        from prodagent import Agent
         from prodagent.mcp.registry import MCPRegistry
-        from prodagent.runtime.agent import Agent
 
         cfg = MCPServerConfig(name="mock", transport="http", url="http://x/mcp")
         client = MCPClient(cfg)
@@ -527,7 +526,7 @@ class TestAgentMcpIntegration:
             ),
         )
 
-        agent = Agent(name="t", system_prompt="g", llm=fake_llm, hooks=hook_registry).mcp([cfg])
+        agent = Agent(name="t", system_prompt="g", llm=fake_llm, hooks=hook_registry, mcp=[cfg])
 
         agent.mcp_registry = MCPRegistry([cfg])
         assert agent.mcp_registry is not None

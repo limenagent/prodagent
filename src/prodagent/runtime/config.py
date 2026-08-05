@@ -38,7 +38,7 @@ class AgentConfig:
     budget: HardBudget | None = None
     constraints: list[str] = field(default_factory=list)
     system_prompt: str = ""
-    framework_config: FrameworkConfig | None = None
+    framework: FrameworkConfig | None = None
     hooks: HookRegistry | None = None
     mode: ExecutionMode = ExecutionMode.PLAN_FIRST
     checkpoint: CheckpointStore | None = None
@@ -50,11 +50,11 @@ class AgentConfig:
     initial_plan: Plan | None = None
     max_replans: int = 2
     description: str = ""
-    child_agents: list[Agent] = field(default_factory=list)
-    peer_agents: list[Agent] = field(default_factory=list)
-    mcp_configs: list[MCPServerConfig] = field(default_factory=list)
-    approval_gate: ApprovalProvider | None = None
-    memory_manager: MemoryProvider | None = None
+    agents: list[Agent] = field(default_factory=list)
+    peers: list[Agent] = field(default_factory=list)
+    mcp: list[MCPServerConfig] = field(default_factory=list)
+    approval: ApprovalProvider | None = None
+    memory: MemoryProvider | None = None
 
     injectors: list[tuple[Any, Any]] = field(default_factory=list)
     checkers: list[tuple[Any, Any]] = field(default_factory=list)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from prodagent import Agent
+from prodagent import Agent, ExecutionMode, HardBudget
 from prodagent.core.config import FrameworkConfig
 from prodagent.evaluation.skills.registry import SkillRegistry
 from prodagent.llm.base import LLMClient
@@ -72,18 +72,16 @@ def build_aiops_agent(
     """
     use_fake = os.getenv("USE_FAKE_LLM", "").lower() in ("1", "true", "yes")
     resolved_llm = llm or (oom_happy_path_script() if use_fake else None)
-    return (
-        Agent(
-            "investigate",
-            tools=[page_oncall],
-            tool_registry=build_aiops_tool_registry(),
-            skills=SkillRegistry.from_dir(SKILLS_DIR),
-            system_prompt=_SYSTEM_PROMPT,
-            llm=resolved_llm,
-            framework_config=framework_config,
-        )
-        .agents(diagnostic_child_agents())
-        .peers([remediator_agent(llm=resolved_llm)])
-        .reactive()
-        .budget(turns=20, cost_usd=1.0, seconds=1800.0)
+    return Agent(
+        "investigate",
+        tools=[page_oncall],
+        tool_registry=build_aiops_tool_registry(),
+        skills=SkillRegistry.from_dir(SKILLS_DIR),
+        system_prompt=_SYSTEM_PROMPT,
+        llm=resolved_llm,
+        framework=framework_config,
+        agents=diagnostic_child_agents(),
+        peers=[remediator_agent(llm=resolved_llm)],
+        mode=ExecutionMode.REACTIVE,
+        budget=HardBudget(max_turns=20, max_cost_usd=1.0, max_seconds=1800.0),
     )
