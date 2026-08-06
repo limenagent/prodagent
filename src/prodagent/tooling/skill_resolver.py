@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from prodagent.core.exceptions import SuspendPendingApproval
 from prodagent.core.types import SKILL_INJECTION_KEY, ToolCall, ToolOutcome, ToolResult
-from prodagent.guardrail.approval.matrix import extract_confidence
+from prodagent.guardrail.approval.routing import extract_confidence
 from prodagent.hooks.checkpoint import CheckPoint
 from prodagent.hooks.events import HookEvent
 

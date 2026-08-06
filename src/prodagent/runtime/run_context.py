@@ -27,8 +27,7 @@ def _resolve_llm(agent: Agent) -> LLMClient:
 
 @dataclass
 class RunContext:
-    """Per-hop input: which agent, what task, which run_id, how deep.
-    """
+    """Per-hop input: which agent, what task, which run_id, how deep."""
 
     agent: Agent
     task: str

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from prodagent.guardrail.approval.formatter import ContextAwareApprovalFormatter
 from prodagent.guardrail.approval.gate import ApprovalGate, ApprovalProvider
-from prodagent.guardrail.approval.matrix import (
+from prodagent.guardrail.approval.routing import (
     extract_confidence,
     should_request_review,
 )

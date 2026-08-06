@@ -54,7 +54,7 @@ def _compile(patterns: list[str]) -> re.Pattern[str]:
 
 
 class DefaultScrubber:
-    """Production-ready payload scrubber."""
+    """Opt-in PII/secret redaction — pass explicitly to AuditLogger(scrubber=...)."""
 
     def __init__(
         self,

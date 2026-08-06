@@ -253,9 +253,6 @@ class HookRegistry:
         handlers = self._handlers_for(self._event_handlers[HookEvent.INJECTION_FAILED])
         await self._dispatch_event(handlers, payload, HookEvent.INJECTION_FAILED.value)
 
-    def has_event_handlers(self, event: HookEvent) -> bool:
-        return bool(self._event_handlers[event])
-
     def has_check_handlers(self, point: CheckPoint) -> bool:
         return bool(self._check_handlers[point])
 

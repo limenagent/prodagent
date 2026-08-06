@@ -256,7 +256,6 @@ def test_agent_stream_run_failed_event_on_budget_exhaustion():
     from prodagent.core.events import RunFailedEvent
     from prodagent.core.types import LLMResponse
     from prodagent.llm.base import LLMClient
-    from prodagent.resilience.cost import HardBudget
 
     class LoopingLLM(LLMClient):
         async def complete(self, messages, *, system="", tools=None, config=None, on_chunk):

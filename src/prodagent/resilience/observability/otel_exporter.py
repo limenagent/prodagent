@@ -54,7 +54,7 @@ def _require_otel() -> Any:
 
 
 class OtelSpanExporter:
-    """Export AgentSpans as OpenTelemetry spans to an OTLP collector."""
+    """Export AgentSpans to an OTLP collector; opt-in, not resolvable via backends.factory."""
 
     def __init__(
         self,

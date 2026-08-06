@@ -1,4 +1,9 @@
-"""Checkpoint and injection point definitions for tri-protocol architecture."""
+"""Checkpoint and injection point definitions for tri-protocol architecture.
+
+``CheckPoint`` here means a hook-lifecycle blocking gate (can execution proceed
+past this point?) — unrelated to run-state persistence checkpoints, which are
+``CheckpointStore`` / ``run.checkpoint_version`` (see ``hooks/__init__.py``).
+"""
 
 from __future__ import annotations
 

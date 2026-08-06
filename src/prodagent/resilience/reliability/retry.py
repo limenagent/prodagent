@@ -25,11 +25,6 @@ class RetryPolicy:
     max_delay: float = 60.0
     backoff: Backoff = Backoff.JITTERED
 
-    @classmethod
-    def none(cls) -> RetryPolicy:
-        """No retry — first failure is final."""
-        return cls(max_attempts=1)
-
     def delay(self, attempt: int) -> float:
         """Compute sleep duration (seconds) before *attempt* (1-based)."""
         if self.backoff is Backoff.FIXED:

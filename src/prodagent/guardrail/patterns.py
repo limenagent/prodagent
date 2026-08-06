@@ -39,7 +39,3 @@ INJECTION_PATTERNS: list[str] = [
 
 def compile_patterns(patterns: list[str], *, flags: int = 0) -> list[re.Pattern[str]]:
     return [re.compile(p, flags) for p in patterns]
-
-
-def combined_pattern(patterns: list[str], *, flags: int = 0) -> re.Pattern[str]:
-    return re.compile("(?:" + "|".join(patterns) + ")", flags)

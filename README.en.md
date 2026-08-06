@@ -81,7 +81,7 @@ Browser opens `http://127.0.0.1:8766` automatically.
 
 First run launches an interactive wizard with two choices:
 
-- **FakeLLM** — offline, no key needed, try all 10 examples immediately
+- **FakeLLM** — offline, no key needed, try all 8 examples immediately
 - **OpenAI-compatible endpoint** — provide `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`. Works with any vendor implementing the OpenAI Chat Completions protocol: DeepSeek, Qwen, Moonshot, Zhipu, Groq, Ollama, self-hosted gateways, etc.
 
 Or skip the wizard and write `.env` in the repo root directly:

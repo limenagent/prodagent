@@ -22,6 +22,7 @@ def default_hook_bundles() -> list[HookBundle]:
     from prodagent.hooks.bundles.default_wiring import (
         ApprovalDefaultBundle,
         ConsoleDefaultBundle,
+        InjectionDefaultBundle,
         LearningDefaultBundle,
         MemoryDefaultBundle,
         PermissionDefaultBundle,
@@ -34,5 +35,6 @@ def default_hook_bundles() -> list[HookBundle]:
         MemoryDefaultBundle(),
         ApprovalDefaultBundle(),
         PermissionDefaultBundle(),
+        InjectionDefaultBundle(),
         LearningDefaultBundle(),
     ]

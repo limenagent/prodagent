@@ -69,7 +69,7 @@ make playground
 
 首次运行进入交互式向导，二选一：
 
-- **FakeLLM** —— 离线，零 key，直接体验 10 个 example
+- **FakeLLM** —— 离线，零 key，直接体验 8 个 example
 - **OpenAI 兼容端点** —— 填 `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`。DeepSeek、Qwen、Moonshot、Zhipu 等任何 OpenAI Chat Completions 协议厂商均适用
 
 不想跑向导，在仓库根目录写 `.env` 即可跳过：

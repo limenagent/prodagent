@@ -97,7 +97,7 @@ clean:
 	rm -rf .coverage htmlcov .pytest_cache .mypy_cache
 	find . -type d -name __pycache__ -exec rm -rf {} +
 
-	@for d in .prodagent examples/*/.prodagent; do \
+	@for d in .prodagent examples/*/.prodagent src/prodagent/playground/.prodagent; do \
 		if [ -d "$$d" ]; then echo "rm -rf $$d"; rm -rf "$$d"; fi; \
 	done
 	@if docker ps --format '{{.Names}}' | grep -q '^prodagent-postgres$$'; then \

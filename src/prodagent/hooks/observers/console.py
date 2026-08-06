@@ -38,6 +38,9 @@ def _subagent_suffix(run_id: str) -> str:
 
 
 class ConsoleObserverHooks:
+    """Terminal renderer: one private method per ``HookEvent``, dispatched via the
+    ``_HANDLERS`` table at the bottom of this file (event -> method name)."""
+
     def __init__(self, *, verbose: bool = True) -> None:
         self._verbose = verbose
         self._think_started = False

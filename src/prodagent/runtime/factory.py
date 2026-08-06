@@ -32,8 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 class LeafExecutorFactory:
-    """Builds the LeafExecutor + hooks registry for one hop.
-    """
+    """Builds the LeafExecutor + hooks registry for one hop."""
 
     def __init__(
         self,

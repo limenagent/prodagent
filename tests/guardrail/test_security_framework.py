@@ -9,7 +9,7 @@ from prodagent.guardrail.approval import (
     ApprovalDecision,
     ContextAwareApprovalFormatter,
 )
-from prodagent.guardrail.approval.matrix import _route
+from prodagent.guardrail.approval.routing import _route
 from prodagent.guardrail.injection import (
     KnowledgeBaseWriteGuard,
     validate_handoff_security,

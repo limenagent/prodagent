@@ -68,8 +68,7 @@ def _make_injector(f: Callable[..., Any]) -> Callable[..., Any]:
 
 
 class Agent:
-    """Declarative agent with a single, flat constructor.
-    """
+    """Declarative agent with a single, flat constructor."""
 
     def __init__(
         self,

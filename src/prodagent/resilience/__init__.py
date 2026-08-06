@@ -1,6 +1,5 @@
-"""resilience — cost, observability, reliability, transport."""
+"""resilience — robustness infrastructure shared across the agent runtime."""
 
-from prodagent.core.budget import HardBudget
 from prodagent.resilience.observability.audit import (
     AgentSpan,
     AuditLogger,
@@ -13,7 +12,6 @@ from prodagent.resilience.transport.http_retry import (
 )
 
 __all__ = [
-    "HardBudget",
     "AgentSpan",
     "AuditLogger",
     "ChainOptimizer",

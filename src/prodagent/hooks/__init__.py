@@ -17,6 +17,8 @@ async def fire(hooks: HookRegistry | None, event: HookEvent, **payload: object) 
         await hooks.fire(event, **payload)
 
 
+# "Checkpoint" below means run-state persistence (CheckpointStore snapshot),
+# not the CheckPoint enum (hook-lifecycle blocking gate) defined in checkpoint.py.
 async def fire_checkpoint_failed(
     hooks: HookRegistry | None, run: AgentRun, *, was_failed: bool
 ) -> None:

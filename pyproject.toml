@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "ProdAgent Contributors" }]
 keywords = ["llm", "agent", "ai", "anthropic", "openai", "production", "framework"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: GNU Affero General Public License v3",
     "Programming Language :: Python :: 3",
@@ -28,6 +28,7 @@ classifiers = [
 ]
 dependencies = [
     "anthropic>=0.40.0",
+    "anyio>=4.4.0",
     "fastapi>=0.110",
     "httpx>=0.27.0",
     "openai>=1.50.0",
@@ -110,9 +111,11 @@ ignore = ["E501", "B008"]
 known-first-party = ["prodagent"]
 
 [tool.mypy]
-python_version = "3.12"
-python_executable = ".venv/bin/python"
+python_version = "3.11"
 strict = true
+
+[[tool.mypy.overrides]]
+module = ["redis.*", "neo4j.*", "qdrant_client.*", "psycopg.*", "psycopg_pool.*", "yaml"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

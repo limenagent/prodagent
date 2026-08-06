@@ -50,8 +50,7 @@ logger = logging.getLogger(__name__)
 
 
 class ReactiveLoop:
-    """Greedy think→decide→execute loop: the ``ExecutionMode.REACTIVE`` leaf executor.
-    """
+    """Greedy think→decide→execute loop: the ``ExecutionMode.REACTIVE`` leaf executor."""
 
     def __init__(
         self,

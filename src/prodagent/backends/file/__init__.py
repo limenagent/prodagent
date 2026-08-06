@@ -11,14 +11,14 @@ from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.document import FileDocumentStore
 from prodagent.backends.file.event_log import FileEventLog
 from prodagent.backends.file.graph import FileGraphStore
+from prodagent.backends.file.session_store import FileSessionStore
 from prodagent.backends.file.span import FileSpanExporter
-from prodagent.resilience.observability.audit import LogExporter
 
 __all__ = [
     "FileCheckpointStore",
     "FileDocumentStore",
     "FileEventLog",
     "FileGraphStore",
+    "FileSessionStore",
     "FileSpanExporter",
-    "LogExporter",
 ]

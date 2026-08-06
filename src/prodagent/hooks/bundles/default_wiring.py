@@ -75,6 +75,19 @@ class PermissionDefaultBundle:
         PermissionHooks(taint_monitor=monitor, tool_registry=agent.tool_registry).attach(registry)
 
 
+class InjectionDefaultBundle:
+    """L1-L5 prompt-injection + PII defense — dedupes against ``extensions=``."""
+
+    def attach(self, agent: Agent, fw: FrameworkConfig | None, registry: HookRegistry) -> None:
+        from prodagent.guardrail.injection.pipeline import GuardrailPipeline
+        from prodagent.hooks.bundles.security.injection import InjectionDefenseHooks
+
+        for ext in agent.config.extensions:
+            if isinstance(ext, InjectionDefenseHooks):
+                return
+        InjectionDefenseHooks(pipeline=GuardrailPipeline()).attach(registry)
+
+
 class LearningDefaultBundle:
     """Closed-loop skill synthesis — needs fw + a SkillRegistry."""
 

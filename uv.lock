@@ -1238,6 +1238,7 @@ version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
+    { name = "anyio" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "openai" },
@@ -1302,6 +1303,7 @@ yaml = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=0.40.0" },
+    { name = "anyio", specifier = ">=4.4.0" },
     { name = "fastapi", specifier = ">=0.110" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10.0" },

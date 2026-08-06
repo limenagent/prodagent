@@ -40,7 +40,7 @@ class LogExporter:
 
 
 class AuditLogger:
-    """Structured audit sink with head-based sampling and PII scrubbing."""
+    """Structured audit sink; pass scrubber=DefaultScrubber() to opt into PII redaction."""
 
     def __init__(
         self,

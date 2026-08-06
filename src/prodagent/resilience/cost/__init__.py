@@ -1,6 +1,5 @@
-"""Cost — multi-axis budget and pricing."""
+"""Cost — pricing tables and token-to-USD conversion."""
 
-from prodagent.core.budget import HardBudget
 from prodagent.resilience.cost.pricing import PricingTable, token_cost_usd
 
-__all__ = ["HardBudget", "PricingTable", "token_cost_usd"]
+__all__ = ["PricingTable", "token_cost_usd"]

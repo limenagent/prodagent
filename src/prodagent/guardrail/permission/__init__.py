@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from prodagent.guardrail.permission.circuit_breaker import PermissionCircuitBreaker
-from prodagent.guardrail.permission.matrix import (
+from prodagent.guardrail.permission.scopes import (
     PermissionMatrix,
     PermissionMatrixBuilder,
     PermissionScope,
