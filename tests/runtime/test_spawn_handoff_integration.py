@@ -127,7 +127,7 @@ async def test_spawn_tool_meta_allows_parallel_and_idempotent():
 
 
 async def test_spawn_aggregates_cost_into_accumulator():
-    from prodagent.runtime.coordination.fork import ParentRuntime
+    from prodagent.runtime.coordination.parent_runtime import ParentRuntime
     from prodagent.runtime.coordination.spawn import build_spawn_tools_for_agent
 
     fake_llm = script({"content": "done"})

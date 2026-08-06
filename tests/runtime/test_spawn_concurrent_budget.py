@@ -6,7 +6,7 @@ from prodagent import Agent
 from prodagent.core.budget import HardBudget
 from prodagent.core.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.coordination.fork import ParentRuntime
+from prodagent.runtime.coordination.parent_runtime import ParentRuntime
 from prodagent.runtime.coordination.spawn import SpawnPipeline
 
 

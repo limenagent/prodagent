@@ -10,7 +10,7 @@ from prodagent.hooks.events import HookEvent
 from prodagent.hooks.registry import HookRegistry
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.resilience.observability.audit import AuditLogger
-from prodagent.runtime.reactive import AgentLoop
+from prodagent.runtime.reactive import ReactiveLoop
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -23,9 +23,9 @@ async def _noop_tool() -> dict:
     return {"result": "ok"}
 
 
-def _make_loop(llm: FakeLLMAdapter, hooks: HookRegistry) -> AgentLoop:
+def _make_loop(llm: FakeLLMAdapter, hooks: HookRegistry) -> ReactiveLoop:
     dispatcher = ToolDispatcher({"noop": _noop_tool})
-    return AgentLoop(
+    return ReactiveLoop(
         llm,
         dispatcher,
         system_prompt="test",

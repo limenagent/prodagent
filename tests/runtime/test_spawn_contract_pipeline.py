@@ -8,8 +8,8 @@ from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
 from prodagent.core.config import FrameworkConfig
 from prodagent.core.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.coordination.fork import ParentRuntime
 from prodagent.runtime.coordination.handoff import HandoffContract
+from prodagent.runtime.coordination.parent_runtime import ParentRuntime
 from prodagent.runtime.coordination.spawn import SpawnPipeline
 
 if TYPE_CHECKING:

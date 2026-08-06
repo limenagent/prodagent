@@ -62,7 +62,14 @@ class _BatchResult:
 
 
 class PlanExecutor:
-    """Execute a phase in plan-then-execute mode."""
+    """The ``ExecutionMode.PLAN_FIRST`` leaf executor: commit to a plan, then run it.
+
+    Builds a DAG of steps upfront (or accepts one via ``initial_plan``), executes
+    steps respecting their dependencies, and replans (up to ``max_replans`` times)
+    when a step fails. Contrast with
+    :class:`~prodagent.runtime.reactive.ReactiveLoop`, the other leaf executor,
+    which has no upfront plan and decides one action at a time.
+    """
 
     def __init__(
         self,

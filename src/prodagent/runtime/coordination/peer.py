@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING, Any
 
 from prodagent.core.error_reason import ErrorReason
 from prodagent.core.types import RunState, SideEffectLevel, ToolError, ToolMeta, ToolResult
-from prodagent.runtime.config import attach_tools
-from prodagent.runtime.coordination.fork import ParentRuntime, describe_agent
+from prodagent.runtime._tool_merge import attach_tools
+from prodagent.runtime.coordination.parent_runtime import ParentRuntime, describe_agent
 from prodagent.tooling.base import FunctionTool
 
 if TYPE_CHECKING:
@@ -16,13 +16,22 @@ if TYPE_CHECKING:
     from prodagent.ports import CheckpointStore
     from prodagent.runtime.agent import Agent
     from prodagent.runtime.coordination.accounting import SpawnAccumulator
-    from prodagent.runtime.session import RunContext
+    from prodagent.runtime.run_context import RunContext
 
 logger = logging.getLogger(__name__)
 
 
 class PeerPipeline:
-    """The peer's output becomes the run's output."""
+    """The peer's output becomes the run's output.
+
+    Backs the ``peers=`` keyword (horizontal hand-off): calling
+    ``handoff_to_<peer>`` ends the current agent's run with ``COMPLETED`` and
+    hands control to the peer, which continues with this task plus the
+    caller's final output as context. Contrast with
+    :class:`~prodagent.runtime.coordination.spawn.SpawnPipeline`, which backs
+    ``agents=`` (vertical delegation): the parent keeps running and gets a
+    result back instead of terminating.
+    """
 
     def __init__(
         self,
@@ -141,11 +150,15 @@ def assemble_peer_tools(
     active_tools: list[Any],
     tool_schemas: list[dict[str, Any]],
     spawn_acc: SpawnAccumulator | None,
-) -> None:
-    """Build peer-handoff tools for ``agent.peer_agents`` and append them to ``active_tools``/``tool_schemas``."""
+) -> SpawnAccumulator | None:
+    """Build peer-handoff tools for ``agent.peer_agents``, appended to ``active_tools``/``tool_schemas``.
+
+    Returns ``spawn_acc`` unchanged — peer handoff doesn't create its own accumulator,
+    but passing it through keeps this call's shape symmetric with ``assemble_spawn_tools``.
+    """
     agent = ctx.agent
     if not agent.config.peers:
-        return
+        return spawn_acc
     peer_ctx = ParentRuntime.from_context(
         ctx,
         peer_specs=agent.config.peers,
@@ -153,6 +166,7 @@ def assemble_peer_tools(
     )
     peer_tools = build_peer_tools_for_agent(agent.config.peers, ctx=peer_ctx)
     attach_tools(active_tools, tool_schemas, peer_tools)
+    return spawn_acc
 
 
 async def resolve_suspended_peer_run_id(

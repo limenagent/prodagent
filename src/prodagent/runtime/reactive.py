@@ -1,4 +1,4 @@
-"""AgentLoop — the REACTIVE leaf executor."""
+"""ReactiveLoop — the REACTIVE leaf executor."""
 
 from __future__ import annotations
 
@@ -49,8 +49,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class AgentLoop:
-    """Greedy think→decide→execute loop."""
+class ReactiveLoop:
+    """Greedy think→decide→execute loop: the ``ExecutionMode.REACTIVE`` leaf executor.
+    """
 
     def __init__(
         self,
@@ -105,7 +106,7 @@ class AgentLoop:
         parent_run_id: str | None = None,
     ) -> AsyncGenerator[AgentEvent, None]:
         run = await self._resolve_run(task, run_id=run_id, parent_run_id=parent_run_id)
-        logger.info("AgentLoop[%s] stream started: %r", run.run_id, task[:80])
+        logger.info("ReactiveLoop[%s] stream started: %r", run.run_id, task[:80])
         await self._begin_run_span(run, task)
 
         try:
@@ -130,14 +131,14 @@ class AgentLoop:
         run.state = RunState.FAILED
         self._record_fault(run, exc)
         await self._end_run_span(run, error=str(exc))
-        logger.warning("AgentLoop[%s] terminated: %s", run.run_id, exc)
+        logger.warning("ReactiveLoop[%s] terminated: %s", run.run_id, exc)
         return RunFailedEvent(run=run, error=str(exc))
 
     async def _settle_unexpected(self, run: AgentRun, exc: BaseException) -> None:
         run.state = RunState.FAILED
         self._record_fault(run, exc)
         await self._end_run_span(run, error=str(exc))
-        logger.exception("AgentLoop[%s] unexpected error", run.run_id)
+        logger.exception("ReactiveLoop[%s] unexpected error", run.run_id)
 
     @staticmethod
     def _record_fault(run: AgentRun, exc: BaseException) -> None:
@@ -365,7 +366,7 @@ class AgentLoop:
                     run.final_output = content if isinstance(content, str) else str(content)
                     break
         logger.info(
-            "AgentLoop[%s] completed in %d turns (%.2fs, $%.4f)",
+            "ReactiveLoop[%s] completed in %d turns (%.2fs, $%.4f)",
             run.run_id,
             run.turn_count,
             run.elapsed_seconds(),
@@ -397,7 +398,7 @@ class AgentLoop:
             run = AgentRun(run_id=resolved_run_id, task=task, parent_run_id=parent_run_id)
             run.messages = list(self._initial_messages)
             logger.info(
-                "AgentLoop[%s] chat turn: %d seeded messages",
+                "ReactiveLoop[%s] chat turn: %d seeded messages",
                 resolved_run_id,
                 len(run.messages),
             )
@@ -411,7 +412,7 @@ class AgentLoop:
                 existing.state = RunState.RUNNING
                 existing.last_error = None
                 logger.info(
-                    "AgentLoop[%s] resuming from checkpoint: %d messages, turn=%d",
+                    "ReactiveLoop[%s] resuming from checkpoint: %d messages, turn=%d",
                     run_id,
                     len(existing.messages),
                     existing.turn_count,

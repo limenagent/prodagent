@@ -26,23 +26,27 @@ from prodagent.hooks.bundles.memory import MemoryHooks
 from prodagent.hooks.checkpoint import CheckPoint, InjectionPoint
 from prodagent.hooks.events import HookEvent
 from prodagent.hooks.registry import HookRegistry
-from prodagent.runtime.config import AgentConfig, merge_tools_by_name
+from prodagent.runtime._tool_merge import merge_tools_by_name
+from prodagent.runtime.config import AgentConfig
 from prodagent.runtime.coordination.accounting import SpawnAccumulator
-from prodagent.runtime.coordination.fork import ParentRuntime
+from prodagent.runtime.coordination.parent_runtime import ParentRuntime
 from prodagent.runtime.runner import collect_final_run, drive_stream
 from prodagent.tooling.reliability.locks import LockRegistry
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable
 
+    from prodagent.cognition.context.spill import ToolResultSpillStore
     from prodagent.core.budget import HardBudget
     from prodagent.core.events import AgentEvent
     from prodagent.core.state.run import AgentRun
     from prodagent.evaluation.skills.registry import SkillRegistry
+    from prodagent.llm.base import LLMClient
     from prodagent.mcp.config import MCPServerConfig
     from prodagent.ports import CheckpointStore, EventLog, SessionStore, Tool
+    from prodagent.runtime.coordination.handoff import HandoffContract
     from prodagent.runtime.plan.dag import Plan
-    from prodagent.runtime.session import RunContext
+    from prodagent.runtime.run_context import RunContext
     from prodagent.runtime.workflow import Workflow
     from prodagent.tooling.registry import ToolRegistry
 
@@ -65,8 +69,6 @@ def _make_injector(f: Callable[..., Any]) -> Callable[..., Any]:
 
 class Agent:
     """Declarative agent with a single, flat constructor.
-
-    Every configurable aspect is a keyword argument — no chaining needed.
     """
 
     def __init__(
@@ -81,7 +83,7 @@ class Agent:
         tool_registry: ToolRegistry | None = None,
         skills: SkillRegistry | None = None,
         # LLM
-        llm: Any = None,
+        llm: LLMClient | None = None,
         # Mode
         mode: ExecutionMode = ExecutionMode.PLAN_FIRST,
         workflow: Workflow | None = None,
@@ -90,7 +92,8 @@ class Agent:
         budget: HardBudget | None = None,
         constraints: list[str] | None = None,
         max_replans: int = 2,
-        # Topology
+        # Topology: agents= delegates-and-returns, peers= hands-off-and-terminates.
+        # See the class docstring for the full agents= vs peers= distinction.
         agents: list[Agent] | None = None,
         peers: list[Agent] | None = None,
         # Infrastructure
@@ -100,8 +103,8 @@ class Agent:
         checkpoint: CheckpointStore | None = None,
         event_log: EventLog | None = None,
         session_store: SessionStore | None = None,
-        spill_store: Any = None,
-        output_contract: Any = None,
+        spill_store: ToolResultSpillStore | None = None,
+        output_contract: HandoffContract | None = None,
         approval: ApprovalProvider | None = None,
         memory: MemoryProvider | None = None,
         # Extensions & hook points
@@ -175,7 +178,7 @@ class Agent:
                 f"Got mode={self.config.mode.value}, initial_plan is set."
             )
 
-        self._fluent_wired: bool = False
+        self._hooks_wired: bool = False
         self._session_store: SessionStore | None = None
         self._lock_registry = lock_registry or LockRegistry()
 
@@ -404,9 +407,9 @@ class Agent:
 
     def _wire_hooks(self, hooks: HookRegistry) -> None:
         """Register accumulated injectors, checkers, event handlers, and extensions."""
-        if self._fluent_wired:
+        if self._hooks_wired:
             return
-        self._fluent_wired = True
+        self._hooks_wired = True
 
         for point, fn in self.config.injectors:
             if not isinstance(point, InjectionPoint):
@@ -485,7 +488,7 @@ class Agent:
         forked.config.checkers = list(parent.config.checkers)
         forked.config.event_handlers = list(parent.config.event_handlers)
         forked.config.mcp = list(parent.config.mcp)
-        forked._fluent_wired = parent._fluent_wired
+        forked._hooks_wired = parent._hooks_wired
         forked.config.peers = list(self.config.peers)
         forked.config.description = self.config.description
         return forked
@@ -497,7 +500,7 @@ class Agent:
         forked.config.checkers = list(self.config.checkers)
         forked.config.event_handlers = list(self.config.event_handlers)
         forked.config.mcp = list(self.config.mcp)
-        forked._fluent_wired = self._fluent_wired
+        forked._hooks_wired = self._hooks_wired
         if self.config.initial_plan is not None:
             forked.config.initial_plan = self.config.initial_plan
             forked.config.max_replans = self.config.max_replans

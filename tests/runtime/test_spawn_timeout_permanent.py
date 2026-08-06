@@ -5,20 +5,20 @@ from prodagent.core.state.run import AgentRun
 from prodagent.core.types import ErrorSeverity, ToolOutcome, ToolResult
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.coordination.accounting import SpawnAccumulator
-from prodagent.runtime.coordination.fork import ParentRuntime
+from prodagent.runtime.coordination.parent_runtime import ParentRuntime
 from prodagent.runtime.coordination.run_loop import RunLoop
 from prodagent.runtime.coordination.spawn import (
     SpawnPipeline,
-    _short_result,
+    short_result,
 )
-from prodagent.runtime.session import RunContext
+from prodagent.runtime.run_context import RunContext
 
 
 async def test_spawn_timeout_returns_permanent_error(monkeypatch) -> None:
     child = Agent("blocker", system_prompt="plan something", description="A child that times out")
 
     async def _fake_run_with_timeout(self, spec, task, packet, child_run_id):
-        return _short_result(spec.name, "timeout", "Sub-agent timed out after 2s")
+        return short_result(spec.name, "timeout", "Sub-agent timed out after 2s")
 
     monkeypatch.setattr(SpawnPipeline, "_run_with_timeout", _fake_run_with_timeout)
 

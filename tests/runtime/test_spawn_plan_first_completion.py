@@ -40,7 +40,7 @@ async def test_plan_first_child_reports_completed_not_failed():
     )
     assert child.mode is ExecutionMode.PLAN_FIRST
 
-    from prodagent.runtime.coordination.fork import ParentRuntime
+    from prodagent.runtime.coordination.parent_runtime import ParentRuntime
     from prodagent.runtime.coordination.spawn import build_spawn_tools_for_agent
 
     spawn = build_spawn_tools_for_agent([child], llm=_plan_llm(), context=ParentRuntime())

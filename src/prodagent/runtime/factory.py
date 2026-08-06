@@ -11,11 +11,11 @@ from prodagent.core.types import ExecutionMode, MessageList
 from prodagent.hooks.checkpoint import CheckPoint
 from prodagent.hooks.events import HookEvent
 from prodagent.mcp.registry import MCPRegistry
-from prodagent.runtime.config import merge_tools_by_name
+from prodagent.runtime._tool_merge import merge_tools_by_name
 from prodagent.runtime.coordination.peer import assemble_peer_tools
 from prodagent.runtime.coordination.spawn import assemble_spawn_tools
 from prodagent.runtime.plan.executor import PlanExecutor
-from prodagent.runtime.reactive import AgentLoop
+from prodagent.runtime.reactive import ReactiveLoop
 from prodagent.tooling.builtin.read_tool_result import make_read_tool_result
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -26,13 +26,14 @@ if TYPE_CHECKING:
     from prodagent.ports import LeafExecutor
     from prodagent.runtime.agent import Agent
     from prodagent.runtime.coordination.accounting import SpawnAccumulator
-    from prodagent.runtime.session import RunContext
+    from prodagent.runtime.run_context import RunContext
 
 logger = logging.getLogger(__name__)
 
 
 class LeafExecutorFactory:
-    """Builds the LeafExecutor + hooks registry for one hop."""
+    """Builds the LeafExecutor + hooks registry for one hop.
+    """
 
     def __init__(
         self,
@@ -109,7 +110,7 @@ class LeafExecutorFactory:
         if agent.skills:
             tool_schemas.append(agent.skills.as_tool_schema())
         spawn_acc = assemble_spawn_tools(ctx, active_tools, tool_schemas)
-        assemble_peer_tools(ctx, active_tools, tool_schemas, spawn_acc)
+        spawn_acc = assemble_peer_tools(ctx, active_tools, tool_schemas, spawn_acc)
         return active_tools, tool_schemas, spawn_acc
 
     def _build_runtime(
@@ -172,7 +173,7 @@ class LeafExecutorFactory:
                 max_replans=agent.max_replans,
                 dispatcher=dispatcher,
             )
-        return AgentLoop(
+        return ReactiveLoop(
             ctx.llm,
             dispatcher,
             system_prompt=system,

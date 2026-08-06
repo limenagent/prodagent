@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _apply_event(state: dict[str, Any], event: Event) -> None:
+def apply_event(state: dict[str, Any], event: Event) -> None:
     """Reducer for ``hybrid_restore``."""
     steps = state.setdefault("steps", {})
     match event.event_type:
@@ -96,7 +96,7 @@ class PlanEventLog:
     async def restore_plan(self, run: AgentRun) -> dict[str, Any]:
         """Restores ``pending_approval_id`` so a plan suspended for HITL can resume through the approval gate."""
         state, ckpt_version, last_seq = await hybrid_restore(
-            run.run_id, self._events, self._checkpoints, _apply_event
+            run.run_id, self._events, self._checkpoints, apply_event
         )
         run.checkpoint_version = max(run.checkpoint_version, ckpt_version)
         run.plan_last_seq = max(run.plan_last_seq, last_seq)

@@ -9,7 +9,7 @@ import pytest
 
 from prodagent import Agent
 from prodagent.llm.fake import script
-from prodagent.runtime.coordination.fork import ParentRuntime
+from prodagent.runtime.coordination.parent_runtime import ParentRuntime
 from prodagent.runtime.coordination.spawn import build_spawn_tools_for_agent
 from prodagent.runtime.workflow import Workflow
 from prodagent.tooling import tool

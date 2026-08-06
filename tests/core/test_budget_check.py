@@ -9,7 +9,7 @@ from prodagent.core.exceptions import BudgetExceeded
 from prodagent.core.state.run import AgentRun
 from prodagent.core.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.reactive import AgentLoop
+from prodagent.runtime.reactive import ReactiveLoop
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -95,7 +95,7 @@ class TestSpawnExtras:
             check_budget(run, budget, extra_tokens=100)
 
 
-class TestAgentLoopSpawnAccumulators:
+class TestReactiveLoopSpawnAccumulators:
     async def test_loop_trips_on_sibling_spend_it_never_directly_incurred(self):
         from prodagent.core.events import RunFailedEvent
         from prodagent.runtime.coordination.accounting import SpawnAccumulator
@@ -104,7 +104,7 @@ class TestAgentLoopSpawnAccumulators:
         sibling_spend = SpawnAccumulator(cost_usd=0.95, spawn_count=1)
         llm = FakeLLMAdapter(responses=[LLMResponse(content="done", stop_reason="end_turn")])
         dispatcher = ToolDispatcher({"noop": _noop_tool})
-        loop = AgentLoop(
+        loop = ReactiveLoop(
             llm,
             dispatcher,
             system_prompt="test",
@@ -124,9 +124,9 @@ async def _noop_tool() -> dict:
     return {"result": "ok"}
 
 
-def _make_loop(llm: FakeLLMAdapter, budget: HardBudget) -> AgentLoop:
+def _make_loop(llm: FakeLLMAdapter, budget: HardBudget) -> ReactiveLoop:
     dispatcher = ToolDispatcher({"noop": _noop_tool})
-    return AgentLoop(
+    return ReactiveLoop(
         llm,
         dispatcher,
         system_prompt="test",

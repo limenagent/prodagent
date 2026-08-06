@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.core.types import RunState, StepStatus
-from prodagent.runtime.plan.step_runner import _format_step_output
+from prodagent.runtime.plan.step_runner import format_step_output
 
 if TYPE_CHECKING:
     from prodagent.core.events import AgentEvent
@@ -35,12 +35,12 @@ def finalize_run(run: AgentRun, plan: Plan | None) -> None:
         None,
     )
     if terminal is not None:
-        run.final_output = _format_step_output(terminal)
+        run.final_output = format_step_output(terminal)
         return
 
     sink = select_terminal_step(plan)
     if sink is not None:
-        run.final_output = _format_step_output(sink.output_ref)
+        run.final_output = format_step_output(sink.output_ref)
 
 
 def select_terminal_step(plan: Plan) -> PlanStep | None:

@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from prodagent.llm.base import LLMClient
     from prodagent.ports import CheckpointStore, EventLog
     from prodagent.runtime.agent import Agent
-    from prodagent.runtime.session import RunContext
+    from prodagent.runtime.run_context import RunContext
     from prodagent.tooling.reliability.locks import LockRegistry
 
 
@@ -30,7 +30,15 @@ def describe_agent(a: Agent) -> str:
 
 @dataclass
 class ParentRuntime:
-    """Parent execution context threaded into every forked Agent."""
+    """Parent execution context threaded into every forked Agent.
+
+    Built from a :class:`~prodagent.runtime.run_context.RunContext` via
+    :meth:`from_context` when a hop spawns children (``agents=``) or hands off to
+    a peer (``peers=``). Overlaps ~5 fields with ``RunContext`` by design: this is
+    the subset a child/peer needs to inherit (budget, locks, llm, checkpoint,
+    event log, depth), not the full per-hop state (which also tracks the task,
+    run_id and agent spec — irrelevant to what a *forked* agent should see).
+    """
 
     constraints: list[str] = field(default_factory=list)
     budget: HardBudget | None = None

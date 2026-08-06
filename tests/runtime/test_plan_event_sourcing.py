@@ -273,7 +273,7 @@ async def test_complete_step_aborts_when_step_obsoleted_mid_flight(tmp_path):
 @pytest.mark.asyncio
 async def test_cold_start_replan_marks_replaced_step_obsolete(tmp_path):
     from prodagent.runtime.plan.dag import Plan, StepStatus
-    from prodagent.runtime.plan.event_log import _apply_event
+    from prodagent.runtime.plan.event_log import apply_event
 
     events, checkpoints = _stores(tmp_path)
 
@@ -317,7 +317,7 @@ async def test_cold_start_replan_marks_replaced_step_obsolete(tmp_path):
 
     state: dict[str, Any] = {"steps": {}, "version": 0}
     for event in await events.get_events("R6"):
-        _apply_event(state, event)
+        apply_event(state, event)
 
     plan = Plan.from_state(state, plan_id="R6")
     assert plan.version == 2

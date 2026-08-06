@@ -10,7 +10,7 @@ from prodagent.core.event_log import (
     hybrid_restore,
 )
 from prodagent.core.state import AgentRun
-from prodagent.runtime.plan.event_log import _apply_event
+from prodagent.runtime.plan.event_log import apply_event
 
 
 def _make(event_type: PlanEventType, plan_id: str = "p1", version: int = 1, **data) -> Event:
@@ -18,7 +18,7 @@ def _make(event_type: PlanEventType, plan_id: str = "p1", version: int = 1, **da
 
 
 def _simple_reducer(state: dict, event: Event) -> dict:
-    _apply_event(state, event)
+    apply_event(state, event)
     return state
 
 

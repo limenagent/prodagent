@@ -28,14 +28,14 @@ def _make_messages(content: str = "hi") -> list[dict]:
 
 class TestDefaultCacheWiring:
     def test_resolve_llm_wraps_with_caching_client(self):
-        from prodagent.runtime.session import _resolve_llm
+        from prodagent.runtime.run_context import _resolve_llm
 
         agent = Agent("t", system_prompt="x", llm=_CountingLLM())
         llm = _resolve_llm(agent)
         assert isinstance(llm, CachingLLMClient)
 
     def test_user_supplied_caching_client_not_double_wrapped(self):
-        from prodagent.runtime.session import _resolve_llm
+        from prodagent.runtime.run_context import _resolve_llm
 
         inner = _CountingLLM()
         user_cached = CachingLLMClient(inner, None)  # type: ignore[arg-type]
@@ -45,7 +45,7 @@ class TestDefaultCacheWiring:
 
     def test_plain_llm_is_wrapped_not_misclassified_as_caching(self):
         from prodagent.llm.cache import CachingLLM
-        from prodagent.runtime.session import _resolve_llm
+        from prodagent.runtime.run_context import _resolve_llm
 
         plain = _CountingLLM()
         assert not isinstance(plain, CachingLLM)
@@ -58,7 +58,7 @@ class TestDefaultCacheWiring:
     async def test_intra_run_cache_hit_skips_billing(self):
         llm = _CountingLLM()
         agent = Agent("billing", system_prompt="x", llm=llm, mode=ExecutionMode.REACTIVE)
-        from prodagent.runtime.session import _resolve_llm
+        from prodagent.runtime.run_context import _resolve_llm
 
         wrapped = _resolve_llm(agent)
         cfg = LLMConfig(model="m", temperature=0.0, max_tokens=100)
@@ -73,7 +73,7 @@ class TestDefaultCacheWiring:
 
     async def test_temperature_gt_zero_bypasses_default_cache(self):
         llm = _CountingLLM()
-        from prodagent.runtime.session import _resolve_llm
+        from prodagent.runtime.run_context import _resolve_llm
 
         agent = Agent("t", system_prompt="x", llm=llm)
         wrapped = _resolve_llm(agent)
@@ -93,7 +93,7 @@ class TestDefaultCacheWiring:
         reused across runs without leaking a resolved client back into
         declarative state.
         """
-        from prodagent.runtime.session import _resolve_llm
+        from prodagent.runtime.run_context import _resolve_llm
 
         agent = Agent("t", system_prompt="x")
         assert agent.config.llm is None
@@ -110,7 +110,7 @@ class TestDefaultCacheWiring:
         """RunContext.__aenter__ resolves checkpoint/event_log without writing
         them back to the Agent — the Agent stays declarative across runs."""
         from prodagent.core.config import FrameworkConfig
-        from prodagent.runtime.session import RunContext
+        from prodagent.runtime.run_context import RunContext
 
         agent = Agent("t", system_prompt="x", framework=FrameworkConfig.default())
         assert agent.config.checkpoint is None
@@ -128,9 +128,9 @@ class TestCostSkipping:
 
         run = AgentRun(run_id="r1", task="t")
 
-        from prodagent.runtime.reactive import AgentLoop
+        from prodagent.runtime.reactive import ReactiveLoop
 
-        loop = object.__new__(AgentLoop)
+        loop = object.__new__(ReactiveLoop)
         loop._llm_config = LLMConfig(model="m")
         loop._hooks = None
         loop._budget = None
@@ -144,7 +144,7 @@ class TestCostSkipping:
         )
         import asyncio
 
-        asyncio.run(AgentLoop._post_llm_accounting(loop, run, cached_resp))  # type: ignore[arg-type]
+        asyncio.run(ReactiveLoop._post_llm_accounting(loop, run, cached_resp))  # type: ignore[arg-type]
 
         assert run.turn_count == 1
         assert run.input_tokens == 0
@@ -155,9 +155,9 @@ class TestCostSkipping:
         from prodagent.core.state.run import AgentRun
 
         run = AgentRun(run_id="r1", task="t")
-        from prodagent.runtime.reactive import AgentLoop
+        from prodagent.runtime.reactive import ReactiveLoop
 
-        loop = object.__new__(AgentLoop)
+        loop = object.__new__(ReactiveLoop)
         loop._llm_config = LLMConfig(
             model="m",
             cost_per_million_input=1.0,
@@ -174,7 +174,7 @@ class TestCostSkipping:
         )
         import asyncio
 
-        asyncio.run(AgentLoop._post_llm_accounting(loop, run, fresh_resp))  # type: ignore[arg-type]
+        asyncio.run(ReactiveLoop._post_llm_accounting(loop, run, fresh_resp))  # type: ignore[arg-type]
 
         assert run.turn_count == 1
         assert run.input_tokens == 100

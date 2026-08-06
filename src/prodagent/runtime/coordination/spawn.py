@@ -19,14 +19,14 @@ from prodagent.core.types import (
 )
 from prodagent.hooks.checkpoint import CheckPoint
 from prodagent.hooks.events import HookEvent
-from prodagent.runtime.config import attach_tools
-from prodagent.runtime.coordination.fork import ParentRuntime, describe_agent
+from prodagent.runtime._tool_merge import attach_tools
 from prodagent.runtime.coordination.handoff import (
     HandoffContract,
     HandoffInterceptor,
     HandoffPacket,
 )
 from prodagent.runtime.coordination.idempotency import IdempotentMessageHandler
+from prodagent.runtime.coordination.parent_runtime import ParentRuntime, describe_agent
 from prodagent.tooling.base import FunctionTool
 
 if TYPE_CHECKING:
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from prodagent.ports.llm import LLMClient
     from prodagent.runtime.agent import Agent
     from prodagent.runtime.coordination.accounting import SpawnAccumulator
-    from prodagent.runtime.session import RunContext
+    from prodagent.runtime.run_context import RunContext
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ class ChildResult:
         return asdict(self)
 
 
-def _short_result(
+def short_result(
     name: str, state: str, message: str, *, failed_reason: str | None = None
 ) -> ChildResult:
     return ChildResult(agent=name, state=state, output=message, failed_reason=failed_reason)
@@ -123,7 +123,15 @@ class SpawnTool:
 
 
 class SpawnPipeline:
-    """Runs a child agent end-to-end: packet → timeout → security → fold."""
+    """Runs a child agent end-to-end: packet → timeout → security → fold.
+
+    Backs the ``agents=`` keyword (vertical delegation): the parent calls
+    ``spawn_agent``, waits synchronously for the child to finish, and gets a
+    structured ``ChildResult`` back while its own run continues. Contrast with
+    :class:`~prodagent.runtime.coordination.peer.PeerPipeline`, which backs
+    ``peers=`` (horizontal hand-off): the parent's run *ends* and control
+    transfers to the peer instead of returning a result.
+    """
 
     def __init__(
         self,
@@ -202,7 +210,7 @@ class SpawnPipeline:
                 packet.message_id[:8],
                 name,
             )
-            return _short_result(
+            return short_result(
                 name,
                 STATE_DUPLICATE,
                 "Duplicate request suppressed by idempotency layer",
@@ -264,7 +272,7 @@ class SpawnPipeline:
                 dlq_state,
             )
             if contract.strict:
-                return _short_result(
+                return short_result(
                     name,
                     STATE_CONTRACT_VIOLATION,
                     f"Child result rejected by contract: {exc}",
@@ -300,14 +308,14 @@ class SpawnPipeline:
                 timeout=timeout,
             )
         except TimeoutError:
-            return _short_result(
+            return short_result(
                 spec.name, STATE_TIMEOUT, f"Sub-agent timed out after {timeout:.0f}s"
             )
         except SECURITY_VETO_EXCEPTIONS:
             raise
         except Exception as exc:
             logger.error("Sub-agent %r failed: %s", spec.name, exc, exc_info=True)
-            return _short_result(spec.name, STATE_FAILED, str(exc), failed_reason="raised")
+            return short_result(spec.name, STATE_FAILED, str(exc), failed_reason="raised")
 
     async def _run_child(
         self, spec: Agent, task: str, packet: HandoffPacket, child_run_id: str | None
@@ -337,10 +345,10 @@ class SpawnPipeline:
             raise
         except Exception as exc:
             logger.error("Sub-agent %r failed: %s", spec.name, exc)
-            return _short_result(spec.name, STATE_FAILED, str(exc), failed_reason="raised")
+            return short_result(spec.name, STATE_FAILED, str(exc), failed_reason="raised")
 
         if run is None:
-            return _short_result(
+            return short_result(
                 spec.name,
                 STATE_FAILED,
                 "child run produced no terminal result",
@@ -386,13 +394,13 @@ class SpawnPipeline:
             )
         except SECURITY_VETO_EXCEPTIONS as sec_exc:
             logger.warning("AGENT_HANDOFF[%s]: rejected (%s)", packet.task_id[:8], sec_exc)
-            return _short_result(
+            return short_result(
                 name,
                 STATE_HANDOFF_REJECTED,
                 f"Handoff rejected by security policy: {sec_exc}",
             )
         if blocked.blocked:
-            return _short_result(name, STATE_HANDOFF_REJECTED, "Handoff blocked by security policy")
+            return short_result(name, STATE_HANDOFF_REJECTED, "Handoff blocked by security policy")
         return None
 
     async def _fire(self, event: HookEvent, **fields: Any) -> None:

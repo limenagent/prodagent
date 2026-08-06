@@ -8,7 +8,7 @@ from prodagent import Agent, ExecutionMode
 from prodagent.core.types import LLMResponse, SideEffectLevel, ToolMeta
 from prodagent.llm.fake import script
 from prodagent.ports.llm import LLMClient
-from prodagent.runtime.coordination.fork import ParentRuntime
+from prodagent.runtime.coordination.parent_runtime import ParentRuntime
 from prodagent.runtime.coordination.spawn import build_spawn_tools_for_agent
 from prodagent.tooling.base import FunctionTool
 

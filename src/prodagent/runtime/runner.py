@@ -10,7 +10,7 @@ from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspende
 from prodagent.core.state.run import AgentRun, make_failed_run
 from prodagent.runtime.coordination.peer import find_suspended_peer
 from prodagent.runtime.coordination.run_loop import RunLoop
-from prodagent.runtime.session import RunContext
+from prodagent.runtime.run_context import RunContext
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator

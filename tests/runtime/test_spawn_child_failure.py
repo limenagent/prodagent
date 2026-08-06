@@ -40,7 +40,7 @@ def _isolated_fw(tmp_path: Path) -> FrameworkConfig:
 
 
 async def test_run_child_directly_returns_failed_on_none_run(tmp_path: Path) -> None:
-    from prodagent.runtime.coordination.fork import ParentRuntime
+    from prodagent.runtime.coordination.parent_runtime import ParentRuntime
     from prodagent.runtime.coordination.spawn import SpawnPipeline
 
     child = _child_that_fails_to_plan()
@@ -66,7 +66,7 @@ async def test_run_child_directly_returns_failed_on_none_run(tmp_path: Path) -> 
 
 
 async def test_run_child_returns_failed_when_executor_raises(tmp_path: Path) -> None:
-    from prodagent.runtime.coordination.fork import ParentRuntime
+    from prodagent.runtime.coordination.parent_runtime import ParentRuntime
     from prodagent.runtime.coordination.spawn import SpawnPipeline
 
     class _BoomLLM:

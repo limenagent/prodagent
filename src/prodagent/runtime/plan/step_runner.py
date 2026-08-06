@@ -47,7 +47,7 @@ def _to_message_content(result: Any) -> str:
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
-def _format_step_output(result: Any) -> str:
+def format_step_output(result: Any) -> str:
     if isinstance(result, dict) and "output" in result and "state" in result:
         inner = result["output"]
         if isinstance(inner, str) and inner:

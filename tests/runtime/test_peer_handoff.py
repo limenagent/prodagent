@@ -6,7 +6,7 @@ from prodagent import Agent, ExecutionMode
 from prodagent.core.state.run import is_child_run_id
 from prodagent.core.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter, script
-from prodagent.runtime.coordination.fork import ParentRuntime
+from prodagent.runtime.coordination.parent_runtime import ParentRuntime
 from prodagent.runtime.coordination.peer import PeerPipeline, build_peer_tools_for_agent
 
 

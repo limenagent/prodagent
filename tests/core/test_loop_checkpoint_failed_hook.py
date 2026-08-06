@@ -7,13 +7,13 @@ from prodagent.core.types import LLMResponse
 from prodagent.hooks.events import HookEvent
 from prodagent.hooks.registry import HookRegistry
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.reactive import AgentLoop
+from prodagent.runtime.reactive import ReactiveLoop
 from prodagent.tooling.dispatcher import ToolDispatcher
 
 
 def _make_loop(llm, store, hooks):
     dispatcher = ToolDispatcher({})
-    return AgentLoop(
+    return ReactiveLoop(
         llm,
         dispatcher,
         system_prompt="test",

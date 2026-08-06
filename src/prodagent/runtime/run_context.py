@@ -1,4 +1,4 @@
-"""RunContext — per-hop input, resolved into runtime dependencities on ``__aenter__``."""
+"""RunContext — per-hop input, resolved into runtime dependencies on ``__aenter__``."""
 
 from __future__ import annotations
 
@@ -28,9 +28,6 @@ def _resolve_llm(agent: Agent) -> LLMClient:
 @dataclass
 class RunContext:
     """Per-hop input: which agent, what task, which run_id, how deep.
-
-    Entering the context resolves ``llm``/``checkpoint``/``event_log``/``spill_store``
-    from the agent's config, falling back to framework-config defaults.
     """
 
     agent: Agent

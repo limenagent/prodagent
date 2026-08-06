@@ -17,7 +17,7 @@ from prodagent.hooks.events import HookEvent
 from prodagent.runtime.coordination.accounting import SpawnAccumulator, fold_spawn_accounting
 from prodagent.runtime.coordination.handoff import HandoffPacket
 from prodagent.runtime.factory import LeafExecutorFactory
-from prodagent.runtime.session import RunContext
+from prodagent.runtime.run_context import RunContext
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -32,7 +32,15 @@ logger = logging.getLogger(__name__)
 
 
 class RunLoop:
-    """Drives an agent run: prepare one hop, run executor, settle."""
+    """Drives an agent run across peer hand-offs, one hop at a time.
+
+    A "hop" is one agent's turn: build its executor via ``LeafExecutorFactory``,
+    run it to completion, then check whether it produced a peer hand-off. If so,
+    loop again with the peer as the new root agent; otherwise the run is done.
+    Not to be confused with :class:`~prodagent.runtime.reactive.ReactiveLoop`,
+    which drives the think/act steps *inside* a single hop — ``RunLoop`` never
+    talks to an LLM directly, it only orchestrates which agent gets the next hop.
+    """
 
     def __init__(
         self,

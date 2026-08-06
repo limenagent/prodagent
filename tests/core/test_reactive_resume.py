@@ -8,7 +8,7 @@ from prodagent.core.events import RunCompletedEvent
 from prodagent.core.state import AgentRun
 from prodagent.core.types import LLMResponse, ToolCall
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.reactive import AgentLoop
+from prodagent.runtime.reactive import ReactiveLoop
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -27,7 +27,7 @@ async def _collect_tool() -> dict:
 
 def _make_loop(llm, store):
     dispatcher = ToolDispatcher({"collect": _collect_tool})
-    return AgentLoop(
+    return ReactiveLoop(
         llm,
         dispatcher,
         system_prompt="test",
