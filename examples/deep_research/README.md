@@ -1,5 +1,33 @@
 # 深度研究
 
+> 让 Agent 做深度研究，最容易翻车的不是搜索，是上下文。
+
+跑十轮 fetch，每轮结果几千字塞进 messages，到第六轮 LLM 已经忘了第一轮查到的
+数字。你让它写报告，它把第三轮的结论和第八轮的数据张冠李戴——不是模型蠢，是
+上下文窗口被撑爆后早期信号被挤出去了。
+
+常见的"省事"做法是截断：`del messages[:-10]`，留最近十条。问题是大模型可能再
+也回忆不起研究一开始的关键发现，报告后半段就开始编。
+
+prodagent 的 deep_research 示例演示另一种做法：
+
+- **REACTIVE 多轮探索** —— 每 turn 看上一步结果决定下一步搜什么，不预先写死
+  DAG。fetch → 读内容 → 记数字 → fetch 下一页 → 综合。
+- **五级压缩** —— 历史爆窗口时，`NONE → TOOL_COMPRESS → HISTORY_SUMMARY`
+  自动触发。早期对话被总结成摘要，关键 claim 不丢，LLM 还能引用。
+- **SkillRegistry** —— `deep-research.md` runbook 常驻，LLM 调 `get_skill` 加载
+  探索流程，不用每次重学。
+
+跑 `examples/deep_research`，控制台直接看到压缩级别切换：`TOOL_COMPRESS` 把长
+工具结果压成 head+tail，`HISTORY_SUMMARY` 把早期多轮对话总结成一段。LLM 最后
+写报告时还能准确引用第一轮 fetch 的数字——因为压缩没把核心信号一起丢掉。
+
+让 Agent 长跑而不失忆，靠的是框架，不是 prompt。
+
+![深度研究](../../docs/images/deep_research.png)
+
+---
+
 > 示例 #3 —— REACTIVE 多轮探索 + context 压缩。
 
 agent 拿到研究问题后,不预先写死 plan,而是多轮探索:每 turn 看上一步

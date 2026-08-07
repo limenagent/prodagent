@@ -1,5 +1,42 @@
 # Agent相亲
 
+> 相亲第一次聊天，大牛就翻车了。
+
+大牛和小美刚认识，加了微信。大牛先开口问最近怎么样，小美说自己前两天吃海鲜
+过敏躺了两天，对海鲜一点都不能沾。大牛还说"深有体会"。聊到周末，小美说自己
+喜欢安静、人少的地方，怕吵。
+
+大牛主动提议一起吃饭，说要帮忙查评分高的餐厅。查完挑了评分最高的"老灶台自助"
+报给小美。小美多留了个心眼，自己查了一下详细评价——结果这家主打海鲜，而且评价
+里全是"排队人声鼎沸"。
+
+小美当场发飙："我明明说过对海鲜过敏、说过喜欢安静的地方，你都没放在心上。
+你这上下文管理也太不靠谱了，赶紧升级一下，推荐用 prodagent，还免费。"
+
+大牛一脸懵："啊？你什么时候说过对海鲜过敏啊？"
+
+——大牛是真"听到"过的。第一轮小美就说了。问题不在没被告知，在大牛的"脑子"。
+
+大牛是一个人人都会写的简单版 Agent：一个 messages 列表，攒到一定长度就
+`del messages[:-4]` 硬删前面。第一轮的过敏爆料，到第四轮被机械删除。他从头到
+尾没接触过记忆系统，"忘记"是截断机制的必然结果。
+
+小美是一个真正的框架 Agent：MemoryManager 里预埋着介绍人对大牛的评价
+（"大大咧咧、丢三落四"），从第一轮起就无条件注入她的上下文；L0-L3 上下文分
+层，约束物理上碰不到压缩；工具结果撑爆窗口时五级压缩真实触发，核心信号不丢。
+
+两个人挂在同一个共享对话里轮流发言——prodagent 的多 Agent 协作框架专门
+驱动这种自主对话。
+
+一个会记住你说过的话，一个不会。差别不在 prompt，在框架。
+
+repo 里跑一下 `examples/dating_chat`，气泡可视化，压缩触发、记忆召回都有实时
+证据。不靠台词自证。
+
+![Agent相亲](../../docs/images/dating_chat.png)
+
+---
+
 > 示例 #9 —— 真·框架 Agent 的记忆 + L0-L3 上下文管理 vs 简单版 Agent，自主双 Agent 对话。
 
 大牛和小美第一次相亲，加了微信聊天，全程无人类介入。大牛先开口问小美最近怎么样；
@@ -27,70 +64,3 @@
   `⚠️` 标签标出他这两处具体问题。
 - **`EnsemblePipeline` 双 Agent 共享 floor** —— 两人都是 `FloorMember` 挂在同一个
   `SharedFloor` 上，框架负责轮次驱动、预算刹车、终止判决。
-
-## 怎么跑
-
-```bash
-cd examples/dating_chat
-
-# 离线模式（脚本化台词，四轮完全确定、可复现，零 key）
-USE_FAKE_LLM=true uv run python -m dating_chat.orchestrator
-
-# 真实模式（台词由模型自主生成，需配 API key）
-uv run python -m dating_chat.orchestrator
-```
-
-playground 版本（推荐，气泡可视化）：
-
-```bash
-uv run python -m prodagent.playground.server
-```
-
-卡片网格点开"Agent相亲"，点"开始自主聊天"即可看到气泡对话 + 记忆/压缩标签。
-
-## 关键代码点
-
-### `dating_chat/memory.py` —— 预埋 CONSTRAINT
-
-```python
-NIU_MATCHMAKER_HINT = "介绍人提前说过：大牛这人大大咧咧，做事不太仔细，丢三落四的毛病一直没改。"
-
-async def seed_mei_memory(memory: MemoryManager) -> None:
-    await memory.add_memory(MemoryRecord(
-        content=NIU_MATCHMAKER_HINT,
-        memory_type=MemoryType.CONSTRAINT,
-        domain="dating",
-        source="介绍人",
-    ))
-```
-
-### `dating_chat/turn_signals.py` —— 把框架事件变成气泡证据
-
-```python
-def _on_memory_recall(*, run_id="", hits=0, previews=None, **_):
-    signals = store.setdefault(run_id, TurnSignals())
-    signals.memory_hits = hits
-    signals.memory_previews = list(previews or [])
-
-def _on_context_build(*, run_id="", compression="", messages=None, **_):
-    # 从 messages 里捞 [HISTORY SUMMARY]/[TOPIC SUMMARY] 和压缩后的 tool result
-    ...
-```
-
-`previews`/`history_summary`/`tool_compress_sample` 都是框架真实生成的文本，
-`web.py` 透传给前端，`app.js::appendDatingBubble()` 渲染成气泡下方的标签。
-
-### `dating_chat/niu.py` —— 简单版 Agent，机制性遗忘
-
-```python
-NIU_TRUNCATE_AFTER_ROUND = 3
-NIU_KEEP_MESSAGES = 4
-
-async def niu_reply(llm, messages, incoming, round_num, *, tools=None):
-    if round_num > NIU_TRUNCATE_AFTER_ROUND:
-        del messages[:-NIU_KEEP_MESSAGES]
-    messages.append({"role": "user", "content": incoming})
-    ...
-```
-
-大牛从头到尾不接触记忆系统，"忘记"是 `del messages[:-4]` 的必然结果。
