@@ -14,6 +14,7 @@ members = [
     "aiops-agent",
     "code-detective-agent",
     "compliance-audit-agent",
+    "daniu-xiaomei-agent",
     "deep-research-agent",
     "email-triage-agent",
     "greeter-agent",
@@ -377,6 +378,17 @@ wheels = [
 toml = [
     { name = "tomli", marker = "python_full_version <= '3.11'" },
 ]
+
+[[package]]
+name = "daniu-xiaomei-agent"
+version = "0.1.0"
+source = { editable = "examples/daniu_xiaomei" }
+dependencies = [
+    { name = "prodagent" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "prodagent", editable = "." }]
 
 [[package]]
 name = "deep-research-agent"

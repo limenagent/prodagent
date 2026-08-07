@@ -259,29 +259,6 @@ class TestPipelineStageSelection:
         _, level = await pipeline.run(msgs, 10_000, ctx, ratio)
         assert level == expected_level
 
-    @pytest.mark.parametrize(
-        "max_level,ratio,expected_level",
-        [
-            # ratio would select EMERGENCY (>=0.92), but max_level caps it.
-            (CompressionLevel.TOOL_COMPRESS, 0.99, CompressionLevel.TOOL_COMPRESS),
-            (CompressionLevel.HISTORY_SUMMARY, 0.99, CompressionLevel.HISTORY_SUMMARY),
-            (CompressionLevel.TOPIC_SUMMARY, 0.99, CompressionLevel.TOPIC_SUMMARY),
-            # max_level at or above the ratio-selected level is a no-op.
-            (CompressionLevel.EMERGENCY, 0.99, CompressionLevel.EMERGENCY),
-            # ratio selects HISTORY_SUMMARY (0.70-0.84), max_level=TOPIC allows it.
-            (CompressionLevel.TOPIC_SUMMARY, 0.75, CompressionLevel.HISTORY_SUMMARY),
-        ],
-    )
-    async def test_max_level_clamps_to_highest_stage_within_cap(
-        self, pipeline, cfg, counter, max_level, ratio, expected_level
-    ):
-        """max_level should cap escalation at the HIGHEST stage <= cap, not the
-        first stage <= cap (which is always NoCompressionStage)."""
-        msgs = [{"role": "user", "content": "x"}]
-        ctx = self._ctx(cfg, counter)
-        _, level = await pipeline.run(msgs, 10_000, ctx, ratio, max_level=max_level)
-        assert level == expected_level
-
     async def test_emergency_takes_last_two_messages(self, cfg, counter):
 
         pipeline = HistoryCompressor([EmergencyStage()])
@@ -297,6 +274,92 @@ class TestPipelineStageSelection:
         assert level == CompressionLevel.EMERGENCY
         assert len(result) == 2
         assert result[0]["content"] == "fourth"
+
+
+class TestCompressToolResult:
+    def test_short_content_passes_through_unchanged(self, cfg):
+        from prodagent.cognition.context.compression.formatting import compress_tool_result
+
+        content = "short result"
+        assert compress_tool_result(content, cfg) == content
+
+    def test_already_spilled_content_passes_through_unchanged(self, cfg):
+        from prodagent.cognition.context.compression.formatting import compress_tool_result
+
+        spilled = "<spilled tool='x' call_id='1' path='/tmp/foo.txt'>\npreview\n</spilled>\n"
+        assert compress_tool_result(spilled, cfg) == spilled
+
+    def test_long_content_gets_truncated_with_hint(self, cfg):
+        from prodagent.cognition.context.compression.formatting import compress_tool_result
+
+        content = json.dumps({"status": "ok", "count": 42}) + "x" * 2000
+        result = compress_tool_result(content, cfg)
+        assert len(result) < len(content)
+        assert result.startswith(content[: cfg.inline_compress_head_chars])
+        assert result.endswith(content[-cfg.inline_compress_tail_chars :])
+        assert "chars omitted" in result
+        assert "status" in result and "count" in result
+
+    def test_long_content_without_json_still_truncates(self, cfg):
+        from prodagent.cognition.context.compression.formatting import compress_tool_result
+
+        content = "plain text line\n" * 200
+        result = compress_tool_result(content, cfg)
+        assert len(result) < len(content)
+        assert "chars omitted" in result
+
+    def test_no_llm_call_involved(self, cfg):
+        """compress_tool_result must be pure/sync — no Summariser or LLM client needed."""
+        import inspect
+
+        from prodagent.cognition.context.compression.formatting import compress_tool_result
+
+        assert not inspect.iscoroutinefunction(compress_tool_result)
+
+
+class TestToolCompressStageAppliesInlineCompression:
+    def _ctx(self, cfg, counter):
+        return StageContext(counter=counter, config=cfg, summariser=Summariser(None, cfg))
+
+    async def test_oversized_tool_result_is_compressed_in_place(self, cfg, counter):
+        stage = ToolCompressStage()
+        big_result = json.dumps({"status": "ok"}) + "x" * 2000
+        msgs = [
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "foo", "arguments": "{}"},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_1", "content": big_result},
+        ]
+        ctx = self._ctx(cfg, counter)
+        result, level = await stage.apply(msgs, 10_000, ctx)
+        assert level == CompressionLevel.TOOL_COMPRESS
+        tool_msg = next(m for m in result if "tool_call_id" in m)
+        assert len(tool_msg["content"]) < len(big_result)
+        assert "chars omitted" in tool_msg["content"]
+
+    async def test_short_tool_result_is_untouched(self, cfg, counter):
+        stage = ToolCompressStage()
+        msgs = [
+            {"role": "tool", "tool_call_id": "call_1", "content": "small"},
+        ]
+        ctx = self._ctx(cfg, counter)
+        result, _ = await stage.apply(msgs, 10_000, ctx)
+        assert result[0]["content"] == "small"
+
+    async def test_non_tool_messages_are_untouched(self, cfg, counter):
+        stage = ToolCompressStage()
+        msgs = [{"role": "user", "content": "hello"}]
+        ctx = self._ctx(cfg, counter)
+        result, _ = await stage.apply(msgs, 10_000, ctx)
+        assert result[0]["content"] == "hello"
 
 
 class TestEmergencyStageHistorySummary:
@@ -380,165 +443,6 @@ class TestEmergencyStageHistorySummary:
         ctx = self._ctx(cfg, counter)
         result, _ = await stage.apply(msgs, 10_000, ctx)
         assert len(result) >= 1
-
-
-class TestEmergencyStageActionsTaken:
-    """The [ACTIONS TAKEN] block — prevents death loops after EMERGENCY."""
-
-    def _ctx(self, cfg, counter):
-        return StageContext(
-            counter=counter,
-            config=cfg,
-            summariser=Summariser(None, cfg),
-        )
-
-    @staticmethod
-    def _wire_tc(cid: str, name: str, args: dict) -> dict:
-        """Production wire-shape tool_call (as written by agent_loop)."""
-        return {
-            "id": cid,
-            "type": "function",
-            "function": {"name": name, "arguments": json.dumps(args)},
-        }
-
-    async def test_actions_block_injected_when_tool_calls_in_history(self, cfg, counter):
-        """History with tool_calls outside the kept tail → block injected."""
-        stage = EmergencyStage()
-        msgs = [
-            {"role": "user", "content": "research GPT-4o vs Claude 3.5"},
-            {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [
-                    self._wire_tc(
-                        "call_1", "web_fetch", {"url": "https://example.com/gpt4o-bench"}
-                    ),
-                ],
-            },
-            {"role": "tool", "tool_call_id": "call_1", "content": '{"ok": true, "chars": 5000}'},
-            {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [
-                    self._wire_tc(
-                        "call_2", "web_fetch", {"url": "https://example.com/claude35-bench"}
-                    ),
-                ],
-            },
-            {"role": "tool", "tool_call_id": "call_2", "content": '{"ok": true, "chars": 5200}'},
-            {"role": "assistant", "content": "now I will cross-check"},
-            {"role": "user", "content": "ok proceed"},
-        ]
-        ctx = self._ctx(cfg, counter)
-        result, level = await stage.apply(msgs, 10_000, ctx)
-        assert level == CompressionLevel.EMERGENCY
-
-        actions_msgs = [
-            m for m in result if str(m.get("content", "")).startswith("[ACTIONS TAKEN]")
-        ]
-        assert len(actions_msgs) == 1
-        body = actions_msgs[0]["content"]
-        assert "web_fetch(url='https://example.com/gpt4o-bench')" in body
-        assert "web_fetch(url='https://example.com/claude35-bench')" in body
-        assert "ok=True" in body
-        # Block sits at the head, before the recent tail.
-        assert result[0]["content"].startswith("[ACTIONS TAKEN]")
-        # Recent tail preserved.
-        assert result[-1]["content"] == "ok proceed"
-        assert result[-2]["content"] == "now I will cross-check"
-
-    async def test_no_actions_block_when_no_tool_calls(self, cfg, counter):
-        """History with no tool_calls → no block injected (existing behaviour)."""
-        stage = EmergencyStage()
-        msgs = [
-            {"role": "user", "content": "first"},
-            {"role": "assistant", "content": "second"},
-            {"role": "user", "content": "third"},
-            {"role": "assistant", "content": "fourth"},
-        ]
-        ctx = self._ctx(cfg, counter)
-        result, _ = await stage.apply(msgs, 10_000, ctx)
-        assert not any(str(m.get("content", "")).startswith("[ACTIONS TAKEN]") for m in result)
-        assert len(result) == 2
-
-    async def test_repeated_identical_calls_deduped_with_count(self, cfg, counter):
-        """Same tool_call repeated N times → shown once with (xN) suffix."""
-        stage = EmergencyStage()
-        msgs: list[dict] = [{"role": "user", "content": "research"}]
-        for i in range(3):
-            cid = f"call_{i}"
-            msgs.append(
-                {
-                    "role": "assistant",
-                    "content": "",
-                    "tool_calls": [
-                        self._wire_tc(cid, "web_fetch", {"url": "https://example.com/gpt4o-bench"}),
-                    ],
-                }
-            )
-            msgs.append(
-                {"role": "tool", "tool_call_id": cid, "content": '{"ok": true, "chars": 5000}'}
-            )
-        msgs.append({"role": "assistant", "content": "next"})
-        msgs.append({"role": "user", "content": "go"})
-        ctx = self._ctx(cfg, counter)
-        result, _ = await stage.apply(msgs, 10_000, ctx)
-        actions_msgs = [
-            m for m in result if str(m.get("content", "")).startswith("[ACTIONS TAKEN]")
-        ]
-        assert len(actions_msgs) == 1
-        body = actions_msgs[0]["content"]
-        # 3 identical fetches collapse to one line with (x3).
-        assert "(x3)" in body
-        assert "web_fetch(url='https://example.com/gpt4o-bench')" in body
-        # Only one web_fetch line in the body besides the header.
-        web_fetch_lines = [ln for ln in body.split("\n") if "web_fetch" in ln]
-        assert len(web_fetch_lines) == 1
-
-
-class TestBuildActionsTaken:
-    """Unit tests for the _build_actions_taken helper."""
-
-    def test_skips_tool_calls_already_in_kept_ids(self, counter):
-        from prodagent.cognition.context.compression import _build_actions_taken
-
-        msgs = [
-            {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [
-                    {
-                        "id": "c1",
-                        "type": "function",
-                        "function": {"name": "web_fetch", "arguments": '{"url": "https://a"}'},
-                    },
-                ],
-            },
-            {"role": "tool", "tool_call_id": "c1", "content": '{"ok": true}'},
-        ]
-        # Both msgs are "kept" → no actions emitted.
-        kept_ids = {id(m) for m in msgs}
-        kept_tc_ids = {str(m.get("tool_call_id", "")) for m in msgs if "tool_call_id" in m}
-        body = _build_actions_taken(
-            msgs, kept_ids=kept_ids, kept_tool_call_ids=kept_tc_ids, counter=counter
-        )
-        assert body == ""
-
-    def test_handles_simplified_tc_shape(self, counter):
-        """Test-fixture shape {id, name, args} also works."""
-        from prodagent.cognition.context.compression import _build_actions_taken
-
-        msgs = [
-            {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [{"id": "c1", "name": "inspect_project", "args": {"project_id": 7}}],
-            },
-            {"role": "tool", "tool_call_id": "c1", "content": '{"status": "running"}'},
-        ]
-        body = _build_actions_taken(msgs, kept_ids=set(), kept_tool_call_ids=set(), counter=counter)
-        assert "inspect_project(project_id=7)" in body
-        assert "status='running'" in body
 
 
 class TestSummarizeStage:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import logging
 import uuid
@@ -279,11 +280,17 @@ class ReactiveLoop:
             remaining = self._budget.max_seconds - elapsed
             llm_timeout = max(0.1, remaining)
 
+        llm_config = self._llm_config
+        if self._context_manager is not None:
+            llm_config = dataclasses.replace(
+                llm_config, cache_boundary_index=self._context_manager.cache_boundary_index
+            )
+
         coro = self._llm.complete(
             messages_to_send,
             system=system,
             tools=self._tools_schema or None,
-            config=self._llm_config,
+            config=llm_config,
             on_chunk=_on_chunk,
         )
         try:
@@ -326,6 +333,9 @@ class ReactiveLoop:
             input_tokens=response.input_tokens,
             output_tokens=response.output_tokens,
             total_tokens=response.total_tokens,
+            cache_read_tokens=response.cache_read_tokens,
+            cache_write_tokens=response.cache_write_tokens,
+            cache_hit_ratio=response.cache_read_tokens / max(1, response.input_tokens),
             cost_usd=run.cost_usd,
             budget_usd=self._budget.max_cost_usd if self._budget else 0,
             max_turns=self._budget.max_turns if self._budget else 0,

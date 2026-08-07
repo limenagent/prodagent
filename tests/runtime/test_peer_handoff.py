@@ -189,7 +189,9 @@ async def test_peer_handoff_with_input_refs(hook_registry):
     await agent_a.chat("start", session_id="peer-input-refs")
 
     assert len(captured) == 1
-    prompt = captured[0][-1]["content"]
+    task_msgs = [m for m in captured[0] if "order_record" in m.get("content", "")]
+    assert len(task_msgs) == 1
+    prompt = task_msgs[0]["content"]
     assert "orders/123" in prompt
     assert "order_record" in prompt
 

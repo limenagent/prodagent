@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from prodagent.cognition.context.compression.formatting import CHARS_PER_TOKEN, _build_actions_taken
+from prodagent.cognition.context.compression.formatting import CHARS_PER_TOKEN
 from prodagent.cognition.context.compression.pipeline import (
     EmergencyStage,
     HistoryCompressor,
@@ -26,5 +26,4 @@ __all__ = [
     "fit_budget",
     "safe_tail_start",
     "CHARS_PER_TOKEN",
-    "_build_actions_taken",
 ]

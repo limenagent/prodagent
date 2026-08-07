@@ -308,6 +308,59 @@ class TestMemoryDedup:
         assert recall_hits == [1, 1]
 
 
+class TestCacheBoundary:
+    @pytest.mark.asyncio
+    async def test_state_msg_placed_after_history_not_after_l0(self):
+        cm = _make_manager(system_prompt="sys", reminder="- be careful")
+        run = _make_run(messages=[{"role": "user", "content": "hi"}])
+        _, messages = await cm.prepare(run)
+
+        state_idx = next(
+            i for i, m in enumerate(messages) if m.get("content", "").startswith("[STATE]")
+        )
+        history_idx = next(i for i, m in enumerate(messages) if m.get("content") == "hi")
+        assert history_idx < state_idx, "history must precede the volatile [STATE] block"
+
+    @pytest.mark.asyncio
+    async def test_cache_boundary_index_points_at_last_stable_message(self):
+        cm = _make_manager()
+        run = _make_run(messages=[{"role": "user", "content": "hi"}])
+        _, messages = await cm.prepare(run)
+
+        boundary = cm.cache_boundary_index
+        assert boundary is not None
+        assert messages[boundary].get("content") == "hi"
+        # everything after the boundary must not be part of history
+        assert not any(m.get("content") == "hi" for m in messages[boundary + 1 :])
+
+    @pytest.mark.asyncio
+    async def test_cache_boundary_index_grows_with_history(self):
+        cm = _make_manager()
+        run = _make_run(messages=[{"role": "user", "content": "one"}])
+        await cm.prepare(run)
+        first_boundary = cm.cache_boundary_index
+
+        run.messages = [
+            {"role": "user", "content": "one"},
+            {"role": "assistant", "content": "two"},
+            {"role": "user", "content": "three"},
+        ]
+        await cm.prepare(run)
+        second_boundary = cm.cache_boundary_index
+
+        assert first_boundary is not None
+        assert second_boundary is not None
+        assert second_boundary > first_boundary
+
+    @pytest.mark.asyncio
+    async def test_cache_boundary_index_none_when_no_stable_prefix(self):
+        cm = _make_manager()
+        run = _make_run()
+        run.messages = []  # bypass _make_run's non-empty default
+        await cm.prepare(run)
+        assert cm.cache_boundary_index is None
+
+
 class TestContextBuildPayload:
     @pytest.mark.asyncio
     async def test_payload_has_required_fields(self):

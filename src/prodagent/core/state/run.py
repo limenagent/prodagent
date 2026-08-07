@@ -92,7 +92,13 @@ class RunMetrics:
     input_tokens: int = 0
     output_tokens: int = 0
     cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
     cost_usd: float = 0.0
+
+    @property
+    def cache_hit_ratio(self) -> float:
+        """Fraction of input tokens served from cache (0 when there's no input yet)."""
+        return self.cache_read_tokens / max(1, self.input_tokens)
 
     def to_dict(self) -> JsonDict:
         return {
@@ -100,6 +106,7 @@ class RunMetrics:
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "cache_read_tokens": self.cache_read_tokens,
+            "cache_write_tokens": self.cache_write_tokens,
             "cost_usd": self.cost_usd,
         }
 
@@ -112,6 +119,7 @@ class RunMetrics:
             input_tokens=d.get("input_tokens", 0),
             output_tokens=d.get("output_tokens", 0),
             cache_read_tokens=d.get("cache_read_tokens", 0),
+            cache_write_tokens=d.get("cache_write_tokens", 0),
             cost_usd=d.get("cost_usd", 0.0),
         )
 
@@ -169,6 +177,10 @@ class AgentRun(Generic[_RunT]):
         return self.metrics.cache_read_tokens
 
     @property
+    def cache_write_tokens(self) -> int:
+        return self.metrics.cache_write_tokens
+
+    @property
     def cost_usd(self) -> float:
         return self.metrics.cost_usd
 
@@ -196,6 +208,7 @@ class AgentRun(Generic[_RunT]):
         self.metrics.input_tokens += response.input_tokens
         self.metrics.output_tokens += response.output_tokens
         self.metrics.cache_read_tokens += response.cache_read_tokens
+        self.metrics.cache_write_tokens += response.cache_write_tokens
         self.metrics.cost_usd += cost_usd
 
     def to_dict(self) -> JsonDict:

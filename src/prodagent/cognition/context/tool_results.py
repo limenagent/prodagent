@@ -17,6 +17,12 @@ _SPILL_MARKER = "<spilled"
 
 
 def _expand_string_newlines(serialized: str) -> str:
+    """Turn escaped ``\\n`` into real newlines for human-readable spill files.
+
+    Only applied to content written to disk (so ``read_tool_result`` grep sees
+    logical lines). In-context message content keeps ``\\n`` escaped so the
+    JSON stays valid for downstream parsers (e.g. ``_extract_result_hint``).
+    """
     return serialized.replace("\\n", "\n")
 
 
@@ -25,7 +31,7 @@ def _pretty_json(text: str) -> str:
         parsed = json.loads(text)
     except (json.JSONDecodeError, ValueError):
         return text
-    return _expand_string_newlines(json.dumps(parsed, indent=2, ensure_ascii=False))
+    return json.dumps(parsed, indent=2, ensure_ascii=False)
 
 
 def _serialize_for_spill(result_wire: Any) -> str:
@@ -47,13 +53,13 @@ def _serialize_for_spill(result_wire: Any) -> str:
             if texts:
                 return "\n".join(texts)
         try:
-            return _expand_string_newlines(json.dumps(result_wire, indent=2, ensure_ascii=False))
+            return json.dumps(result_wire, indent=2, ensure_ascii=False)
         except (TypeError, ValueError):
             return str(result_wire)
 
     if isinstance(result_wire, (list, tuple)):
         try:
-            return _expand_string_newlines(json.dumps(result_wire, indent=2, ensure_ascii=False))
+            return json.dumps(result_wire, indent=2, ensure_ascii=False)
         except (TypeError, ValueError):
             return str(result_wire)
 
@@ -75,7 +81,9 @@ def _spill_if_oversized(
         return msg
     if len(content) <= max_result_chars:
         return msg
-    spilled = spill_store.spill(content=content, call_id=call_id, tool_name=tool_name)
+    spilled = spill_store.spill(
+        content=_expand_string_newlines(content), call_id=call_id, tool_name=tool_name
+    )
     return {**msg, "content": spilled.placeholder(preview_chars)}
 
 

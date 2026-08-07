@@ -4,10 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from prodagent.cognition.context.budget import CompressionLevel, TokenCounter, fit_within_budget
-from prodagent.cognition.context.compression.formatting import (
-    _ACTIONS_TAKEN_MAX_TOKENS,
-    _build_actions_taken,
-)
+from prodagent.cognition.context.compression.formatting import compress_tool_result
 
 if TYPE_CHECKING:
     from prodagent.cognition.context.compression.summarizer import Summariser
@@ -89,7 +86,7 @@ class StageContext:
 
 
 class Stage(Protocol):
-    def should_run(self, ratio: float, cfg: ContextConfig) -> bool: ...
+    def should_skip(self, ratio: float, cfg: ContextConfig) -> bool: ...
 
     async def apply(
         self, messages: MessageList, budget: int, ctx: StageContext
@@ -97,7 +94,12 @@ class Stage(Protocol):
 
 
 class HistoryCompressor:
-    """Runs the first stage whose ``should_run`` matches."""
+    """Runs the first stage whose ``should_skip`` returns False.
+
+    Stages are ordered least → most aggressive. ``should_skip`` returns True
+    when ``ratio`` has outgrown that stage and the compressor should escalate.
+    The final stage caps the chain by always returning False.
+    """
 
     def __init__(self, stages: list[Stage]) -> None:
         self._stages = stages
@@ -108,43 +110,24 @@ class HistoryCompressor:
         budget: int,
         ctx: StageContext,
         ratio: float,
-        *,
-        max_level: CompressionLevel | None = None,
     ) -> tuple[MessageList, CompressionLevel]:
         chosen: Stage | None = None
         for stage in self._stages:
-            if not stage.should_run(ratio, ctx.config):
+            if stage.should_skip(ratio, ctx.config):
                 continue
             chosen = stage
             break
         if chosen is None:
             return fit_budget(messages, budget, ctx.counter), CompressionLevel.NONE
 
-        if max_level is not None:
-            chosen_level = _stage_level(chosen)
-            if chosen_level is not None and chosen_level > max_level:
-                # max_level caps escalation at the HIGHEST stage <= cap, not the
-                # first stage <= cap (which is always NoCompressionStage).
-                for stage in reversed(self._stages):
-                    lvl = _stage_level(stage)
-                    if lvl is not None and lvl <= max_level:
-                        chosen = stage
-                        break
-
         return await chosen.apply(messages, budget, ctx)
-
-
-def _stage_level(stage: Stage) -> CompressionLevel | None:
-    """Recover the CompressionLevel a stage reports, without running it."""
-    attr = getattr(stage, "level", None)
-    return attr if isinstance(attr, CompressionLevel) else None
 
 
 class NoCompressionStage:
     level: CompressionLevel = CompressionLevel.NONE
 
-    def should_run(self, ratio: float, cfg: ContextConfig) -> bool:
-        return ratio < cfg.tool_compress_at
+    def should_skip(self, ratio: float, cfg: ContextConfig) -> bool:
+        return ratio >= cfg.tool_compress_at
 
     async def apply(
         self, messages: MessageList, budget: int, ctx: StageContext
@@ -153,19 +136,25 @@ class NoCompressionStage:
 
 
 class ToolCompressStage:
-    """Oversized tool results are already spilled at append time; here we only
-    fit the budget. The level is preserved so the pipeline still escalates
-    NONE → TOOL_COMPRESS → summaries before EMERGENCY."""
+    """Collapse oversized tool results in place (rule-based signal-field hint,
+    no LLM call) before fitting the budget. Already-spilled results are
+    untouched — they're already down to a preview."""
 
     level: CompressionLevel = CompressionLevel.TOOL_COMPRESS
 
-    def should_run(self, ratio: float, cfg: ContextConfig) -> bool:
-        return ratio < cfg.history_summary_at
+    def should_skip(self, ratio: float, cfg: ContextConfig) -> bool:
+        return ratio >= cfg.history_summary_at
 
     async def apply(
         self, messages: MessageList, budget: int, ctx: StageContext
     ) -> tuple[MessageList, CompressionLevel]:
-        return fit_budget(messages, budget, ctx.counter), CompressionLevel.TOOL_COMPRESS
+        compressed: MessageList = [
+            {**m, "content": compress_tool_result(str(m.get("content", "")), ctx.config)}
+            if "tool_call_id" in m
+            else m
+            for m in messages
+        ]
+        return fit_budget(compressed, budget, ctx.counter), CompressionLevel.TOOL_COMPRESS
 
 
 @dataclass
@@ -175,10 +164,10 @@ class SummarizeStage:
     recent_msgs: int
     level: CompressionLevel
 
-    def should_run(self, ratio: float, cfg: ContextConfig) -> bool:
+    def should_skip(self, ratio: float, cfg: ContextConfig) -> bool:
         if self.level == CompressionLevel.HISTORY_SUMMARY:
-            return ratio < cfg.topic_summary_at
-        return ratio < cfg.emergency_at
+            return ratio >= cfg.topic_summary_at
+        return ratio >= cfg.emergency_at
 
     async def apply(
         self, messages: MessageList, budget: int, ctx: StageContext
@@ -205,8 +194,8 @@ class EmergencyStage:
 
     level: CompressionLevel = CompressionLevel.EMERGENCY
 
-    def should_run(self, ratio: float, cfg: ContextConfig) -> bool:
-        return True
+    def should_skip(self, ratio: float, cfg: ContextConfig) -> bool:
+        return False
 
     async def apply(
         self, messages: MessageList, budget: int, ctx: StageContext
@@ -226,26 +215,5 @@ class EmergencyStage:
         if summary_msg is not None:
             emergency_msgs = [summary_msg, *emergency_msgs]
 
-        actions_budget = min(_ACTIONS_TAKEN_MAX_TOKENS, max(0, budget))
-        fitted = fit_budget(emergency_msgs, max(0, budget - actions_budget), ctx.counter)
-        kept_ids = {id(m) for m in fitted}
-        kept_tool_call_ids = {str(m.get("tool_call_id", "")) for m in fitted if "tool_call_id" in m}
-        actions_body = _build_actions_taken(
-            messages,
-            kept_ids=kept_ids,
-            kept_tool_call_ids=kept_tool_call_ids,
-            counter=ctx.counter,
-            max_tokens=actions_budget,
-        )
-
-        if actions_body:
-            actions_msg: Message = {
-                "role": "user",
-                "content": f"[ACTIONS TAKEN]\n{actions_body}",
-            }
-            if summary_msg is not None and fitted and fitted[0] is summary_msg:
-                fitted = [fitted[0], actions_msg, *fitted[1:]]
-            else:
-                fitted = [actions_msg, *fitted]
-
+        fitted = fit_budget(emergency_msgs, max(0, budget), ctx.counter)
         return fitted, CompressionLevel.EMERGENCY

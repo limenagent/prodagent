@@ -54,12 +54,31 @@ class AnthropicAdapter:
         on_chunk: ChunkCallback,
     ) -> LLMResponse:
         cfg = config or self._default_config
-        normalised = cast("MessageList", self._normalise_messages(messages))
+        normalised = cast(
+            "MessageList",
+            self._normalise_messages(messages, cache_boundary_index=cfg.cache_boundary_index),
+        )
         return await with_http_retry(
             lambda: self._stream(normalised, system=system, tools=tools, cfg=cfg, on_chunk=on_chunk)
         )
 
-    def _normalise_messages(self, messages: MessageList) -> list[dict[str, Any]]:
+    @staticmethod
+    def _tag_cache_boundary(content: Any) -> Any:
+        """Mark the last content block as an ephemeral cache breakpoint."""
+        if isinstance(content, list):
+            blocks = [
+                dict(b) if isinstance(b, dict) else {"type": "text", "text": str(b)}
+                for b in content
+            ]
+            if blocks:
+                blocks[-1] = {**blocks[-1], "cache_control": {"type": "ephemeral"}}
+            return blocks
+        text = content if isinstance(content, str) else str(content)
+        return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
+
+    def _normalise_messages(
+        self, messages: MessageList, *, cache_boundary_index: int | None = None
+    ) -> list[dict[str, Any]]:
         import json as _json
 
         result: list[dict[str, Any]] = []
@@ -70,9 +89,10 @@ class AnthropicAdapter:
                 result.append({"role": "user", "content": list(pending_tool_results)})
                 pending_tool_results.clear()
 
-        for msg in messages:
+        for i, msg in enumerate(messages):
             role = msg.get("role")
             content = msg.get("content")
+            at_boundary = i == cache_boundary_index
 
             if role == "tool":
                 pending_tool_results.append(
@@ -82,6 +102,11 @@ class AnthropicAdapter:
                         "content": str(content),
                     }
                 )
+                if at_boundary:
+                    pending_tool_results[-1] = {
+                        **pending_tool_results[-1],
+                        "cache_control": {"type": "ephemeral"},
+                    }
                 continue
 
             # Non-tool message ends the current batch of tool results
@@ -109,10 +134,17 @@ class AnthropicAdapter:
                             "input": parsed_input,
                         }
                     )
+                if at_boundary and content_blocks:
+                    content_blocks[-1] = {
+                        **content_blocks[-1],
+                        "cache_control": {"type": "ephemeral"},
+                    }
                 result.append({"role": "assistant", "content": content_blocks})
                 continue
 
             normalised_content = normalise_content(content)
+            if at_boundary:
+                normalised_content = self._tag_cache_boundary(normalised_content)
             result.append(
                 {**msg, "content": normalised_content}
                 if normalised_content is not content

@@ -42,24 +42,33 @@ __all__ = ["ContextManager", "format_state"]
 class _Sandwich:
     """The assembled context window's structural shape."""
 
-    state_msg: Message | None = None
     memory_msg: Message | None = None
     skills_msg: Message | None = None
     history: list[Message] = field(default_factory=list)
+    state_msg: Message | None = None
     reminder_msg: Message | None = None
 
     def to_messages(self) -> MessageList:
         msgs: list[Message] = []
-        if self.state_msg is not None:
-            msgs.append(self.state_msg)
         if self.memory_msg is not None:
             msgs.append(self.memory_msg)
         if self.skills_msg is not None:
             msgs.append(self.skills_msg)
         msgs.extend(self.history)
+        if self.state_msg is not None:
+            msgs.append(self.state_msg)
         if self.reminder_msg is not None:
             msgs.append(self.reminder_msg)
         return msgs
+
+    def stable_prefix_len(self) -> int:
+        """Count of messages ahead of the cache boundary (memory + skills + history)."""
+        n = len(self.history)
+        if self.memory_msg is not None:
+            n += 1
+        if self.skills_msg is not None:
+            n += 1
+        return n
 
 
 def format_state(run: AgentRun) -> str:
@@ -95,7 +104,7 @@ class ContextManager:
         self._counter = TokenCounter()
         self._pipeline = self._build_pipeline(config)
         self._system_tokens = self._counter.count(system_prompt)
-        self._last_level: CompressionLevel | None = None
+        self._cache_boundary_index: int | None = None
 
     @property
     def config(self) -> ContextConfig:
@@ -104,6 +113,11 @@ class ContextManager:
     @property
     def counter(self) -> TokenCounter:
         return self._counter
+
+    @property
+    def cache_boundary_index(self) -> int | None:
+        """Index of the last message in the stable (memory+skills+history) prefix."""
+        return self._cache_boundary_index
 
     @property
     def spill_store(self) -> ToolResultSpillStore | None:
@@ -159,6 +173,9 @@ class ContextManager:
         budget.alloc(Layer.L3, l3_tokens)
 
         messages, total = self._enforce_total_budget(sandwich, budget)
+
+        stable_len = sandwich.stable_prefix_len()
+        self._cache_boundary_index = stable_len - 1 if stable_len > 0 else None
 
         run.messages = list(sandwich.history)
 
@@ -233,14 +250,14 @@ class ContextManager:
         history: MessageList,
     ) -> _Sandwich:
         return _Sandwich(
-            state_msg={"role": "user", "content": f"[STATE]\n{state_block}"}
-            if state_block
-            else None,
             memory_msg={"role": "user", "content": f"[MEMORY]\n{memory_block}"}
             if memory_block
             else None,
             skills_msg={"role": "user", "content": skills_block} if skills_block else None,
             history=list(history),
+            state_msg={"role": "user", "content": f"[STATE]\n{state_block}"}
+            if state_block
+            else None,
             reminder_msg={"role": "user", "content": self._reminder} if self._reminder else None,
         )
 
@@ -336,11 +353,8 @@ class ContextManager:
             config=self._cfg,
             summariser=Summariser(self._llm, self._cfg),
         )
-        max_level = CompressionLevel(self._last_level + 1) if self._last_level is not None else None
-        result, level = await self._pipeline.run(
-            run.messages, history_budget, ctx, ratio, max_level=max_level
-        )
-        self._last_level = level
+
+        result, level = await self._pipeline.run(run.messages, history_budget, ctx, ratio)
         return result, level
 
     async def _fire_context_hooks(

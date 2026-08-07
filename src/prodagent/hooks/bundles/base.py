@@ -21,6 +21,7 @@ def default_hook_bundles() -> list[HookBundle]:
     """Ordered list of bundles that ``attach_default_hooks`` wires."""
     from prodagent.hooks.bundles.default_wiring import (
         ApprovalDefaultBundle,
+        CacheMonitorDefaultBundle,
         ConsoleDefaultBundle,
         InjectionDefaultBundle,
         LearningDefaultBundle,
@@ -31,6 +32,7 @@ def default_hook_bundles() -> list[HookBundle]:
 
     return [
         ConsoleDefaultBundle(),
+        CacheMonitorDefaultBundle(),
         SpanDefaultBundle(),
         MemoryDefaultBundle(),
         ApprovalDefaultBundle(),

@@ -115,7 +115,7 @@ python_version = "3.11"
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["redis.*", "neo4j.*", "qdrant_client.*", "psycopg.*", "psycopg_pool.*", "yaml"]
+module = ["redis.*", "neo4j.*", "qdrant_client.*", "psycopg.*", "psycopg_pool.*", "yaml", "daniu_xiaomei.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

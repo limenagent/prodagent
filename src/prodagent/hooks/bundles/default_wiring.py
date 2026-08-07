@@ -22,6 +22,15 @@ class ConsoleDefaultBundle:
         ConsoleObserverHooks().attach(registry)
 
 
+class CacheMonitorDefaultBundle:
+    """Warns when Prompt Cache hit rate stays low — always on, no fw needed."""
+
+    def attach(self, agent: Agent, fw: FrameworkConfig | None, registry: HookRegistry) -> None:
+        from prodagent.hooks.observers.cache_monitor import CacheMonitorHooks
+
+        CacheMonitorHooks().attach(registry)
+
+
 class SpanDefaultBundle:
     """Span/audit exporter — needs a FrameworkConfig to resolve the exporter."""
 

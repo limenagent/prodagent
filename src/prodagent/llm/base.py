@@ -45,6 +45,7 @@ class LLMConfig:
     cost_per_million_input: float = 0.0
     cost_per_million_output: float = 0.0
     cache_read_discount: float = 0.1
+    cache_boundary_index: int | None = None
 
     def __post_init__(self) -> None:
         if not self.model:

@@ -4,9 +4,12 @@
   - ``REACTIVE`` 多轮探索: 每 turn LLM 发一个 tool_call,看结果决定下一步。
     不是一次性生成 plan,而是「搜 → fetch → 看结果 → 发现新线索 → 改 query
     再搜」的探索树。研究是开放性问题,路径不该预先写死。
-  - ``ContextManager`` 五级压缩: 长跑 13+ turn 后历史 + 工具结果累积超阈值,
-    框架自动从 NONE → TOOL_COMPRESS → HISTORY_SUMMARY 压缩,早期对话被总结,
-    LLM 不丢关键 claim。demo 把 ``max_tokens`` 调低让压缩早触发。
+  - ``ContextManager`` 四级压缩: 长跑 13+ turn 后历史 + 工具结果累积超阈值,
+    框架自动从 NONE → TOOL_COMPRESS → HISTORY_SUMMARY → TOPIC_SUMMARY 压缩,
+    早期对话被总结,LLM 不丢关键 claim。demo 把 ``max_tokens`` 调低让压缩早触发。
+    EmergencyStage 不触发(``emergency_at`` 抬到 1.0):小窗口下它的 fit_budget
+    要同时装 SUMMARY + 最近 2 条消息,预算不够就清空 history → LLM 死循环。
+    TOPIC_SUMMARY 成为上限就够用,ratio 再高也只是 fit_budget 截尾,不会清空。
   - ``MemoryManager + MemoryHooks``: 预置 constraint(「HumanEval 已查过」)
     + entity fact(GPT-4o / Claude 3.5 元数据),recall 注入避免重复 query。
     MemoryHooks 作为用户自定义 hook 注入预置 memory —— 框架默认 bundle 的
@@ -72,22 +75,31 @@ _SYSTEM_PROMPT = """\
 
 
 def _build_framework_config() -> FrameworkConfig:
-    """demo 专调:调小 context window + tool result 阈值,让压缩早触发且分级可见。
+    """demo 专调:调小 context window 让压缩早触发,各级阈值拉开让分级可见。
 
-    12K window:配合 10 页(~1250 tok/页)+ 3 源印证约束,真 LLM 模式下 ratio
-    逐轮爬坡,能依次走到 TOOL_COMPRESS → HISTORY_SUMMARY → TOPIC_SUMMARY →
-    EMERGENCY 全部五级。``max_level = last+1`` 防跳级确保五级渐进出现,不跳级。
+    8K window(默认 100K 的 1/12,省 token 费用)+ spill 让 fetch 结果只留
+    800 字 preview 不进 history。真 LLM 模式下 14 turn 探索 ratio 逐轮爬坡,
+    依次触发 TOOL_COMPRESS → HISTORY_SUMMARY → TOPIC_SUMMARY。
+
+    ``emergency_at=1.0`` 关掉 EmergencyStage —— 它的 ``should_skip`` 永远
+    返回 False(后备 stage),只要 ratio 到达阈值就选它。小窗口下它的
+    ``fit_budget`` 要同时装 SUMMARY 块 + 最近 2 条消息(含 tool_use/tool_result
+    pair),预算不够就返回空 list → LLM 拿到空历史 → 死循环。抬到 1.0 后,
+    TOPIC_SUMMARY(``should_skip`` 在 ``ratio >= emergency_at`` 时返回 True)
+    成为链尾:ratio 再高也只是让 TOPIC_SUMMARY 继续 skip,所有 stage 都 skip
+    时 ``HistoryCompressor`` 回退到 ``fit_budget`` 截尾(保留 SUMMARY + 尾部
+    消息),不会出现清空。
     """
     ctx = ContextConfig(
-        max_tokens=12_000,
-        l0_ratio=0.06,
+        max_tokens=8_000,
+        l0_ratio=0.10,
         l1_ratio=0.04,
-        l2_ratio=0.08,
-        l3_ratio=0.82,
+        l2_ratio=0.06,
+        l3_ratio=0.80,
         tool_compress_at=0.30,
-        history_summary_at=0.60,
-        topic_summary_at=0.78,
-        emergency_at=0.90,
+        history_summary_at=0.55,
+        topic_summary_at=0.72,
+        emergency_at=1.0,
         spill_preview_chars=800,
     )
     return FrameworkConfig(context=ctx)

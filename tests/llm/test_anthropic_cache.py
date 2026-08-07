@@ -95,6 +95,73 @@ class TestBuildKwargsToolCacheBreakpoint:
         assert kwargs["tools"][-1]["cache_control"] == {"type": "ephemeral"}
 
 
+class TestNormaliseMessagesCacheBoundary:
+    def test_none_boundary_tags_nothing(self, adapter):
+        messages = [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi there"},
+        ]
+        result = adapter._normalise_messages(messages, cache_boundary_index=None)
+        assert all(not isinstance(m["content"], list) for m in result)
+
+    def test_plain_text_message_gets_tagged_as_block(self, adapter):
+        messages = [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi there"},
+        ]
+        result = adapter._normalise_messages(messages, cache_boundary_index=0)
+        assert result[0]["content"] == [
+            {"type": "text", "text": "hello", "cache_control": {"type": "ephemeral"}}
+        ]
+        assert result[1]["content"] == "hi there"
+
+    def test_tool_result_batch_gets_tagged_on_matching_source_index(self, adapter):
+        messages = [
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "foo", "arguments": "{}"},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_1", "content": "result-1"},
+            {"role": "user", "content": "next turn"},
+        ]
+        result = adapter._normalise_messages(messages, cache_boundary_index=1)
+        tool_result_msg = next(
+            m for m in result if m["role"] == "user" and isinstance(m["content"], list)
+        )
+        assert tool_result_msg["content"][-1]["cache_control"] == {"type": "ephemeral"}
+
+    def test_assistant_with_tool_calls_gets_tagged_on_last_block(self, adapter):
+        messages = [
+            {
+                "role": "assistant",
+                "content": "thinking",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "foo", "arguments": "{}"},
+                    }
+                ],
+            },
+        ]
+        result = adapter._normalise_messages(messages, cache_boundary_index=0)
+        assistant_msg = result[0]
+        assert assistant_msg["content"][-1]["cache_control"] == {"type": "ephemeral"}
+        assert assistant_msg["content"][-1]["type"] == "tool_use"
+
+    def test_boundary_index_out_of_range_tags_nothing(self, adapter):
+        messages = [{"role": "user", "content": "hello"}]
+        result = adapter._normalise_messages(messages, cache_boundary_index=5)
+        assert result[0]["content"] == "hello"
+
+
 class TestOpenAIAdapterSystemNormalization:
     def test_string_system_passes_through(self):
         from prodagent.llm.openai_adapter import OpenAIAdapter

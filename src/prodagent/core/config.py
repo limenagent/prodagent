@@ -31,6 +31,10 @@ class ContextConfig:
     spill_tool_results: bool = True
     spill_preview_chars: int = 800
 
+    inline_compress_min_chars: int = 1_500
+    inline_compress_head_chars: int = 500
+    inline_compress_tail_chars: int = 200
+
     post_compact_max_tokens_per_skill: int = 5_000
     post_compact_skills_token_budget: int = 25_000
 
