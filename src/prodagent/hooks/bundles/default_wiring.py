@@ -42,20 +42,6 @@ class SpanDefaultBundle:
         SpanObserverHooks(framework_config=fw).attach(registry)
 
 
-class MemoryDefaultBundle:
-    """Context recall + classify on SESSION_END — needs fw + constraints."""
-
-    def attach(self, agent: Agent, fw: FrameworkConfig | None, registry: HookRegistry) -> None:
-        if fw is None:
-            return
-        from prodagent.cognition.memory import build_memory_manager
-        from prodagent.hooks.bundles.memory import MemoryHooks
-
-        manager = build_memory_manager(framework_config=fw, constraints=list(agent.constraints))
-        MemoryHooks(manager).attach(registry)
-        agent.config.memory = manager
-
-
 class ApprovalDefaultBundle:
     """HITL gate for HIGH side-effect tools — dedupes against ``extensions=``."""
 

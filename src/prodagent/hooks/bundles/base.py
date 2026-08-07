@@ -25,7 +25,6 @@ def default_hook_bundles() -> list[HookBundle]:
         ConsoleDefaultBundle,
         InjectionDefaultBundle,
         LearningDefaultBundle,
-        MemoryDefaultBundle,
         PermissionDefaultBundle,
         SpanDefaultBundle,
     )
@@ -34,7 +33,6 @@ def default_hook_bundles() -> list[HookBundle]:
         ConsoleDefaultBundle(),
         CacheMonitorDefaultBundle(),
         SpanDefaultBundle(),
-        MemoryDefaultBundle(),
         ApprovalDefaultBundle(),
         PermissionDefaultBundle(),
         InjectionDefaultBundle(),

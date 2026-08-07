@@ -49,7 +49,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
-_DANIU_XIAOMEI_DIR = Path(__file__).resolve().parents[3] / "examples" / "daniu_xiaomei" / "web"
 
 _SSE_HEARTBEAT_S = 15.0
 
@@ -84,7 +83,7 @@ class AppState:
     tasks: dict[str, asyncio.Task[Any]] = field(default_factory=dict)
     checkpoint_for: CheckpointFactory | None = None
     session_store_for: SessionStoreFactory | None = None
-    daniu_xiaomei_queues: dict[str, asyncio.Queue[dict[str, Any]]] = field(default_factory=dict)
+    dating_chat_queues: dict[str, asyncio.Queue[dict[str, Any]]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.registry is None:
@@ -289,39 +288,21 @@ def build_app(
     if _STATIC_DIR.exists():
         app.mount("/static", _NoCacheStaticFiles(directory=str(_STATIC_DIR)), name="static")
 
-    if _DANIU_XIAOMEI_DIR.exists():
-        app.mount(
-            "/examples/daniu_xiaomei/assets",
-            _NoCacheStaticFiles(directory=str(_DANIU_XIAOMEI_DIR)),
-            name="daniu_xiaomei_assets",
-        )
+    if state.spec_for("dating_chat") is not None:
 
-        @app.get("/examples/daniu_xiaomei/")
-        async def daniu_xiaomei_page() -> HTMLResponse:
-            path = _DANIU_XIAOMEI_DIR / "index.html"
-            html = await anyio.to_thread.run_sync(path.read_text, "utf-8")
-            return HTMLResponse(
-                content=html,
-                headers={
-                    "Cache-Control": "no-cache, no-store, must-revalidate",
-                    "Pragma": "no-cache",
-                    "Expires": "0",
-                },
-            )
-
-        @app.post("/api/daniu_xiaomei/start")
-        async def daniu_xiaomei_start() -> dict[str, str]:
-            from daniu_xiaomei.web import run_autonomous_chat
+        @app.post("/api/dating_chat/start")
+        async def dating_chat_start() -> dict[str, str]:
+            from dating_chat.web import run_autonomous_chat
 
             run_id = uuid.uuid4().hex[:12]
             queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
-            state.daniu_xiaomei_queues[run_id] = queue
+            state.dating_chat_queues[run_id] = queue
             state.spawn_drive(run_autonomous_chat(queue, session_id=run_id), run_id)
             return {"run_id": run_id}
 
-        @app.get("/api/daniu_xiaomei/stream/{run_id}")
-        async def daniu_xiaomei_stream(run_id: str) -> StreamingResponse:
-            queue = state.daniu_xiaomei_queues.get(run_id)
+        @app.get("/api/dating_chat/stream/{run_id}")
+        async def dating_chat_stream(run_id: str) -> StreamingResponse:
+            queue = state.dating_chat_queues.get(run_id)
             if queue is None:
                 raise HTTPException(status_code=404, detail=f"unknown run: {run_id}")
 
@@ -337,7 +318,7 @@ def build_app(
                         if event.get("type") in ("failed", "done"):
                             return
                 finally:
-                    state.daniu_xiaomei_queues.pop(run_id, None)
+                    state.dating_chat_queues.pop(run_id, None)
 
             return StreamingResponse(event_stream(), media_type="text/event-stream")
 

@@ -4,6 +4,7 @@ from prodagent import Agent, ExecutionMode
 from prodagent.backends.file import FileDocumentStore, FileGraphStore
 from prodagent.cognition.memory import MemoryProvider
 from prodagent.cognition.memory.manager import MemoryManager
+from prodagent.core.config import FrameworkConfig
 from prodagent.guardrail.approval import ApprovalGate, ApprovalProvider
 from prodagent.hooks.bundles.memory import MemoryHooks
 from prodagent.hooks.bundles.security import ApprovalHooks
@@ -52,3 +53,16 @@ def test_memory_manager_returns_manager_via_protocol(tmp_path):
 def test_memory_manager_returns_none_without_bundle():
     agent = Agent(name="t", system_prompt="x", llm=script({"content": "ok"}))
     assert agent.memory_manager is None
+
+
+def test_memory_manager_none_with_framework_but_no_hooks():
+    agent = Agent(
+        name="t",
+        system_prompt="x",
+        llm=script({"content": "ok"}),
+        framework=FrameworkConfig(),
+        mode=ExecutionMode.REACTIVE,
+    )
+    agent.attach_default_hooks()
+    assert agent.memory_manager is None
+    assert agent.config.memory is None

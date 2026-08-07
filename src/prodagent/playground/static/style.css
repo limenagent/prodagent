@@ -452,6 +452,30 @@ header h1 { font-size: 14px; margin: 0; color: var(--blue); font-weight: 600; }
 .suspended-card .label { color: var(--red); font-weight: 700; }
 .suspended-card .body { margin-top: 4px; }
 
+/* ── dating_chat bubble rows (autonomous two-agent chat, dark theme) ── */
+.chat-row { display: flex; align-items: flex-end; gap: 8px; margin: 6px 0; }
+.chat-row.niu { justify-content: flex-start; }
+.chat-row.mei { justify-content: flex-end; }
+.chat-avatar {
+  width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 12px; font-weight: 700;
+}
+.chat-row.niu .chat-avatar { background: var(--dim); }
+.chat-row.mei .chat-avatar { background: var(--green); }
+.chat-bubble {
+  max-width: 68%; padding: 8px 12px; border-radius: 6px;
+  font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  border: 1px solid var(--border);
+}
+.chat-row.niu .chat-bubble { background: var(--panel); color: var(--text); }
+.chat-row.mei .chat-bubble { background: rgba(106,153,85,0.18); color: var(--text); border-color: var(--green); }
+.chat-badge { font-size: 11px; color: var(--dim); padding-left: 36px; }
+.chat-row.mei .chat-badge { padding-left: 0; padding-right: 36px; text-align: right; }
+.chat-badge.memory { color: var(--magenta); }
+.chat-badge.compress { color: var(--cyan); }
+.chat-badge.toy { color: var(--yellow); }
+
 /* ── Approval modal ── */
 .modal-overlay {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0;

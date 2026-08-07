@@ -14,7 +14,7 @@ members = [
     "aiops-agent",
     "code-detective-agent",
     "compliance-audit-agent",
-    "daniu-xiaomei-agent",
+    "dating-chat-agent",
     "deep-research-agent",
     "email-triage-agent",
     "greeter-agent",
@@ -380,9 +380,9 @@ toml = [
 ]
 
 [[package]]
-name = "daniu-xiaomei-agent"
+name = "dating-chat-agent"
 version = "0.1.0"
-source = { editable = "examples/daniu_xiaomei" }
+source = { editable = "examples/dating_chat" }
 dependencies = [
     { name = "prodagent" },
 ]

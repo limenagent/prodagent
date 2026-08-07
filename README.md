@@ -43,7 +43,7 @@
 
 - **三执行模式** —— `PLAN_FIRST`（LLM 动态出 PLAN DAG，可审计、可 HITL、可断点续跑）/ `REACTIVE`（ReAct 循环，边走边看）/ `Workflow`（人写静态 PLAN DAG）。
 
-- **Agent 协作** —— `agents=` 垂直委派（父 spawn 子，子返回结果）；`peers=` 横向接力（终止当前 run，peer 接力继续）。
+- **Agent 协作** —— `agents=` 垂直委派（父 spawn 子，子返回结果）；`peers=` 横向接力（终止当前 run，peer 接力继续）；`EnsemblePipeline` 多 Agent 共享 floor 轮流发言（`FloorMember` + `SharedBudget` + `FloorProjection` + 复合 `TerminationPolicy`）。
 
 - **上下文三明治** —— state / memory / skills / history / reminder 五段式组装，每段独立可控、独立可压缩。
 
@@ -86,11 +86,11 @@ LLM_MODEL=glm-5.2
 
 启动后浏览器自动打开 `http://127.0.0.1:8766`。切生产后端：`make playground-prod`（自动拉起 Postgres / Neo4j / Qdrant / Redis）。
 
-### 端到端示例：8 个场景，从最小骨架到全栈组装
+### 端到端示例：9 个场景，从最小骨架到全栈组装
 
 | # | Example | 场景 | 核心能力                                                                             |
 |---|---------|------|----------------------------------------------------------------------------------|
-| 1 | [greeter](examples/greeter) | 最小可跑 Agent | `@tool` + `Agent` + `mode="reactive"` 三件套                                            |
+| 1 | [greeter](examples/greeter) | 最小可跑 Agent | `@tool` + `Agent` + `mode="reactive"` 三件套                                        |
 | 2 | [trader](examples/trader) | 奶茶代购下单协商 | 对话式多轮协商（提案→反驳→调整→下单）+ memory 驱动 replan + HIGH 副作用 HITL 审批                        |
 | 3 | [deep_research](examples/deep_research) | 多轮探索式研究 | REACTIVE 探索树 + 五级 context 压缩 + 注入防御 + 记忆防重复                                      |
 | 4 | [compliance_audit](examples/compliance_audit) | 金融合规审计 + 崩溃恢复 | `Workflow` 写死 DAG + `FileCheckpointStore` + event log 重放 + `fork_run` 分叉 + 幂等写工具 |
@@ -98,6 +98,7 @@ LLM_MODEL=glm-5.2
 | 6 | [code_detective](examples/code_detective) | 自主修 bug | MCP stdio server 桥接外部工具 + REACTIVE 多轮调试                                          |
 | 7 | [trip_planner](examples/trip_planner) | 旅行规划 | `Workflow` DAG + 3 peer 并行 fan-out + `MemoryManager` 偏好注入                        |
 | 8 | [aiops](examples/aiops) | 故障应急全栈 | 多 Agent spawn + peer handoff + 记忆 + 学习 + 可观测 + 审批                                |
+| 9 | [dating_chat](examples/dating_chat) | Agent相亲 | `EnsemblePipeline` 多 Agent 共享 floor + 真·框架 Agent vs 简单版 Agent 的记忆/上下文反差          |
 
 ### 安装
 

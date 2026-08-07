@@ -6,7 +6,10 @@ let selectedSpec = null;
 let currentThinkCard = null;
 let currentEventSource = null;
 let currentRunId = null;
+let datingMode = false;
+let lastMeiMemoryPreview = "";
 const submittedRequestIds = new Set();
+const SPEAKER_AVATAR = { 大牛: "牛", 小美: "美" };
 
 // ── HUD state (top-bar run status) ──
 const hudState = {
@@ -90,6 +93,7 @@ const AGENT_ICONS = {
   trader: "🧋",
   code_detective: "🐛",
   aiops: "🚨",
+  dating_chat: "💬",
 };
 
 async function loadExamples() {
@@ -111,7 +115,9 @@ async function loadExamples() {
 function selectExample(spec, cardEl) {
   for (const c of cardsEl.children) c.classList.remove("selected");
   cardEl.classList.add("selected");
+  if (currentEventSource) { currentEventSource.close(); currentEventSource = null; }
   selectedSpec = spec;
+  datingMode = spec.name === "dating_chat";
   taskInput.value = spec.default_task;
   streamEl.innerHTML = "";
   currentThinkCard = null;
@@ -121,15 +127,18 @@ function selectExample(spec, cardEl) {
   currentRunId = null;
   sending = false;
   sendBtn.disabled = false;
+  taskInput.style.display = datingMode ? "none" : "";
+  sendBtn.textContent = datingMode ? "💬 开始自主聊天" : "💬 Send";
   hudState.agent = spec.title;
   updateHud();
-  taskInput.focus();
+  if (datingMode) statusEl.textContent = "点击右下角按钮，开始大牛与小美的自主对话";
+  else taskInput.focus();
 }
 
 taskInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
-    if (!selectedSpec) return;
+    if (!selectedSpec || datingMode) return;
     if (currentRunId) _sendChat();
     else _startRun();
   }
@@ -138,6 +147,7 @@ taskInput.addEventListener("keydown", (e) => {
 // ── Run + Chat + SSE ───────────────────────────────────────────────────────
 sendBtn.onclick = async () => {
   if (!selectedSpec) return;
+  if (datingMode) return _startDatingChat();
   if (currentRunId) return _sendChat();
   return _startRun();
 };
@@ -249,6 +259,132 @@ function streamRun(runId) {
     statusEl.textContent = "连接断开";
     es.close();
   };
+}
+
+// ── dating_chat: autonomous two-agent chat rendered as bubbles in #stream ──
+async function _startDatingChat() {
+  if (sending) return;
+  sending = true;
+  sendBtn.disabled = true;
+  statusEl.textContent = "对话进行中…";
+  streamEl.innerHTML = "";
+  lastMeiMemoryPreview = "";
+  resetHudForRun(selectedSpec.title);
+
+  let runId;
+  try {
+    const res = await fetch("/api/dating_chat/start", { method: "POST" });
+    if (!res.ok) throw new Error(`start failed: ${res.status}`);
+    ({ run_id: runId } = await res.json());
+  } catch (e) {
+    statusEl.textContent = `启动失败：${e.message}`;
+    sendBtn.disabled = false;
+    sending = false;
+    return;
+  }
+
+  if (currentEventSource) currentEventSource.close();
+  const es = new EventSource(`/api/dating_chat/stream/${runId}`);
+  currentEventSource = es;
+
+  es.onmessage = (evt) => {
+    const data = JSON.parse(evt.data);
+    if (data.type === "message") {
+      appendDatingBubble(data);
+    } else if (data.type === "done") {
+      statusEl.textContent = "对话结束";
+      sendBtn.disabled = false;
+      sending = false;
+      es.close();
+    } else if (data.type === "failed") {
+      statusEl.textContent = `出错：${data.error}`;
+      sendBtn.disabled = false;
+      sending = false;
+      es.close();
+    }
+    // heartbeat: keep-alive, no-op
+  };
+
+  es.onerror = () => {
+    statusEl.textContent = "连接中断";
+    sendBtn.disabled = false;
+    sending = false;
+    es.close();
+  };
+}
+
+function appendDatingBubble(data) {
+  const {
+    speaker,
+    text,
+    tool_calls: toolCalls,
+    memory_hits: memoryHits,
+    memory_previews: memoryPreviews,
+    compression,
+    history_summary: historySummary,
+    tool_compress_sample: toolCompressSample,
+    niu_note: niuNote,
+  } = data;
+  const isNiu = speaker === "大牛";
+
+  const row = document.createElement("div");
+  row.className = `chat-row ${isNiu ? "niu" : "mei"}`;
+
+  const avatar = document.createElement("div");
+  avatar.className = "chat-avatar";
+  avatar.textContent = SPEAKER_AVATAR[speaker] || speaker.slice(0, 1);
+
+  const bubble = document.createElement("div");
+  bubble.className = "chat-bubble";
+  bubble.textContent = text;
+
+  if (isNiu) row.append(avatar, bubble);
+  else row.append(bubble, avatar);
+
+  if (memoryHits > 0) {
+    const preview = Array.isArray(memoryPreviews) && memoryPreviews.length > 0 ? memoryPreviews[0] : "";
+    // 小美的 CONSTRAINT 是无条件注入，每轮都召回同一条——只在第一次展开完整文案，
+    // 后续轮次降级为简短标记，避免同一段介绍人评价在四个气泡下重复刷屏。
+    // 大牛没有记忆系统，不走去重。
+    if (!isNiu && preview && preview === lastMeiMemoryPreview) {
+      appendDatingBadge(isNiu, `🧠 命中记忆 ${memoryHits} 条（与上一轮相同）`, "memory");
+    } else {
+      appendDatingBadge(isNiu, `🧠 命中记忆 ${memoryHits} 条 · ${preview}`, "memory");
+      if (!isNiu) lastMeiMemoryPreview = preview;
+    }
+  }
+
+  if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+    appendDatingBadge(isNiu, `🔧 ${toolCalls.join(", ")} 已调用`);
+  }
+
+  if (compression && compression !== "NONE") {
+    appendDatingBadge(isNiu, `⚡ 触发上下文压缩：${compression}（超出预算的工具结果/历史被压缩）`, "compress");
+    if (toolCompressSample) {
+      appendDatingBadge(isNiu, `📦 压缩后仍保留：${toolCompressSample}`, "compress");
+    }
+    if (historySummary) {
+      appendDatingBadge(isNiu, `📝 摘要：${historySummary}`, "compress");
+    }
+  }
+
+  if (niuNote) {
+    appendDatingBadge(isNiu, `⚠️ ${niuNote}`, "toy");
+  }
+
+  streamEl.appendChild(row);
+
+  streamEl.scrollTop = streamEl.scrollHeight;
+}
+
+function appendDatingBadge(isNiu, label, variant = "") {
+  const row = document.createElement("div");
+  row.className = `chat-row ${isNiu ? "niu" : "mei"}`;
+  const badge = document.createElement("div");
+  badge.className = variant ? `chat-badge ${variant}` : "chat-badge";
+  badge.textContent = label;
+  row.appendChild(badge);
+  streamEl.appendChild(row);
 }
 
 // ── Approval flow ──────────────────────────────────────────────────────────

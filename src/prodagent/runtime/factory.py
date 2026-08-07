@@ -69,12 +69,13 @@ class LeafExecutorFactory:
             task=ctx.task[:120],
             depth=ctx.depth,
         )
-        await hooks.fire(
-            HookEvent.SKILLS_READY,
-            count=len(ctx.agent.skills) if ctx.agent.skills else 0,
-            names=ctx.agent.skills.names() if ctx.agent.skills else [],
-            run_id=ctx.run_id,
-        )
+        if ctx.agent.skills is not None:
+            await hooks.fire(
+                HookEvent.SKILLS_READY,
+                count=len(ctx.agent.skills),
+                names=ctx.agent.skills.names(),
+                run_id=ctx.run_id,
+            )
 
     async def _build_executor(
         self,
