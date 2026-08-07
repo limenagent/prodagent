@@ -1,41 +1,29 @@
-"""Deep Research —— REACTIVE 多轮探索 + context 压缩 + 记忆防重复。
+"""Deep Research —— REACTIVE 多轮探索 + context 压缩。
 
 本示例展示:
   - ``REACTIVE`` 多轮探索: 每 turn LLM 发一个 tool_call,看结果决定下一步。
-    不是一次性生成 plan,而是「搜 → fetch → 看结果 → 发现新线索 → 改 query
-    再搜」的探索树。研究是开放性问题,路径不该预先写死。
-  - ``ContextManager`` 四级压缩: 长跑 13+ turn 后历史 + 工具结果累积超阈值,
-    框架自动从 NONE → TOOL_COMPRESS → HISTORY_SUMMARY → TOPIC_SUMMARY 压缩,
-    早期对话被总结,LLM 不丢关键 claim。demo 把 ``max_tokens`` 调低让压缩早触发。
-    EmergencyStage 不触发(``emergency_at`` 抬到 1.0):小窗口下它的 fit_budget
-    要同时装 SUMMARY + 最近 2 条消息,预算不够就清空 history → LLM 死循环。
-    TOPIC_SUMMARY 成为上限就够用,ratio 再高也只是 fit_budget 截尾,不会清空。
-  - ``MemoryManager + MemoryHooks``: 预置 constraint(「HumanEval 已查过」)
-    + entity fact(GPT-4o / Claude 3.5 元数据),recall 注入避免重复 query。
-    MemoryHooks 作为用户自定义 hook 注入预置 memory —— 框架默认 bundle 的
-    MemoryHooks 拿的是空 memory,demo 需要预置数据。
-  - ``InjectionDefenseHooks``: 假 web 里有一个页面含恶意指令(攻击性
-    内容),``TOOL_RESULT`` checkpoint 拦截,工具结果不进 LLM context,
-    该 turn 失败,LLM 看错误后换 URL 继续。
+    「fetch → 读内容 → 记数字 → fetch 下一页 → 综合」的线性探索流程。
+  - ``ContextManager`` 压缩: 长跑后历史 + 工具结果累积超阈值,框架自动从
+    NONE → TOOL_COMPRESS → HISTORY_SUMMARY 压缩,早期对话被总结,LLM 不丢
+    关键 claim。demo 把 ``max_tokens`` 调低让压缩早触发。
+    ``emergency_at=1.0`` 关掉 EmergencyStage(小窗口下它的 fit_budget 会清空
+    history → LLM 死循环);``topic_summary_at=0.95`` 抬高,fake LLM 下不真
+    触发(避免 aux call 共享队列吃掉 scripted turn)。
   - ``SkillRegistry``: ``deep-research.md`` runbook,LLM ``get_skill`` 学探索流程。
 """
 
 from __future__ import annotations
 
+import dataclasses
 import os
 from pathlib import Path
 
 from prodagent import Agent, ExecutionMode, HardBudget
-from prodagent.cognition.memory import MemoryManager
 from prodagent.core.config import ContextConfig, FrameworkConfig
 from prodagent.evaluation.skills.registry import SkillRegistry
-from prodagent.guardrail.injection import GuardrailPipeline
-from prodagent.hooks.bundles.memory import MemoryHooks
-from prodagent.hooks.bundles.security import InjectionDefenseHooks
 
 from deep_research.fake_llm import build_fake_llm
-from deep_research.memory import build_memory
-from deep_research.tools import cross_check, synthesize_report, web_fetch, web_search
+from deep_research.tools import synthesize_report, web_fetch
 
 _BASE = Path(__file__).parent
 SKILLS_DIR = _BASE / "skills"
@@ -45,62 +33,53 @@ _SYSTEM_PROMPT = """\
 上一步的结果。所以用 REACTIVE 多轮探索,不是一次性 plan:
 
 1. 先调 ``get_skill(name="deep-research")`` 加载研究 runbook。
-2. 搜一个子主题 → fetch top URL → 读内容 → 发现线索或缺口。
-3. 根据上一步结果决定下一个 query(不是预先写死的)。
-4. 够了就 ``cross_check`` 交叉验证 —— 单源不可信。
-5. 缺口 → 换思路搜第三方 / 补充来源 → 再 cross_check。
-6. 验证充分后 ``synthesize_report`` 产出带 [1][2] 引用的 markdown 报告。
+2. 按 runbook 依次 fetch 每个 URL → 读 content → 记关键数字。
+3. 够了就 ``synthesize_report`` 产出带 [1][2] 引用的 markdown 报告。
 
 ## 关键规则
-- **mock web**:只能 fetch 下面这些 URL,或 web_search 结果里的 URL。凭记忆
-  硬编码真实世界 URL(anthropic.com 等)会 404。
+- **mock web**:只能 fetch 下面这 5 个 URL。凭记忆硬编码真实世界 URL
+  (anthropic.com 等)会 404。
     - example.com/gpt4o-bench · example.com/claude35-bench ·
-      example.com/third-party-bench · example.com/tool-use-comparison ·
-      example.com/humaneval-deep-dive · example.com/swebench-methodology ·
-      example.com/benchmark-methodology · example.com/cost-analysis ·
-      example.com/real-world-case-studies · example.com/injection
-- **claim 只能用 source 里真实存在的数字**。cross_check 会逐个核对,数字在
-  任何 source 都找不到的 claim 是编造,丢掉别 re-fetch。别为凑来源数硬编。
-- **5 个独立来源,每个关键 claim ≥2 源印证**才写进报告。source 不够就少写
-  几个 claim,不要硬凑。
-- **批量 cross_check**:把一批相关 claim 打包到一次调用(工具接受 claims
-  列表),省 turn。看 conflicts/consistent 整体决定下一步。partial 时看
-  per_source——≥2 个 corroborates=true 就用;厂商页只报自己的分数,组合
-  claim 在厂商页 partial 正常,**别拆成单 claim 重验**。全 false 且有没
-  fetch 过的 source 才 re-fetch,否则丢。
-- InjectionDefense 拦截 fetch = prompt injection,别重试同 URL,换一个。
-- 预置记忆里有「已查过 X」就直接用,别重复搜。
+      example.com/third-party-bench · example.com/humaneval-deep-dive ·
+      example.com/tool-use-comparison
+- **每个 URL 只 fetch 一次**。读完进下一步,绝不重 fetch。
+- **claim 只能用 source 里真实存在的数字**。别为凑来源数硬编。
+- fetch 结果直接进 context(不 spill),读 content 字段,不需要 read_tool_result。
 - 长跑后 context 自动压缩,关键 claim 不丢。
 """
 
 
 def _build_framework_config() -> FrameworkConfig:
-    """demo 专调:调小 context window 让压缩早触发,各级阈值拉开让分级可见。
+    """demo 专调:调小 context window 让压缩早触发。
 
-    8K window(默认 100K 的 1/12,省 token 费用)+ spill 让 fetch 结果只留
-    800 字 preview 不进 history。真 LLM 模式下 14 turn 探索 ratio 逐轮爬坡,
-    依次触发 TOOL_COMPRESS → HISTORY_SUMMARY → TOPIC_SUMMARY。
+    8K window(默认 100K 的 1/12,省 token)+ 5 页 × ~1000 tok fetch 结果累积,
+    真 LLM 模式下 ratio 逐轮爬坡,依次触发 TOOL_COMPRESS → HISTORY_SUMMARY。
+    ``tool_compress_at=0.20``(~1600 tok):第 2 次 fetch 后命中,工具结果被
+    规则压缩(head/tail hint)。``history_summary_at=0.40``(~3200 tok):第 3-4 次
+    fetch 后命中,早期对话被 LLM 总结。两级阈值拉开让分级可见。
 
     ``emergency_at=1.0`` 关掉 EmergencyStage —— 它的 ``should_skip`` 永远
     返回 False(后备 stage),只要 ratio 到达阈值就选它。小窗口下它的
     ``fit_budget`` 要同时装 SUMMARY 块 + 最近 2 条消息(含 tool_use/tool_result
     pair),预算不够就返回空 list → LLM 拿到空历史 → 死循环。抬到 1.0 后,
-    TOPIC_SUMMARY(``should_skip`` 在 ``ratio >= emergency_at`` 时返回 True)
-    成为链尾:ratio 再高也只是让 TOPIC_SUMMARY 继续 skip,所有 stage 都 skip
-    时 ``HistoryCompressor`` 回退到 ``fit_budget`` 截尾(保留 SUMMARY + 尾部
-    消息),不会出现清空。
+    TOPIC_SUMMARY 成为链尾:ratio 再高也只是让 TOPIC_SUMMARY 继续 skip,
+    所有 stage 都 skip 时 ``HistoryCompressor`` 回退到 ``fit_budget`` 截尾
+    (保留 SUMMARY + 尾部消息),不会出现清空。
+
+    ``topic_summary_at=0.95`` 抬高:fake LLM 下 TOPIC_SUMMARY 调 LLM 做
+    summary,aux call 会共享 FakeLLM 队列吃掉 scripted turn(已知问题)。
+    真 LLM 模式可调回 0.72 让 TOPIC_SUMMARY 也触发。
+
+    ``spill_preview_chars=10_000`` 大于最大页面(~4700 字),确保 fetch 结果
+    不 spill,LLM 直接读 content 字段里的数字。
     """
     ctx = ContextConfig(
         max_tokens=8_000,
-        l0_ratio=0.10,
-        l1_ratio=0.04,
-        l2_ratio=0.06,
-        l3_ratio=0.80,
-        tool_compress_at=0.30,
-        history_summary_at=0.55,
-        topic_summary_at=0.72,
+        tool_compress_at=0.20,
+        history_summary_at=0.40,
+        topic_summary_at=0.95,
         emergency_at=1.0,
-        spill_preview_chars=800,
+        spill_preview_chars=10_000,
     )
     return FrameworkConfig(context=ctx)
 
@@ -110,43 +89,32 @@ DEFAULT_TASK = "对比 GPT-4o 和 Claude 3.5 在代码任务上的能力差异,�
 
 def build_deep_research_agent(
     *,
-    memory: MemoryManager | None = None,
     framework_config: FrameworkConfig | None = None,
 ) -> Agent:
     """组装 Deep Research Agent。
 
     Args:
-        memory: 预 seeded 的 MemoryManager(demo 用)。playground 不传 ——
-            工厂零参,MemoryHooks 拿一个空 memory(recall 返回空,不阻断)。
         framework_config: 父 fw;不传时用 demo 专调的 ``_build_framework_config``
             (调小 context 阈值让压缩早触发)。playground 注入带独立 namespace 的 fw,
             但 demo 必须用调小的 context 配置才能触发压缩 —— 这里 override context,
             保留传入 fw 的 backend(namespace 隔离 + 连接池复用)。
     """
-    import dataclasses
-
     demo_ctx = _build_framework_config().context
     if framework_config is not None:
         fw = dataclasses.replace(framework_config, context=demo_ctx)
     else:
         fw = _build_framework_config()
     skills = SkillRegistry.from_dir(SKILLS_DIR)
-    resolved_memory = memory or build_memory(framework_config=fw, clean=True)
-    pipeline = GuardrailPipeline()
     use_fake = os.getenv("USE_FAKE_LLM", "").lower() in ("1", "true", "yes")
     llm = build_fake_llm() if use_fake else None
 
     return Agent(
         "deep_research",
         system_prompt=_SYSTEM_PROMPT,
-        tools=[web_search, web_fetch, cross_check, synthesize_report],
+        tools=[web_fetch, synthesize_report],
         skills=skills,
         llm=llm,
         framework=fw,
         mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_turns=30, max_cost_usd=1.0, max_seconds=600.0),
-        extensions=[
-            MemoryHooks(resolved_memory),
-            InjectionDefenseHooks(pipeline=pipeline),
-        ],
     )

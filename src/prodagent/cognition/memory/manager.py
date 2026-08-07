@@ -205,12 +205,16 @@ class MemoryManager:
 
         scanned = min(3, len(texts))
         types = ", ".join(sorted({r.memory_type.value for r in records})) if records else ""
+        record_types = [r.memory_type.value for r in records]
+        contents = [r.content for r in records]
         if self._hooks is not None:
             await self._hooks.fire(
                 HookEvent.MEMORY_CLASSIFY,
                 scanned=scanned,
                 written=len(records),
                 types=types,
+                record_types=record_types,
+                contents=contents,
                 run_id=getattr(run, "run_id", ""),
             )
 
