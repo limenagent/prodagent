@@ -10,7 +10,7 @@
 
 - **主 agent REACTIVE + workflow 子 agent** —— 主 agent
   `compliance_audit` 是 REACTIVE 对话入口,永远可交互;固定审计 DAG
-  降为 `audit_workflow` 子 agent(`.workflow()` 构造),通过
+  降为 `audit_workflow` 子 agent(`workflow=` 构造),通过
   `spawn_agent` 触发。两者职责分离:主 agent 灵活对话,子 agent 固定流程。
 - **`Workflow` + `@wf.step`** —— 把固定审计 DAG
   （extract_transactions → flag_suspicious ‖ enrich_entity → submit_sar）

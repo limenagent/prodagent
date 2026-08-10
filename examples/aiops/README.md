@@ -10,16 +10,16 @@ remediator peer**（横向控制转移）或直接升级 oncall。组装代码
 
 ## 本示例展示什么
 
-- **多 Agent fan-out（spawn）** —— `.agents(diagnostic_child_agents())`
+- **多 Agent fan-out（spawn）** —— `agents=diagnostic_child_agents()`
   让 investigator 在同一 turn 内并行 spawn 3 个只读诊断子 Agent。子
   Agent 共享父 Agent 的 LLM 客户端，但拥有独立的 system prompt、工具
   权限和预算。
-- **peer handoff（横向控制转移）** —— `.peers([remediator_agent()])`
+- **peer handoff（横向控制转移）** —— `peers=[remediator_agent()]`
   声明 remediator 为 peer。investigator 调 ``handoff_to_remediator``
   结束自己的 run（COMPLETED），remediator 作为 continuation 接过
   IncidentReport 继续跑。与 spawn 不同，peer 不是子任务返回结果给父，
   而是 "我干完了，你接着干" —— remediator 的输出就是整个 run 的输出。
-- **预算熔断** —— `.budget(turns=20, cost_usd=1.0, seconds=1800.0)`，
+- **预算熔断** —— `budget=HardBudget(max_turns=20, max_cost_usd=1.0, max_seconds=1800.0)`，
   轮次 / 成本 / 时间三维硬上限，任一触顶即停。
 - **崩溃恢复** —— 文件级 checkpoint + event log，进程中断后可从断点
   恢复执行，避免半写状态。
@@ -109,7 +109,7 @@ idempotency / approval / DLQ 落 Redis。
 4. 记忆 + 经验存储
 5. Hook bundles（console / span / memory / learning / approval）
 6. 持久化（checkpoint + event log）
-7. 总装上线（`Agent(...).agents().reactive().budget().extend()`）
+7. 总装上线（`Agent(name, system_prompt=, tools=, agents=, peers=, mode=, budget=, extensions=)`）
 
 分层工具注册表按风险分层：只读诊断（l1）、事件管理（l2）、高危修复
 （l3，走审批）、升级。诊断子 Agent 不持有高危工具调用权。
@@ -163,10 +163,15 @@ remediator 当子任务，结果折回父），而是 `handoff_to_remediator` �
 peer 继续。语义上更干净：investigator 的工作完成了，remediator 接管。
 
 ```python
-Agent("investigate", ...)
-    .agents(diagnostic_child_agents())              # 诊断 fan-out: spawn_agent
-    .peers([remediator_agent(llm=remediator_llm)])  # 修复: handoff_to_remediator
-    .reactive()
+Agent(
+    "investigate",
+    system_prompt=...,
+    tools=[page_oncall],
+    agents=diagnostic_child_agents(),              # 诊断 fan-out: spawn_agent
+    peers=[remediator_agent(llm=remediator_llm)],  # 修复: handoff_to_remediator
+    mode=ExecutionMode.REACTIVE,
+    budget=HardBudget(max_turns=20, max_cost_usd=1.0, max_seconds=1800.0),
+)
 ```
 
 peer 模式下 remediator 不共享父 LLM —— ``_build_peer_agent`` 复制

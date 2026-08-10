@@ -33,7 +33,7 @@ DAG；DAG 跑完返回汇总，主 agent 把结果讲给用户。**用户能追�
   - **HIGH**（`delete_email`、`forward_external`）—— 不可逆 / 外部爆炸半径，
     **通过共享 `ApprovalGate` 路由到人工审批**。
 - **父子共享 `ApprovalGate`** —— 主 agent 和 workflow 子 agent 用同一个
-  `ApprovalGate`（`.extend(ApprovalHooks(gate=shared))`）。子 agent 的
+  `ApprovalGate`（`extensions=[ApprovalHooks(gate=shared)]`）。子 agent 的
   HIGH 工具挂起时，`request_id` 落到这个 gate；主 agent
   `submit_approval` 通过同一个 gate 放行。不共享的话父 run 摸不到子
   agent 的挂起请求 —— 共享 gate 是父子 HITL 传播的关键接线。

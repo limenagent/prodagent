@@ -20,7 +20,7 @@ repo 里自主调试:
 
 ## 本示例展示什么
 
-- **`.mcp([MCPServerConfig(...)])`** —— spawn `code_detective.mcp_server` 子进程,
+- **`mcp=[MCPServerConfig(...)]`** —— spawn `code_detective.mcp_server` 子进程,
   stdio JSON-RPC,桥接 4 个工具为 `mcp__code_detective__<tool>`。MCP server 是真正的
   独立进程,不是 mock —— 框架通过 stdio 连接它,发现工具,通过 JSON-RPC 调用。
 - **REACTIVE 多轮调试** —— 每 turn LLM 发一个 tool_call,看结果后决定下一步。

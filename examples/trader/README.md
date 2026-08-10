@@ -30,11 +30,14 @@
 from prodagent.hooks.bundles.memory import MemoryHooks
 from trader.memory import build_memory
 
-agent = (
-    Agent("trader", context=_SYSTEM_PROMPT, tools=[...], llm=llm)
-    .reactive()
-    .budget(turns=20, cost_usd=0.50, seconds=300.0)
-    .extend(MemoryHooks(_build_memory(fw)))  # 注入预置 constraint
+agent = Agent(
+    "trader",
+    system_prompt=_SYSTEM_PROMPT,
+    tools=[...],
+    llm=llm,
+    mode=ExecutionMode.REACTIVE,
+    budget=HardBudget(max_turns=20, max_cost_usd=0.50, max_seconds=300.0),
+    extensions=[MemoryHooks(_build_memory(fw))],  # 注入预置 constraint
 )
 ```
 
