@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import logging
 from dataclasses import dataclass
+from typing import Any, cast
 
 from prodagent.ports.lock import LockToken
 
@@ -67,7 +68,7 @@ class InProcessLockStore:
         return LockToken(name=name, handle=(handle, ticket))
 
     async def release(self, token: LockToken) -> None:
-        handle, ticket = token.handle  # type: ignore[misc]
+        handle, ticket = cast("tuple[_Handle, Any]", token.handle)
         if handle.ticket is not ticket:
             return  # Stale or already-released token — idempotent no-op.
         handle.ticket = None

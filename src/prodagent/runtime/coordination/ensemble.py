@@ -1,5 +1,4 @@
-"""Ensemble — N agents in a shared session, taking turns autonomously.
-"""
+"""Ensemble — N agents in a shared session, taking turns autonomously."""
 
 from __future__ import annotations
 
@@ -52,30 +51,26 @@ __all__ = [
 
 @runtime_checkable
 class SpeakingOrder(Protocol):
-    """Decides who speaks next, given the floor's state.
-
-    The minimal closed loop implements only :class:`RoundRobin`.
-    :class:`Moderated` (a judge agent picks) and ``FreeForAll`` (first
-    ready-wins, locked) are deferred.
-    """
+    """Decides who speaks next. Minimal closed loop implements only
+    :class:`RoundRobin`; ``Moderated`` (judge picks) and ``FreeForAll``
+    (first-ready-wins, locked) are deferred."""
 
     def next_speaker(self, floor: SharedFloor) -> str | None:
         """Return the next member name, or None if the order has no more
-        speakers this pass (round-robin never returns None between rounds —
-        it loops)."""
+        speakers this pass (round-robin never returns None — it loops)."""
         ...
 
 
 @dataclass
 class RoundRobin:
-    """Fixed order, looping. The insertion order of floor.members is the
-    speaking order — deterministic and easy to reason about."""
+    """Fixed order, looping. ``floor.members`` insertion order is the speaking
+    order — deterministic."""
 
     def next_speaker(self, floor: SharedFloor) -> str | None:
         names = floor.member_names()
         if not names:
             return None
-        # Who spoke last? The next speaker is the member after them, wrapping.
+        # Next speaker is the member after the last one, wrapping.
         last = floor.transcript[-1].speaker if floor.transcript else None
         if last is None:
             return names[0]
@@ -91,12 +86,11 @@ class RoundRobin:
 class _FloorViewSlot:
     """Mutable slot holding this member's projected view of the floor.
 
-    The injector closure captures this slot by reference; the pipeline writes
-    the projected transcript into it before each ``speak()``. The injector
-    reads it when the context manager calls ``hooks.collect(...)`` during
-    context assembly. This decouples the injector registration (once, at
-    ensemble start) from the per-turn projection (every round).
-    """
+    Injector closure captures this slot by reference; pipeline writes the
+    projected transcript into it before each ``speak()``, injector reads it
+    when the context manager calls ``hooks.collect(...)``. Decouples injector
+    registration (once, at ensemble start) from per-turn projection (every
+    round)."""
 
     __slots__ = ("view", "topic", "round_num")
 
@@ -107,12 +101,10 @@ class _FloorViewSlot:
 
 
 def _format_floor_block(slot: _FloorViewSlot) -> str:
-    """Render the projected transcript as an L2 [FLOOR] snippet.
-
-    Goes into the [MEMORY] block alongside other injected snippets — same
-    L2 layer, same compression pipeline. The ``[FLOOR]`` prefix lets the
-    member's LLM (and hooks) pick it out from [MEMORY] entries.
-    """
+    """Render the projected transcript as an L2 [FLOOR] snippet. Goes into the
+    [MEMORY] block alongside other injected snippets — same L2 layer, same
+    compression pipeline. ``[FLOOR]`` prefix lets the member's LLM (and hooks)
+    pick it out from [MEMORY] entries."""
     if not slot.view and not slot.topic:
         return ""
     lines: list[str] = [f"[FLOOR] topic: {slot.topic}", f"round: {slot.round_num}"]
@@ -131,13 +123,11 @@ def _format_floor_block(slot: _FloorViewSlot) -> str:
 
 
 def _make_floor_injector(slot: _FloorViewSlot) -> Any:
-    """Build an async injector closure bound to ``slot``.
-
-    The injector is registered at ``InjectionPoint.CONTEXT_INJECTOR`` — same
-    point MemoryHooks uses. It returns the [FLOOR] snippet string (or empty
-    string, which the context manager filters out). ``query`` is ignored: the
-    floor view is set externally by the pipeline, not derived from the task.
-    """
+    """Build an async injector closure bound to ``slot``. Registered at
+    ``InjectionPoint.CONTEXT_INJECTOR`` (same point MemoryHooks uses). Returns
+    the [FLOOR] snippet string (empty string is filtered out by the context
+    manager). ``query`` is ignored: the floor view is set externally by the
+    pipeline, not derived from the task."""
 
     async def _injector(**kw: Any) -> str:
         return _format_floor_block(slot)
@@ -153,15 +143,12 @@ def _make_floor_injector(slot: _FloorViewSlot) -> Any:
 class AgentFloorMember:
     """Adapts a full :class:`~prodagent.runtime.agent.Agent` to FloorMember.
 
-    Registers a ``[FLOOR]`` injector on the agent's hook registry so the
-    projected transcript lands in L2 alongside ``[MEMORY]``. Each ``speak()``
-    call updates the injector's view slot, then runs ``agent.chat()`` and
-    folds the resulting :class:`AgentRun` into a :class:`FloorTurn`.
-
-    The agent keeps its own ``ConversationSession``, ``MemoryManager``, and
-    L0 system prompt — personality doesn't bleed across members. The floor is
-    what they share; their internals stay isolated.
-    """
+    Registers a ``[FLOOR]`` injector so the projected transcript lands in L2
+    alongside ``[MEMORY]``. Each ``speak()`` updates the injector's view slot,
+    runs ``agent.chat()``, folds the resulting :class:`AgentRun` into a
+    :class:`FloorTurn`. The agent keeps its own ``ConversationSession``,
+    ``MemoryManager``, L0 system prompt — personality doesn't bleed across
+    members. The floor is what they share; internals stay isolated."""
 
     def __init__(self, agent: Agent, *, session_id: str) -> None:
         self._agent = agent
@@ -170,8 +157,8 @@ class AgentFloorMember:
         self._injector_wired = False
         self.last_run_id: str = ""
         """Run id of the most recent ``agent.chat()`` call — set after each
-        ``speak()``. Lets callers (e.g. turn-signal collectors) correlate
-        hook events back to the floor turn."""
+        ``speak()``. Lets callers (e.g. turn-signal collectors) correlate hook
+        events back to the floor turn."""
 
     @property
     def name(self) -> str:
@@ -270,8 +257,8 @@ class EnsembleSpec:
     ``members`` is a list of :class:`FloorMember` (protocol), not ``Agent`` —
     a hand-rolled adapter qualifies. ``order`` defaults to round-robin;
     ``projection`` defaults to public-text-only (tool calls don't leak).
-    ``termination`` is a :class:`TerminationPolicy` — the hard cap is
-    mandatory, the business strategy is optional.
+    ``termination`` is a :class:`TerminationPolicy` — hard cap mandatory,
+    business strategy optional.
     """
 
     members: list[FloorMember]
@@ -282,9 +269,9 @@ class EnsembleSpec:
         default_factory=lambda: TerminationPolicy(hard_cap=MaxRounds(max_rounds=10))
     )
     budget: SharedBudget | None = None
-    """Cross-member ceiling. If None, the pipeline builds one from the
-    members' own HardBudget summed (rough) — but callers wanting real cost
-    control should pass an explicit SharedBudget."""
+    """Cross-member ceiling. If None, the pipeline builds one from the members'
+    own HardBudget summed (rough) — callers wanting real cost control should
+    pass an explicit SharedBudget."""
 
     session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
@@ -300,10 +287,9 @@ class EnsembleSpec:
         for m in self.members:
             floor.add_member(m)
         # Stash the projection on the floor so AgentFloorMember can read it.
-        # (FloorMember is a protocol — we can't add projection to it, so the
-        # pipeline attaches it to the floor as a side-channel. This is the
-        # least-bad option: the floor owns "what was said", the projection
-        # owns "how to show it", and members read both.)
+        # FloorMember is a protocol — we can't add projection to it, so the
+        # pipeline attaches it to the floor as a side-channel: the floor owns
+        # "what was said", the projection owns "how to show it".
         floor._projection = self.projection  # type: ignore[attr-defined]
         return floor
 
@@ -340,27 +326,25 @@ class Ensemble:
 
     One round = one pass of the speaking order. Each member's ``speak()`` is
     awaited in turn (round-robin is inherently serial; concurrent orders are
-    deferred). Before each speak, the pipeline checks the SharedBudget and
-    the TerminationPolicy — either can stop the floor. After each speak, the
-    actual cost is committed to the SharedBudget.
-    """
+    deferred). Before each speak, the pipeline checks the SharedBudget and the
+    TerminationPolicy — either can stop the floor. After each speak, actual
+    cost is committed to the SharedBudget."""
 
     def __init__(self, spec: EnsembleSpec) -> None:
         self._spec = spec
         self._floor = spec.build_floor()
         self._budget = spec.budget or self._build_default_budget()
-        # Re-bind the spec's budget to the resolved one so callers reading
-        # spec.budget after the run see actuals.
+        # Re-bind spec.budget to the resolved one so callers reading it after
+        # the run see actuals.
         spec.budget = self._budget
 
     def _compute_round(self, speaker: str) -> int:
         """Round index the next ``speaker`` would speak in.
 
-        Empty floor → round 0. Otherwise, look at the last turn: if the next
+        Empty floor → round 0. Otherwise look at the last turn: if the next
         speaker comes *before or at* the last speaker in speaking order,
-        we've wrapped around → new round (last_round + 1). Same position or
-        later in the order → still in the last speaker's round.
-        """
+        we've wrapped → new round (last_round + 1). Same position or later →
+        still in the last speaker's round."""
         if not self._floor.transcript:
             return 0
         last = self._floor.transcript[-1]
@@ -372,12 +356,10 @@ class Ensemble:
     def _build_default_budget(self) -> SharedBudget:
         """Rough default: sum each member's own HardBudget into a floor cap.
 
-        This is deliberately conservative — if no explicit SharedBudget is
-        passed, we don't let the floor run unbounded. But callers wanting real
-        cost control should pass an explicit ``SharedBudget`` with caps tuned
-        to the ensemble (not just the sum of per-agent defaults, which can be
-        surprisingly large).
-        """
+        Deliberately conservative — if no explicit SharedBudget is passed, the
+        floor doesn't run unbounded. Callers wanting real cost control should
+        pass an explicit ``SharedBudget`` tuned to the ensemble (not just the
+        sum of per-agent defaults, which can be surprisingly large)."""
         max_turns = 0
         max_seconds = 0.0
         max_tokens = 0
@@ -415,9 +397,9 @@ class Ensemble:
             while True:
                 # 1. Pick next speaker + compute the round they'd speak in.
                 #    Done before termination/budget checks so the policy sees
-                #    "the floor is about to enter round N" — letting max_rounds
-                #    mean "no member speaks in round N or later" (max_rounds=2
-                #    → 2 × N turns for N members, a clean mental model).
+                #    "the floor is about to enter round N" — max_rounds means
+                #    "no member speaks in round N or later" (max_rounds=2 →
+                #    2 × N turns for N members).
                 speaker = self._spec.order.next_speaker(self._floor)
                 if speaker is None:
                     reason = TerminationReason(
@@ -427,7 +409,7 @@ class Ensemble:
                     break
                 round_num = self._compute_round(speaker)
 
-                # 2. Termination check (policy level — round cap, business strategy)
+                # 2. Termination check (policy: round cap, business strategy)
                 stop, policy_reason = self._spec.termination.should_stop(
                     self._floor, next_round=round_num
                 )
@@ -435,7 +417,7 @@ class Ensemble:
                     reason = policy_reason
                     break
 
-                # 3. Budget check (hard ceiling — cross-member)
+                # 3. Budget check (hard ceiling, cross-member)
                 try:
                     await self._budget.check(member=speaker)
                 except BudgetExceeded as exc:
@@ -506,8 +488,8 @@ class Ensemble:
 async def ensemble_stream(
     spec: EnsembleSpec,
 ) -> AsyncGenerator[AgentEvent | FloorTurnEvent | EnsembleCompletedEvent, None]:
-    """Drive an ensemble and stream its events. The top-level entry, parallel
-    to :func:`~prodagent.runtime.runner.drive_stream` for single agents."""
+    """Drive an ensemble and stream its events. Top-level entry, parallel to
+    :func:`~prodagent.runtime.runner.drive_stream` for single agents."""
     pipeline = Ensemble(spec)
     async for event in pipeline.run():
         yield event

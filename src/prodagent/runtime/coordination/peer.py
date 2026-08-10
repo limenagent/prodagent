@@ -22,16 +22,11 @@ logger = logging.getLogger(__name__)
 
 
 class Peer:
-    """The peer's output becomes the run's output.
-
-    Backs the ``peers=`` keyword (horizontal hand-off): calling
-    ``handoff_to_<peer>`` ends the current agent's run with ``COMPLETED`` and
-    hands control to the peer, which continues with this task plus the
-    caller's final output as context. Contrast with
-    :class:`~prodagent.runtime.coordination.spawn.Spawn`, which backs
-    ``agents=`` (vertical delegation): the parent keeps running and gets a
-    result back instead of terminating.
-    """
+    """Backs ``peers=`` (horizontal hand-off): ``handoff_to_<peer>`` ends the
+    current run with ``COMPLETED`` and hands control to the peer, which
+    continues with this task plus the caller's final output. Contrast with
+    :class:`~prodagent.runtime.coordination.spawn.Spawn` (``agents=``, vertical
+    delegation): parent keeps running, gets a result back."""
 
     def __init__(
         self,
@@ -151,11 +146,10 @@ def assemble_peer_tools(
     tool_schemas: list[dict[str, Any]],
     spawn_acc: SpawnAccumulator | None,
 ) -> SpawnAccumulator | None:
-    """Build peer-handoff tools for ``agent.peer_agents``, appended to ``active_tools``/``tool_schemas``.
-
-    Returns ``spawn_acc`` unchanged — peer handoff doesn't create its own accumulator,
-    but passing it through keeps this call's shape symmetric with ``assemble_spawn_tools``.
-    """
+    """Build peer-handoff tools for ``agent.peer_agents``, appended to
+    ``active_tools``/``tool_schemas``. Returns ``spawn_acc`` unchanged — peer
+    handoff doesn't create its own accumulator, but passing it through keeps
+    the call shape symmetric with ``assemble_spawn_tools``."""
     agent = ctx.agent
     if not agent.config.peers:
         return spawn_acc

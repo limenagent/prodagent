@@ -51,7 +51,9 @@ async def test_transient_reservation_overshoot_self_heals_after_release():
     await ledger.release(member="b", reserved_turns=0, reserved_cost_usd=0.0)
 
     # a's own reservation reconciles down to a small real cost.
-    await ledger.commit(member="a", turns=1, tokens=0, cost_usd=0.1, reserved_turns=1, reserved_cost_usd=1.0)
+    await ledger.commit(
+        member="a", turns=1, tokens=0, cost_usd=0.1, reserved_turns=1, reserved_cost_usd=1.0
+    )
 
     await ledger.check(member="c")  # must not raise — no permanent latch
 

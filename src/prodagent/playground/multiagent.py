@@ -27,6 +27,7 @@ losing buzz_in candidates, so forcing roster-on-every-event would be brittle).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import enum
 import logging
@@ -160,7 +161,7 @@ class MultiAgentAdapter(Protocol):
         """
         ...
 
-    async def stream(self) -> AsyncGenerator[Any, None]:
+    def stream(self) -> AsyncGenerator[Any, None]:
         """Yield primitive events and phase sentinels. The adapter owns the
         primitive's construction (``EnsembleSpec`` / ``BlackboardSpec`` /
         ``WorkQueueSpec``) and any cross-primitive sequencing."""
@@ -182,10 +183,11 @@ class MultiAgentRun:
     """
 
     def __init__(self, adapter: MultiAgentAdapter, *, run_id: str) -> None:
-        if getattr(adapter, "_attached_run", None) is not None:
+        attached = getattr(adapter, "_attached_run", None)
+        if attached is not None:
             raise RuntimeError(
                 f"adapter {adapter.name!r} is already attached to run "
-                f"{adapter._attached_run!r} — create a fresh adapter per run"
+                f"{attached!r} — create a fresh adapter per run"
             )
         self.adapter = adapter
         self.run_id = run_id
@@ -273,10 +275,8 @@ class MultiAgentRun:
     async def aclose(self) -> None:
         if self._task is not None and not self._task.done():
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._task
-            except (asyncio.CancelledError, Exception):
-                pass
 
 
 # ---------------------------------------------------------------------------

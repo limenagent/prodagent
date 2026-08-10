@@ -7,9 +7,9 @@ from __future__ import annotations
 import pytest
 
 from prodagent.runtime.coordination.blackboard import (
-    Board,
     BlackboardCompletedEvent,
     BlackboardSpec,
+    Board,
     BoardWrite,
     BoardWriteEvent,
     Trigger,

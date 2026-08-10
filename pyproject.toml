@@ -115,8 +115,12 @@ python_version = "3.11"
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["redis.*", "neo4j.*", "qdrant_client.*", "psycopg.*", "psycopg_pool.*", "yaml", "dating_chat.*"]
+module = ["redis.*", "neo4j.*", "qdrant_client.*", "psycopg.*", "psycopg_pool.*", "yaml", "dating_chat.*", "fastapi.*", "starlette.*", "opentelemetry.exporter.otlp.proto.http.trace_exporter"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "prodagent.playground.server"
+disable_error_code = ["misc", "untyped-decorator"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

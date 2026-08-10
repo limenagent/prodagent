@@ -10,7 +10,7 @@ from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Generic, Protocol, TypeVar, runtime_checkable
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, cast, runtime_checkable
 
 from prodagent.core.state.run import is_child_run_id
 from prodagent.core.types import RunState
@@ -186,7 +186,7 @@ def _load_multiagent_adapter(name: str, multiagent_py: Path) -> Callable[[], Any
     mod_name = f"_playground_example_multiagent_{name}"
     if mod_name in sys.modules:
         module = sys.modules[mod_name]
-        return getattr(module, "build_adapter")
+        return cast("Callable[[], Any]", module.build_adapter)
     pkg_root = multiagent_py.parent.parent
     if str(pkg_root) not in sys.path:
         sys.path.insert(0, str(pkg_root))
@@ -196,7 +196,7 @@ def _load_multiagent_adapter(name: str, multiagent_py: Path) -> Callable[[], Any
     module = importlib.util.module_from_spec(spec)
     sys.modules[mod_name] = module
     spec.loader.exec_module(module)
-    return getattr(module, "build_adapter")
+    return cast("Callable[[], Any]", module.build_adapter)
 
 
 def discover_examples() -> list[ExampleSpec]:
@@ -364,7 +364,7 @@ class RunRegistry:
             )
 
         spec, session = await self._find_session(run_id)
-        if spec is not None and session is not None:
+        if spec is not None and session is not None and spec.factory is not None:
             agent = spec.factory(run_id)
             return ReconstructResult(
                 agent=agent,
@@ -383,6 +383,12 @@ class RunRegistry:
             if peer_id is not None:
                 target_run_id = peer_id
 
+        if spec.factory is None:
+            raise RunReconstructError(
+                f"example {spec.name!r} is multi-agent only — no single-agent factory",
+                run_id,
+                status_code=404,
+            )
         agent = spec.factory(run_id)
         return ReconstructResult(
             agent=agent,

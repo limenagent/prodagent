@@ -72,7 +72,7 @@ class HandoffContract:
 
 
 class HandoffInterceptor:
-    """Welded into ``Spawn.spawn`` — runs on every child result."""
+    """Runs on every child result inside ``Spawn.spawn``."""
 
     def intercept(self, result: dict[str, Any], contract: HandoffContract) -> dict[str, Any]:
         allowed = set(contract.required_fields) | set(contract.optional_fields)

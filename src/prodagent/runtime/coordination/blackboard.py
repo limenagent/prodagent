@@ -1,5 +1,4 @@
-"""Blackboard — shared mutable state + declarative triggers
-"""
+"""Blackboard — shared mutable state + declarative triggers."""
 
 from __future__ import annotations
 
@@ -7,13 +6,11 @@ import asyncio
 import fnmatch
 import logging
 import time
-import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from prodagent.backends.memory.lock import InProcessLockStore
 from prodagent.core.exceptions import BudgetExceeded
-from prodagent.runtime.coordination.budget_ledger import BudgetLedger
 from prodagent.runtime.coordination.termination import (
     MaxRounds,
     TerminationPolicy,
@@ -21,10 +18,11 @@ from prodagent.runtime.coordination.termination import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+    from collections.abc import AsyncGenerator, Callable
 
-    from prodagent.ports.lock import LockStore
+    from prodagent.ports.lock import LockStore, LockToken
     from prodagent.runtime.agent import Agent
+    from prodagent.runtime.coordination.budget_ledger import BudgetLedger
 
 logger = logging.getLogger(__name__)
 
@@ -63,10 +61,9 @@ class Board:
     """Shared ``dict[str, BoardSlot]`` guarded by one ``asyncio.Lock``.
 
     Not :class:`~prodagent.runtime.coordination.floor.SharedFloor`'s
-    append-only transcript — Blackboard experts overwrite structured fields,
-    so writes need version checks, not just ordering. The lock+mutable-state
-    recipe mirrors :class:`BudgetLedger`.
-    """
+    append-only transcript — Blackboard experts overwrite structured fields, so
+    writes need version checks, not just ordering. Lock+mutable-state recipe
+    mirrors :class:`BudgetLedger`."""
 
     def __init__(self) -> None:
         self._slots: dict[str, BoardSlot] = {}
@@ -130,12 +127,11 @@ class Board:
 
 @dataclass(frozen=True)
 class Trigger:
-    """A declarative rule: when board keys matching ``keys`` change, run ``experts``.
+    """Declarative rule: when board keys matching ``keys`` change, run ``experts``.
 
     ``keys=[]`` means "always matches" (fires every round) — useful for a
-    kickoff expert seeding the board, or a poller that checks board state
-    itself and returns ``None`` (via ``try_contribute``) once it has nothing
-    left to add.
+    kickoff expert seeding the board, or a poller that returns ``None`` (via
+    ``try_contribute``) once it has nothing left to add.
     """
 
     name: str
@@ -162,13 +158,10 @@ class BoardWrite:
 
 @runtime_checkable
 class BlackboardMember(Protocol):
-    """What it takes to be a Blackboard expert.
-
-    Unlike :class:`~prodagent.runtime.coordination.floor.FloorMember.speak`,
-    which must always return a turn, ``try_contribute`` may return ``None`` —
-    "this trigger fired but I judge I have nothing to add, don't occupy a
-    write slot for it."
-    """
+    """What it takes to be a Blackboard expert. Unlike
+    :class:`~prodagent.runtime.coordination.floor.FloorMember.speak` (must
+    return a turn), ``try_contribute`` may return ``None`` — "this trigger
+    fired but I have nothing to add, don't occupy a write slot for it"."""
 
     name: str
 
@@ -189,8 +182,8 @@ class BlackboardSpec:
     )
     budget: BudgetLedger | None = None
     terminal_check: Callable[[Board], bool] | None = None
-    """Business-level "the board is done" check — e.g. all required keys are
-    filled. Checked before each round, independent of TerminationPolicy."""
+    """Business-level "the board is done" check — e.g. all required keys filled.
+    Checked before each round, independent of TerminationPolicy."""
     lock_store: LockStore = field(default_factory=InProcessLockStore)
     """Backs buzz_in arbitration. Defaults to the in-process store — this
     primitive is single-process only, but the port stays swappable."""
@@ -233,9 +226,9 @@ class BlackboardCompletedEvent:
 
 
 class Blackboard:
-    """Drives a Blackboard: each round, scan triggers against the keys that
-    changed last round, dispatch matching triggers (event = concurrent
-    fan-out, buzz_in = lock-first-then-compute), fold writes back in."""
+    """Drives a Blackboard: each round, scan triggers against keys that changed
+    last round, dispatch matching triggers (event = concurrent fan-out,
+    buzz_in = lock-first-then-compute), fold writes back in."""
 
     def __init__(self, spec: BlackboardSpec) -> None:
         self._spec = spec
@@ -270,27 +263,25 @@ class Blackboard:
     async def _dispatch_buzz_in(self, trigger: Trigger) -> list[BoardWrite | None]:
         """Lock-first-then-compute: race for one lock, then only the winner computes.
 
-        The race (acquire attempts) and the compute step are two separate
-        phases. If each candidate acquired-and-released independently, a
-        candidate whose ``try_contribute`` never actually suspends (no real
-        ``await`` inside it) would finish and release before the next
-        candidate's task is even scheduled — so the "loser" would see a free
-        lock and become a second winner in the same round. Holding the lock
-        across the whole race (release only after the sole winner computes)
-        closes that: every other candidate's one-shot ``acquire(timeout=0)``
-        sees it already held, for the entire duration of this trigger's
-        dispatch, not just the winner's compute time.
-        """
+        Race and compute are two separate phases. If each candidate
+        acquired-and-released independently, a candidate whose
+        ``try_contribute`` never actually suspends (no real ``await`` inside)
+        would finish and release before the next candidate's task is even
+        scheduled — the "loser" would see a free lock and become a second
+        winner in the same round. Holding the lock across the whole race
+        (release only after the sole winner computes) closes that: every other
+        candidate's one-shot ``acquire(timeout=0)`` sees it already held for
+        the entire duration of this trigger's dispatch."""
         lock_name = f"board:{id(self.board)}:{trigger.name}"
         winner: str | None = None
-        token = None
+        token: LockToken | None = None
 
         async def _race(name: str) -> None:
             nonlocal winner, token
             try:
-                # Non-blocking try-acquire — a losing candidate must never
-                # begin computing at all. timeout=0 on InProcessLockStore is
-                # a true trylock (see backends/memory/lock.py).
+                # Non-blocking try-acquire — a losing candidate must never begin
+                # computing. timeout=0 on InProcessLockStore is a true trylock
+                # (see backends/memory/lock.py).
                 acquired = await self._spec.lock_store.acquire(lock_name, timeout=0)
             except TimeoutError:
                 return
@@ -298,12 +289,13 @@ class Blackboard:
 
         await asyncio.gather(*(_race(name) for name in trigger.experts))
 
-        if winner is None:
+        if winner is None or token is None:
             return [None] * len(trigger.experts)
+        won_token = token
         try:
             write = await self._compute(winner, trigger)
         finally:
-            await self._spec.lock_store.release(token)
+            await self._spec.lock_store.release(won_token)
         return [write if name == winner else None for name in trigger.experts]
 
     async def run(self) -> AsyncGenerator[BoardWriteEvent | BlackboardCompletedEvent, None]:
@@ -337,7 +329,9 @@ class Blackboard:
                 any_write = False
                 for trigger in matched:
                     dispatch = (
-                        self._dispatch_buzz_in if trigger.mode == "buzz_in" else self._dispatch_event
+                        self._dispatch_buzz_in
+                        if trigger.mode == "buzz_in"
+                        else self._dispatch_event
                     )
                     results = await dispatch(trigger)
                     for write in results:
@@ -395,8 +389,8 @@ async def blackboard_stream(
 
 class _BoardViewSlot:
     """Mutable slot the ``[BOARD]`` injector reads — same pattern as
-    ensemble's ``_FloorViewSlot``: the pipeline writes the view before each
-    ``try_contribute()``, the injector reads it during context assembly."""
+    ensemble's ``_FloorViewSlot``: pipeline writes the view before each
+    ``try_contribute()``, injector reads it during context assembly."""
 
     __slots__ = ("snapshot", "trigger_name")
 
@@ -424,13 +418,12 @@ def _make_board_injector(slot: _BoardViewSlot) -> Any:
 class AgentBlackboardMember:
     """Adapts a full :class:`~prodagent.runtime.agent.Agent` to :class:`BlackboardMember`.
 
-    Registers a ``[BOARD]`` injector (mirrors ensemble's ``[FLOOR]`` injector)
-    so the board's current state lands in L2 context alongside ``[MEMORY]``.
-    The agent is prompted to either propose a ``key: value`` write or reply
-    ``PASS`` — this adapter is a reference implementation; callers with
-    structured-output needs should implement :class:`BlackboardMember`
-    directly against their own agent instead of parsing free text.
-    """
+    Registers a ``[BOARD]`` injector (mirrors ensemble's ``[FLOOR]``) so the
+    board's current state lands in L2 alongside ``[MEMORY]``. The agent is
+    prompted to propose a ``key: value`` write or reply ``PASS`` — this is a
+    reference implementation; callers with structured-output needs should
+    implement :class:`BlackboardMember` directly against their own agent
+    instead of parsing free text."""
 
     def __init__(self, agent: Agent, *, session_id: str, write_key: str) -> None:
         self._agent = agent

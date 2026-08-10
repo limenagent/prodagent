@@ -1,36 +1,23 @@
-"""BudgetLedger — the shared reserve/commit accumulator behind every coordination primitive.
+"""BudgetLedger — shared reserve/commit accumulator behind every coordination primitive.
 
-Three coordination primitives (``agents=``, ``peers=``, ``ensemble=``) each grew
-their own way of tracking cross-run spend: :class:`~prodagent.runtime.coordination.accounting.SpawnAccumulator`
-(after-the-fact, unlocked, ``agents=``), nothing at all (``peers=``), and the
-original ``SharedBudget`` in this module's former single-class form
-(reserve/commit with a lock, ``ensemble=`` — the only one that was actually
-safe under concurrency). ``BudgetLedger`` is the one implementation the other
-two now build on, so a fix here (or a new primitive's budget needs) doesn't
-mean inventing a fourth ledger.
+One implementation that ``agents=`` / ``peers=`` / ``ensemble=`` / Blackboard /
+WorkQueue all build on — a fix or new primitive's budget needs doesn't mean
+inventing another ledger. ``SharedBudget`` is kept as an alias for the
+ensemble context.
 
-Two real bugs in the original ``SharedBudget`` are fixed here:
+Two invariants worth knowing:
 
-1. **No way to give back a reservation.** A reservation that turns out not to
-   have happened (a losing bid in a lock race, a task requeued before it ran)
-   had no clean way to undo itself — callers were reduced to committing a zero
-   actual against a nonzero reservation, which reads backwards. :meth:`release`
-   is that undo, named for what it does.
-2. **Permanent latch on transient overshoot.** The old ``_exhausted: bool``
-   flag, once set by *any* over-cap moment (including a reservation that was
-   later released or reconciled back under cap), stayed set forever — a
-   single momentary overshoot could permanently stop a floor/chain/queue even
-   though its real committed spend was fine. The fix: track *committed*
-   (permanent, monotonically non-decreasing, touched only by real ``commit``
-   deltas) and *reserved* (transient, touched by ``reserve``/``release`` and
-   reconciled by ``commit``) separately. The over-cap test is
-   ``committed + reserved >= cap``. Once outstanding reservations are
-   released or reconciled, the sum can fall back under cap and further
-   ``check()``/``reserve()`` calls succeed again — self-healing for transient
-   overshoot, while a cap breached by ``committed`` alone (real, confirmed
-   spend) can never un-latch, because ``committed`` never decreases. That is
-   the correct "permanent stop" the old flag was reaching for, without the
-   bug of also latching on reservations that never became real spend.
+- :meth:`release` undoes a reservation that never became real spend (a losing
+  lock-race bid, a requeued task). Without it callers had to commit a zero
+  actual against a nonzero reservation, which reads backwards.
+- ``_committed`` (permanent, only moved by :meth:`commit`) and ``_reserved``
+  (transient, moved by :meth:`reserve`/:meth:`release`, reconciled by
+  :meth:`commit`) are tracked separately. Over-cap test is
+  ``committed + reserved >= cap``. A cap breached by ``committed`` alone
+  (real spend) can never un-latch; a momentary overshoot from outstanding
+  reservations self-heals once they're released or reconciled. This replaces
+  the old ``_exhausted: bool`` flag, which latched permanently on any
+  over-cap moment — including reservations that later went away.
 """
 
 from __future__ import annotations
@@ -76,18 +63,14 @@ class BudgetLedger:
 
     Construct once per coordinated run (ensemble floor, peer chain, a batch of
     concurrent spawns), pass to every spender. Call :meth:`reserve` before a
-    unit of work starts (optional — skip it for spenders that can't estimate
-    ahead of time), :meth:`commit` after it finishes with the real cost, and
-    :meth:`release` if a reservation never turned into real work (a losing
-    lock-race bid, a requeued task).
-
-    ``seconds`` is wall-clock since construction, always derived from
-    ``time.monotonic()`` — it is never reserved/committed/released like the
-    other three axes.
+    unit of work starts (optional — skip if the spender can't estimate ahead),
+    :meth:`commit` after it finishes with the real cost, :meth:`release` if a
+    reservation never turned into real work. ``seconds`` is wall-clock since
+    construction — never reserved/committed/released like the other three axes.
     """
 
     max: HardBudget
-    """The ceiling. Same shape as a per-run HardBudget — turns/seconds/tokens/cost."""
+    """The ceiling — turns/seconds/tokens/cost."""
 
     _committed: _Spend = field(default_factory=_Spend)
     """Permanent — only moved by commit()'s actual deltas. Never decreases."""
@@ -112,17 +95,13 @@ class BudgetLedger:
         return time.monotonic() - self._start_monotonic
 
     def is_exhausted(self) -> bool:
-        """Cheap pre-check without taking the lock — pollable between rounds/hops.
-
-        Authoritative check (raises with axis detail) is :meth:`check`.
-        """
+        """Cheap lock-free pre-check — pollable between rounds/hops.
+        Authoritative check (raises with axis detail) is :meth:`check`."""
         return self._is_over_cap_locked()
 
     async def check(self, *, member: str) -> None:
-        """Raise :class:`BudgetExceeded` if committed+reserved is at or over cap.
-
-        Call this before a unit of work starts. Does not debit.
-        """
+        """Raise :class:`BudgetExceeded` if committed+reserved is at/over cap.
+        Called before a unit of work starts. Does not debit."""
         async with self._lock:
             self._raise_if_over_cap_locked(member=member)
 
@@ -134,13 +113,10 @@ class BudgetLedger:
         tokens: int = 0,
         cost_usd: float = 0.0,
     ) -> None:
-        """Pre-debit an estimate before a unit of work starts.
-
-        Optional — used when a spender can estimate ahead of time and wants
-        concurrent siblings to see this work as "already spoken for". Raises
-        (without debiting) if already at/over cap. The debit is transient:
-        reconciled away by :meth:`commit` or undone entirely by :meth:`release`.
-        """
+        """Pre-debit an estimate before a unit of work starts. Optional — use
+        when a spender can estimate ahead and wants concurrent siblings to see
+        this work as "already spoken for". Raises (without debiting) if at/over
+        cap. Reconciled away by :meth:`commit` or undone by :meth:`release`."""
         async with self._lock:
             self._raise_if_over_cap_locked(member=member)
             self._reserved.turns += turns
@@ -163,13 +139,9 @@ class BudgetLedger:
         reserved_tokens: int = 0,
         reserved_cost_usd: float = 0.0,
     ) -> None:
-        """Give back a reservation that never became real spend.
-
-        Use when a reserved unit of work didn't happen — a losing lock-race
-        bid, a task requeued before it ran. Unlike :meth:`commit`, this never
-        touches ``_committed`` and can only ever reduce outstanding reserved
-        spend, so it can only help a caller pass a subsequent :meth:`check`.
-        """
+        """Give back a reservation that never became real spend (losing lock-race
+        bid, requeued task). Never touches ``_committed``; can only reduce
+        outstanding reserved spend, so it can only help a subsequent :meth:`check`."""
         async with self._lock:
             self._reserved.turns = max(0, self._reserved.turns - reserved_turns)
             self._reserved.tokens = max(0, self._reserved.tokens - reserved_tokens)
@@ -194,16 +166,11 @@ class BudgetLedger:
         reserved_tokens: int = 0,
         reserved_cost_usd: float = 0.0,
     ) -> None:
-        """Reconcile a reservation (if any) against the actual spend, and commit it.
-
-        Removes the reservation (so it isn't double-counted) and adds the
-        actual deltas to the permanent ``_committed`` ledger. If the result is
-        at/over cap, further ``check``/``reserve`` calls will refuse — but
-        unlike the old latch, this can self-heal: if the overshoot came from
-        *other* outstanding reservations rather than this commit's own actual
-        spend, a later :meth:`release` of those can bring the total back
-        under cap.
-        """
+        """Reconcile a reservation (if any) against actual spend and commit it.
+        Removes the reservation (no double-count) and adds actual deltas to
+        ``_committed``. If the overshoot came from *other* outstanding
+        reservations rather than this commit's actual spend, a later
+        :meth:`release` can bring the total back under cap (self-heal)."""
         async with self._lock:
             self._reserved.turns = max(0, self._reserved.turns - reserved_turns)
             self._reserved.tokens = max(0, self._reserved.tokens - reserved_tokens)
@@ -234,7 +201,7 @@ class BudgetLedger:
         tokens = self._committed.tokens + self._reserved.tokens
         cost_usd = self._committed.cost_usd + self._reserved.cost_usd
         elapsed = self.elapsed_seconds()
-        # Precedence matches the original SharedBudget: turns, seconds, tokens, cost.
+        # Precedence: turns, seconds, tokens, cost.
         axis: str
         value: float
         limit: float

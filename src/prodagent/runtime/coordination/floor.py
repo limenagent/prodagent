@@ -1,25 +1,16 @@
-"""SharedFloor — the shared transcript that all ensemble members read and write.
+"""SharedFloor — the shared transcript all ensemble members read and write.
 
 Unlike ``peers=`` (linear baton-pass, each prior run terminated) or ``agents=``
 (vertical delegation, parent waits for child result), an ensemble keeps every
 member on the same floor: one persistent transcript, all members read it, each
-writes its own turns. This is the substrate for debate / conversation /
-role-play — N agents in a shared session taking turns autonomously.
+writes its own turns. Substrate for debate / conversation / role-play.
 
-Design notes:
-
-- ``FloorMember`` is a *protocol*, not ``Agent``. A hand-rolled ``messages``
-  list (the ``niu.py`` style toy agent) can satisfy it without inheriting any
-  prodagent machinery — that's the point. The framework treats all members
-  equally; whether a member remembers things is decided by its own
-  implementation, not by the floor.
+- ``FloorMember`` is a *protocol*, not ``Agent`` — a hand-rolled ``messages``
+  list qualifies. Personality/memory isolation is the member's own business;
+  the floor is what they share.
 - ``FloorTurn`` carries speaker metadata + stance/addressed_to so a moderator
-  or projection can reason about it. ``tool_calls`` defaults to empty —
-  whether they get exposed to other members is a :class:`FloorProjection`
-  decision, not a ``FloorTurn`` decision.
-- The transcript is the single source of truth for "what was said". There is
-  no separate shared-memory layer — members keep their own ``MemoryManager``
-  (personality doesn't bleed), the floor is what they share.
+  or projection can reason about it. ``tool_calls`` visibility is a
+  :class:`FloorProjection` decision, not a ``FloorTurn`` decision.
 """
 
 from __future__ import annotations
@@ -44,19 +35,19 @@ class FloorTurn:
     """Member name — must match a key in ``SharedFloor.members``."""
 
     round: int
-    """Round index this turn belongs to (0-based across the whole floor)."""
+    """Round index this turn belongs to (0-based)."""
 
     text: str
-    """The utterance itself. Empty string is allowed (a member may pass)."""
+    """The utterance itself. Empty string = pass."""
 
     addressed_to: list[str] = field(default_factory=list)
-    """Who the speaker is talking to (empty = addressing the floor)."""
+    """Who the speaker is talking to (empty = the floor)."""
 
     stance: str | None = None
-    """Optional stance label — ``support``/``refute`` for debates, None for chat."""
+    """Optional stance label — ``support``/``refute`` for debates."""
 
     tool_calls: list[ToolCall] = field(default_factory=list)
-    """Tools the member called this turn. Visibility is a FloorProjection call."""
+    """Tools called this turn. Visibility is a FloorProjection call."""
 
     cost_usd: float = 0.0
     """Spend attributed to this turn — folded into SharedBudget."""
@@ -65,36 +56,31 @@ class FloorTurn:
     """Wall-clock seconds this turn took."""
 
     turn_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    """Stable id — used by projection / hooks / checkpoint correlation."""
+    """Stable id — projection / hooks / checkpoint correlation."""
 
     created_at: float = field(default_factory=time.monotonic)
-    """Monotonic timestamp — for ordering and timeout accounting."""
+    """Monotonic timestamp — ordering and timeout accounting."""
 
     def is_pass(self) -> bool:
-        """A pass turn (empty text, no tool calls) — member chose not to speak."""
+        """Pass turn (empty text, no tool calls) — member chose not to speak."""
         return not self.text and not self.tool_calls
 
 
 @runtime_checkable
 class FloorMember(Protocol):
-    """What it takes to join an ensemble.
+    """What it takes to join an ensemble: a ``name`` + async ``speak()``.
 
-    Any object with a ``name`` and an async ``speak()`` qualifies. A full
-    :class:`~prodagent.runtime.agent.Agent` works (via :class:`AgentFloorMember`);
-    a hand-rolled ``messages`` list wrapped in an adapter works too. The floor
-    does not care whether you have a ``ContextManager`` or ``MemoryManager`` —
-    that's the member's own business.
+    A full :class:`~prodagent.runtime.agent.Agent` works (via
+    :class:`AgentFloorMember`); a hand-rolled ``messages`` list works too.
     """
 
     name: str
 
     async def speak(self, floor: SharedFloor, *, round_num: int) -> FloorTurn:
-        """Produce this member's turn for ``round_num``.
-
-        Implementations read ``floor.transcript`` (already projected for this
-        viewer by the pipeline) and return a :class:`FloorTurn`. Returning a
-        pass turn (empty text, no tools) is a valid way to sit a round out.
-        """
+        """Produce this member's turn for ``round_num``. Read
+        ``floor.transcript`` (already projected for this viewer by the
+        pipeline) and return a :class:`FloorTurn`. A pass turn (empty text,
+        no tools) sits the round out."""
         ...
 
 
@@ -102,20 +88,19 @@ class FloorMember(Protocol):
 class SharedFloor:
     """The shared transcript all ensemble members read and write.
 
-    Lifetime is independent of any single member's run — it persists across
+    Lifetime is independent of any single member's run — persists across
     rounds, outliving individual ``AgentRun`` instances the way a chat room
-    outlives any one message. Members read the transcript (projected per-viewer
-    by the pipeline) and append their own turns.
+    outlives any one message.
     """
 
     session_id: str
     """Stable id — correlates to checkpoint / event log / session store."""
 
     members: dict[str, FloorMember] = field(default_factory=dict)
-    """name → member. Ordered insertion preserved for round-robin scheduling."""
+    """name → member. Insertion order preserved for round-robin."""
 
     transcript: list[FloorTurn] = field(default_factory=list)
-    """All turns, in order. The source of truth for 'what was said'."""
+    """All turns, in order. Source of truth for 'what was said'."""
 
     topic: str = ""
     """The floor's subject — injected into each member's [FLOOR] block."""
@@ -133,7 +118,7 @@ class SharedFloor:
 
     def append(self, turn: FloorTurn) -> None:
         """Record a completed turn. Validates speaker membership, not ordering —
-        the pipeline is responsible for sequencing."""
+        the pipeline sequences."""
         if turn.speaker not in self.members:
             raise ValueError(
                 f"Turn speaker {turn.speaker!r} is not a floor member — "
@@ -142,8 +127,7 @@ class SharedFloor:
         self.transcript.append(turn)
 
     def round_count(self) -> int:
-        """Highest round index seen + 1, or 0 if empty. A round is complete
-        when every member has had a chance; partial rounds still count."""
+        """Highest round index seen + 1, or 0 if empty. Partial rounds count."""
         if not self.transcript:
             return 0
         return max(t.round for t in self.transcript) + 1
@@ -160,9 +144,8 @@ class SharedFloor:
         return None
 
     def recent_turns(self, *, limit: int) -> list[FloorTurn]:
-        """Last ``limit`` turns, oldest-first. Used by projections that want
-        to cap how much history each member sees — mirrors the
-        ``prior_output_max_chars`` truncation in :class:`HandoffPacket`."""
+        """Last ``limit`` turns, oldest-first. Caps how much history each
+        member sees — mirrors ``prior_output_max_chars`` in :class:`HandoffPacket`."""
         if limit <= 0 or not self.transcript:
             return []
         return list(self.transcript[-limit:])

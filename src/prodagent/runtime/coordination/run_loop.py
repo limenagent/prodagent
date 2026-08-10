@@ -60,10 +60,10 @@ class RunLoop:
         self._factory = LeafExecutorFactory(
             forced_mode=forced_mode, initial_messages=initial_messages
         )
-        # Cross-hop ledger for the peer chain (peers=): without this, each hop's
+        # Cross-hop ledger for the peer chain (peers=). Without it, each hop's
         # own HardBudget only bounds *that* hop — an N-hop chain could legally
-        # spend N times the configured budget, since max_peer_chain only caps hop
-        # count, not cumulative spend. One ledger, built from the root agent's own
+        # spend N times the configured budget (max_peer_chain caps hop count,
+        # not cumulative spend). One ledger, built from the root agent's own
         # budget, threaded across every hop of this chain.
         self._peer_budget: BudgetLedger | None = (
             BudgetLedger(max=root_agent.budget_config) if root_agent.budget_config else None

@@ -41,8 +41,11 @@ async def test_only_one_of_two_concurrent_spawns_passes_a_one_turn_ceiling():
     worker_a = _worker("workerA")
     worker_b = _worker("workerB")
     pipeline = Spawn(
-        [worker_a, worker_b], llm=FakeLLMAdapter(responses=[]), hooks=None,
-        framework_config=None, ctx=ctx,
+        [worker_a, worker_b],
+        llm=FakeLLMAdapter(responses=[]),
+        hooks=None,
+        framework_config=None,
+        ctx=ctx,
     )
 
     result_a, result_b = await asyncio.gather(
@@ -66,8 +69,11 @@ async def test_ledger_is_noop_when_no_budget_configured():
     ctx = ParentRuntime(budget=None)
     worker_a = _worker("workerA")
     pipeline = Spawn(
-        [worker_a], llm=FakeLLMAdapter(responses=[]), hooks=None,
-        framework_config=None, ctx=ctx,
+        [worker_a],
+        llm=FakeLLMAdapter(responses=[]),
+        hooks=None,
+        framework_config=None,
+        ctx=ctx,
     )
     assert pipeline._budget_ledger is None
 

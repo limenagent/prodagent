@@ -7,9 +7,9 @@ import pytest
 
 from prodagent.core.budget import HardBudget
 from prodagent.runtime.coordination.blackboard import (
-    Board,
     BlackboardCompletedEvent,
     BlackboardSpec,
+    Board,
     BoardWrite,
     BoardWriteEvent,
     Trigger,

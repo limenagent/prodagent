@@ -1,4 +1,4 @@
-"""Parent-side runtime context threaded into forked agents."""
+"""Parent-side runtime context threaded into forked (child/peer) agents."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 
 def describe_agent(a: Agent) -> str:
-    """One-line description for tool schemas: prefers ``description``, falls back to truncated system prompt."""
+    """Tool-schema description: prefer ``description``, fall back to truncated system prompt."""
     if a.config.description:
         return a.config.description
     if a.system_prompt:
@@ -32,12 +32,11 @@ def describe_agent(a: Agent) -> str:
 class ParentRuntime:
     """Parent execution context threaded into every forked Agent.
 
-    Built from a :class:`~prodagent.runtime.run_context.RunContext` via
-    :meth:`from_context` when a hop spawns children (``agents=``) or hands off to
-    a peer (``peers=``). Overlaps ~5 fields with ``RunContext`` by design: this is
-    the subset a child/peer needs to inherit (budget, locks, llm, checkpoint,
-    event log, depth), not the full per-hop state (which also tracks the task,
-    run_id and agent spec — irrelevant to what a *forked* agent should see).
+    Built from :class:`~prodagent.runtime.run_context.RunContext` when a hop
+    spawns (``agents=``) or hands off (``peers=``). Deliberately overlaps ~5
+    fields with ``RunContext`` — the subset a forked agent needs (budget, locks,
+    llm, checkpoint, event log, depth), not per-hop state (task, run_id, agent
+    spec) that's the parent's own business.
     """
 
     constraints: list[str] = field(default_factory=list)

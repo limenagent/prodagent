@@ -13,9 +13,9 @@ import asyncio
 import pytest
 
 from prodagent.runtime.coordination.blackboard import (
-    Board,
     BlackboardCompletedEvent,
     BlackboardSpec,
+    Board,
     BoardWrite,
     BoardWriteEvent,
     Trigger,
@@ -47,9 +47,7 @@ async def test_exactly_one_buzz_in_candidate_ever_starts_computing():
     spec = BlackboardSpec(
         experts=experts,
         triggers={
-            "buzzer": Trigger(
-                name="buzzer", keys=[], experts=list(experts), mode="buzz_in"
-            ),
+            "buzzer": Trigger(name="buzzer", keys=[], experts=list(experts), mode="buzz_in"),
         },
         terminal_check=lambda board: board.version_of("answer") > 0,
     )
@@ -64,8 +62,7 @@ async def test_exactly_one_buzz_in_candidate_ever_starts_computing():
 
     started = [c for c in candidates if c.compute_started > 0]
     assert len(started) == 1, (
-        f"expected exactly one candidate to ever start computing, got "
-        f"{[c.name for c in started]}"
+        f"expected exactly one candidate to ever start computing, got {[c.name for c in started]}"
     )
     assert len(write_events) == 1
     assert write_events[0].write.author == started[0].name

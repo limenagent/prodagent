@@ -7,13 +7,13 @@ from __future__ import annotations
 import pytest
 
 from prodagent.core.budget import HardBudget
+from prodagent.runtime.coordination.budget_ledger import SharedBudget
 from prodagent.runtime.coordination.ensemble import (
     EnsembleCompletedEvent,
     EnsembleSpec,
     FloorTurnEvent,
     ensemble_stream,
 )
-from prodagent.runtime.coordination.budget_ledger import SharedBudget
 from prodagent.runtime.coordination.floor import FloorTurn, SharedFloor
 from prodagent.runtime.coordination.termination import MaxRounds, TerminationPolicy
 
@@ -36,7 +36,9 @@ async def test_max_rounds_hard_cap_stops_an_ever_speaking_floor():
         members=members,
         topic="t",
         termination=TerminationPolicy(hard_cap=MaxRounds(max_rounds=2)),
-        budget=SharedBudget(max=HardBudget(max_turns=1_000, max_cost_usd=100, max_tokens=1_000_000)),
+        budget=SharedBudget(
+            max=HardBudget(max_turns=1_000, max_cost_usd=100, max_tokens=1_000_000)
+        ),
     )
 
     turns: list[FloorTurnEvent] = []
@@ -76,7 +78,9 @@ async def test_business_strategy_stops_before_hard_cap():
         termination=TerminationPolicy(
             hard_cap=MaxRounds(max_rounds=100), business=_BusinessStopsAtTwoTurns()
         ),
-        budget=SharedBudget(max=HardBudget(max_turns=1_000, max_cost_usd=100, max_tokens=1_000_000)),
+        budget=SharedBudget(
+            max=HardBudget(max_turns=1_000, max_cost_usd=100, max_tokens=1_000_000)
+        ),
     )
 
     turns: list[FloorTurnEvent] = []
@@ -102,7 +106,10 @@ class _CostlyMember:
 
     async def speak(self, floor: SharedFloor, *, round_num: int) -> FloorTurn:
         return FloorTurn(
-            speaker=self.name, round=round_num, text=f"turn from {self.name}", cost_usd=self._cost_usd
+            speaker=self.name,
+            round=round_num,
+            text=f"turn from {self.name}",
+            cost_usd=self._cost_usd,
         )
 
 
@@ -113,7 +120,9 @@ async def test_shared_budget_ceiling_stops_the_floor():
         members=members,
         topic="t",
         termination=TerminationPolicy(hard_cap=MaxRounds(max_rounds=100)),
-        budget=SharedBudget(max=HardBudget(max_turns=1_000, max_cost_usd=2.5, max_tokens=1_000_000)),
+        budget=SharedBudget(
+            max=HardBudget(max_turns=1_000, max_cost_usd=2.5, max_tokens=1_000_000)
+        ),
     )
 
     turns: list[FloorTurnEvent] = []

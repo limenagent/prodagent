@@ -1,4 +1,4 @@
-"""Spend accounting for sub-agent spawns — accumulate, fold, and budget-check."""
+"""Sub-agent spend accounting: accumulate, fold into parent, budget-check."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ def check_spawn_budget(
     budget: HardBudget | None,
     accumulators: list[SpawnAccumulator],
 ) -> None:
-    """Check budget, folding live sub-agent spend into the parent run totals."""
+    """Fold live sub-agent spend into parent run totals before budget check."""
     if budget is None:
         return
     check_budget(
@@ -44,7 +44,7 @@ def fold_spawn_fields(target: Any, source: Any) -> None:
 
 
 def fold_spawn_accounting(run: Any, accumulator: SpawnAccumulator | None) -> None:
-    """Fold an accumulator's totals onto a run — no-op if nothing was spawned."""
+    """Fold accumulator totals onto a run. No-op if nothing was spawned."""
     if accumulator is None or accumulator.spawn_count == 0:
         return
     m = run.metrics
@@ -65,7 +65,7 @@ def fold_spawn_accounting(run: Any, accumulator: SpawnAccumulator | None) -> Non
 
 @dataclass
 class SpawnAccumulator:
-    """Shared sink for sub-agent accounting so parent runs can reconcile cost."""
+    """Shared sink for sub-agent spend so parent runs can reconcile cost."""
 
     cost_usd: float = 0.0
     turns: int = 0

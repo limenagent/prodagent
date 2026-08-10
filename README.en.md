@@ -81,7 +81,7 @@ Browser opens `http://127.0.0.1:8766` automatically.
 
 First run launches an interactive wizard with two choices:
 
-- **FakeLLM** — offline, no key needed, try all 9 examples immediately
+- **FakeLLM** — offline, no key needed, try all 10 examples immediately
 - **OpenAI-compatible endpoint** — provide `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`. Works with any vendor implementing the OpenAI Chat Completions protocol: DeepSeek, Qwen, Moonshot, Zhipu, Groq, Ollama, self-hosted gateways, etc.
 
 Or skip the wizard and write `.env` in the repo root directly:
@@ -98,7 +98,7 @@ LLM_MODEL=glm-5.2
 
 Production backends: `make playground-prod` (auto-starts Postgres / Neo4j / Qdrant / Redis).
 
-### End-to-End Examples: 9 Scenarios, From Minimal Skeleton to Full-Stack Assembly
+### End-to-End Examples: 10 Scenarios, From Minimal Skeleton to Full-Stack Assembly
 
 | # | Example | Scenario | Core Capabilities                                                                                                                             |
 |---|---------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------|
@@ -110,7 +110,7 @@ Production backends: `make playground-prod` (auto-starts Postgres / Neo4j / Qdra
 | 6 | [code_detective](examples/code_detective) | Autonomous bug fixing | MCP stdio server bridging external tools + REACTIVE multi-round debugging                                                                     |
 | 7 | [trip_planner](examples/trip_planner) | Trip planning | `Workflow` DAG + 3-peer parallel fan-out + `MemoryManager` preference injection                                                               |
 | 8 | [aiops](examples/aiops) | Full-stack incident response | Multi-agent spawn + peer handoff + memory + learning + observability + approval                                                               |
-| 9 | [dating_chat](examples/dating_chat) | Agent 相亲 | `Ensemble` dual-agent shared floor + real framework Agent vs simple agent — memory & context contrast                  |
+| 9 | [dating_chat](examples/dating_chat) | Agent blind date | `Ensemble` dual-agent shared floor + real framework Agent vs simple agent — memory & context contrast                  |
 | 10 | [quiz_arena](examples/quiz_arena) | Buzzer quiz contest | `WorkQueue` backstage question review (work stealing + lease timeout + dead-lettering) feeding a `Blackboard` live buzz-in round (`buzz_in` locks first then computes, asserted via real compute-call counts) |
 
 ### Installation

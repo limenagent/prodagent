@@ -9,7 +9,11 @@ from typing import TYPE_CHECKING, Any
 
 from prodagent.backends.factory import resolve_dead_letter
 from prodagent.core.error_reason import ErrorReason
-from prodagent.core.exceptions import SECURITY_VETO_EXCEPTIONS, BudgetExceeded, ContractViolationError
+from prodagent.core.exceptions import (
+    SECURITY_VETO_EXCEPTIONS,
+    BudgetExceeded,
+    ContractViolationError,
+)
 from prodagent.core.types import (
     ErrorSeverity,
     RunState,
@@ -126,13 +130,12 @@ class SpawnTool:
 class Spawn:
     """Runs a child agent end-to-end: packet → timeout → security → fold.
 
-    Backs the ``agents=`` keyword (vertical delegation): the parent calls
-    ``spawn_agent``, waits synchronously for the child to finish, and gets a
-    structured ``ChildResult`` back while its own run continues. Contrast with
-    :class:`~prodagent.runtime.coordination.peer.Peer`, which backs
-    ``peers=`` (horizontal hand-off): the parent's run *ends* and control
-    transfers to the peer instead of returning a result.
-    """
+    Backs ``agents=`` (vertical delegation): parent calls ``spawn_agent``,
+    waits synchronously for the child to finish, gets a structured
+    ``ChildResult`` back while its own run continues. Contrast with
+    :class:`~prodagent.runtime.coordination.peer.Peer` (``peers=``, horizontal
+    hand-off): parent's run *ends*, control transfers to the peer instead of
+    returning a result."""
 
     def __init__(
         self,
@@ -162,14 +165,14 @@ class Spawn:
             field_types={"output": str, "state": str},
             strict=True,
         )
-        # spawn_agent is marked is_readonly=True (see build_tool below) precisely so
-        # multiple calls in one turn dispatch *concurrently* via asyncio.gather in
-        # ToolRunner.run_batch, not serially. Without a lock-protected ledger here,
-        # N concurrent children sharing one SpawnAccumulator can each pass a stale
-        # budget snapshot and jointly blow past the cap before any of them commits.
-        # This ledger only tracks accumulator-scoped spend (turns/tokens/cost of the
-        # children themselves) — the parent run's own base spend is still checked
-        # separately at turn boundaries via check_spawn_budget, unchanged.
+        # spawn_agent is is_readonly=True (see build_tool) precisely so multiple
+        # calls in one turn dispatch *concurrently* via asyncio.gather in
+        # ToolRunner.run_batch. Without a lock-protected ledger, N concurrent
+        # children sharing one SpawnAccumulator can each pass a stale budget
+        # snapshot and jointly blow past the cap before any of them commits.
+        # This ledger only tracks accumulator-scoped spend (turns/tokens/cost of
+        # the children themselves) — the parent run's own base spend is still
+        # checked at turn boundaries via check_spawn_budget, unchanged.
         self._budget_ledger = BudgetLedger(max=ctx.budget) if ctx.budget is not None else None
 
     @property

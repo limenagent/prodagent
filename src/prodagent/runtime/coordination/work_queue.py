@@ -1,4 +1,4 @@
-"""Work queue — pull-model work-stealing, the fifth coordination primitive
+"""WorkQueue — pull-model work-stealing, the fifth coordination primitive
 alongside :class:`~prodagent.runtime.coordination.spawn.Spawn` (``agents=``),
 :class:`~prodagent.runtime.coordination.peer.Peer` (``peers=``),
 :class:`~prodagent.runtime.coordination.ensemble.Ensemble` (``ensemble=``),
@@ -6,15 +6,13 @@ and :class:`~prodagent.runtime.coordination.blackboard.Blackboard`.
 
 Where the other primitives *push* work at members (a spawn plan, a peer chain,
 a speaking order, a trigger), a work queue is *pulled*: idle workers race to
-claim the next pending item, run it, and report success/failure. A claimed
-item is leased for ``lease_seconds`` — if the worker never reports back (crash,
-hang), the item's lease expires and the pipeline treats it as a failure,
-recycling it through the same retry/dead-letter path as an explicit failure.
-
-Retry accounting is delegated to :class:`~prodagent.ports.dead_letter.DeadLetterStore`
-(already used by ``agents=`` for contract-violating child results) rather than
-reinvented here — after ``max_retries`` failures for the same item, it is
-archived instead of requeued.
+claim the next pending item, run it, report success/failure. A claimed item is
+leased for ``lease_seconds`` — if the worker never reports back (crash, hang),
+the lease expires and the pipeline treats it as a failure, recycling it
+through the same retry/dead-letter path as an explicit failure. Retry
+accounting is delegated to :class:`~prodagent.ports.dead_letter.DeadLetterStore`
+(also used by ``agents=`` for contract-violating child results) — after
+``max_retries`` failures the item is archived instead of requeued.
 """
 
 from __future__ import annotations
@@ -28,7 +26,6 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
 from prodagent.core.exceptions import BudgetExceeded
-from prodagent.runtime.coordination.budget_ledger import BudgetLedger
 from prodagent.runtime.coordination.termination import (
     MaxRounds,
     TerminationPolicy,
@@ -39,6 +36,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
     from prodagent.ports.dead_letter import DeadLetterStore
+    from prodagent.runtime.coordination.budget_ledger import BudgetLedger
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +77,7 @@ class _ClaimInfo:
 
 class SharedQueue:
     """``pending`` deque + ``claimed`` lease registry, guarded by one
-    ``asyncio.Lock`` — the lock+mutable-state recipe shared with
+    ``asyncio.Lock`` — lock+mutable-state recipe shared with
     :class:`~prodagent.runtime.coordination.blackboard.Board` and
     :class:`BudgetLedger`."""
 
@@ -120,11 +118,10 @@ class SharedQueue:
             self._resolution_count += 1
 
     async def fail(self, item_id: str, error: str) -> tuple[Literal["dead_letter", "retry"], int]:
-        """Record a failure for a claimed item. Delegates the retry-vs-archive
-        decision to the :class:`DeadLetterStore` — a ``"retry"`` outcome puts
-        the item back on ``pending``; ``"dead_letter"`` archives it and drops
-        it from the queue for good. Returns the decision plus the item's
-        cumulative attempt count."""
+        """Record a failure for a claimed item. Delegates retry-vs-archive to
+        the :class:`DeadLetterStore` — ``"retry"`` puts the item back on
+        ``pending``; ``"dead_letter"`` archives it and drops it from the queue
+        for good. Returns the decision plus the item's cumulative attempt count."""
         async with self._lock:
             claim = self._claimed.pop(item_id, None)
             if claim is None:
@@ -162,9 +159,7 @@ class SharedQueue:
 
     def _expired_claim_ids(self, now: float) -> list[str]:
         return [
-            item_id
-            for item_id, claim in self._claimed.items()
-            if claim.lease_expires_at <= now
+            item_id for item_id, claim in self._claimed.items() if claim.lease_expires_at <= now
         ]
 
     def _claim_worker(self, item_id: str) -> str | None:
@@ -172,15 +167,13 @@ class SharedQueue:
         return claim.worker if claim is not None else None
 
     def _progress_marker(self) -> tuple[int, int, int, int, int]:
-        """A cheap fingerprint of queue state, used to detect whether a round
+        """Cheap fingerprint of queue state, used to detect whether a round
         moved any item between pending/claimed/completed/dead-lettered — even
-        if a worker claimed an item and then reported nothing (crashed
-        mid-task), which still counts as progress since the item is no
-        longer sitting in ``pending``. ``_resolution_count`` covers the case
-        a bare pending/claimed/completed/dead-lettered *count* snapshot would
-        miss: a failed item that gets requeued lands right back in
-        ``pending``, leaving every count unchanged even though a real
-        complete/fail resolution happened."""
+        if a worker claimed and then reported nothing (crashed mid-task), the
+        item is no longer in ``pending`` so it still counts as progress.
+        ``_resolution_count`` covers the case a bare count snapshot would
+        miss: a failed item requeued lands right back in ``pending``,
+        leaving every count unchanged even though a real resolution happened."""
         return (
             len(self._pending),
             len(self._claimed),
@@ -207,7 +200,7 @@ class WorkResult:
 
 @runtime_checkable
 class Worker(Protocol):
-    """Pull model — the inverse of
+    """Pull model — inverse of
     :class:`~prodagent.runtime.coordination.floor.FloorMember.speak` (push).
     Returns ``None`` if nothing was available to claim this round."""
 
@@ -308,7 +301,7 @@ class WorkQueue:
 
     async def _run_worker(self, worker_name: str) -> WorkResult | None:
         """Reserve → try_claim_and_run → commit for one worker. A worker that
-        can't reserve a turn never gets to claim anything this round."""
+        can't reserve a turn never claims anything this round."""
         if self._budget is not None:
             try:
                 await self._budget.reserve(member=worker_name, turns=1)

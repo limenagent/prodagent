@@ -69,7 +69,7 @@ make playground
 
 首次运行进入交互式向导，二选一：
 
-- **FakeLLM** —— 离线，零 key，直接体验 8 个 example
+- **FakeLLM** —— 离线，零 key，直接体验 10 个 example
 - **OpenAI 兼容端点** —— 填 `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`。DeepSeek、Qwen、Moonshot、Zhipu 等任何 OpenAI Chat Completions 协议厂商均适用
 
 不想跑向导，在仓库根目录写 `.env` 即可跳过：
@@ -86,7 +86,7 @@ LLM_MODEL=glm-5.2
 
 启动后浏览器自动打开 `http://127.0.0.1:8766`。切生产后端：`make playground-prod`（自动拉起 Postgres / Neo4j / Qdrant / Redis）。
 
-### 端到端示例：9 个场景，从最小骨架到全栈组装
+### 端到端示例：10 个场景，从最小骨架到全栈组装
 
 | # | Example | 场景 | 核心能力                                                                             |
 |---|---------|------|----------------------------------------------------------------------------------|

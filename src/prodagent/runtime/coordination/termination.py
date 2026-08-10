@@ -1,34 +1,23 @@
-"""TerminationPolicy — when does an ensemble floor stop?
+"""TerminationPolicy — when does a floor/queue/board stop?
 
-The composite structure is load-bearing: a *business* strategy (moderator
-verdict, consensus vote, convergence detection) decides when the conversation
-has reached a graceful end; a *hard cap* (``MaxRounds``) guarantees it stops
-even if the business strategy never fires. The two are not peers and the hard
-cap is not optional — an LLM-judging-moderator can fail to converge, a
-consensus vote can sit below quorum forever, and an unattended ensemble that
-never stops is a cost runaway.
-
-This mirrors :class:`~prodagent.core.budget.HardBudget`'s philosophy: business
-logic is "try to end elegantly", the hard cap is "stop, no matter what". The
-cap is welded into :class:`TerminationPolicy` as a non-optional field — the
-pipeline never accepts a policy without one.
-
-A business strategy is allowed to be ``None`` (the minimal-closed-loop case:
-just run N rounds and stop). The hard cap is not.
+Composite by design: an optional *business* strategy (moderator verdict,
+consensus vote, convergence) decides graceful end; a *mandatory* hard cap
+(:class:`MaxRounds`) guarantees stop even if business never fires. Mirrors
+:class:`~prodagent.core.budget.HardBudget` — business is "end elegantly",
+cap is "stop, no matter what". Business may be ``None``; the cap may not —
+an unattended ensemble that never stops is a cost runaway.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
-
-if TYPE_CHECKING:
-    from prodagent.runtime.coordination.floor import SharedFloor
+from typing import Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "RoundCountable",
     "TerminationStrategy",
     "MaxRounds",
     "TerminationPolicy",
@@ -37,9 +26,19 @@ __all__ = [
 ]
 
 
+@runtime_checkable
+class RoundCountable(Protocol):
+    """Anything with a ``round_count()`` — :class:`SharedFloor`, :class:`Board`,
+    :class:`SharedQueue` all satisfy this. TerminationPolicy only needs the
+    round count, so it depends on this narrow protocol, not the concrete
+    floor/queue/board classes."""
+
+    def round_count(self) -> int: ...
+
+
 @dataclass
 class TerminationReason:
-    """Why the floor stopped — carried into the final event / checkpoint."""
+    """Why the floor/queue/board stopped — carried into the final event."""
 
     reason: str
     """Short code: ``max_rounds`` / ``moderator`` / ``consensus`` / ``convergence`` / ``budget``."""
@@ -53,36 +52,33 @@ class TerminationReason:
 
 @runtime_checkable
 class TerminationStrategy(Protocol):
-    """Business termination — may never fire, that's fine, the hard cap backs it."""
+    """Business termination — may never fire; the hard cap backs it."""
 
     def should_stop(
-        self, floor: SharedFloor, *, next_round: int
+        self, floor: RoundCountable, *, next_round: int
     ) -> tuple[bool, TerminationReason | None]:
-        """Return ``(stop, reason)``. ``next_round`` is the round index the
-        next speaker would speak *in* — lets a strategy decide "don't start
-        round N" before anyone speaks in it. ``reason`` is None if not
-        stopping, letting the caller distinguish "no verdict" from "verdict:
-        stop"."""
+        """Return ``(stop, reason)``. ``next_round`` is the round the next
+        speaker would speak *in* — lets a strategy veto "don't start round N"
+        before anyone speaks. ``reason`` None = no verdict, distinct from
+        "verdict: stop"."""
         ...
 
 
 @dataclass
 class MaxRounds:
-    """Hard cap on floor rounds. Always present, never None.
+    """Hard cap on rounds. Always present, never None.
 
-    A "round" is one full pass of the speaking order (in round-robin, that's
-    one turn per member). ``max_rounds=N`` means "no member speaks in round N
-    or later" — so ``max_rounds=2`` allows rounds 0 and 1, i.e. ``2 × N`` turns
-    for an N-member round-robin. The check happens *before* the next speaker
-    is scheduled, using the planned round index — same semantics as
-    :class:`~prodagent.core.budget.HardBudget`'s turn axis: check before the
-    next unit of work, not in the middle of one.
+    ``max_rounds=N`` means "no member speaks in round N or later" — so
+    ``max_rounds=2`` allows rounds 0 and 1, i.e. ``2 × N`` turns for an
+    N-member round-robin. Checked *before* the next speaker is scheduled —
+    same semantics as :class:`~prodagent.core.budget.HardBudget`'s turn axis:
+    check before the next unit of work, not mid-work.
     """
 
     max_rounds: int = 10
 
     def should_stop(
-        self, floor: SharedFloor, *, next_round: int
+        self, floor: RoundCountable, *, next_round: int
     ) -> tuple[bool, TerminationReason | None]:
         if next_round >= self.max_rounds:
             return True, TerminationReason(
@@ -100,10 +96,8 @@ class MaxRounds:
 class TerminationPolicy:
     """Composite: optional business strategy AND mandatory hard cap.
 
-    The hard cap is not a default the caller can override with ``None`` —
-    construction itself enforces it. The pipeline evaluates
-    ``business.should_stop() OR hard_cap.should_stop()`` each round; whichever
-    fires first wins, and if both would fire the business strategy's reason is
+    Pipeline evaluates ``business.should_stop() OR hard_cap.should_stop()``
+    each round; first to fire wins. If both would fire, business's reason is
     preferred (graceful stop is more informative than "hit the cap").
     """
 
@@ -111,10 +105,6 @@ class TerminationPolicy:
     business: TerminationStrategy | None = None
 
     def __post_init__(self) -> None:
-        # The hard cap is the load-bearing guarantee. A None hard cap would
-        # mean "rely on the business strategy to stop" — that's exactly the
-        # failure mode this composite exists to prevent. Reject it at
-        # construction, not at runtime.
         if self.hard_cap is None:
             raise ValueError(
                 "TerminationPolicy.hard_cap cannot be None — the hard cap is the "
@@ -125,10 +115,8 @@ class TerminationPolicy:
             raise ValueError(f"MaxRounds.max_rounds must be >= 1, got {self.hard_cap.max_rounds}")
 
     def should_stop(
-        self, floor: SharedFloor, *, next_round: int
+        self, floor: RoundCountable, *, next_round: int
     ) -> tuple[bool, TerminationReason | None]:
-        # Business strategy first — if it gracefully reports stop, that's the
-        # more informative reason. Falls through to hard cap otherwise.
         if self.business is not None:
             stop, reason = self.business.should_stop(floor, next_round=next_round)
             if stop:
@@ -138,16 +126,13 @@ class TerminationPolicy:
 
 def evaluate_termination(
     policy: TerminationPolicy,
-    floor: SharedFloor,
+    floor: RoundCountable,
     *,
     next_round: int,
 ) -> TerminationReason:
-    """Evaluate policy, returning a final reason.
-
-    Budget exhaustion is *not* checked here — the pipeline holds the
+    """Evaluate policy. Budget is *not* checked here — the pipeline owns the
     :class:`SharedBudget` and checks it separately (it's the hardest stop,
-    independent of policy). This helper is purely the policy-level evaluation.
-    """
+    independent of policy)."""
     stop, reason = policy.should_stop(floor, next_round=next_round)
     if stop and reason is not None:
         return reason
