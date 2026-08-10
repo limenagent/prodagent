@@ -6,7 +6,7 @@
 调用。查餐厅那轮他用一次最朴素的工具往返（不解析结果，只是原样转发），这一步
 恰恰是把小美一侧真实压缩触发起来的手段。
 
-迁移到 EnsemblePipeline 后，大牛被包成 :class:`NiuFloorMember` —— 一个只满足
+迁移到 Ensemble 后，大牛被包成 :class:`NiuFloorMember` —— 一个只满足
 ``FloorMember`` 协议（``name`` + ``async speak()``）的薄壳，依然不给他任何
 prodagent 能力：没有 ``Agent``、没有 ``ContextManager``、没有 ``MemoryManager``、
 没有压缩。他只读 floor 里最近几轮（按自己的截断阈值），调一次 ``niu_reply``，

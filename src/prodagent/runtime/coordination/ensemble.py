@@ -1,25 +1,4 @@
-"""EnsemblePipeline — N agents in a shared session, taking turns autonomously.
-
-The third coordination primitive, alongside :class:`SpawnPipeline`
-(``agents=`` — vertical delegation, parent waits for child) and
-:class:`PeerPipeline` (``peers=`` — linear baton-pass, each prior run
-terminated). Where those two are single-shot and directed, an ensemble is
-*co-present*: every member reads the same :class:`SharedFloor` transcript,
-each writes its own turns, nobody "leaves". This is the substrate for debate,
-conversation, and role-play.
-
-Minimal closed loop: :class:`RoundRobin` order + :class:`MaxRounds` hard cap
-+ :class:`SharedBudget` cross-member ceiling + :class:`FloorProjection`
-per-viewer filtering. The :class:`Moderated` / consensus / convergence
-strategies and the ``FreeForAll`` order are deferred — see tasks #5 and the
-design discussion.
-
-Membership is the :class:`FloorMember` protocol, not ``Agent``. A hand-rolled
-``messages`` list wrapped in an adapter qualifies — that's the point: the
-floor treats all members equally, whether they remember things is their own
-business. :class:`AgentFloorMember` adapts a full prodagent ``Agent``;
-:class:`FloorMember` is satisfied by anything with ``name`` + async
-``speak()``.
+"""Ensemble — N agents in a shared session, taking turns autonomously.
 """
 
 from __future__ import annotations
@@ -32,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from prodagent.core.budget import HardBudget
 from prodagent.core.exceptions import BudgetExceeded
-from prodagent.runtime.coordination.ensemble_budget import SharedBudget
+from prodagent.runtime.coordination.budget_ledger import SharedBudget
 from prodagent.runtime.coordination.floor import FloorMember, FloorTurn, SharedFloor
 from prodagent.runtime.coordination.floor_projection import (
     FloorProjection,
@@ -56,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "EnsembleSpec",
-    "EnsemblePipeline",
+    "Ensemble",
     "AgentFloorMember",
     "RoundRobin",
     "SpeakingOrder",
@@ -356,7 +335,7 @@ class EnsembleCompletedEvent:
 # ---------------------------------------------------------------------------
 
 
-class EnsemblePipeline:
+class Ensemble:
     """Drives an ensemble: round after round, member after member, until stop.
 
     One round = one pass of the speaking order. Each member's ``speak()`` is
@@ -529,6 +508,6 @@ async def ensemble_stream(
 ) -> AsyncGenerator[AgentEvent | FloorTurnEvent | EnsembleCompletedEvent, None]:
     """Drive an ensemble and stream its events. The top-level entry, parallel
     to :func:`~prodagent.runtime.runner.drive_stream` for single agents."""
-    pipeline = EnsemblePipeline(spec)
+    pipeline = Ensemble(spec)
     async for event in pipeline.run():
         yield event

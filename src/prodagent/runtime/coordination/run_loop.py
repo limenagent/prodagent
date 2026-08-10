@@ -7,7 +7,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
-from prodagent.core.exceptions import PromptInjectionDetected
+from prodagent.core.exceptions import BudgetExceeded, PromptInjectionDetected
 from prodagent.core.state.run import AgentRun, child_run_id, is_child_subordinate, make_failed_run
 from prodagent.core.types import ExecutionMode, MessageList, RunState
 from prodagent.hooks import fire as _fire
@@ -15,6 +15,7 @@ from prodagent.hooks import save_and_fire_checkpoint
 from prodagent.hooks.checkpoint import CheckPoint
 from prodagent.hooks.events import HookEvent
 from prodagent.runtime.coordination.accounting import SpawnAccumulator, fold_spawn_accounting
+from prodagent.runtime.coordination.budget_ledger import BudgetLedger
 from prodagent.runtime.coordination.handoff import HandoffPacket
 from prodagent.runtime.factory import LeafExecutorFactory
 from prodagent.runtime.run_context import RunContext
@@ -58,6 +59,14 @@ class RunLoop:
         self._output_schema = output_schema
         self._factory = LeafExecutorFactory(
             forced_mode=forced_mode, initial_messages=initial_messages
+        )
+        # Cross-hop ledger for the peer chain (peers=): without this, each hop's
+        # own HardBudget only bounds *that* hop — an N-hop chain could legally
+        # spend N times the configured budget, since max_peer_chain only caps hop
+        # count, not cumulative spend. One ledger, built from the root agent's own
+        # budget, threaded across every hop of this chain.
+        self._peer_budget: BudgetLedger | None = (
+            BudgetLedger(max=root_agent.budget_config) if root_agent.budget_config else None
         )
 
     async def run(self) -> AsyncGenerator[AgentEvent, None]:
@@ -140,6 +149,24 @@ class RunLoop:
                 self._ctx.agent.name,
             )
             return None
+
+        if self._peer_budget is not None:
+            await self._peer_budget.commit(
+                member=self._ctx.agent.name,
+                turns=run.turn_count,
+                tokens=run.input_tokens + run.output_tokens,
+                cost_usd=run.cost_usd,
+            )
+            try:
+                await self._peer_budget.check(member=peer_name)
+            except BudgetExceeded as exc:
+                logger.warning(
+                    "[orchestrator] peer chain budget exhausted before handoff %s → %s: %s",
+                    self._ctx.agent.name,
+                    peer_name,
+                    exc,
+                )
+                return None
 
         prior_output = run.final_output or ""
         packet = HandoffPacket(

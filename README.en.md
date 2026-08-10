@@ -41,7 +41,7 @@ Getting an Agent to run, and keeping it alive in production, are two different t
 
 - **Three execution modes** — `PLAN_FIRST` (LLM emits a dynamic PLAN DAG; auditable, HITL-reviewable, resumable from breakpoint) / `REACTIVE` (ReAct loop, step by step) / `Workflow` (hand-written static PLAN DAG).
 
-- **Inter-agent collaboration** — `agents=` for vertical delegation (parent spawns child, child returns result); `peers=` for horizontal handoff (terminates the current run, a peer takes over); `EnsemblePipeline` for multiple agents sharing a floor and taking turns speaking (`FloorMember` + `SharedBudget` + `FloorProjection` + composite `TerminationPolicy`).
+- **Inter-agent collaboration** — five primitives, each with a different driving model: `agents=` push vertical delegation (parent spawns child, child returns result, parent continues); `peers=` push horizontal handoff (terminates the current run, a peer takes over); `Ensemble` shared floor, turn-taking; `Blackboard` shared board, field changes trigger experts, `buzz_in` locks first then computes; `WorkQueue` workers claim work themselves, lease-timeout requeue, retry-exhausted to dead-letter. All five share one `BudgetLedger`.
 
 - **Context sandwich** — state / memory / skills / history / reminder assembled as a five-layer sandwich; each layer independently controllable and compressible.
 
@@ -110,7 +110,8 @@ Production backends: `make playground-prod` (auto-starts Postgres / Neo4j / Qdra
 | 6 | [code_detective](examples/code_detective) | Autonomous bug fixing | MCP stdio server bridging external tools + REACTIVE multi-round debugging                                                                     |
 | 7 | [trip_planner](examples/trip_planner) | Trip planning | `Workflow` DAG + 3-peer parallel fan-out + `MemoryManager` preference injection                                                               |
 | 8 | [aiops](examples/aiops) | Full-stack incident response | Multi-agent spawn + peer handoff + memory + learning + observability + approval                                                               |
-| 9 | [dating_chat](examples/dating_chat) | Agent 相亲 | `EnsemblePipeline` dual-agent shared floor + real framework Agent vs simple agent — memory & context contrast                  |
+| 9 | [dating_chat](examples/dating_chat) | Agent 相亲 | `Ensemble` dual-agent shared floor + real framework Agent vs simple agent — memory & context contrast                  |
+| 10 | [quiz_arena](examples/quiz_arena) | Buzzer quiz contest | `WorkQueue` backstage question review (work stealing + lease timeout + dead-lettering) feeding a `Blackboard` live buzz-in round (`buzz_in` locks first then computes, asserted via real compute-call counts) |
 
 ### Installation
 

@@ -37,6 +37,7 @@ from prodagent.backends.conformance import (
     run_idempotency_key_isolation_conformance,
     run_lock_conformance,
     run_lock_mutual_exclusion_conformance,
+    run_lock_nonblocking_tryacquire_conformance,
     run_lock_release_idempotent_conformance,
 )
 from prodagent.backends.redis.approval import RedisApprovalStore
@@ -186,6 +187,12 @@ async def test_redis_lock_mutual_exclusion_conformance(async_client, clean_async
 
 async def test_redis_lock_release_idempotent_conformance(async_client, clean_async):
     await run_lock_release_idempotent_conformance(
+        lambda: RedisLockStore(async_client, namespace=clean_async)
+    )
+
+
+async def test_redis_lock_nonblocking_tryacquire_conformance(async_client, clean_async):
+    await run_lock_nonblocking_tryacquire_conformance(
         lambda: RedisLockStore(async_client, namespace=clean_async)
     )
 

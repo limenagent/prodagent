@@ -95,7 +95,7 @@ async def test_concurrent_spawns_fold_into_parent_run_end_to_end(monkeypatch):
     child_b = _reactive_agent("childB", context="does B")
     child_b._hooks = hooks
 
-    # SpawnPipeline._run_child always builds each spawned child with
+    # Spawn._run_child always builds each spawned child with
     # `llm=self._llm` — the *parent's* session LLM — never the child spec's
     # own `_llm`. So all four real LLM calls (parent's tool-call turn, each
     # child's single turn, parent's final turn) are drawn from one shared

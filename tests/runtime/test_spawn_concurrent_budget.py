@@ -7,7 +7,7 @@ from prodagent.core.budget import HardBudget
 from prodagent.core.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.coordination.parent_runtime import ParentRuntime
-from prodagent.runtime.coordination.spawn import SpawnPipeline
+from prodagent.runtime.coordination.spawn import Spawn
 
 
 def _plan_llm() -> FakeLLMAdapter:
@@ -27,7 +27,7 @@ async def test_spawned_child_trips_on_spend_already_committed_by_a_sibling():
         llm=_plan_llm(),
         description="A PLAN_FIRST worker",
     )
-    pipeline = SpawnPipeline([child], llm=_plan_llm(), hooks=None, framework_config=None, ctx=ctx)
+    pipeline = Spawn([child], llm=_plan_llm(), hooks=None, framework_config=None, ctx=ctx)
 
     result = await pipeline.spawn("worker", "do something")
 
@@ -47,7 +47,7 @@ async def test_spawned_child_completes_when_sibling_spend_stays_under_ceiling():
         llm=_plan_llm(),
         description="A PLAN_FIRST worker",
     )
-    pipeline = SpawnPipeline([child], llm=_plan_llm(), hooks=None, framework_config=None, ctx=ctx)
+    pipeline = Spawn([child], llm=_plan_llm(), hooks=None, framework_config=None, ctx=ctx)
 
     result = await pipeline.spawn("worker", "do something")
 

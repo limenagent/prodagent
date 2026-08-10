@@ -1,4 +1,4 @@
-"""SpawnPipeline — vertical sub-agent delegation (``agents=``)."""
+"""Spawn — vertical sub-agent delegation (``agents=``)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from prodagent.backends.factory import resolve_dead_letter
 from prodagent.core.error_reason import ErrorReason
-from prodagent.core.exceptions import SECURITY_VETO_EXCEPTIONS, ContractViolationError
+from prodagent.core.exceptions import SECURITY_VETO_EXCEPTIONS, BudgetExceeded, ContractViolationError
 from prodagent.core.types import (
     ErrorSeverity,
     RunState,
@@ -20,6 +20,7 @@ from prodagent.core.types import (
 from prodagent.hooks.checkpoint import CheckPoint
 from prodagent.hooks.events import HookEvent
 from prodagent.runtime._tool_merge import attach_tools
+from prodagent.runtime.coordination.budget_ledger import BudgetLedger
 from prodagent.runtime.coordination.handoff import (
     HandoffContract,
     HandoffInterceptor,
@@ -122,13 +123,13 @@ class SpawnTool:
     accumulator: SpawnAccumulator
 
 
-class SpawnPipeline:
+class Spawn:
     """Runs a child agent end-to-end: packet → timeout → security → fold.
 
     Backs the ``agents=`` keyword (vertical delegation): the parent calls
     ``spawn_agent``, waits synchronously for the child to finish, and gets a
     structured ``ChildResult`` back while its own run continues. Contrast with
-    :class:`~prodagent.runtime.coordination.peer.PeerPipeline`, which backs
+    :class:`~prodagent.runtime.coordination.peer.Peer`, which backs
     ``peers=`` (horizontal hand-off): the parent's run *ends* and control
     transfers to the peer instead of returning a result.
     """
@@ -161,6 +162,15 @@ class SpawnPipeline:
             field_types={"output": str, "state": str},
             strict=True,
         )
+        # spawn_agent is marked is_readonly=True (see build_tool below) precisely so
+        # multiple calls in one turn dispatch *concurrently* via asyncio.gather in
+        # ToolRunner.run_batch, not serially. Without a lock-protected ledger here,
+        # N concurrent children sharing one SpawnAccumulator can each pass a stale
+        # budget snapshot and jointly blow past the cap before any of them commits.
+        # This ledger only tracks accumulator-scoped spend (turns/tokens/cost of the
+        # children themselves) — the parent run's own base spend is still checked
+        # separately at turn boundaries via check_spawn_budget, unchanged.
+        self._budget_ledger = BudgetLedger(max=ctx.budget) if ctx.budget is not None else None
 
     @property
     def accumulator(self) -> SpawnAccumulator:
@@ -231,7 +241,28 @@ class SpawnPipeline:
             child_run_id=child_run_id,
         )
 
+        if self._budget_ledger is not None:
+            try:
+                await self._budget_ledger.reserve(member=name, turns=1)
+            except BudgetExceeded as exc:
+                return ToolError.from_reason(
+                    ErrorReason.BUDGET_EXCEEDED,
+                    code="spawn_budget_exhausted",
+                    message=f"Cannot spawn {name!r}: {exc.message}",
+                    hint="Concurrent sub-agent spend has hit the shared budget ceiling.",
+                    severity=ErrorSeverity.RED,
+                ).as_dict()
+
         result = await self._run_with_timeout(spec, task, packet, child_run_id)
+
+        if self._budget_ledger is not None:
+            await self._budget_ledger.commit(
+                member=name,
+                turns=result.turns,
+                tokens=result.input_tokens + result.output_tokens,
+                cost_usd=result.cost_usd,
+                reserved_turns=1,
+            )
 
         if result.state == STATE_TIMEOUT:
             return ToolError.from_reason(
@@ -433,7 +464,7 @@ def build_spawn_tools_for_agent(
         return None
 
     ctx = context or ParentRuntime()
-    pipeline = SpawnPipeline(
+    pipeline = Spawn(
         agents,
         llm=llm,
         hooks=hooks,

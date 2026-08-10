@@ -69,6 +69,7 @@ from prodagent.backends.conformance.idempotency import (
 from prodagent.backends.conformance.lock import (
     run_lock_conformance,
     run_lock_mutual_exclusion_conformance,
+    run_lock_nonblocking_tryacquire_conformance,
     run_lock_release_idempotent_conformance,
 )
 from prodagent.backends.conformance.span import (
@@ -118,6 +119,7 @@ __all__ = [
     "run_idempotency_key_isolation_conformance",
     "run_lock_conformance",
     "run_lock_mutual_exclusion_conformance",
+    "run_lock_nonblocking_tryacquire_conformance",
     "run_lock_release_idempotent_conformance",
     "run_span_conformance",
     "run_span_export_after_shutdown_conformance",

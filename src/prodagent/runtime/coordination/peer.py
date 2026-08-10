@@ -1,4 +1,4 @@
-"""PeerPipeline — horizontal peer handoff (``peers=``)."""
+"""Peer — horizontal peer handoff (``peers=``)."""
 
 from __future__ import annotations
 
@@ -21,14 +21,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class PeerPipeline:
+class Peer:
     """The peer's output becomes the run's output.
 
     Backs the ``peers=`` keyword (horizontal hand-off): calling
     ``handoff_to_<peer>`` ends the current agent's run with ``COMPLETED`` and
     hands control to the peer, which continues with this task plus the
     caller's final output as context. Contrast with
-    :class:`~prodagent.runtime.coordination.spawn.SpawnPipeline`, which backs
+    :class:`~prodagent.runtime.coordination.spawn.Spawn`, which backs
     ``agents=`` (vertical delegation): the parent keeps running and gets a
     result back instead of terminating.
     """
@@ -141,7 +141,7 @@ def build_peer_tools_for_agent(
         ctx = ParentRuntime(peer_specs=list(peers))
     if not ctx.peer_specs:
         ctx.peer_specs = list(peers)
-    pipeline = PeerPipeline(peers, ctx=ctx)
+    pipeline = Peer(peers, ctx=ctx)
     return pipeline.build_tools()
 
 

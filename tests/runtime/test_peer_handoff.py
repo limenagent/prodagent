@@ -7,7 +7,7 @@ from prodagent.core.state.run import is_child_run_id
 from prodagent.core.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter, script
 from prodagent.runtime.coordination.parent_runtime import ParentRuntime
-from prodagent.runtime.coordination.peer import PeerPipeline, build_peer_tools_for_agent
+from prodagent.runtime.coordination.peer import Peer, build_peer_tools_for_agent
 
 
 @pytest.fixture
@@ -37,7 +37,7 @@ def test_handoff_tool_schema_per_peer():
 
 def test_handoff_returns_handoff_result_with_peer_and_task():
     peer = Agent("B")
-    pipeline = PeerPipeline([peer], ctx=ParentRuntime(peer_specs=[peer]))
+    pipeline = Peer([peer], ctx=ParentRuntime(peer_specs=[peer]))
 
     result = pipeline.handoff("B", task="continue the work", input_refs={"k": "v"})
 
@@ -47,7 +47,7 @@ def test_handoff_returns_handoff_result_with_peer_and_task():
 
 def test_handoff_unknown_peer_returns_abort_error():
     peer = Agent("B")
-    pipeline = PeerPipeline([peer], ctx=ParentRuntime(peer_specs=[peer]))
+    pipeline = Peer([peer], ctx=ParentRuntime(peer_specs=[peer]))
 
     result = pipeline.handoff("Nonexistent", task="x")
 

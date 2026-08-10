@@ -43,7 +43,7 @@
 
 - **三执行模式** —— `PLAN_FIRST`（LLM 动态出 PLAN DAG，可审计、可 HITL、可断点续跑）/ `REACTIVE`（ReAct 循环，边走边看）/ `Workflow`（人写静态 PLAN DAG）。
 
-- **Agent 协作** —— `agents=` 垂直委派（父 spawn 子，子返回结果）；`peers=` 横向接力（终止当前 run，peer 接力继续）；`EnsemblePipeline` 多 Agent 共享 floor 轮流发言（`FloorMember` + `SharedBudget` + `FloorProjection` + 复合 `TerminationPolicy`）。
+- **Agent 协作** —— 五个原语，驱动方式各不相同：`agents=` push 垂直委派（父 spawn 子，子返回结果，父继续）；`peers=` push 横向接力（终止当前 run，peer 接力继续）；`Ensemble` 多人共用对话区，轮流发言；`Blackboard` 共用看板，字段变化触发专家，`buzz_in` 先抢锁再算；`WorkQueue` worker 主动领活，超时回收，重试耗尽转死信。五者共用 `BudgetLedger` 预算账本。
 
 - **上下文三明治** —— state / memory / skills / history / reminder 五段式组装，每段独立可控、独立可压缩。
 
@@ -98,7 +98,8 @@ LLM_MODEL=glm-5.2
 | 6 | [code_detective](examples/code_detective) | 自主修 bug | MCP stdio server 桥接外部工具 + REACTIVE 多轮调试                                          |
 | 7 | [trip_planner](examples/trip_planner) | 旅行规划 | `Workflow` DAG + 3 peer 并行 fan-out + `MemoryManager` 偏好注入                        |
 | 8 | [aiops](examples/aiops) | 故障应急全栈 | 多 Agent spawn + peer handoff + 记忆 + 学习 + 可观测 + 审批                                |
-| 9 | [dating_chat](examples/dating_chat) | Agent相亲 | `EnsemblePipeline` 多 Agent 共享 floor + 真·框架 Agent vs 简单版 Agent 的记忆/上下文反差          |
+| 9 | [dating_chat](examples/dating_chat) | Agent相亲 | `Ensemble` 多 Agent 共享 floor + 真·框架 Agent vs 简单版 Agent 的记忆/上下文反差          |
+| 10 | [quiz_arena](examples/quiz_arena) | 抢答竞赛场 | `WorkQueue` 后台审题（抢活干 + 租约超时 + 死信）接 `Blackboard` 正式抢答（`buzz_in` 先抢锁再算，用真实计算次数断言互斥语义） |
 
 ### 安装
 

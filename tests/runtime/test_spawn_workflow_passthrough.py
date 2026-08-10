@@ -1,4 +1,4 @@
-"""Workflow sub-agent passthrough — ``SpawnPipeline._run_child`` must forward
+"""Workflow sub-agent passthrough — ``Spawn._run_child`` must forward
 ``initial_plan`` / ``max_replans`` so a ``workflow=`` child runs the preset
 DAG instead of falling back to LLM planning.
 """

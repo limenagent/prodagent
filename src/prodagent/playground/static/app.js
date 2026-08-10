@@ -6,8 +6,9 @@ let selectedSpec = null;
 let currentThinkCard = null;
 let currentEventSource = null;
 let currentRunId = null;
-let datingMode = false;
+let multiAgentMode = false;
 let lastMeiMemoryPreview = "";
+let maRoster = [];  // current participant roster for multi-agent runs
 const submittedRequestIds = new Set();
 const SPEAKER_AVATAR = { 大牛: "牛", 小美: "美" };
 
@@ -78,6 +79,11 @@ const taskInput = document.getElementById("task-input");
 const sendBtn = document.getElementById("send-btn");
 const pickerEl = document.getElementById("picker");
 const pickerToggleEl = document.getElementById("picker-toggle");
+const playgroundMainEl = document.getElementById("playground-main");
+const rosterPanelEl = document.getElementById("roster-panel");
+const snapshotPanelEl = document.getElementById("snapshot-panel");
+const rosterEl = document.getElementById("roster");
+const snapshotEl = document.getElementById("snapshot");
 let sending = false;  // guards concurrent _startRun/_sendChat
 sendBtn.textContent = "💬 Send";
 
@@ -94,6 +100,7 @@ const AGENT_ICONS = {
   code_detective: "🐛",
   aiops: "🚨",
   dating_chat: "💬",
+  quiz_arena: "🏁",
 };
 
 async function loadExamples() {
@@ -117,7 +124,7 @@ function selectExample(spec, cardEl) {
   cardEl.classList.add("selected");
   if (currentEventSource) { currentEventSource.close(); currentEventSource = null; }
   selectedSpec = spec;
-  datingMode = spec.name === "dating_chat";
+  multiAgentMode = !!spec.is_multiagent;
   taskInput.value = spec.default_task;
   streamEl.innerHTML = "";
   currentThinkCard = null;
@@ -127,18 +134,32 @@ function selectExample(spec, cardEl) {
   currentRunId = null;
   sending = false;
   sendBtn.disabled = false;
-  taskInput.style.display = datingMode ? "none" : "";
-  sendBtn.textContent = datingMode ? "💬 开始自主聊天" : "💬 Send";
+  maRoster = [];
+  rosterEl.innerHTML = "";
+  snapshotEl.innerHTML = "";
+  if (multiAgentMode) {
+    playgroundMainEl.classList.remove("single-agent");
+    rosterPanelEl.classList.remove("hidden");
+    snapshotPanelEl.classList.remove("hidden");
+    taskInput.style.display = "none";
+    sendBtn.textContent = "▶ Start";
+  } else {
+    playgroundMainEl.classList.add("single-agent");
+    rosterPanelEl.classList.add("hidden");
+    snapshotPanelEl.classList.add("hidden");
+    taskInput.style.display = "";
+    sendBtn.textContent = "💬 Send";
+  }
   hudState.agent = spec.title;
   updateHud();
-  if (datingMode) statusEl.textContent = "点击右下角按钮，开始大牛与小美的自主对话";
+  if (multiAgentMode) statusEl.textContent = `点击右下角按钮，开始 ${spec.title} 的多 Agent 协作`;
   else taskInput.focus();
 }
 
 taskInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
-    if (!selectedSpec || datingMode) return;
+    if (!selectedSpec || multiAgentMode) return;
     if (currentRunId) _sendChat();
     else _startRun();
   }
@@ -147,7 +168,7 @@ taskInput.addEventListener("keydown", (e) => {
 // ── Run + Chat + SSE ───────────────────────────────────────────────────────
 sendBtn.onclick = async () => {
   if (!selectedSpec) return;
-  if (datingMode) return _startDatingChat();
+  if (multiAgentMode) return _startMultiAgent();
   if (currentRunId) return _sendChat();
   return _startRun();
 };
@@ -261,19 +282,22 @@ function streamRun(runId) {
   };
 }
 
-// ── dating_chat: autonomous two-agent chat rendered as bubbles in #stream ──
-async function _startDatingChat() {
+// ── Multi-agent: generic event stream rendered into the three-column layout ──
+async function _startMultiAgent() {
   if (sending) return;
   sending = true;
   sendBtn.disabled = true;
-  statusEl.textContent = "对话进行中…";
+  statusEl.textContent = "协作进行中…";
   streamEl.innerHTML = "";
+  rosterEl.innerHTML = "";
+  snapshotEl.innerHTML = "";
+  maRoster = [];
   lastMeiMemoryPreview = "";
   resetHudForRun(selectedSpec.title);
 
   let runId;
   try {
-    const res = await fetch("/api/dating_chat/start", { method: "POST" });
+    const res = await fetch(`/api/multiagent/${selectedSpec.name}/start`, { method: "POST" });
     if (!res.ok) throw new Error(`start failed: ${res.status}`);
     ({ run_id: runId } = await res.json());
   } catch (e) {
@@ -283,26 +307,15 @@ async function _startDatingChat() {
     return;
   }
 
+  currentRunId = runId;
   if (currentEventSource) currentEventSource.close();
-  const es = new EventSource(`/api/dating_chat/stream/${runId}`);
+  const es = new EventSource(`/api/multiagent/${selectedSpec.name}/stream/${runId}`);
   currentEventSource = es;
 
   es.onmessage = (evt) => {
-    const data = JSON.parse(evt.data);
-    if (data.type === "message") {
-      appendDatingBubble(data);
-    } else if (data.type === "done") {
-      statusEl.textContent = "对话结束";
-      sendBtn.disabled = false;
-      sending = false;
-      es.close();
-    } else if (data.type === "failed") {
-      statusEl.textContent = `出错：${data.error}`;
-      sendBtn.disabled = false;
-      sending = false;
-      es.close();
-    }
-    // heartbeat: keep-alive, no-op
+    const env = JSON.parse(evt.data);
+    if (env.type === "heartbeat") return;
+    renderMultiAgentEvent(env);
   };
 
   es.onerror = () => {
@@ -313,22 +326,227 @@ async function _startDatingChat() {
   };
 }
 
-function appendDatingBubble(data) {
-  const {
-    speaker,
-    text,
-    tool_calls: toolCalls,
-    memory_hits: memoryHits,
-    memory_previews: memoryPreviews,
-    compression,
-    history_summary: historySummary,
-    tool_compress_sample: toolCompressSample,
-    niu_note: niuNote,
-  } = data;
-  const isNiu = speaker === "大牛";
+function renderMultiAgentEvent(env) {
+  // Terminal events re-enable the start button.
+  if (env.kind === "completed") {
+    statusEl.textContent = "协作结束";
+    sendBtn.disabled = false;
+    sending = false;
+    if (currentEventSource) currentEventSource.close();
+    return;
+  }
+  if (env.kind === "failed") {
+    statusEl.textContent = `出错：${(env.payload && env.payload.error) || "未知"}`;
+    sendBtn.disabled = false;
+    sending = false;
+    if (currentEventSource) currentEventSource.close();
+    return;
+  }
+  if (env.kind === "started") {
+    statusEl.textContent = "协作进行中…";
+    return;
+  }
+  if (env.kind === "roster") {
+    maRoster = (env.payload && env.payload.participants) || [];
+    renderRoster();
+    return;
+  }
+  // Snapshot panel: always show the latest event's snapshot.
+  if (env.snapshot && Object.keys(env.snapshot).length > 0) {
+    renderSnapshot(env.snapshot, env.phase);
+  }
+  // Dispatch to the right center-column renderer.
+  switch (env.kind) {
+    case "turn": renderTurnBubble(env); break;
+    case "write": renderWriteCard(env); break;
+    case "claim": renderClaimCard(env); break;
+    case "complete": renderCompleteCard(env); break;
+    case "requeue": renderRequeueCard(env); break;
+    case "dead_letter": renderDeadLetterCard(env); break;
+    case "phase_started": renderPhaseDivider(env, true); break;
+    case "phase_completed": renderPhaseDivider(env, false); break;
+    default:
+      // Unknown kind — render as a generic card so nothing is silently dropped.
+      renderGenericCard(env);
+  }
+  scrollDown();
+}
+
+// ── Roster (left panel) — group by role, render human-readable labels ──
+const ROLE_LABELS = {
+  speaker: "发言者",
+  expert: "专家",
+  worker: "工人",
+  host: "主持人",
+  trigger: "触发器",
+};
+const ROLE_ORDER = ["host", "speaker", "expert", "worker", "trigger"];
+const STATE_LABELS = {
+  idle: "待命",
+  computing: "计算中",
+  locked_winner: "抢到锁",
+  locked_loser: "未抢到",
+  failed: "失败",
+  completed: "已完成",
+};
+
+function rosterMetaLabel(p) {
+  if (!p.meta || Object.keys(p.meta).length === 0) return "";
+  const parts = [];
+  if (p.meta.desc) parts.push(p.meta.desc);
+  if (p.meta.specialty) parts.push(`擅长${p.meta.specialty}`);
+  if (p.meta.mode) parts.push(p.meta.mode === "buzz_in" ? "抢锁模式" : "并发模式");
+  return parts.join(" · ");
+}
+
+function renderRoster() {
+  rosterEl.innerHTML = "";
+  const groups = {};
+  for (const p of maRoster) {
+    const role = p.role || "other";
+    (groups[role] = groups[role] || []).push(p);
+  }
+  const roles = Object.keys(groups).sort(
+    (a, b) => ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b)
+  );
+  for (const role of roles) {
+    const groupEl = document.createElement("div");
+    groupEl.className = "roster-group";
+    const titleEl = document.createElement("div");
+    titleEl.className = "roster-group-title";
+    titleEl.textContent = ROLE_LABELS[role] || role;
+    groupEl.appendChild(titleEl);
+    for (const p of groups[role]) {
+      const row = document.createElement("div");
+      row.className = "roster-row";
+      const light = document.createElement("span");
+      const state = p.state || "idle";
+      light.className = `roster-state-light ${state}`;
+      light.title = STATE_LABELS[state] || state;
+      const name = document.createElement("span");
+      name.className = "roster-name";
+      name.textContent = p.name;
+      row.append(light, name);
+      const metaStr = rosterMetaLabel(p);
+      if (metaStr) {
+        const meta = document.createElement("span");
+        meta.className = "roster-meta";
+        meta.textContent = metaStr;
+        meta.title = metaStr;
+        row.appendChild(meta);
+      }
+      groupEl.appendChild(row);
+    }
+    rosterEl.appendChild(groupEl);
+  }
+}
+
+// ── Snapshot (right panel) — renders the latest event's snapshot dict ──
+const PHASE_LABELS = {
+  backstage_review: "后台审题",
+  live_quiz: "正式抢答",
+};
+const QUEUE_COUNTER_LABELS = {
+  pending: "待处理",
+  claimed: "已认领",
+  completed: "已完成",
+  dead_lettered: "已死信",
+};
+const FLOOR_COUNTER_LABELS = {
+  turn_count: "发言数",
+  round_count: "轮次",
+  member_count: "在场人数",
+};
+
+function renderSnapshot(snapshot, phase) {
+  snapshotEl.innerHTML = "";
+  if (phase) {
+    const ph = document.createElement("div");
+    ph.className = "snapshot-section";
+    ph.innerHTML = `<div class="snapshot-section-title">阶段</div><div>${escapeHtml(PHASE_LABELS[phase] || phase)}</div>`;
+    snapshotEl.appendChild(ph);
+  }
+  // Blackboard board_snapshot: {slots: {k: {value, version}}, round_count, elapsed_s}
+  if (snapshot.slots && typeof snapshot.slots === "object") {
+    const sec = document.createElement("div");
+    sec.className = "snapshot-section";
+    sec.innerHTML = `<div class="snapshot-section-title">看板字段</div>`;
+    const tbl = document.createElement("table");
+    tbl.className = "snapshot-table";
+    tbl.innerHTML = "<thead><tr><th>字段</th><th>值</th><th>版本</th></tr></thead>";
+    const tbody = document.createElement("tbody");
+    for (const [k, v] of Object.entries(snapshot.slots)) {
+      const tr = document.createElement("tr");
+      const valStr = typeof v === "object" && v !== null ? JSON.stringify(v.value) : String(v);
+      const ver = typeof v === "object" && v !== null ? v.version : "";
+      tr.innerHTML = `<td>${escapeHtml(k)}</td><td>${escapeHtml(truncate(valStr, 40))}</td><td class="version">${escapeHtml(String(ver))}</td>`;
+      tbody.appendChild(tr);
+    }
+    tbl.appendChild(tbody);
+    sec.appendChild(tbl);
+    snapshotEl.appendChild(sec);
+  }
+  // WorkQueue queue_snapshot: {pending, claimed, completed, dead_lettered, round_count, elapsed_s}
+  if (typeof snapshot.pending === "number") {
+    const sec = document.createElement("div");
+    sec.className = "snapshot-section";
+    sec.innerHTML = `<div class="snapshot-section-title">队列计数</div>`;
+    const grid = document.createElement("div");
+    grid.className = "snapshot-counters";
+    for (const k of ["pending", "claimed", "completed", "dead_lettered"]) {
+      if (typeof snapshot[k] === "number") {
+        const c = document.createElement("div");
+        c.className = "snapshot-counter";
+        c.innerHTML = `<div class="label">${escapeHtml(QUEUE_COUNTER_LABELS[k] || k)}</div><div class="value">${snapshot[k]}</div>`;
+        grid.appendChild(c);
+      }
+    }
+    sec.appendChild(grid);
+    snapshotEl.appendChild(sec);
+  }
+  // Ensemble floor_snapshot: {session_id, topic, member_count, turn_count, round_count, elapsed_s}
+  if (typeof snapshot.turn_count === "number" || typeof snapshot.round_count === "number") {
+    const sec = document.createElement("div");
+    sec.className = "snapshot-section";
+    sec.innerHTML = `<div class="snapshot-section-title">对话区</div>`;
+    const grid = document.createElement("div");
+    grid.className = "snapshot-counters";
+    for (const k of ["turn_count", "round_count", "member_count"]) {
+      if (typeof snapshot[k] === "number") {
+        const c = document.createElement("div");
+        c.className = "snapshot-counter";
+        c.innerHTML = `<div class="label">${escapeHtml(FLOOR_COUNTER_LABELS[k] || k)}</div><div class="value">${snapshot[k]}</div>`;
+        grid.appendChild(c);
+      }
+    }
+    sec.appendChild(grid);
+    if (snapshot.topic) {
+      const t = document.createElement("div");
+      t.style.fontSize = "11px";
+      t.style.color = "var(--dim)";
+      t.style.marginTop = "4px";
+      t.textContent = `话题: ${snapshot.topic}`;
+      sec.appendChild(t);
+    }
+    snapshotEl.appendChild(sec);
+  }
+  if (typeof snapshot.elapsed_s === "number") {
+    const sec = document.createElement("div");
+    sec.className = "snapshot-section";
+    sec.innerHTML = `<div class="snapshot-section-title">用时</div><div>${snapshot.elapsed_s.toFixed(2)}s</div>`;
+    snapshotEl.appendChild(sec);
+  }
+}
+
+// ── Center-column renderers ──
+function renderTurnBubble(env) {
+  const p = env.payload || {};
+  const speaker = p.speaker || env.actor || "?";
+  const isNiu = p.is_niu !== undefined ? p.is_niu : speaker === "大牛";
+  const sideClass = isNiu ? "niu" : "mei";
 
   const row = document.createElement("div");
-  row.className = `chat-row ${isNiu ? "niu" : "mei"}`;
+  row.className = `chat-row ${sideClass}`;
 
   const avatar = document.createElement("div");
   avatar.className = "chat-avatar";
@@ -336,55 +554,178 @@ function appendDatingBubble(data) {
 
   const bubble = document.createElement("div");
   bubble.className = "chat-bubble";
-  bubble.textContent = text;
+  bubble.textContent = p.text || "";
 
   if (isNiu) row.append(avatar, bubble);
   else row.append(bubble, avatar);
+  streamEl.appendChild(row);
 
+  // Badges (memory / tools / compression / niu_note) — same logic as the old dating_chat path.
+  const memoryHits = p.memory_hits || 0;
+  const memoryPreviews = p.memory_previews || [];
   if (memoryHits > 0) {
-    const preview = Array.isArray(memoryPreviews) && memoryPreviews.length > 0 ? memoryPreviews[0] : "";
-    // 小美的 CONSTRAINT 是无条件注入，每轮都召回同一条——只在第一次展开完整文案，
-    // 后续轮次降级为简短标记，避免同一段介绍人评价在四个气泡下重复刷屏。
-    // 大牛没有记忆系统，不走去重。
+    const preview = memoryPreviews.length > 0 ? memoryPreviews[0] : "";
     if (!isNiu && preview && preview === lastMeiMemoryPreview) {
-      appendDatingBadge(isNiu, `🧠 命中记忆 ${memoryHits} 条（与上一轮相同）`, "memory");
+      appendBadge(sideClass, `🧠 命中记忆 ${memoryHits} 条（与上一轮相同）`, "memory");
     } else {
-      appendDatingBadge(isNiu, `🧠 命中记忆 ${memoryHits} 条 · ${preview}`, "memory");
+      appendBadge(sideClass, `🧠 命中记忆 ${memoryHits} 条 · ${preview}`, "memory");
       if (!isNiu) lastMeiMemoryPreview = preview;
     }
   }
-
+  const toolCalls = p.tool_calls || [];
   if (Array.isArray(toolCalls) && toolCalls.length > 0) {
-    appendDatingBadge(isNiu, `🔧 ${toolCalls.join(", ")} 已调用`);
+    appendBadge(sideClass, `🔧 ${toolCalls.join(", ")} 已调用`);
   }
-
-  if (compression && compression !== "NONE") {
-    appendDatingBadge(isNiu, `⚡ 触发上下文压缩：${compression}（超出预算的工具结果/历史被压缩）`, "compress");
-    if (toolCompressSample) {
-      appendDatingBadge(isNiu, `📦 压缩后仍保留：${toolCompressSample}`, "compress");
+  if (p.compression && p.compression !== "NONE") {
+    appendBadge(sideClass, `⚡ 触发上下文压缩：${p.compression}（超出预算的工具结果/历史被压缩）`, "compress");
+    if (p.tool_compress_sample) {
+      appendBadge(sideClass, `📦 压缩后仍保留：${p.tool_compress_sample}`, "compress");
     }
-    if (historySummary) {
-      appendDatingBadge(isNiu, `📝 摘要：${historySummary}`, "compress");
+    if (p.history_summary) {
+      appendBadge(sideClass, `📝 摘要：${p.history_summary}`, "compress");
     }
   }
-
-  if (niuNote) {
-    appendDatingBadge(isNiu, `⚠️ ${niuNote}`, "toy");
+  if (p.niu_note) {
+    appendBadge(sideClass, `⚠️ ${p.niu_note}`, "toy");
   }
-
-  streamEl.appendChild(row);
-
-  streamEl.scrollTop = streamEl.scrollHeight;
+  scrollDown();
 }
 
-function appendDatingBadge(isNiu, label, variant = "") {
+function appendBadge(sideClass, label, variant = "") {
   const row = document.createElement("div");
-  row.className = `chat-row ${isNiu ? "niu" : "mei"}`;
+  row.className = `chat-row ${sideClass}`;
   const badge = document.createElement("div");
   badge.className = variant ? `chat-badge ${variant}` : "chat-badge";
   badge.textContent = label;
   row.appendChild(badge);
   streamEl.appendChild(row);
+}
+
+function renderWriteCard(env) {
+  const p = env.payload || {};
+  const card = document.createElement("div");
+  card.className = "ma-card";
+  if (p.buzz_in_winner) card.classList.add("buzz-in-winner");
+  const triggerLabel = p.trigger_name === "buzz_in" ? "抢答" : (p.trigger_name === "kickoff" ? "出题" : p.trigger_name);
+  const triggerHtml = triggerLabel ? `<span class="ma-trigger">${escapeHtml(triggerLabel)}</span>` : "";
+  const valStr = truncate(JSON.stringify(p.value), 80);
+  card.innerHTML = `
+    <div class="ma-header">
+      <span class="ma-actor">${escapeHtml(env.actor || "?")}</span>
+      ${triggerHtml}
+      <span class="ma-ts">${phaseLabel(env.phase)}</span>
+    </div>
+    <div class="ma-body">写入 <code>${escapeHtml(p.key || "?")}</code> = ${escapeHtml(valStr)}</div>
+  `;
+  attachPayload(card, p);
+  streamEl.appendChild(card);
+}
+
+function renderClaimCard(env) {
+  const p = env.payload || {};
+  const card = document.createElement("div");
+  card.className = "ma-card";
+  card.innerHTML = `
+    <div class="ma-header">
+      <span class="ma-actor">${escapeHtml(env.actor || "?")}</span>
+      <span class="ma-trigger">认领</span>
+      <span class="ma-ts">${phaseLabel(env.phase)}</span>
+    </div>
+    <div class="ma-body">认领了 <code>${escapeHtml(p.item_id || "?")}</code></div>
+  `;
+  attachPayload(card, p);
+  streamEl.appendChild(card);
+}
+
+function renderCompleteCard(env) {
+  const p = env.payload || {};
+  const card = document.createElement("div");
+  card.className = "ma-card";
+  card.innerHTML = `
+    <div class="ma-header">
+      <span class="ma-actor">${escapeHtml(env.actor || "?")}</span>
+      <span class="ma-trigger">完成</span>
+      <span class="ma-ts">${phaseLabel(env.phase)}</span>
+    </div>
+    <div class="ma-body">完成了 <code>${escapeHtml(p.item_id || "?")}</code></div>
+  `;
+  attachPayload(card, p);
+  streamEl.appendChild(card);
+}
+
+function renderRequeueCard(env) {
+  const p = env.payload || {};
+  const card = document.createElement("div");
+  card.className = "ma-card";
+  card.innerHTML = `
+    <div class="ma-header">
+      <span class="ma-actor">${escapeHtml(env.actor || "?")}</span>
+      <span class="ma-trigger">重排</span>
+      <span class="ma-ts">${phaseLabel(env.phase)}</span>
+    </div>
+    <div class="ma-body"><code>${escapeHtml(p.item_id || "?")}</code> 重新入队${p.reason ? ` — ${escapeHtml(p.reason)}` : ""}</div>
+  `;
+  attachPayload(card, p);
+  streamEl.appendChild(card);
+}
+
+function renderDeadLetterCard(env) {
+  const p = env.payload || {};
+  const card = document.createElement("div");
+  card.className = "ma-card dead-letter";
+  card.innerHTML = `
+    <div class="ma-header">
+      <span class="ma-actor">${escapeHtml(env.actor || "?")}</span>
+      <span class="ma-trigger">死信</span>
+      <span class="ma-ts">${phaseLabel(env.phase)}</span>
+    </div>
+    <div class="ma-body"><code>${escapeHtml(p.item_id || "?")}</code> 重试 ${p.attempts || "?"} 次后转入死信${p.error ? ` — ${escapeHtml(p.error)}` : ""}</div>
+  `;
+  attachPayload(card, p);
+  streamEl.appendChild(card);
+}
+
+function renderPhaseDivider(env, isStart) {
+  const div = document.createElement("div");
+  div.className = "phase-divider";
+  const arrow = isStart ? "▶" : "■";
+  const label = isStart ? "阶段开始" : "阶段结束";
+  const phaseLabelStr = PHASE_LABELS[env.phase] || env.phase || "?";
+  let countsHtml = "";
+  if (env.payload && env.payload.counts) {
+    const parts = Object.entries(env.payload.counts).map(([k, v]) => `${escapeHtml(k)}=${v}`);
+    countsHtml = `<div class="counts">${parts.join(" · ")}</div>`;
+  }
+  div.innerHTML = `${arrow} ${label} — ${escapeHtml(phaseLabelStr)}${env.payload && env.payload.detail ? " · " + escapeHtml(env.payload.detail) : ""}${countsHtml}`;
+  streamEl.appendChild(div);
+}
+
+function renderGenericCard(env) {
+  const card = document.createElement("div");
+  card.className = "ma-card";
+  card.innerHTML = `
+    <div class="ma-header">
+      <span class="ma-actor">${escapeHtml(env.actor || "system")}</span>
+      <span class="ma-trigger">${escapeHtml(env.kind || "?")}</span>
+      <span class="ma-ts">${phaseLabel(env.phase)}</span>
+    </div>
+    <div class="ma-body">${escapeHtml(JSON.stringify(env.summary || {}))}</div>
+  `;
+  attachPayload(card, env.payload || {});
+  streamEl.appendChild(card);
+}
+
+function attachPayload(card, payload) {
+  if (!payload || Object.keys(payload).length === 0) return;
+  const el = document.createElement("div");
+  el.className = "ma-payload hidden";
+  el.textContent = JSON.stringify(payload, null, 2);
+  card.appendChild(el);
+  card.onclick = () => el.classList.toggle("hidden");
+}
+
+function phaseLabel(phase) {
+  return phase ? escapeHtml(PHASE_LABELS[phase] || phase) : "";
 }
 
 // ── Approval flow ──────────────────────────────────────────────────────────

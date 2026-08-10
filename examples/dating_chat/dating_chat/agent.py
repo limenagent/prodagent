@@ -14,7 +14,7 @@ REACTIVE 模式，挂了一个她自己的只读工具 ``check_restaurant_review
 和大牛的简单版 Agent（``niu.py``）形成"真正的 prodagent 引擎 vs 简陋 demo agent"
 的核心反差。
 
-迁移到 EnsemblePipeline 后，小美用 :class:`MeiFloorMember` 适配——继承框架的
+迁移到 Ensemble 后，小美用 :class:`MeiFloorMember` 适配——继承框架的
 ``AgentFloorMember``，复用 ``[FLOOR]`` 块的 L2 注入机制（floor transcript 走她的
 压缩/记忆管线，跟 ``[MEMORY]`` 同级）。导演提示以 ``[导演提示：...]`` 追加在喂给她
 的 message 末尾——跟原 orchestrator 的注入方式形似，但本质不同：原来靠 Python 侧

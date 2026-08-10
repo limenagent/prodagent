@@ -70,10 +70,21 @@ class ExampleSpec:
     number: int
     title: str
     description: str
-    factory: Callable[[str], Agent]
+    factory: Callable[[str], Agent] | None
     default_task: str
     is_hitl: bool
     framework_config: FrameworkConfig
+    multiagent_adapter: Callable[[], Any] | None = None
+    """Factory for a :class:`~prodagent.playground.multiagent.MultiAgentAdapter`.
+
+    ``None`` for single-agent-only examples. Present when the example has a
+    ``multiagent.py`` module with a ``build_adapter`` callable. The frontend
+    switches to the three-column multi-agent UI when this is set.
+    """
+
+    @property
+    def is_multiagent(self) -> bool:
+        return self.multiagent_adapter is not None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -83,6 +94,7 @@ class ExampleSpec:
             "description": self.description,
             "default_task": self.default_task,
             "is_hitl": self.is_hitl,
+            "is_multiagent": self.is_multiagent,
         }
 
 
@@ -163,18 +175,55 @@ def _load_factory(name: str, agent_py: Path) -> tuple[Callable[..., Agent], str]
     return getattr(module, factory_attr), getattr(module, "DEFAULT_TASK", "")
 
 
+def _load_multiagent_adapter(name: str, multiagent_py: Path) -> Callable[[], Any]:
+    """Load ``build_adapter()`` from ``<name>/<name>/multiagent.py``.
+
+    Mirrors :func:`_load_factory` but for the multi-agent adapter. The callable
+    returns a fresh :class:`~prodagent.playground.multiagent.MultiAgentAdapter`
+    instance each invocation — adapters are stateful and must not be reused
+    across runs.
+    """
+    mod_name = f"_playground_example_multiagent_{name}"
+    if mod_name in sys.modules:
+        module = sys.modules[mod_name]
+        return getattr(module, "build_adapter")
+    pkg_root = multiagent_py.parent.parent
+    if str(pkg_root) not in sys.path:
+        sys.path.insert(0, str(pkg_root))
+    spec = importlib.util.spec_from_file_location(mod_name, multiagent_py)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load {multiagent_py}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[mod_name] = module
+    spec.loader.exec_module(module)
+    return getattr(module, "build_adapter")
+
+
 def discover_examples() -> list[ExampleSpec]:
     specs: list[ExampleSpec] = []
     for example_dir in sorted(_EXAMPLES_ROOT.iterdir()):
         name = example_dir.name
         readme = example_dir / "README.md"
         agent_mod_path = example_dir / name / "agent.py"
-        if not readme.exists() or not agent_mod_path.exists():
+        multiagent_mod_path = example_dir / name / "multiagent.py"
+        # Accept the example if it has a README and at least one of the two
+        # entry modules. agent.py → single-agent factory; multiagent.py →
+        # multi-agent adapter factory. An example may have both.
+        if not readme.exists() or (
+            not agent_mod_path.exists() and not multiagent_mod_path.exists()
+        ):
             continue
         try:
             number, title, desc = _parse_readme(readme)
-            build_fn, default_task = _load_factory(name, agent_mod_path)
             fw = _framework_config_for(name)
+            factory: Callable[[str], Agent] | None = None
+            default_task = ""
+            if agent_mod_path.exists():
+                build_fn, default_task = _load_factory(name, agent_mod_path)
+                factory = _make_factory(name, build_fn, fw)
+            adapter_factory: Callable[[], Any] | None = None
+            if multiagent_mod_path.exists():
+                adapter_factory = _load_multiagent_adapter(name, multiagent_mod_path)
         except Exception:
             logger.exception("[playground] failed to load %s", name)
             continue
@@ -184,10 +233,11 @@ def discover_examples() -> list[ExampleSpec]:
                 number=number,
                 title=title or name,
                 description=desc or "",
-                factory=_make_factory(name, build_fn, fw),
+                factory=factory,
                 default_task=default_task,
                 is_hitl=name in _HITL_EXAMPLES,
                 framework_config=fw,
+                multiagent_adapter=adapter_factory,
             )
         )
     specs.sort(key=lambda s: s.number)

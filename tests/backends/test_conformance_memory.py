@@ -25,6 +25,7 @@ from prodagent.backends.conformance import (
     run_idempotency_key_isolation_conformance,
     run_lock_conformance,
     run_lock_mutual_exclusion_conformance,
+    run_lock_nonblocking_tryacquire_conformance,
     run_lock_release_idempotent_conformance,
     run_vector_delete_conformance,
     run_vector_empty_search_conformance,
@@ -129,6 +130,10 @@ async def test_memory_lock_mutual_exclusion_conformance():
 
 async def test_memory_lock_release_idempotent_conformance():
     await run_lock_release_idempotent_conformance(_mem_lock())
+
+
+async def test_memory_lock_nonblocking_tryacquire_conformance():
+    await run_lock_nonblocking_tryacquire_conformance(_mem_lock())
 
 
 # ── dead_letter ───────────────────────────────────────────────────────────────

@@ -8,7 +8,7 @@ from prodagent.runtime.coordination.accounting import SpawnAccumulator
 from prodagent.runtime.coordination.parent_runtime import ParentRuntime
 from prodagent.runtime.coordination.run_loop import RunLoop
 from prodagent.runtime.coordination.spawn import (
-    SpawnPipeline,
+    Spawn,
     short_result,
 )
 from prodagent.runtime.run_context import RunContext
@@ -20,9 +20,9 @@ async def test_spawn_timeout_returns_permanent_error(monkeypatch) -> None:
     async def _fake_run_with_timeout(self, spec, task, packet, child_run_id):
         return short_result(spec.name, "timeout", "Sub-agent timed out after 2s")
 
-    monkeypatch.setattr(SpawnPipeline, "_run_with_timeout", _fake_run_with_timeout)
+    monkeypatch.setattr(Spawn, "_run_with_timeout", _fake_run_with_timeout)
 
-    pipeline = SpawnPipeline(
+    pipeline = Spawn(
         [child],
         llm=FakeLLMAdapter(),
         hooks=None,

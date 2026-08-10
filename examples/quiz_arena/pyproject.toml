@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "quiz-arena"
+version = "0.1.0"
+description = "ProdAgent example — buzzer quiz: WorkQueue backstage question review feeding a Blackboard buzz_in live round."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = ["llm", "agent", "blackboard", "work-queue", "buzz-in", "coordination"]
+dependencies = ["prodagent"]
+
+[tool.uv.sources]
+prodagent = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["quiz_arena"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501", "B008"]

@@ -27,6 +27,7 @@ from fastapi.staticfiles import StaticFiles
 
 from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.core.types import ExecutionMode, RunState
+from prodagent.playground.multiagent import MultiAgentRun
 from prodagent.playground.registry import (
     CheckpointFactory,
     RunReconstructError,
@@ -83,7 +84,7 @@ class AppState:
     tasks: dict[str, asyncio.Task[Any]] = field(default_factory=dict)
     checkpoint_for: CheckpointFactory | None = None
     session_store_for: SessionStoreFactory | None = None
-    dating_chat_queues: dict[str, asyncio.Queue[dict[str, Any]]] = field(default_factory=dict)
+    multiagent_runs: dict[str, MultiAgentRun] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.registry is None:
@@ -288,39 +289,46 @@ def build_app(
     if _STATIC_DIR.exists():
         app.mount("/static", _NoCacheStaticFiles(directory=str(_STATIC_DIR)), name="static")
 
-    if state.spec_for("dating_chat") is not None:
+    @app.post("/api/multiagent/{example}/start")
+    async def multiagent_start(example: str) -> dict[str, str]:
+        spec = state.spec_for(example)
+        if spec is None:
+            raise HTTPException(status_code=404, detail=f"unknown example: {example!r}")
+        if spec.multiagent_adapter is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"{example!r} is single-agent only — use /api/run instead",
+            )
+        adapter = spec.multiagent_adapter()
+        run_id = uuid.uuid4().hex[:12]
+        run = MultiAgentRun(adapter, run_id=run_id)
+        state.multiagent_runs[run_id] = run
+        run.start()
+        return {"run_id": run_id}
 
-        @app.post("/api/dating_chat/start")
-        async def dating_chat_start() -> dict[str, str]:
-            from dating_chat.web import run_autonomous_chat
+    @app.get("/api/multiagent/{example}/stream/{run_id}")
+    async def multiagent_stream(example: str, run_id: str) -> StreamingResponse:
+        run = state.multiagent_runs.get(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail=f"unknown run: {run_id}")
 
-            run_id = uuid.uuid4().hex[:12]
-            queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
-            state.dating_chat_queues[run_id] = queue
-            state.spawn_drive(run_autonomous_chat(queue, session_id=run_id), run_id)
-            return {"run_id": run_id}
+        async def event_stream() -> Any:
+            try:
+                while True:
+                    try:
+                        event = await asyncio.wait_for(run.queue.get(), timeout=_SSE_HEARTBEAT_S)
+                    except TimeoutError:
+                        yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+                        continue
+                    yield f"data: {json.dumps(event, default=str, ensure_ascii=False)}\n\n"
+                    if event.get("kind") in ("completed", "failed"):
+                        return
+            finally:
+                # The run keeps driving to completion server-side even if the
+                # client disconnects; we just stop streaming to this client.
+                pass
 
-        @app.get("/api/dating_chat/stream/{run_id}")
-        async def dating_chat_stream(run_id: str) -> StreamingResponse:
-            queue = state.dating_chat_queues.get(run_id)
-            if queue is None:
-                raise HTTPException(status_code=404, detail=f"unknown run: {run_id}")
-
-            async def event_stream() -> Any:
-                try:
-                    while True:
-                        try:
-                            event = await asyncio.wait_for(queue.get(), timeout=_SSE_HEARTBEAT_S)
-                        except TimeoutError:
-                            yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
-                            continue
-                        yield f"data: {json.dumps(event, default=str, ensure_ascii=False)}\n\n"
-                        if event.get("type") in ("failed", "done"):
-                            return
-                finally:
-                    state.dating_chat_queues.pop(run_id, None)
-
-            return StreamingResponse(event_stream(), media_type="text/event-stream")
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
 
     @app.get("/api/examples")
     async def list_examples() -> list[dict[str, Any]]:
@@ -340,6 +348,11 @@ def build_app(
         spec = state.spec_for(example)
         if spec is None:
             raise HTTPException(status_code=404, detail=f"unknown example: {example!r}")
+        if spec.factory is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"{example!r} is multi-agent only — use /api/multiagent/{example}/start",
+            )
         if not task:
             task = spec.default_task
         run_id = body.get("run_id") or uuid.uuid4().hex[:12]

@@ -62,5 +62,5 @@ repo 里跑一下 `examples/dating_chat`，气泡可视化，压缩触发、记�
 - **大牛：简单版 Agent** —— 绕开 `Agent`/`ContextManager`/`MemoryManager`，自己攒
   `messages` 列表，超过阈值后 `del messages[:-4]` 硬删前面，机制性遗忘。气泡下方
   `⚠️` 标签标出他这两处具体问题。
-- **`EnsemblePipeline` 双 Agent 共享 floor** —— 两人都是 `FloorMember` 挂在同一个
+- **`Ensemble` 双 Agent 共享 floor** —— 两人都是 `FloorMember` 挂在同一个
   `SharedFloor` 上，框架负责轮次驱动、预算刹车、终止判决。

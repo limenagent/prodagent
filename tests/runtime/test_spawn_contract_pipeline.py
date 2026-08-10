@@ -10,7 +10,7 @@ from prodagent.core.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.coordination.handoff import HandoffContract
 from prodagent.runtime.coordination.parent_runtime import ParentRuntime
-from prodagent.runtime.coordination.spawn import SpawnPipeline
+from prodagent.runtime.coordination.spawn import Spawn
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -46,8 +46,8 @@ def _pipeline(
     *,
     dlq: InMemoryDeadLetterQueue | None = None,
     child_output: str = "order #123 shipped",
-) -> SpawnPipeline:
-    return SpawnPipeline(
+) -> Spawn:
+    return Spawn(
         [child],
         llm=FakeLLMAdapter(responses=[LLMResponse(content=child_output, stop_reason="end_turn")]),
         hooks=None,

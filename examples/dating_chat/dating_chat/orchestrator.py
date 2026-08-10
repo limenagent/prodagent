@@ -1,6 +1,6 @@
 """自主对话驱动 —— 大牛与小美轮流说话，全程无人工介入。
 
-迁移到 EnsemblePipeline 后，原来的 ``for round_num in range(...)`` 手搓循环换成
+迁移到 Ensemble 后，原来的 ``for round_num in range(...)`` 手搓循环换成
 框架的 ``ensemble_stream()``：两人都是 ``FloorMember``，挂在同一个 ``SharedFloor``
 上，框架负责轮次驱动、预算刹车、终止判决。叙事可靠性依然靠几个确定性机制，但现在
 都走框架通道，不是 Python 侧字符串拼接：
@@ -31,8 +31,8 @@ round_num 语义一致——叙事节拍不变。
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 from prodagent.core.budget import HardBudget
 from prodagent.runtime.coordination.ensemble import (
@@ -40,7 +40,7 @@ from prodagent.runtime.coordination.ensemble import (
     FloorTurnEvent,
     ensemble_stream,
 )
-from prodagent.runtime.coordination.ensemble_budget import SharedBudget
+from prodagent.runtime.coordination.budget_ledger import SharedBudget
 from prodagent.runtime.coordination.floor_projection import PublicTextOnly
 from prodagent.runtime.coordination.termination import MaxRounds, TerminationPolicy
 
@@ -158,6 +158,7 @@ class Line:
     history_summary: str = ""
     tool_compress_sample: str = ""
     niu_note: str = ""
+    floor_snapshot: dict[str, Any] = field(default_factory=dict)
 
 
 async def run_conversation(*, session_id: str = "dating-chat") -> AsyncIterator[Line]:
@@ -226,6 +227,7 @@ async def run_conversation(*, session_id: str = "dating-chat") -> AsyncIterator[
                 compression=sig.compression,
                 history_summary=sig.history_summary,
                 tool_compress_sample=sig.tool_compress_sample,
+                floor_snapshot=event.floor_snapshot,
             )
         elif turn.speaker == "大牛":
             niu_last_said_box[0] = turn.text
@@ -248,6 +250,7 @@ async def run_conversation(*, session_id: str = "dating-chat") -> AsyncIterator[
                 turn.round,
                 tool_calls=tool_calls,
                 niu_note=niu_note,
+                floor_snapshot=event.floor_snapshot,
             )
 
 

@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -19,6 +19,7 @@ members = [
     "email-triage-agent",
     "greeter-agent",
     "prodagent",
+    "quiz-arena",
     "trader-agent",
     "trip-planner-agent",
 ]
@@ -1739,6 +1740,17 @@ sdist = { url = "https://files.pythonhosted.org/packages/65/45/5b1bdd15a3c7730ee
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d6/10/c437bd2ac41ef30d3019063e6ce537dc111e9214473b337ee88f7fa6359a/qdrant_client-1.18.0-py3-none-any.whl", hash = "sha256:093aa8cf8a420ee3ad2a68b007e1378d7992b2600e0b53c193fc172674f659cd", size = 398126, upload-time = "2026-05-11T14:12:36.998Z" },
 ]
+
+[[package]]
+name = "quiz-arena"
+version = "0.1.0"
+source = { editable = "examples/quiz_arena" }
+dependencies = [
+    { name = "prodagent" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "prodagent", editable = "." }]
 
 [[package]]
 name = "redis"

@@ -43,3 +43,29 @@ async def run_lock_release_idempotent_conformance(make_store: Factory) -> None:
     token = await store.acquire("idem", timeout=1.0)
     await store.release(token)
     await store.release(token)
+
+
+async def run_lock_nonblocking_tryacquire_conformance(make_store: Factory) -> None:
+    """``timeout=0`` is a true non-blocking try — succeeds on a free lock,
+    fails immediately (not "eventually") on a held one.
+
+    Regression coverage for a real bug in ``InProcessLockStore``: wrapping
+    the acquire in ``asyncio.wait_for(..., timeout=0)`` raced its zero-second
+    cancellation against the acquire's own scheduling and lost every time,
+    so a completely free lock still reported a timeout. Buzz-in arbitration
+    (blackboard.py) depends on ``timeout=0`` being a working trylock.
+    """
+    store = make_store()
+
+    token = await store.acquire("trylock-free", timeout=0)
+    assert token.name == "trylock-free"
+    await store.release(token)
+
+    held = await store.acquire("trylock-held", timeout=1.0)
+    try:
+        await asyncio.wait_for(store.acquire("trylock-held", timeout=0), timeout=0.5)
+    except TimeoutError:
+        pass
+    else:
+        raise AssertionError("non-blocking acquire on a held lock should have raised immediately")
+    await store.release(held)
