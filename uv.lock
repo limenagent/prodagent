@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -16,7 +16,6 @@ members = [
     "compliance-audit-agent",
     "dating-chat-agent",
     "deep-research-agent",
-    "email-triage-agent",
     "greeter-agent",
     "prodagent",
     "quiz-arena",
@@ -428,17 +427,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/e0/4d/f332313098c1de1b2
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a7/5f/ed01f9a3cdffbd5a008556fc7b2a08ddb1cc6ace7effa7340604b1d16699/docstring_parser-0.18.0-py3-none-any.whl", hash = "sha256:b3fcbed555c47d8479be0796ef7e19c2670d428d72e96da63f3a40122860374b", size = 22484, upload-time = "2026-04-14T04:09:18.638Z" },
 ]
-
-[[package]]
-name = "email-triage-agent"
-version = "0.1.0"
-source = { editable = "examples/email_triage" }
-dependencies = [
-    { name = "prodagent" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "prodagent", editable = "." }]
 
 [[package]]
 name = "fastapi"

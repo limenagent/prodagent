@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 _EXAMPLES_ROOT = Path(__file__).resolve().parents[3] / "examples"
 
-_HITL_EXAMPLES: set[str] = {"trader", "email_triage", "aiops"}
+_HITL_EXAMPLES: set[str] = {"trader", "aiops", "compliance_audit"}
 
 _NUM_RE = re.compile(r"^>\s*示例\s*#(\d+)\s*——\s*(.+)$")
 _TITLE_RE = re.compile(r"^#\s+(.+)$")

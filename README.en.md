@@ -125,20 +125,19 @@ LLM_MODEL=glm-5.2
 
 Production backends: `make playground-prod` (auto-starts Postgres / Neo4j / Qdrant / Redis).
 
-### End-to-End Examples: 10 Scenarios, From Minimal Skeleton to Full-Stack Assembly
+### End-to-End Examples: 9 Scenarios, From Minimal Skeleton to Full-Stack Assembly
 
 | # | Example | Scenario | Core Capabilities                                                                                                                             |
 |---|---------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------|
 | 1 | [greeter](examples/greeter) | Minimal runnable agent | `@tool` + `Agent` + `mode="reactive"` trinity                                                                                                     |
 | 2 | [trader](examples/trader) | Bubble-tea order negotiation | Conversational multi-turn negotiation (propose → counter → adjust → place order) + memory-driven replan + HIGH-side-effect HITL approval gate |
 | 3 | [deep_research](examples/deep_research) | Multi-round exploratory research | REACTIVE exploration tree + five-level context compression + injection defense + memory dedup                                                 |
-| 4 | [compliance_audit](examples/compliance_audit) | Financial compliance audit + crash recovery | `Workflow` hardcoded DAG + `FileCheckpointStore` + event log replay + `fork_run` branching + idempotent write tool                            |
-| 5 | [email_triage](examples/email_triage) | Email triage with tiered approval | `Workflow` + `wf.llm_step`/`wf.tool_step` + three-level side-effect HITL routing                                                              |
-| 6 | [code_detective](examples/code_detective) | Autonomous bug fixing | MCP stdio server bridging external tools + REACTIVE multi-round debugging                                                                     |
-| 7 | [trip_planner](examples/trip_planner) | Trip planning | `Workflow` DAG + 3-peer parallel fan-out + `MemoryManager` preference injection                                                               |
-| 8 | [aiops](examples/aiops) | Full-stack incident response | Multi-agent spawn + peer handoff + memory + learning + observability + approval                                                               |
-| 9 | [dating_chat](examples/dating_chat) | Agent blind date | `Ensemble` dual-agent shared floor + real framework Agent vs simple agent — memory & context contrast                  |
-| 10 | [quiz_arena](examples/quiz_arena) | Buzzer quiz contest | `WorkQueue` backstage question review (work stealing + lease timeout + dead-lettering) feeding a `Blackboard` live buzz-in round (`buzz_in` locks first then computes, asserted via real compute-call counts) |
+| 4 | [compliance_audit](examples/compliance_audit) | Financial compliance audit + dynamic Plan + human approval gate | `PLAN_FIRST` LLM-dynamic DAG + human approval gate (Approve/Reject) + auto-replan + idempotent write tool            |
+| 5 | [code_detective](examples/code_detective) | Autonomous bug fixing | MCP stdio server bridging external tools + REACTIVE multi-round debugging                                                                     |
+| 6 | [trip_planner](examples/trip_planner) | Trip planning | `Workflow` DAG + 3-peer parallel fan-out + `MemoryManager` preference injection                                                               |
+| 7 | [aiops](examples/aiops) | Full-stack incident response | Multi-agent spawn + peer handoff + memory + learning + observability + approval                                                               |
+| 8 | [dating_chat](examples/dating_chat) | Agent blind date | `Ensemble` dual-agent shared floor + real framework Agent vs simple agent — memory & context contrast                  |
+| 9 | [quiz_arena](examples/quiz_arena) | Buzzer quiz contest | `WorkQueue` backstage question review (work stealing + lease timeout + dead-lettering) feeding a `Blackboard` live buzz-in round (`buzz_in` locks first then computes, asserted via real compute-call counts) |
 
 ### Installation
 

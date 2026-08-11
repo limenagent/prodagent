@@ -5,11 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "compliance-audit-agent"
 version = "0.1.0"
-description = "ProdAgent example — Workflow + crash recovery + fork on an AML suspicious-transaction audit."
+description = "ProdAgent example — PLAN_FIRST LLM-dynamic Plan + human approval gate + auto-replan on AML suspicious-transaction audit."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-keywords = ["llm", "agent", "compliance", "aml", "crash-recovery", "checkpoint", "event-sourcing"]
+keywords = ["llm", "agent", "compliance", "aml", "dynamic-plan", "replan", "plan-approval", "human-in-the-loop", "checkpoint"]
 dependencies = ["prodagent"]
 
 [tool.uv.sources]

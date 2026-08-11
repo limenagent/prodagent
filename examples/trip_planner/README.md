@@ -1,36 +1,29 @@
 # 行程规划
 
-> 示例 #7 —— Workflow DAG + peer handoff + 长期记忆。
+---
 
-用户说「7 天日本旅行,预算 15000,喜欢拉面和漫画」,agent 在写死的
-DAG 里并行 fan-out 3 个 peer 子 agent,合 3 份结果,按天气调整,
-输出最终行程表。
+> 示例 #6 —— 说一句旅行需求，几个各管一摊的 Agent 分头排行程、订餐厅、查交通，再合成一份计划。
+
+你说"7 天日本，预算 1 万 5，喜欢拉面和漫画"。这种事一个 Agent 干不下来——排行程、选餐厅、
+查交通，是三摊各有门道的事，塞进一个 Agent 里 prompt 会臃肿，还容易顾此失彼。
+
+所以主 Agent 把活拆开：先理解你的需求，然后同时派三个专门的子 Agent 分头干——一个排行程、
+一个订餐厅、一个查交通——等它仨都回来，再把结果合成一份、按天气调整一版，交给你。
+
+它还记着你的偏好。你之前说过住处要靠近车站、爱吃拉面，排餐厅的那个子 Agent 自动就用上了，
+不用你再说一遍。
 
 ## 本示例展示什么
 
-- **`Workflow` + `wf.llm_step`** —— DAG 写死(parse → 3 peer ‖ → merge →
-  weather → final),s1/s5/s6/s7 是真 LLM 节点,workflow 编译成 Plan,
-  **跳过 LLM planning 调用**。DAG 即 plan,peer 即步骤。
-- **`wf.step(peer_agent)`** —— s2/s3/s4 是子 agent,编译成 `spawn_agent`
-  step,depends_on s1 → 并行 fan-out。3 个 peer 各自独立 plan/llm/budget,
-  通过 `spawn_agent` 委派,task 用 `{{s1.output}}` 把 prefs 喂进去。
-- **`MemoryManager + MemoryHooks`** —— 预置 PREFERENCE「用户偏好拉面和漫画,
-  住酒店要靠近车站」,recall query = run.task,task 含「拉面」「漫画」
-  关键词 → 命中,注入到 peer 的 system prompt,restaurant peer 知道订拉面店。
-- **`RoutingFakeLLM`** —— 父 + 3 peer 共享 LLM,按 system prompt 里的
-  `# {name} Agent` 分发到 per-agent 队列,避免并发 spawn 在共享队列上 race。
+- **多个 Agent 分工**：行程 / 餐厅 / 交通各一个，分头干再合并，每个都专。
+- **有先有后**：先理解需求 → 再分头并行 → 最后汇总调整，不是乱派活。
+- **偏好跨轮记住**：你说过喜欢拉面，下次排餐厅还知道。
+- **主 Agent 按固定流程走**：哪步先哪步后是写死的，跑出来稳定、可预期。
 
-## 为什么需要这个
+| 一个 Agent 全包 | 行程规划 |
+|---|---|
+| 一个 Agent 调所有工具，prompt 臃肿 | 几个子 Agent 各管一摊，prompt 精简 |
+| 没有先后，要么全串要么全并行 | 先理解 → 并行 → 汇总，顺序写死 |
+| 偏好每次都要重问 | 记着偏好，自动用上 |
 
-旅行规划是多领域协作:行程 / 餐厅 / 交通 各自需要专门工具和 prompt,
-不是单个 agent 能搞定。但又不是无序的 fan-out —— 有 DAG 依赖
-(parse → peer ‖ → merge → adjust → final)。Workflow 写死 DAG,peer agent
-处理各领域,Memory 让用户偏好跨 run 持久化。
-
-| 单 agent 硬编码 | Trip Planner |
-|----------------|--------------|
-| 一个 agent 调所有工具,prompt 膨胀 | 3 个 peer 各管一摊,prompt 精简 |
-| 没有依赖顺序,要么全串行要么全并行 | DAG 写死,parse → 并行 → merge |
-| 用户偏好每次都要重问 | Memory 预置 PREFERENCE,recall 自动注入 |
-
-
+代码在 `agent.py`。

@@ -22,5 +22,5 @@ class LLMClient(Protocol):
         system: str | list[dict[str, Any]] = "",
         tools: list[dict[str, Any]] | None = None,
         config: LLMConfig | None = None,
-        on_chunk: Callable[[str], Awaitable[None]],
+        on_chunk: Callable[[str], Awaitable[None]] | None = None,
     ) -> LLMResponse: ...

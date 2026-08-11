@@ -113,10 +113,15 @@ class Planner:
         original_messages: MessageList,
         run: AgentRun,
     ) -> list[PlanStep]:
-        messages = list(original_messages) + [
+        clean: MessageList = []
+        for m in original_messages:
+            role = m.get("role", "") if isinstance(m, dict) else getattr(m, "role", "")
+            if role in ("user", "assistant"):
+                clean.append(m)
+        clean.append(
             {"role": "user", "content": _replan_user_prompt(plan, failed_step, error)}
-        ]
-        raw = await self._call_llm(messages, self._build_system(system, self._replan_system), run)
+        )
+        raw = await self._call_llm(clean, self._build_system(system, self._replan_system), run)
         return self._parse_steps(raw)
 
     def _build_system(self, caller_system: str, prompt: str) -> str:

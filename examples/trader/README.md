@@ -1,79 +1,38 @@
 # 奶茶代购
 
-> 示例 #2 —— 多轮协商 + memory 驱动 replan + HITL 下单审批。
+---
 
-一个奶茶代购 Agent，帮用户订购下午茶——演示对话式多轮协商（提案 →
-反驳 → 调整 → 下单）、memory 预置 constraint 驱动 replan、以及 HIGH
-副作用工具的人工审批否决。场景贴近生活：人人都点过奶茶，"单价、杯数、
-糖度、冰度"是真实决策维度，下单前确认是真实动作。
+> 示例 #2 —— 奶茶代购 Agent：跟你几轮砍价把单子谈拢，下单扣款前弹框等你点头。
+
+下午茶时间，你让 Agent 帮忙订奶茶。它不会问一句就直接下单——先提个具体方案（哪家店、
+单价多少、几杯、糖度冰度各怎样），你说"太贵了""要半糖"，它改一版再提，几个来回把单子
+谈拢。
+
+真到了付款那一下，它停下来弹个框：这单确认扣款吗？你说不行，它就老实不扣——付款是
+收不回的动作，必须你点头。
+
+它还记事。你之前定的规矩（预算不超 200、起送得 5 杯）和你的口味偏好（半糖、少冰），它
+一直带着，提方案时自动照办，不用你每次重复。
 
 ## 本示例展示什么
 
-- **REACTIVE 多轮协商** —— agent 提具体订单方案（饮品/单价/杯数/糖度/冰度）
-  → 用户反驳"太贵/要半糖" → agent 调整参数重提 → 收敛后调 `place_order`
-  下单。不是一次性 plan，是探索性对话。
-- **memory 驱动 replan** —— 预置 constraint（预算上限 200、起送 5 杯）
-  recall 注入，agent 提方案时自动遵守；用户偏好（糖度/冰度）由 classify
-  写入 memory，后续 turn recall 出来，agent 不重复问。
-- **HITL 下单审批** —— `place_order` 是 HIGH 副作用（真实扣款不可逆），
-  `ApprovalHooks` 门禁把它路由到人工审批。被拒的下单返回 `blocked_by`，
-  永远不扣款。在 playground 里弹 approve/reject 对话框，CLI 里走 stdin
-  提示。
-- **MemoryHooks** —— demo 预置 memory 通过 MemoryHooks 注入，框架默认
-  bundle 的 MemoryHooks 拿空 memory，demo 需要预置数据。
+- **几轮砍价下单**：提方案 → 你反驳 → 它调整 → 谈拢下单，是聊出来的，不是一次性出计划。
+- **记着规矩和偏好**：预算、起送这类硬规则，糖度冰度这类口味，都记着、提方案时自动用。
+- **下单要人批准**：付款这种收不回的动作，扣款前必须你点头。
+- **拒了就不扣款**：被你否掉的单，永远不会真扣钱。
 
-## 关键代码点
+## 一条下单，两种结局
 
-### `trader/agent.py` —— MemoryHooks 注入预置 constraint
+```
+你："帮我们订下午茶，10 杯"
+  → Agent 提方案：某店、单价 18、10 杯、常规糖冰 → 总价 180（没超 200 预算）
+  → 你："太贵，换家便宜点的，统一半糖"
+  → Agent 改：换店、单价 15、10 杯、半糖 → 总价 150
+  → 谈拢，准备下单扣款 → 弹审批框
 
-```python
-from prodagent.hooks.bundles.memory import MemoryHooks
-from trader.memory import build_memory
-
-agent = Agent(
-    "trader",
-    system_prompt=_SYSTEM_PROMPT,
-    tools=[...],
-    llm=llm,
-    mode=ExecutionMode.REACTIVE,
-    budget=HardBudget(max_turns=20, max_cost_usd=0.50, max_seconds=300.0),
-    extensions=[MemoryHooks(_build_memory(fw))],  # 注入预置 constraint
-)
+  批准 → 扣款下单，完成
+  拒绝 → 不扣款，单子作废
 ```
 
-`_build_memory` 建带两条 constraint 的 MemoryManager：
-
-```python
-_CONSTRAINTS = [
-    "预算上限 200 元,任何订单总价不得超过 200 元。",
-    "起送 5 杯,任何订单杯数不得少于 5 杯。",
-]
-MemoryManager(framework_config=fw, constraints=list(_CONSTRAINTS))
-```
-
-MemoryHooks 在每 turn 开始时 recall 这两条 constraint，注入到 LLM 的
-context 里，agent 提方案时自动遵守。
-
-### `trader/tools.py` —— place_order 触发 HITL
-
-```python
-@tool(meta=ToolMeta(
-    name="place_order",
-    side_effect_level=SideEffectLevel.HIGH,  # ← 触发 HITL
-    reversibility=0.1,
-    resource_id="orders",
-    enforced_idempotent=True,
-))
-async def place_order(proposal_id: str, idempotency_key: str = "") -> dict:
-    """下单付款 —— 真实扣款,不可逆。"""
-    ...
-```
-
-`HIGH` 副作用 + `reversibility=0.1` 让框架默认 bundle 的 ApprovalHooks
-把 `place_order` 路由到人工审批。agent 调用它后 run 进入 SUSPENDED，
-等用户 approve/reject。
-
-## 为什么 REACTIVE
-
-代购协商是对话循环 —— 没有前置 DAG。每 turn 看用户反馈后重新提方案。
-Workflow DAG 一次性跑完，不适合协商。
+砍价是聊出来的，所以这里用"边想边做"的方式，而不是预先写死流程。代码在 `agent.py`，
+预算、起送这些预置规矩在 `memory.py`。

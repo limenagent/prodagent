@@ -31,7 +31,7 @@ class CachingLLM(Protocol):
         system: str | list[dict[str, Any]] = "",
         tools: list[dict[str, Any]] | None = None,
         config: LLMConfig | None = None,
-        on_chunk: ChunkCallback,
+        on_chunk: ChunkCallback | None = None,
     ) -> LLMResponse: ...
 
     def unwrap(self) -> LLMClient: ...
@@ -106,7 +106,7 @@ class CachingLLMClient:
         system: str | list[dict[str, Any]] = "",
         tools: list[dict[str, Any]] | None = None,
         config: LLMConfig | None = None,
-        on_chunk: ChunkCallback,
+        on_chunk: ChunkCallback | None = None,
     ) -> LLMResponse:
         key = cache_key_for(messages, system=system, tools=tools, config=config)
         store = self._resolve_store() if key else None

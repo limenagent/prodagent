@@ -96,7 +96,7 @@ make playground
 
 首次运行进入交互式向导，二选一：
 
-- **FakeLLM** —— 离线，零 key，直接体验 10 个 example
+- **FakeLLM** —— 离线，零 key，直接体验 9 个 example
 - **OpenAI 兼容端点** —— 填 `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`。DeepSeek、Qwen、Moonshot、Zhipu 等任何 OpenAI Chat Completions 协议厂商均适用
 
 不想跑向导，在仓库根目录写 `.env` 即可跳过：
@@ -113,20 +113,19 @@ LLM_MODEL=glm-5.2
 
 启动后浏览器自动打开 `http://127.0.0.1:8766`。切生产后端：`make playground-prod`（自动拉起 Postgres / Neo4j / Qdrant / Redis）。
 
-### 端到端示例：10 个场景，从最小骨架到全栈组装
+### 端到端示例：9 个场景，从最小骨架到全栈组装
 
 | # | Example | 场景 | 核心能力                                                                             |
 |---|---------|------|----------------------------------------------------------------------------------|
 | 1 | [greeter](examples/greeter) | 最小可跑 Agent | `@tool` + `Agent` + `mode="reactive"` 三件套                                        |
 | 2 | [trader](examples/trader) | 奶茶代购下单协商 | 对话式多轮协商（提案→反驳→调整→下单）+ memory 驱动 replan + HIGH 副作用 HITL 审批                        |
 | 3 | [deep_research](examples/deep_research) | 多轮探索式研究 | REACTIVE 探索树 + 五级 context 压缩 + 注入防御 + 记忆防重复                                      |
-| 4 | [compliance_audit](examples/compliance_audit) | 金融合规审计 + 崩溃恢复 | `Workflow` 写死 DAG + `FileCheckpointStore` + event log 重放 + `fork_run` 分叉 + 幂等写工具 |
-| 5 | [email_triage](examples/email_triage) | 邮件分拣 + 分级审批 | `Workflow` + `wf.llm_step`/`wf.tool_step` + 三级副作用 HITL 路由                        |
-| 6 | [code_detective](examples/code_detective) | 自主修 bug | MCP stdio server 桥接外部工具 + REACTIVE 多轮调试                                          |
-| 7 | [trip_planner](examples/trip_planner) | 旅行规划 | `Workflow` DAG + 3 peer 并行 fan-out + `MemoryManager` 偏好注入                        |
-| 8 | [aiops](examples/aiops) | 故障应急全栈 | 多 Agent spawn + peer handoff + 记忆 + 学习 + 可观测 + 审批                                |
-| 9 | [dating_chat](examples/dating_chat) | Agent相亲 | `Ensemble` 多 Agent 共享 floor + 真·框架 Agent vs 简单版 Agent 的记忆/上下文反差          |
-| 10 | [quiz_arena](examples/quiz_arena) | 抢答竞赛场 | `WorkQueue` 后台审题（抢活干 + 租约超时 + 死信）接 `Blackboard` 正式抢答（`buzz_in` 先抢锁再算，用真实计算次数断言互斥语义） |
+| 4 | [compliance_audit](examples/compliance_audit) | 金融合规审计 + 动态 Plan + Plan 审批门 | `PLAN_FIRST` LLM 动态生成 DAG + 人类审批门（Approve/Reject）+ auto-replan 增量重规划 + 幂等写工具 |
+| 5 | [code_detective](examples/code_detective) | 自主修 bug | MCP stdio server 桥接外部工具 + REACTIVE 多轮调试                                          |
+| 6 | [trip_planner](examples/trip_planner) | 旅行规划 | `Workflow` DAG + 3 peer 并行 fan-out + `MemoryManager` 偏好注入                        |
+| 7 | [aiops](examples/aiops) | 故障应急全栈 | 多 Agent spawn + peer handoff + 记忆 + 学习 + 可观测 + 审批                                |
+| 8 | [dating_chat](examples/dating_chat) | Agent相亲 | `Ensemble` 多 Agent 共享 floor + 真·框架 Agent vs 简单版 Agent 的记忆/上下文反差          |
+| 9 | [quiz_arena](examples/quiz_arena) | 抢答竞赛场 | `WorkQueue` 后台审题（抢活干 + 租约超时 + 死信）接 `Blackboard` 正式抢答（`buzz_in` 先抢锁再算，用真实计算次数断言互斥语义） |
 
 ### 安装
 

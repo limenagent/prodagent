@@ -9,7 +9,11 @@ let currentRunId = null;
 let multiAgentMode = false;
 let lastMeiMemoryPreview = "";
 let maRoster = [];  // current participant roster for multi-agent runs
+let currentPhaseContainer = null;  // DOM element for the active phase
+let phaseElapsedStart = 0;  // performance.now() when the current phase started
+const phaseContainers = [];  // all completed phase containers in order
 const submittedRequestIds = new Set();
+let lastApprovalRequest = null;  // cached approval.request event for modal display
 const SPEAKER_AVATAR = { 大牛: "牛", 小美: "美" };
 
 // ── HUD state (top-bar run status) ──
@@ -95,7 +99,7 @@ const AGENT_ICONS = {
   trip_planner: "🗺️",
   deep_research: "🔬",
   code_reviewer: "🔎",
-  email_triage: "📧",
+
   trader: "🧋",
   code_detective: "🐛",
   aiops: "🚨",
@@ -135,6 +139,9 @@ function selectExample(spec, cardEl) {
   sending = false;
   sendBtn.disabled = false;
   maRoster = [];
+  currentPhaseContainer = null;
+  phaseElapsedStart = 0;
+  phaseContainers.length = 0;
   rosterEl.innerHTML = "";
   snapshotEl.innerHTML = "";
   if (multiAgentMode) {
@@ -292,6 +299,9 @@ async function _startMultiAgent() {
   rosterEl.innerHTML = "";
   snapshotEl.innerHTML = "";
   maRoster = [];
+  currentPhaseContainer = null;
+  phaseElapsedStart = 0;
+  phaseContainers.length = 0;
   lastMeiMemoryPreview = "";
   resetHudForRun(selectedSpec.title);
 
@@ -329,6 +339,7 @@ async function _startMultiAgent() {
 function renderMultiAgentEvent(env) {
   // Terminal events re-enable the start button.
   if (env.kind === "completed") {
+    closeCurrentPhase();
     statusEl.textContent = "协作结束";
     sendBtn.disabled = false;
     sending = false;
@@ -336,6 +347,7 @@ function renderMultiAgentEvent(env) {
     return;
   }
   if (env.kind === "failed") {
+    closeCurrentPhase();
     statusEl.textContent = `出错：${(env.payload && env.payload.error) || "未知"}`;
     sendBtn.disabled = false;
     sending = false;
@@ -358,18 +370,211 @@ function renderMultiAgentEvent(env) {
   // Dispatch to the right center-column renderer.
   switch (env.kind) {
     case "turn": renderTurnBubble(env); break;
-    case "write": renderWriteCard(env); break;
-    case "claim": renderClaimCard(env); break;
-    case "complete": renderCompleteCard(env); break;
-    case "requeue": renderRequeueCard(env); break;
-    case "dead_letter": renderDeadLetterCard(env); break;
-    case "phase_started": renderPhaseDivider(env, true); break;
-    case "phase_completed": renderPhaseDivider(env, false); break;
+    case "write": renderTimelineWrite(env); break;
+    case "claim": renderTimelineClaim(env); break;
+    case "complete": renderTimelineComplete(env); break;
+    case "requeue": renderTimelineRequeue(env); break;
+    case "dead_letter": renderTimelineDeadLetter(env); break;
+    case "phase_started": renderPhaseContainerStart(env); break;
+    case "phase_completed": renderPhaseContainerEnd(env); break;
     default:
-      // Unknown kind — render as a generic card so nothing is silently dropped.
       renderGenericCard(env);
   }
   scrollDown();
+}
+
+// ── Phase container management ───────────────────────────────────────────────
+function closeCurrentPhase() {
+  if (!currentPhaseContainer) return;
+  currentPhaseContainer.classList.remove("active");
+  currentPhaseContainer.classList.add("completed");
+  // Auto-collapse after a short delay so the user can see the final state.
+  setTimeout(() => {
+    if (currentPhaseContainer && currentPhaseContainer.classList.contains("completed")) {
+      currentPhaseContainer.classList.add("collapsed");
+    }
+  }, 1500);
+  phaseContainers.push(currentPhaseContainer);
+  currentPhaseContainer = null;
+}
+
+function ensurePhaseContainer(env) {
+  if (!currentPhaseContainer) {
+    // Phase started without a phase_started event — create a bare container.
+    const el = document.createElement("div");
+    el.className = "phase-container active";
+    const hdr = document.createElement("div");
+    hdr.className = "phase-header";
+    hdr.innerHTML = `<span class="ph-icon">⚙</span><div class="ph-info"><div class="ph-name">${escapeHtml(PHASE_LABELS[env.phase] || env.phase || "运行中")}</div></div><span class="ph-toggle">▾</span>`;
+    hdr.onclick = () => el.classList.toggle("collapsed");
+    const body = document.createElement("div");
+    body.className = "phase-body";
+    el.appendChild(hdr);
+    el.appendChild(body);
+    streamEl.appendChild(el);
+    currentPhaseContainer = el;
+    phaseElapsedStart = performance.now();
+  }
+  return currentPhaseContainer;
+}
+
+function getPhaseBody() {
+  const c = ensurePhaseContainer({phase: ""});
+  return c.querySelector(".phase-body");
+}
+
+function updatePhaseHeaderCounters(stats) {
+  if (!currentPhaseContainer) return;
+  const hdr = currentPhaseContainer.querySelector(".phase-header");
+  let existing = hdr.querySelector(".ph-stats");
+  if (!existing) {
+    existing = document.createElement("div");
+    existing.className = "ph-stats";
+    hdr.appendChild(existing);
+  }
+  const parts = [];
+  for (const [k, v] of Object.entries(stats)) {
+    const cls = k === "dead_lettered" && v > 0 ? "bad" : (k === "requeued" && v > 0 ? "warn" : "ok");
+    parts.push(`<span class="ph-stat ${cls}">${escapeHtml(String(k))}: ${v}</span>`);
+  }
+  existing.innerHTML = parts.join("");
+}
+
+function renderPhaseContainerStart(env) {
+  closeCurrentPhase();
+  const el = document.createElement("div");
+  el.className = "phase-container active";
+  const phaseName = PHASE_LABELS[env.phase] || env.phase || "?";
+  const detail = (env.payload && env.payload.detail) ? escapeHtml(env.payload.detail) : "";
+  const hdr = document.createElement("div");
+  hdr.className = "phase-header";
+  hdr.innerHTML = `
+    <span class="ph-icon">▶</span>
+    <div class="ph-info">
+      <div class="ph-name">${escapeHtml(phaseName)}</div>
+      ${detail ? `<div class="ph-detail">${detail}</div>` : ""}
+    </div>
+    <span class="ph-toggle">▾</span>
+  `;
+  hdr.onclick = () => el.classList.toggle("collapsed");
+  const body = document.createElement("div");
+  body.className = "phase-body";
+  el.appendChild(hdr);
+  el.appendChild(body);
+  streamEl.appendChild(el);
+  currentPhaseContainer = el;
+  phaseElapsedStart = performance.now();
+}
+
+function renderPhaseContainerEnd(env) {
+  if (!currentPhaseContainer) {
+    // Phase completed without a start event — create a minimal container.
+    ensurePhaseContainer(env);
+  }
+  // Update header with final stats.
+  const hdr = currentPhaseContainer.querySelector(".phase-header");
+  const icon = hdr.querySelector(".ph-icon");
+  if (icon) icon.textContent = "✓";
+  const detail = (env.payload && env.payload.detail) ? escapeHtml(env.payload.detail) : "";
+  const info = hdr.querySelector(".ph-info");
+  if (detail && info) {
+    let detEl = info.querySelector(".ph-detail");
+    if (!detEl) {
+      detEl = document.createElement("div");
+      detEl.className = "ph-detail";
+      info.appendChild(detEl);
+    }
+    detEl.textContent = detail;
+  }
+  // Show final counters from the payload.
+  if (env.payload && env.payload.counts) {
+    updatePhaseHeaderCounters(env.payload.counts);
+  }
+  // Show elapsed time.
+  const elapsed = ((performance.now() - phaseElapsedStart) / 1000).toFixed(1);
+  if (info) {
+    let timeEl = info.querySelector(".ph-time");
+    if (!timeEl) {
+      timeEl = document.createElement("div");
+      timeEl.className = "ph-detail ph-time";
+      info.appendChild(timeEl);
+    }
+    timeEl.textContent = `耗时 ${elapsed}s`;
+  }
+  closeCurrentPhase();
+  // Scroll to show the completed phase header.
+  if (phaseContainers.length > 0) {
+    const last = phaseContainers[phaseContainers.length - 1];
+    last.scrollIntoView({behavior: "smooth", block: "start"});
+  }
+}
+
+// ── Timeline row builders ────────────────────────────────────────────────────
+function appendTimelineRow(klass, actor, action, summaryHtml, payload) {
+  const body = getPhaseBody();
+  const row = document.createElement("div");
+  row.className = `timeline-row ${klass}`;
+  const summary = document.createElement("span");
+  summary.className = "tl-summary";
+  summary.innerHTML = summaryHtml;
+  row.innerHTML = `
+    <span class="tl-dot"></span>
+    <span class="tl-actor">${escapeHtml(actor || "?")}</span>
+    <span class="tl-action">${escapeHtml(action)}</span>
+  `;
+  // Insert summary after action
+  const actionEl = row.querySelector(".tl-action");
+  actionEl.insertAdjacentElement("afterend", summary);
+  if (payload && Object.keys(payload).length > 0) {
+    const payloadEl = document.createElement("pre");
+    payloadEl.className = "tl-payload";
+    payloadEl.textContent = JSON.stringify(payload, null, 2);
+    row.appendChild(payloadEl);
+    row.onclick = (e) => {
+      e.stopPropagation();
+      payloadEl.style.display = payloadEl.style.display === "block" ? "none" : "block";
+    };
+  }
+  body.appendChild(row);
+  return row;
+}
+
+function renderTimelineWrite(env) {
+  const p = env.payload || {};
+  const buzzWinner = !!p.buzz_in_winner;
+  const triggerLabel = p.trigger_name === "buzz_in" ? "抢答" : (p.trigger_name === "kickoff" ? "出题" : (p.trigger_name || "写入"));
+  const valStr = truncate(JSON.stringify(p.value), 60);
+  const summary = `写入 <code>${escapeHtml(p.key || "?")}</code> = ${escapeHtml(valStr)}`;
+  const row = appendTimelineRow("write" + (buzzWinner ? " buzz-winner" : ""), env.actor, triggerLabel, summary, p);
+  if (buzzWinner) {
+    // Add a small winner badge
+    const badge = document.createElement("span");
+    badge.style.cssText = "font-size:10px;color:var(--green);font-weight:700;margin-left:4px;";
+    badge.textContent = "🏆";
+    row.querySelector(".tl-actor").appendChild(badge);
+  }
+}
+
+function renderTimelineClaim(env) {
+  const p = env.payload || {};
+  appendTimelineRow("claim", env.actor, "认领", `认领了 <code>${escapeHtml(p.item_id || "?")}</code>`, p);
+}
+
+function renderTimelineComplete(env) {
+  const p = env.payload || {};
+  appendTimelineRow("complete", env.actor, "完成", `完成了 <code>${escapeHtml(p.item_id || "?")}</code>`, p);
+}
+
+function renderTimelineRequeue(env) {
+  const p = env.payload || {};
+  const reason = p.reason ? ` — ${escapeHtml(p.reason)}` : "";
+  appendTimelineRow("requeue", env.actor, "重排", `<code>${escapeHtml(p.item_id || "?")}</code> 重新入队${reason}`, p);
+}
+
+function renderTimelineDeadLetter(env) {
+  const p = env.payload || {};
+  const error = p.error ? ` — ${escapeHtml(p.error)}` : "";
+  appendTimelineRow("dead-letter", env.actor, "死信", `<code>${escapeHtml(p.item_id || "?")}</code> 重试 ${p.attempts || "?"} 次后转入死信${error}`, p);
 }
 
 // ── Roster (left panel) — group by role, render human-readable labels ──
@@ -441,104 +646,117 @@ function renderRoster() {
   }
 }
 
-// ── Snapshot (right panel) — renders the latest event's snapshot dict ──
+// ── Snapshot (right panel) — mini-card layout ──
 const PHASE_LABELS = {
   backstage_review: "后台审题",
   live_quiz: "正式抢答",
 };
-const QUEUE_COUNTER_LABELS = {
-  pending: "待处理",
-  claimed: "已认领",
-  completed: "已完成",
-  dead_lettered: "已死信",
-};
-const FLOOR_COUNTER_LABELS = {
-  turn_count: "发言数",
-  round_count: "轮次",
-  member_count: "在场人数",
-};
 
 function renderSnapshot(snapshot, phase) {
   snapshotEl.innerHTML = "";
+
+  // Phase label
   if (phase) {
-    const ph = document.createElement("div");
-    ph.className = "snapshot-section";
-    ph.innerHTML = `<div class="snapshot-section-title">阶段</div><div>${escapeHtml(PHASE_LABELS[phase] || phase)}</div>`;
-    snapshotEl.appendChild(ph);
+    const card = document.createElement("div");
+    card.className = "snapshot-mini";
+    const label = PHASE_LABELS[phase] || phase;
+    const isRunning = currentPhaseContainer && currentPhaseContainer.classList.contains("active");
+    const elapsed = isRunning ? ((performance.now() - phaseElapsedStart) / 1000).toFixed(1) : "—";
+    card.innerHTML = `
+      <div class="sm-title">阶段</div>
+      <div style="font-weight:700;font-size:12px;margin-bottom:4px;">${escapeHtml(label)}</div>
+      <div style="font-size:10px;color:var(--dim);">状态: ${isRunning ? "🟢 运行中" : "✓ 已完成"}</div>
+      <div style="font-size:10px;color:var(--dim);">用时: ${elapsed}s</div>
+    `;
+    snapshotEl.appendChild(card);
   }
-  // Blackboard board_snapshot: {slots: {k: {value, version}}, round_count, elapsed_s}
+
+  // Board slots (blackboard)
   if (snapshot.slots && typeof snapshot.slots === "object") {
-    const sec = document.createElement("div");
-    sec.className = "snapshot-section";
-    sec.innerHTML = `<div class="snapshot-section-title">看板字段</div>`;
+    const card = document.createElement("div");
+    card.className = "snapshot-mini";
+    card.innerHTML = `<div class="sm-title">看板字段</div>`;
     const tbl = document.createElement("table");
-    tbl.className = "snapshot-table";
-    tbl.innerHTML = "<thead><tr><th>字段</th><th>值</th><th>版本</th></tr></thead>";
+    tbl.className = "sm-table";
+    tbl.innerHTML = "<thead><tr><th>字段</th><th>值</th><th class='sm-ver'>版本</th></tr></thead>";
     const tbody = document.createElement("tbody");
     for (const [k, v] of Object.entries(snapshot.slots)) {
       const tr = document.createElement("tr");
       const valStr = typeof v === "object" && v !== null ? JSON.stringify(v.value) : String(v);
       const ver = typeof v === "object" && v !== null ? v.version : "";
-      tr.innerHTML = `<td>${escapeHtml(k)}</td><td>${escapeHtml(truncate(valStr, 40))}</td><td class="version">${escapeHtml(String(ver))}</td>`;
+      tr.innerHTML = `<td>${escapeHtml(k)}</td><td>${escapeHtml(truncate(valStr, 50))}</td><td class="sm-ver">${escapeHtml(String(ver))}</td>`;
       tbody.appendChild(tr);
     }
     tbl.appendChild(tbody);
-    sec.appendChild(tbl);
-    snapshotEl.appendChild(sec);
+    card.appendChild(tbl);
+    snapshotEl.appendChild(card);
   }
-  // WorkQueue queue_snapshot: {pending, claimed, completed, dead_lettered, round_count, elapsed_s}
+
+  // Queue counters (work queue)
   if (typeof snapshot.pending === "number") {
-    const sec = document.createElement("div");
-    sec.className = "snapshot-section";
-    sec.innerHTML = `<div class="snapshot-section-title">队列计数</div>`;
+    const card = document.createElement("div");
+    card.className = "snapshot-mini";
+    const total = (snapshot.pending || 0) + (snapshot.claimed || 0) + (snapshot.completed || 0) + (snapshot.dead_lettered || 0);
+    const done = (snapshot.completed || 0) + (snapshot.dead_lettered || 0);
+    const pct = total > 0 ? Math.round(done / total * 100) : 0;
+    card.innerHTML = `
+      <div class="sm-title">队列进度</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+        <span style="font-size:14px;font-weight:700;">${done}/${total}</span>
+        <span style="font-size:10px;color:var(--dim);">(${pct}%)</span>
+      </div>
+      <div class="snapshot-phase-bar">
+        <div class="fill" style="width:${pct}%;${pct >= 100 ? 'background:var(--green);' : ''}"></div>
+      </div>
+    `;
     const grid = document.createElement("div");
-    grid.className = "snapshot-counters";
-    for (const k of ["pending", "claimed", "completed", "dead_lettered"]) {
+    grid.className = "sm-counters";
+    grid.style.marginTop = "6px";
+    for (const [k, label, cls] of [
+      ["pending", "待处理", ""],
+      ["claimed", "已认领", ""],
+      ["completed", "已完成", "ok"],
+      ["dead_lettered", "已死信", "bad"],
+    ]) {
       if (typeof snapshot[k] === "number") {
-        const c = document.createElement("div");
-        c.className = "snapshot-counter";
-        c.innerHTML = `<div class="label">${escapeHtml(QUEUE_COUNTER_LABELS[k] || k)}</div><div class="value">${snapshot[k]}</div>`;
-        grid.appendChild(c);
+        grid.innerHTML += `<div class="sm-counter ${cls}"><div class="sm-val">${snapshot[k]}</div><div class="sm-label">${label}</div></div>`;
       }
     }
-    sec.appendChild(grid);
-    snapshotEl.appendChild(sec);
+    card.appendChild(grid);
+    snapshotEl.appendChild(card);
   }
-  // Ensemble floor_snapshot: {session_id, topic, member_count, turn_count, round_count, elapsed_s}
+
+  // Floor counters (ensemble/dating_chat)
   if (typeof snapshot.turn_count === "number" || typeof snapshot.round_count === "number") {
-    const sec = document.createElement("div");
-    sec.className = "snapshot-section";
-    sec.innerHTML = `<div class="snapshot-section-title">对话区</div>`;
+    const card = document.createElement("div");
+    card.className = "snapshot-mini";
+    card.innerHTML = `<div class="sm-title">对话区</div>`;
     const grid = document.createElement("div");
-    grid.className = "snapshot-counters";
-    for (const k of ["turn_count", "round_count", "member_count"]) {
+    grid.className = "sm-counters";
+    for (const [k, label] of [["turn_count", "发言数"], ["round_count", "轮次"], ["member_count", "在场人数"]]) {
       if (typeof snapshot[k] === "number") {
-        const c = document.createElement("div");
-        c.className = "snapshot-counter";
-        c.innerHTML = `<div class="label">${escapeHtml(FLOOR_COUNTER_LABELS[k] || k)}</div><div class="value">${snapshot[k]}</div>`;
-        grid.appendChild(c);
+        grid.innerHTML += `<div class="sm-counter"><div class="sm-val">${snapshot[k]}</div><div class="sm-label">${label}</div></div>`;
       }
     }
-    sec.appendChild(grid);
+    card.appendChild(grid);
     if (snapshot.topic) {
       const t = document.createElement("div");
-      t.style.fontSize = "11px";
-      t.style.color = "var(--dim)";
-      t.style.marginTop = "4px";
+      t.style.cssText = "font-size:11px;color:var(--dim);margin-top:6px;";
       t.textContent = `话题: ${snapshot.topic}`;
-      sec.appendChild(t);
+      card.appendChild(t);
     }
-    snapshotEl.appendChild(sec);
+    snapshotEl.appendChild(card);
   }
+
   if (typeof snapshot.elapsed_s === "number") {
-    const sec = document.createElement("div");
-    sec.className = "snapshot-section";
-    sec.innerHTML = `<div class="snapshot-section-title">用时</div><div>${snapshot.elapsed_s.toFixed(2)}s</div>`;
-    snapshotEl.appendChild(sec);
+    const card = document.createElement("div");
+    card.className = "snapshot-mini";
+    card.innerHTML = `<div class="sm-title">用时</div><div style="font-size:18px;font-weight:700;font-family:SF Mono,Menlo,monospace;">${snapshot.elapsed_s.toFixed(2)}s</div>`;
+    snapshotEl.appendChild(card);
   }
 }
 
-// ── Center-column renderers ──
+// ── Chat bubble rendering (dating_chat turn events) ──
 function renderTurnBubble(env) {
   const p = env.payload || {};
   const speaker = p.speaker || env.actor || "?";
@@ -560,7 +778,6 @@ function renderTurnBubble(env) {
   else row.append(bubble, avatar);
   streamEl.appendChild(row);
 
-  // Badges (memory / tools / compression / niu_note) — same logic as the old dating_chat path.
   const memoryHits = p.memory_hits || 0;
   const memoryPreviews = p.memory_previews || [];
   if (memoryHits > 0) {
@@ -601,105 +818,7 @@ function appendBadge(sideClass, label, variant = "") {
   streamEl.appendChild(row);
 }
 
-function renderWriteCard(env) {
-  const p = env.payload || {};
-  const card = document.createElement("div");
-  card.className = "ma-card";
-  if (p.buzz_in_winner) card.classList.add("buzz-in-winner");
-  const triggerLabel = p.trigger_name === "buzz_in" ? "抢答" : (p.trigger_name === "kickoff" ? "出题" : p.trigger_name);
-  const triggerHtml = triggerLabel ? `<span class="ma-trigger">${escapeHtml(triggerLabel)}</span>` : "";
-  const valStr = truncate(JSON.stringify(p.value), 80);
-  card.innerHTML = `
-    <div class="ma-header">
-      <span class="ma-actor">${escapeHtml(env.actor || "?")}</span>
-      ${triggerHtml}
-      <span class="ma-ts">${phaseLabel(env.phase)}</span>
-    </div>
-    <div class="ma-body">写入 <code>${escapeHtml(p.key || "?")}</code> = ${escapeHtml(valStr)}</div>
-  `;
-  attachPayload(card, p);
-  streamEl.appendChild(card);
-}
-
-function renderClaimCard(env) {
-  const p = env.payload || {};
-  const card = document.createElement("div");
-  card.className = "ma-card";
-  card.innerHTML = `
-    <div class="ma-header">
-      <span class="ma-actor">${escapeHtml(env.actor || "?")}</span>
-      <span class="ma-trigger">认领</span>
-      <span class="ma-ts">${phaseLabel(env.phase)}</span>
-    </div>
-    <div class="ma-body">认领了 <code>${escapeHtml(p.item_id || "?")}</code></div>
-  `;
-  attachPayload(card, p);
-  streamEl.appendChild(card);
-}
-
-function renderCompleteCard(env) {
-  const p = env.payload || {};
-  const card = document.createElement("div");
-  card.className = "ma-card";
-  card.innerHTML = `
-    <div class="ma-header">
-      <span class="ma-actor">${escapeHtml(env.actor || "?")}</span>
-      <span class="ma-trigger">完成</span>
-      <span class="ma-ts">${phaseLabel(env.phase)}</span>
-    </div>
-    <div class="ma-body">完成了 <code>${escapeHtml(p.item_id || "?")}</code></div>
-  `;
-  attachPayload(card, p);
-  streamEl.appendChild(card);
-}
-
-function renderRequeueCard(env) {
-  const p = env.payload || {};
-  const card = document.createElement("div");
-  card.className = "ma-card";
-  card.innerHTML = `
-    <div class="ma-header">
-      <span class="ma-actor">${escapeHtml(env.actor || "?")}</span>
-      <span class="ma-trigger">重排</span>
-      <span class="ma-ts">${phaseLabel(env.phase)}</span>
-    </div>
-    <div class="ma-body"><code>${escapeHtml(p.item_id || "?")}</code> 重新入队${p.reason ? ` — ${escapeHtml(p.reason)}` : ""}</div>
-  `;
-  attachPayload(card, p);
-  streamEl.appendChild(card);
-}
-
-function renderDeadLetterCard(env) {
-  const p = env.payload || {};
-  const card = document.createElement("div");
-  card.className = "ma-card dead-letter";
-  card.innerHTML = `
-    <div class="ma-header">
-      <span class="ma-actor">${escapeHtml(env.actor || "?")}</span>
-      <span class="ma-trigger">死信</span>
-      <span class="ma-ts">${phaseLabel(env.phase)}</span>
-    </div>
-    <div class="ma-body"><code>${escapeHtml(p.item_id || "?")}</code> 重试 ${p.attempts || "?"} 次后转入死信${p.error ? ` — ${escapeHtml(p.error)}` : ""}</div>
-  `;
-  attachPayload(card, p);
-  streamEl.appendChild(card);
-}
-
-function renderPhaseDivider(env, isStart) {
-  const div = document.createElement("div");
-  div.className = "phase-divider";
-  const arrow = isStart ? "▶" : "■";
-  const label = isStart ? "阶段开始" : "阶段结束";
-  const phaseLabelStr = PHASE_LABELS[env.phase] || env.phase || "?";
-  let countsHtml = "";
-  if (env.payload && env.payload.counts) {
-    const parts = Object.entries(env.payload.counts).map(([k, v]) => `${escapeHtml(k)}=${v}`);
-    countsHtml = `<div class="counts">${parts.join(" · ")}</div>`;
-  }
-  div.innerHTML = `${arrow} ${label} — ${escapeHtml(phaseLabelStr)}${env.payload && env.payload.detail ? " · " + escapeHtml(env.payload.detail) : ""}${countsHtml}`;
-  streamEl.appendChild(div);
-}
-
+// ── Generic card (for unknown event kinds) ──
 function renderGenericCard(env) {
   const card = document.createElement("div");
   card.className = "ma-card";
@@ -752,16 +871,28 @@ function showApprovalModal(ev) {
   // If a modal is already open for this request, don't stack.
   if (document.querySelector(".modal-overlay")) return;
 
+  const req = lastApprovalRequest;
+  lastApprovalRequest = null;
+  const toolName = req ? req.name : "?";
+  const toolParams = req && req.params ? JSON.stringify(req.params, null, 2) : "";
+  const toolLevel = req ? (req.level || "HIGH") : "HIGH";
+
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   const modal = document.createElement("div");
   modal.className = "modal";
   modal.innerHTML = `
     <h3>⛔ HITL Approval Required</h3>
-    <div class="modal-body">run_id: ${escapeHtml(ev.run_id || "")}
-request_id: ${escapeHtml(ev.request_id || "")}
-
-点击 Approve 继续执行,或 Reject 终止 run。</div>
+    <div class="modal-body">
+      <div class="modal-run-info">run: ${escapeHtml(short(ev.run_id || ""))} · request: ${escapeHtml(short(ev.request_id || ""))}</div>
+      <div class="modal-tool-info">
+        <span class="modal-tool-label">工具</span>
+        <span class="modal-tool-name">${escapeHtml(toolName)}</span>
+        <span class="level-badge ${toolLevel.toLowerCase()}">write ${escapeHtml(toolLevel)}</span>
+      </div>
+      ${toolParams ? `<pre class="modal-tool-params">${escapeHtml(toolParams)}</pre>` : ""}
+      <div class="modal-hint">Approve 执行此写操作；Reject 否决本步，系统保留已完成步骤并增量重规划。</div>
+    </div>
     <div class="modal-actions">
       <button class="btn-reject">✗ Reject</button>
       <button class="btn-approve">✓ Approve</button>
@@ -919,6 +1050,7 @@ const RENDER = {
   "approval.request": (ev) => {
     hudState.pending++;
     updateHud();
+    lastApprovalRequest = ev;  // cache for modal display
     return {label: "APPROVAL", color: "red",
       body: `REQUEST  ${ev.name || "?"}  ${levelBadge("write", ev.level || "HIGH")}`,
       payload: ev.params};
@@ -937,7 +1069,6 @@ const RENDER = {
   },
   "plan.ready": (ev) => {
     const steps = ev.steps || [];
-    const desc = steps.slice(0, 4).map((s) => `${s.id}:${s.action}`).join(" → ");
     return {label: "PLAN", color: "yellow",
       body: `Agent=${ev.agent || "?"} v${ev.version || 1}  ${steps.length} steps\n${renderPlanDag(steps)}`,
       payload: steps, planDag: true};

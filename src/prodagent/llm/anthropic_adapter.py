@@ -51,7 +51,7 @@ class AnthropicAdapter:
         system: str | list[dict[str, Any]] = "",
         tools: list[dict[str, Any]] | None = None,
         config: LLMConfig | None = None,
-        on_chunk: ChunkCallback,
+        on_chunk: ChunkCallback | None = None,
     ) -> LLMResponse:
         cfg = config or self._default_config
         normalised = cast(
@@ -200,12 +200,13 @@ class AnthropicAdapter:
         system: str | list[dict[str, Any]],
         tools: list[dict[str, Any]] | None,
         cfg: LLMConfig,
-        on_chunk: Callable[[str], Awaitable[None]],
+        on_chunk: Callable[[str], Awaitable[None]] | None,
     ) -> LLMResponse:
         kwargs = self._build_kwargs(messages, system, tools, cfg)
         async with self._client.messages.stream(**kwargs) as stream:
             async for text in stream.text_stream:
-                await on_chunk(text)
+                if on_chunk is not None:
+                    await on_chunk(text)
             raw = await stream.get_final_message()
         return self._parse_message(raw)
 

@@ -53,7 +53,7 @@ class OpenAIAdapter:
         system: str | list[dict[str, Any]] = "",
         tools: list[dict[str, Any]] | None = None,
         config: LLMConfig | None = None,
-        on_chunk: Callable[[str], Awaitable[None]],
+        on_chunk: Callable[[str], Awaitable[None]] | None = None,
     ) -> LLMResponse:
         cfg = config or self._default_config
         full_messages = self._build_messages(messages, system)
@@ -101,7 +101,7 @@ class OpenAIAdapter:
         *,
         tools: list[dict[str, Any]] | None,
         cfg: LLMConfig,
-        on_chunk: Callable[[str], Awaitable[None]],
+        on_chunk: Callable[[str], Awaitable[None]] | None,
     ) -> LLMResponse:
         kwargs: dict[str, Any] = {
             "model": cfg.model,
@@ -148,7 +148,8 @@ class OpenAIAdapter:
 
             if delta.content:
                 content_parts.append(delta.content)
-                await on_chunk(delta.content)
+                if on_chunk is not None:
+                    await on_chunk(delta.content)
 
             # o1/o3/deepseek-r1-style models stream reasoning_content separately
             delta_reasoning = getattr(delta, "reasoning_content", "") or ""

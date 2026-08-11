@@ -1,16 +1,14 @@
 """quiz_arena 主编排 —— 后台审题（WorkQueue）接正式抢答（Blackboard）。
 
 两段流程共用一个题库，中间用 WorkQueue 跑出的"审核通过"结果集当作
-Blackboard 阶段的输入，直观演示五个协作原语里最新的两个：
+Blackboard 阶段的输入，直观演示两个协作原语：
 
-1. **WorkQueue**（后台审题）—— 审核员是 pull 模型的 ``Worker``：谁空闲谁去
-   领下一道题审，不是被动等派发。演示租约超时重新入队（审核员"失联"）和
-   重试到上限被扔进死信（题目本身有问题，永远不会浪费第二次尝试）。
+1. **WorkQueue**（后台审题）—— 两道审核员并行抢题审题，pull 模型：谁空闲谁去
+   领下一道题审，不是被动等派发。
 2. **Blackboard**（正式抢答）—— ``kickoff`` 是 keys=[] 的常驻触发器，主持人
    借它出题、判分；``buzz_in`` 是本轮真正的主角：多名选手同时符合触发条件，
-   但"先抢锁再算"——没抢到锁的人连 ``try_contribute`` 都不会被调用一次，
-   不是"都算、慢的那个被取消"。跑完全场后本脚本会用
-   ``ContestantMember.compute_count`` 断言这一点，而不只是打印出来。
+   但"先抢锁再算"——没抢到锁的人连 ``try_contribute`` 都不会被调用一次。
+   跑完全场后本脚本会用 ``ContestantMember.compute_count`` 断言这一点。
 """
 
 from __future__ import annotations
@@ -54,7 +52,7 @@ async def _run_backstage_review() -> dict[str, dict]:
     print("\n=== 后台审题（WorkQueue）===")
     workers = {
         "quick_reviewer": QuickReviewer("quick_reviewer"),
-        "flaky_reviewer": FlakyReviewer("flaky_reviewer", hang_on="q2"),
+        "flaky_reviewer": FlakyReviewer("flaky_reviewer"),
     }
     spec = WorkQueueSpec(
         workers=workers,
@@ -72,10 +70,6 @@ async def _run_backstage_review() -> dict[str, dict]:
         elif isinstance(event, ItemCompletedEvent):
             validated[event.item_id] = by_id[event.item_id]
             print(f"  [通过] {event.item_id} 审核通过 —— {event.worker}")
-        elif isinstance(event, ItemRequeuedEvent):
-            print(f"  [重排] {event.item_id} 因“{event.reason}”被收回重新入队")
-        elif isinstance(event, ItemDeadLetteredEvent):
-            print(f"  [淘汰] {event.item_id} 重试 {event.attempts} 次仍失败，进死信：{event.error}")
         elif isinstance(event, QueueDrainedEvent):
             print(f"  [完成] 审题结束 —— {event.reason.reason}: {event.reason.detail}")
 
