@@ -24,40 +24,67 @@
 ### 生产基建
 
 - **四维硬预算** —— turns / seconds / tokens / cost_usd 四个独立维度，任一触顶即硬停，子 Agent 花销实时汇总回父 Agent。
-
 - **崩溃恢复** —— checkpoint + 事件日志 + 乐观版本控制，进程崩了重启从断点续跑。
-
 - **可替换后端** —— 默认 file + memory 开箱即用，生产可换 Postgres / Neo4j / Qdrant / Redis。
-
 - **重试** —— fixed / exponential / jittered 三种 backoff 策略，按错误码统一分类决定是否重试、是否降级。
-
 - **熔断** —— 工具级（ CLOSED → OPEN → HALF_OPEN 自动探测恢复）+ Agent级（反复越权的 Agent 自动 suspend）。
-
 - **安全** —— 五层注入防护管道 + 三级污点追踪 + 写时拦截 + 分层工具权限 + HITL 审批门禁。
-
 - **可观测** —— Span 追踪 + OTLP 导出 + 轨迹漂移检测。
-
 - **评估测试** —— 黄金评测集 + LLM Judge + CI 回归。
+
+<details>
+<summary>📂 源文件索引（点击展开）</summary>
+
+| 能力 | 核心源文件（`src/prodagent/`） |
+|---|---|
+| 四维硬预算 | `core/budget.py`、`runtime/coordination/budget_ledger.py`、`runtime/coordination/accounting.py`、`resilience/cost/pricing.py` |
+| 崩溃恢复 | `ports/checkpoint.py`、`backends/file/checkpoint.py`、`backends/postgres/checkpoint.py`、`backends/postgres/_versioned.py`、`core/event_log.py`、`ports/event_log.py`、`runtime/plan/event_log.py`、`core/state/run.py` |
+| 可替换后端 | `ports/`（15 个 Protocol 端口）、`backends/factory.py`、`backends/registry.py`、`backends/file/`、`backends/memory/`、`backends/postgres/`、`backends/neo4j/`、`backends/qdrant/`、`backends/redis/` |
+| 重试 | `resilience/reliability/retry.py`、`resilience/transport/http_retry.py`、`core/error_classifier.py`、`core/error_reason.py` |
+| 熔断 | `tooling/reliability/circuit_breaker.py`、`guardrail/permission/circuit_breaker.py`、`guardrail/permission/scopes.py` |
+| 安全 | `guardrail/injection/pipeline.py`、`guardrail/injection/trust_chain.py`、`guardrail/patterns.py`、`guardrail/permission/taint.py`、`guardrail/permission/scopes.py`、`guardrail/approval/gate.py`、`guardrail/approval/routing.py`、`guardrail/approval/formatter.py`、`hooks/bundles/security/` |
+| 可观测 | `core/observability.py`、`resilience/observability/otel_exporter.py`、`resilience/observability/drift.py`、`resilience/observability/audit.py`、`resilience/observability/scrubber.py`、`ports/span.py`、`hooks/bundles/observability.py` |
+| 评估测试 | `evaluation/evals/dataset.py`、`evaluation/evals/judge.py`、`evaluation/evals/runner.py`、`evaluation/testing/trace_assert.py`、`evaluation/testing/cassette.py` |
+
+</details>
 
 ### 编排能力
 
 - **三执行模式** —— `PLAN_FIRST`（LLM 动态出 PLAN DAG，可审计、可 HITL、可断点续跑）/ `REACTIVE`（ReAct 循环，边走边看）/ `Workflow`（人写静态 PLAN DAG）。
-
 - **Agent 协作** —— 五个原语，驱动方式各不相同：`agents=` push 垂直委派（父 spawn 子，子返回结果，父继续）；`peers=` push 横向接力（终止当前 run，peer 接力继续）；`Ensemble` 多人共用对话区，轮流发言；`Blackboard` 共用看板，字段变化触发专家，`buzz_in` 先抢锁再算；`WorkQueue` worker 主动领活，超时回收，重试耗尽转死信。五者共用 `BudgetLedger` 预算账本。
-
 - **上下文三明治** —— state / memory / skills / history / reminder 五段式组装，每段独立可控、独立可压缩。
-
 - **五级压缩** —— NONE / TOOL_COMPRESS / HISTORY_SUMMARY / TOPIC_SUMMARY / EMERGENCY，按 token 占用比例自动触发，每级有明确的语义损失边界。
-
 - **工具系统** —— `@tool` 装饰器声明式注册，按副作用分层（LOW/MEDIUM/HIGH）；原生 MCP 协议接入外部工具。
+
+<details>
+<summary>📂 源文件索引（点击展开）</summary>
+
+| 能力 | 核心源文件（`src/prodagent/`） |
+|---|---|
+| 三执行模式 | `runtime/agent.py`、`runtime/plan/planner.py`、`runtime/plan/dag.py`、`runtime/plan/executor.py`、`runtime/plan/step_runner.py`、`runtime/plan/bootstrap.py`、`runtime/reactive.py`、`runtime/workflow.py`、`runtime/runner.py` |
+| Agent 协作 | `runtime/coordination/spawn.py`、`runtime/coordination/peer.py`、`runtime/coordination/ensemble.py`、`runtime/coordination/floor.py`、`runtime/coordination/floor_projection.py`、`runtime/coordination/blackboard.py`、`runtime/coordination/work_queue.py`、`runtime/coordination/budget_ledger.py`、`runtime/coordination/handoff.py`、`runtime/coordination/termination.py`、`runtime/coordination/run_loop.py`、`runtime/coordination/parent_runtime.py` |
+| 上下文三明治 | `cognition/context/manager.py`、`cognition/context/budget.py`、`cognition/context/spill.py`、`cognition/context/tool_results.py` |
+| 五级压缩 | `cognition/context/compression/pipeline.py`、`cognition/context/compression/summarizer.py`、`cognition/context/compression/formatting.py` |
+| 工具系统 | `tooling/decorator.py`、`tooling/base.py`、`tooling/registry.py`、`tooling/dispatcher.py`、`tooling/runner.py`、`tooling/search.py`、`tooling/skill_resolver.py`、`tooling/reliability/locks.py`、`mcp/bridge.py`、`mcp/client.py`、`mcp/registry.py`、`mcp/config.py`、`mcp/transports/` |
+
+</details>
 
 ### 进阶能力
 
 - **四通道长期记忆** —— 规则 / 实体 / 精确 / 语义并行 recall + ACT-R 激活衰减。
-
 - **三协议 Hook 总线** —— Event（通知）/ CheckPoint（阻塞）/ Injection（注入）协议层分离。
-
 - **自我进化闭环** —— 成功的 run 蒸馏成 Skill，下次按需加载。
+
+<details>
+<summary>📂 源文件索引（点击展开）</summary>
+
+| 能力 | 核心源文件（`src/prodagent/`） |
+|---|---|
+| 四通道长期记忆 | `cognition/memory/manager.py`、`cognition/memory/channels.py`、`cognition/memory/forgetting.py`、`cognition/memory/facts.py`、`cognition/memory/classification.py`、`cognition/memory/storage.py`、`cognition/memory/conflict.py`、`cognition/memory/embedder.py`、`cognition/memory/touch_worker.py`、`hooks/bundles/memory.py` |
+| 三协议 Hook 总线 | `hooks/registry.py`、`hooks/events.py`、`hooks/checkpoint.py`、`hooks/bundles/base.py`、`hooks/bundles/default_wiring.py`、`hooks/observers/console.py`、`hooks/observers/cache_monitor.py` |
+| 自我进化闭环 | `evaluation/learning/skill_synthesizer.py`、`evaluation/learning/experience.py`、`evaluation/learning/storage.py`、`evaluation/skills/registry.py`、`evaluation/reflection/constitutional.py`、`hooks/bundles/learning.py` |
+
+</details>
 
 ## 快速开始
 
