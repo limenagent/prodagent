@@ -74,7 +74,7 @@ async def test_cancel_after_one_step_completes_persists_event(tmp_path):
     step_completed = [
         e
         for e in logged
-        if e.event_type is PlanEventType.STEP_COMPLETED and e.data.get("step_id") == "s2"
+        if e.event_type == PlanEventType.STEP_COMPLETED and e.data.get("step_id") == "s2"
     ]
     assert step_completed, "work_a (s2) completed before cancel — StepCompleted must be persisted"
 

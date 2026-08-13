@@ -20,6 +20,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from prodagent.runtime.coordination._store import SharedStore
+
 if TYPE_CHECKING:
     from prodagent.core.types import ToolCall
 
@@ -51,6 +53,11 @@ class FloorTurn:
 
     cost_usd: float = 0.0
     """Spend attributed to this turn — folded into SharedBudget."""
+
+    tokens: int = 0
+    """Token spend attributed to this turn (input + output) — folded into
+    SharedBudget alongside ``cost_usd``. Without it the budget's token axis is
+    silently unenforced for ensemble runs."""
 
     elapsed_s: float = 0.0
     """Wall-clock seconds this turn took."""
@@ -85,7 +92,7 @@ class FloorMember(Protocol):
 
 
 @dataclass
-class SharedFloor:
+class SharedFloor(SharedStore):
     """The shared transcript all ensemble members read and write.
 
     Lifetime is independent of any single member's run — persists across
@@ -164,3 +171,10 @@ class SharedFloor:
             "round_count": self.round_count(),
             "elapsed_s": time.monotonic() - self.started_at,
         }
+
+    def fingerprint(self) -> tuple[int, str]:
+        """Liveness fingerprint — changes whenever a turn is appended; stable
+        otherwise. (Ensemble stops via budget/termination, not liveness, but the
+        contract requires it and Phase-2 durability uses it as the replay seam.)"""
+        last_id = self.transcript[-1].turn_id if self.transcript else ""
+        return (len(self.transcript), last_id)

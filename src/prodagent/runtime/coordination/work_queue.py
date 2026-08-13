@@ -22,10 +22,14 @@ import logging
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
+from prodagent.core.event_log import Event
 from prodagent.core.exceptions import BudgetExceeded
+from prodagent.runtime.coordination._stage import StageDriver
+from prodagent.runtime.coordination._store import RoundedLockableStore
 from prodagent.runtime.coordination.termination import (
     MaxRounds,
     TerminationPolicy,
@@ -36,6 +40,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
     from prodagent.ports.dead_letter import DeadLetterStore
+    from prodagent.ports.event_log import EventLog
     from prodagent.runtime.coordination.budget_ledger import BudgetLedger
 
 logger = logging.getLogger(__name__)
@@ -75,11 +80,57 @@ class _ClaimInfo:
     lease_expires_at: float
 
 
-class SharedQueue:
-    """``pending`` deque + ``claimed`` lease registry, guarded by one
-    ``asyncio.Lock`` — lock+mutable-state recipe shared with
-    :class:`~prodagent.runtime.coordination.blackboard.Board` and
-    :class:`BudgetLedger`."""
+class QueueEventType(StrEnum):
+    """Durable record of every SharedQueue transition — 1:1 with the in-memory
+    mutations and the ephemeral ``WorkQueueEvent`` stream. Appended to an
+    :class:`~prodagent.ports.event_log.EventLog` keyed by the queue's ``run_id``,
+    so a crashed queue can be rebuilt by :meth:`SharedQueue.restore`."""
+
+    ITEM_ENQUEUED = "ItemEnqueued"
+    ITEM_CLAIMED = "ItemClaimed"
+    ITEM_COMPLETED = "ItemCompleted"
+    ITEM_REQUEUED = "ItemRequeued"
+    ITEM_DEAD_LETTERED = "ItemDeadLettered"
+
+
+def apply_queue_event(state: dict[str, Any], event: Event) -> None:
+    """Fold one queue :class:`Event` into a rebuild-state dict — the pure kernel
+    behind :meth:`SharedQueue.restore`, mirroring the plan domain's
+    ``apply_event`` in ``runtime/plan/event_log.py``. State shape: ``pending``
+    (id→WorkItem, insertion-ordered so replay preserves FIFO), ``claimed``
+    (id→_ClaimInfo), ``completed`` ([id]), ``dead_lettered`` ([id]),
+    ``resolutions`` (int)."""
+    item_id = event.data["item_id"]
+    etype = event.event_type
+    if etype == QueueEventType.ITEM_ENQUEUED:
+        state["pending"][item_id] = WorkItem(item_id, event.data["payload"], 0)
+    elif etype == QueueEventType.ITEM_CLAIMED:
+        item = state["pending"].pop(item_id, None)
+        if item is None:
+            item = WorkItem(item_id, event.data["payload"], 0)
+        state["claimed"][item_id] = _ClaimInfo(
+            event.data["worker"], item, event.data["lease_expires_at"]
+        )
+    elif etype == QueueEventType.ITEM_COMPLETED:
+        state["claimed"].pop(item_id, None)
+        state["completed"].append(item_id)
+        state["resolutions"] += 1
+    elif etype == QueueEventType.ITEM_REQUEUED:
+        info = state["claimed"].pop(item_id, None)
+        item = info.item if info is not None else WorkItem(item_id, event.data["payload"], 0)
+        item.attempts = event.data["attempts"]
+        state["pending"][item_id] = item
+        state["resolutions"] += 1
+    elif etype == QueueEventType.ITEM_DEAD_LETTERED:
+        state["claimed"].pop(item_id, None)
+        state["dead_lettered"].append(item_id)
+        state["resolutions"] += 1
+
+
+class SharedQueue(RoundedLockableStore):
+    """``pending`` deque + ``claimed`` lease registry. A
+    :class:`RoundedLockableStore` — the lock and round counter come from the
+    base, shared with :class:`~prodagent.runtime.coordination.blackboard.Board`."""
 
     def __init__(
         self,
@@ -87,26 +138,40 @@ class SharedQueue:
         *,
         dead_letter: DeadLetterStore,
         lease_seconds: float,
+        event_log: EventLog | None = None,
+        run_id: str = "",
     ) -> None:
+        super().__init__()
         self._pending: deque[WorkItem] = deque(items)
         self._claimed: dict[str, _ClaimInfo] = {}
         self._completed: list[str] = []
         self._dead_letter = dead_letter
         self._lease_seconds = lease_seconds
-        self._lock = asyncio.Lock()
-        self._round_count = 0
         self._resolution_count = 0
-        self.started_at = time.monotonic()
+        # Durable projection (optional). When set, every mutation appends a
+        # QueueEventType event under ``run_id``; the in-memory state stays the
+        # live source of truth during the run, the log is what survives a crash.
+        self._event_log = event_log
+        self._run_id = run_id
+        self._last_seq = 0
 
     async def claim_next(self, worker_name: str) -> WorkItem | None:
         async with self._lock:
             if not self._pending:
                 return None
             item = self._pending.popleft()
+            lease_expires_at = time.monotonic() + self._lease_seconds
             self._claimed[item.item_id] = _ClaimInfo(
                 worker=worker_name,
                 item=item,
-                lease_expires_at=time.monotonic() + self._lease_seconds,
+                lease_expires_at=lease_expires_at,
+            )
+            await self._record(
+                QueueEventType.ITEM_CLAIMED,
+                item_id=item.item_id,
+                worker=worker_name,
+                lease_expires_at=lease_expires_at,
+                payload=item.payload,
             )
             return item
 
@@ -116,6 +181,7 @@ class SharedQueue:
                 raise KeyError(f"complete() on unclaimed item {item_id!r}")
             self._completed.append(item_id)
             self._resolution_count += 1
+            await self._record(QueueEventType.ITEM_COMPLETED, item_id=item_id)
 
     async def fail(self, item_id: str, error: str) -> tuple[Literal["dead_letter", "retry"], int]:
         """Record a failure for a claimed item. Delegates retry-vs-archive to
@@ -132,6 +198,21 @@ class SharedQueue:
             if outcome == "retry":
                 self._pending.append(item)
             self._resolution_count += 1
+            if outcome == "dead_letter":
+                await self._record(
+                    QueueEventType.ITEM_DEAD_LETTERED,
+                    item_id=item_id,
+                    attempts=item.attempts,
+                    payload=item.payload,
+                    error=error,
+                )
+            else:
+                await self._record(
+                    QueueEventType.ITEM_REQUEUED,
+                    item_id=item_id,
+                    attempts=item.attempts,
+                    payload=item.payload,
+                )
             return outcome, item.attempts
 
     def is_drained(self) -> bool:
@@ -150,13 +231,6 @@ class SharedQueue:
             "elapsed_s": time.monotonic() - self.started_at,
         }
 
-    def round_count(self) -> int:
-        """Duck-typed for :class:`~prodagent.runtime.coordination.termination.TerminationPolicy`."""
-        return self._round_count
-
-    def _advance_round(self, round_num: int) -> None:
-        self._round_count = round_num
-
     def _expired_claim_ids(self, now: float) -> list[str]:
         return [
             item_id for item_id, claim in self._claimed.items() if claim.lease_expires_at <= now
@@ -166,14 +240,14 @@ class SharedQueue:
         claim = self._claimed.get(item_id)
         return claim.worker if claim is not None else None
 
-    def _progress_marker(self) -> tuple[int, int, int, int, int]:
-        """Cheap fingerprint of queue state, used to detect whether a round
-        moved any item between pending/claimed/completed/dead-lettered — even
-        if a worker claimed and then reported nothing (crashed mid-task), the
-        item is no longer in ``pending`` so it still counts as progress.
-        ``_resolution_count`` covers the case a bare count snapshot would
-        miss: a failed item requeued lands right back in ``pending``,
-        leaving every count unchanged even though a real resolution happened."""
+    def fingerprint(self) -> tuple[int, int, int, int, int]:
+        """Liveness fingerprint — detects whether a round moved any item between
+        pending/claimed/completed/dead-lettered. Even if a worker claimed and
+        then reported nothing (crashed mid-task), the item is no longer in
+        ``pending`` so it still counts as progress. ``_resolution_count`` covers
+        the case a bare count snapshot would miss: a failed item requeued lands
+        right back in ``pending``, leaving every count unchanged even though a
+        real resolution happened."""
         return (
             len(self._pending),
             len(self._claimed),
@@ -181,6 +255,70 @@ class SharedQueue:
             len(self._dead_letter.dead_letters()),
             self._resolution_count,
         )
+
+    async def _record(self, event_type: QueueEventType, **data: Any) -> int:
+        """Append a durable event under ``run_id`` (mirrors ``PlanEventLog._record``:
+        the optimistic ``expected_seq`` tail-check serializes appends under this
+        store's lock). No-op when no event log is attached. Returns the assigned
+        seq and advances ``_last_seq``."""
+        if self._event_log is None:
+            return 0
+        seq = await self._event_log.append(
+            Event.make(event_type, self._run_id, version=0, **data),
+            expected_seq=self._last_seq,
+        )
+        self._last_seq = seq
+        return seq
+
+    async def record_enqueued(self) -> None:
+        """Append ``ITEM_ENQUEUED`` for every pending item — called once when a
+        durable queue starts fresh, so the log records the initial workload."""
+        for item in list(self._pending):
+            await self._record(
+                QueueEventType.ITEM_ENQUEUED, item_id=item.item_id, payload=item.payload
+            )
+
+    @classmethod
+    async def restore(
+        cls,
+        event_log: EventLog,
+        run_id: str,
+        *,
+        dead_letter: DeadLetterStore,
+        lease_seconds: float,
+    ) -> SharedQueue:
+        """Rebuild a SharedQueue by folding its event log — the crash-recovery
+        path. Items claimed at crash time are reconstructed as ``claimed`` with
+        their original lease; the resumed run's lease sweep requeues expired
+        ones exactly as it would within a single run.
+
+        Note: the in-memory ``DeadLetterStore`` is not itself event-sourced, so
+        items dead-lettered before the crash are correctly absent from
+        pending/claimed/completed but don't repopulate ``dead_letters()`` — full
+        dead-letter durability is a follow-on (event-source that store too)."""
+        events = await event_log.get_events(run_id)
+        state: dict[str, Any] = {
+            "pending": {},
+            "claimed": {},
+            "completed": [],
+            "dead_lettered": [],
+            "resolutions": 0,
+        }
+        for event in events:
+            apply_queue_event(state, event)
+        queue = cls(
+            [],
+            dead_letter=dead_letter,
+            lease_seconds=lease_seconds,
+            event_log=event_log,
+            run_id=run_id,
+        )
+        queue._pending = deque(state["pending"].values())
+        queue._claimed = state["claimed"]
+        queue._completed = state["completed"]
+        queue._resolution_count = state["resolutions"]
+        queue._last_seq = events[-1].seq if events else 0
+        return queue
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +334,7 @@ class WorkResult:
     outcome: Literal["success", "failure"]
     error: str | None = None
     cost_usd: float = 0.0
+    tokens: int = 0
 
 
 @runtime_checkable
@@ -222,6 +361,13 @@ class WorkQueueSpec:
         default_factory=lambda: TerminationPolicy(hard_cap=MaxRounds(max_rounds=100))
     )
     budget: BudgetLedger | None = None
+    run_id: str = ""
+    """Stable id for the durable event log (the EventLog partition key). When
+    ``event_log`` is set and ``run_id`` already has events, the queue resumes
+    from them; otherwise it starts fresh and records the workload."""
+    event_log: EventLog | None = None
+    """Optional durable projection — append every transition so the queue
+    survives a crash and can be rebuilt via :meth:`SharedQueue.restore`."""
 
     def __post_init__(self) -> None:
         if not self.workers:
@@ -288,142 +434,180 @@ WorkQueueEvent = (
 )
 
 
-class WorkQueue:
+class WorkQueue(StageDriver[WorkQueueEvent]):
     """Drives a work queue: each round, sweep expired leases back into the
-    retry/dead-letter path, then let every worker race to claim-and-run once."""
+    retry/dead-letter path, then let every worker race to claim-and-run once.
+
+    Crash→error and finalize-to-unknown are handled by :class:`StageDriver`."""
 
     def __init__(self, spec: WorkQueueSpec) -> None:
+        super().__init__()
         self._spec = spec
         self.queue = SharedQueue(
-            spec.items, dead_letter=spec.dead_letter, lease_seconds=spec.lease_seconds
+            spec.items,
+            dead_letter=spec.dead_letter,
+            lease_seconds=spec.lease_seconds,
+            event_log=spec.event_log,
+            run_id=spec.run_id,
         )
         self._budget = spec.budget
+        self._opened = False
+
+    async def _open(self) -> None:
+        """Lazy durable setup, run once before the first round. With an event
+        log: resume from it when ``run_id`` already has events, else record the
+        initial workload. No-op for non-durable queues."""
+        if self._opened:
+            return
+        self._opened = True
+        spec = self._spec
+        if spec.event_log is None or not spec.run_id:
+            return
+        if await spec.event_log.get_events(spec.run_id):
+            # Resume: rebuild the queue from its log, replacing the fresh one.
+            self.queue = await SharedQueue.restore(
+                spec.event_log,
+                spec.run_id,
+                dead_letter=spec.dead_letter,
+                lease_seconds=spec.lease_seconds,
+            )
+        else:
+            await self.queue.record_enqueued()
 
     async def _run_worker(self, worker_name: str) -> WorkResult | None:
         """Reserve → try_claim_and_run → commit for one worker. A worker that
-        can't reserve a turn never claims anything this round."""
+        can't reserve a turn never claims anything this round.
+
+        A worker whose ``try_claim_and_run`` *raises* is treated as idle for this
+        round, not allowed to kill the queue — mirroring how Ensemble/Blackboard
+        isolate a failing member. Its reservation is released (the crashed attempt
+        doesn't consume a turn; the requeue retries and re-charges then). Any item
+        it half-claimed stays in ``claimed`` and is recovered by the lease-expiry
+        sweep, so a raise and a "crash after claim" (return ``None``) converge on
+        the same lease-recovery path."""
         if self._budget is not None:
             try:
                 await self._budget.reserve(member=worker_name, turns=1)
             except BudgetExceeded:
                 return None
         worker = self._spec.workers[worker_name]
-        result = await worker.try_claim_and_run(self.queue, name=worker_name)
+        try:
+            result = await worker.try_claim_and_run(self.queue, name=worker_name)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — isolate one bad worker from the queue
+            logger.warning(
+                "[work_queue] worker %s raised %s: %s — treating as idle this round; "
+                "any held claim is lease-recovered",
+                worker_name,
+                type(exc).__name__,
+                exc,
+            )
+            if self._budget is not None:
+                await self._budget.release(member=worker_name, reserved_turns=1)
+            return None
         if self._budget is not None:
             await self._budget.commit(
                 member=worker_name,
                 turns=1,
-                tokens=0,
+                tokens=result.tokens if result is not None else 0,
                 cost_usd=result.cost_usd if result is not None else 0.0,
                 reserved_turns=1,
             )
         return result
 
-    async def run(self) -> AsyncGenerator[WorkQueueEvent, None]:
-        reason: TerminationReason | None = None
+    async def _rounds(self) -> AsyncGenerator[WorkQueueEvent, None]:
+        """One round per iteration: sweep expired leases, then fan out workers to
+        claim-and-run once. Sets ``self._reason`` when the queue should stop.
+        Crash→error and finalize-to-unknown are handled by :meth:`StageDriver.run`."""
+        await self._open()
         round_num = 0
-        try:
-            while True:
-                stop, policy_reason = self._spec.termination.should_stop(
-                    self.queue, next_round=round_num
+        while True:
+            stop, policy_reason = self._spec.termination.should_stop(
+                self.queue, next_round=round_num
+            )
+            if stop and policy_reason is not None:
+                self._reason = policy_reason
+                break
+
+            self.queue._advance_round(round_num)
+
+            now = time.monotonic()
+            for item_id in self.queue._expired_claim_ids(now):
+                worker = self.queue._claim_worker(item_id)
+                outcome, attempts = await self.queue.fail(item_id, "lease expired")
+                if outcome == "dead_letter":
+                    yield ItemDeadLetteredEvent(
+                        item_id=item_id,
+                        worker=worker,
+                        error="lease expired",
+                        attempts=attempts,
+                        queue_snapshot=self.queue.snapshot(),
+                    )
+                else:
+                    yield ItemRequeuedEvent(
+                        item_id=item_id,
+                        worker=worker,
+                        reason="lease expired",
+                        queue_snapshot=self.queue.snapshot(),
+                    )
+
+            if self.queue.is_drained():
+                self._reason = TerminationReason(
+                    reason="drained", detail="Queue fully drained — no pending or claimed items"
                 )
-                if stop and policy_reason is not None:
-                    reason = policy_reason
-                    break
+                break
 
-                self.queue._advance_round(round_num)
+            before = self.queue.fingerprint()
+            results = await asyncio.gather(*(self._run_worker(name) for name in self._spec.workers))
 
-                now = time.monotonic()
-                for item_id in self.queue._expired_claim_ids(now):
-                    worker = self.queue._claim_worker(item_id)
-                    outcome, attempts = await self.queue.fail(item_id, "lease expired")
+            for worker_name, result in zip(self._spec.workers, results, strict=True):
+                if result is None:
+                    continue
+                yield ItemClaimedEvent(
+                    item_id=result.item_id,
+                    worker=worker_name,
+                    queue_snapshot=self.queue.snapshot(),
+                )
+                if result.outcome == "success":
+                    await self.queue.complete(result.item_id)
+                    yield ItemCompletedEvent(
+                        item_id=result.item_id,
+                        worker=worker_name,
+                        queue_snapshot=self.queue.snapshot(),
+                    )
+                else:
+                    outcome, attempts = await self.queue.fail(
+                        result.item_id, result.error or "unknown error"
+                    )
                     if outcome == "dead_letter":
                         yield ItemDeadLetteredEvent(
-                            item_id=item_id,
-                            worker=worker,
-                            error="lease expired",
+                            item_id=result.item_id,
+                            worker=worker_name,
+                            error=result.error or "unknown error",
                             attempts=attempts,
                             queue_snapshot=self.queue.snapshot(),
                         )
                     else:
                         yield ItemRequeuedEvent(
-                            item_id=item_id,
-                            worker=worker,
-                            reason="lease expired",
-                            queue_snapshot=self.queue.snapshot(),
-                        )
-
-                if self.queue.is_drained():
-                    reason = TerminationReason(
-                        reason="drained", detail="Queue fully drained — no pending or claimed items"
-                    )
-                    break
-
-                before_marker = self.queue._progress_marker()
-                results = await asyncio.gather(
-                    *(self._run_worker(name) for name in self._spec.workers)
-                )
-
-                for worker_name, result in zip(self._spec.workers, results, strict=True):
-                    if result is None:
-                        continue
-                    yield ItemClaimedEvent(
-                        item_id=result.item_id,
-                        worker=worker_name,
-                        queue_snapshot=self.queue.snapshot(),
-                    )
-                    if result.outcome == "success":
-                        await self.queue.complete(result.item_id)
-                        yield ItemCompletedEvent(
                             item_id=result.item_id,
                             worker=worker_name,
+                            reason=result.error or "unknown error",
                             queue_snapshot=self.queue.snapshot(),
                         )
-                    else:
-                        outcome, attempts = await self.queue.fail(
-                            result.item_id, result.error or "unknown error"
-                        )
-                        if outcome == "dead_letter":
-                            yield ItemDeadLetteredEvent(
-                                item_id=result.item_id,
-                                worker=worker_name,
-                                error=result.error or "unknown error",
-                                attempts=attempts,
-                                queue_snapshot=self.queue.snapshot(),
-                            )
-                        else:
-                            yield ItemRequeuedEvent(
-                                item_id=result.item_id,
-                                worker=worker_name,
-                                reason=result.error or "unknown error",
-                                queue_snapshot=self.queue.snapshot(),
-                            )
 
-                any_progress = self.queue._progress_marker() != before_marker
-                if not any_progress and not self.queue.is_drained():
-                    reason = TerminationReason(
-                        reason="no_progress",
-                        detail="No worker claimed or completed anything this round",
-                    )
-                    break
-
-                round_num += 1
-
-            if reason is None:
-                reason = TerminationReason(
-                    reason="unknown", detail="Work queue exited loop without a termination reason"
+            any_progress = self.queue.fingerprint() != before
+            if not any_progress and not self.queue.is_drained():
+                self._reason = TerminationReason(
+                    reason="no_progress",
+                    detail="No worker claimed or completed anything this round",
                 )
-            yield QueueDrainedEvent(reason=reason, queue_snapshot=self.queue.snapshot())
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001 — surface as a failed event, don't crash the stream
-            logger.exception("[work_queue] pipeline crashed: %s", exc)
-            yield QueueDrainedEvent(
-                reason=TerminationReason(
-                    reason="error", detail=f"{type(exc).__name__}: {exc}", by_hard_cap=False
-                ),
-                queue_snapshot=self.queue.snapshot(),
-            )
+                break
+
+            round_num += 1
+
+    def _completed(self, reason: TerminationReason) -> WorkQueueEvent:
+        return QueueDrainedEvent(reason=reason, queue_snapshot=self.queue.snapshot())
 
 
 async def work_queue_stream(spec: WorkQueueSpec) -> AsyncGenerator[WorkQueueEvent, None]:

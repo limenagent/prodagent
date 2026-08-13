@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 from prodagent.backends.file._locking import _exclusive
-from prodagent.core.event_log import Event, PlanEventType
+from prodagent.core.event_log import Event
 from prodagent.core.exceptions import VersionConflict
 from prodagent.core.io import read_jsonl, safe_filename_component
 
@@ -111,7 +111,7 @@ class FileEventLog:
                     Event(
                         seq=d["seq"],
                         event_id=d["event_id"],
-                        event_type=PlanEventType(d["event_type"]),
+                        event_type=d["event_type"],
                         plan_id=d["plan_id"],
                         version=d["version"],
                         timestamp=d["timestamp"],

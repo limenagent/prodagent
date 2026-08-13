@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -10,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from prodagent.core.budget import HardBudget
 from prodagent.core.exceptions import BudgetExceeded
+from prodagent.runtime.coordination._stage import StageDriver
 from prodagent.runtime.coordination.budget_ledger import SharedBudget
 from prodagent.runtime.coordination.floor import FloorMember, FloorTurn, SharedFloor
 from prodagent.runtime.coordination.floor_projection import (
@@ -203,6 +203,8 @@ class AgentFloorMember:
             text=(run.final_output or "").strip(),
             tool_calls=tool_calls,
             cost_usd=float(getattr(run, "cost_usd", 0.0) or 0.0),
+            tokens=int(getattr(run, "input_tokens", 0) or 0)
+            + int(getattr(run, "output_tokens", 0) or 0),
             elapsed_s=float(getattr(run, "elapsed_seconds", lambda: 0.0)()),
             turn_id=str(uuid.uuid4()),
         )
@@ -321,16 +323,21 @@ class EnsembleCompletedEvent:
 # ---------------------------------------------------------------------------
 
 
-class Ensemble:
+class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
     """Drives an ensemble: round after round, member after member, until stop.
 
     One round = one pass of the speaking order. Each member's ``speak()`` is
     awaited in turn (round-robin is inherently serial; concurrent orders are
     deferred). Before each speak, the pipeline checks the SharedBudget and the
     TerminationPolicy — either can stop the floor. After each speak, actual
-    cost is committed to the SharedBudget."""
+    cost is committed to the SharedBudget.
+
+    The crash→error-event guard and the finalize-to-``unknown`` backstop live
+    in :class:`StageDriver`; this class owns only the round loop and the
+    terminal event shape."""
 
     def __init__(self, spec: EnsembleSpec) -> None:
+        super().__init__()
         self._spec = spec
         self._floor = spec.build_floor()
         self._budget = spec.budget or self._build_default_budget()
@@ -388,101 +395,82 @@ class Ensemble:
             )
         )
 
-    async def run(
-        self,
-    ) -> AsyncGenerator[AgentEvent | FloorTurnEvent | EnsembleCompletedEvent, None]:
-        """Stream floor events. Yields FloorTurnEvent per turn, EnsembleCompletedEvent at end."""
-        reason: TerminationReason | None = None
-        try:
-            while True:
-                # 1. Pick next speaker + compute the round they'd speak in.
-                #    Done before termination/budget checks so the policy sees
-                #    "the floor is about to enter round N" — max_rounds means
-                #    "no member speaks in round N or later" (max_rounds=2 →
-                #    2 × N turns for N members).
-                speaker = self._spec.order.next_speaker(self._floor)
-                if speaker is None:
-                    reason = TerminationReason(
-                        reason="no_speaker",
-                        detail="Speaking order returned None — floor has no next speaker",
-                    )
-                    break
-                round_num = self._compute_round(speaker)
-
-                # 2. Termination check (policy: round cap, business strategy)
-                stop, policy_reason = self._spec.termination.should_stop(
-                    self._floor, next_round=round_num
+    async def _rounds(self) -> AsyncGenerator[FloorTurnEvent, None]:
+        """One turn per iteration: pick speaker → check termination/budget →
+        speak → commit → yield the turn. Sets ``self._reason`` and returns when
+        the floor should stop. Crash→error and finalize-to-unknown are handled
+        by :meth:`StageDriver.run`."""
+        while True:
+            # 1. Pick next speaker + compute the round they'd speak in.
+            #    Done before termination/budget checks so the policy sees
+            #    "the floor is about to enter round N" — max_rounds means
+            #    "no member speaks in round N or later" (max_rounds=2 →
+            #    2 × N turns for N members).
+            speaker = self._spec.order.next_speaker(self._floor)
+            if speaker is None:
+                self._reason = TerminationReason(
+                    reason="no_speaker",
+                    detail="Speaking order returned None — floor has no next speaker",
                 )
-                if stop and policy_reason is not None:
-                    reason = policy_reason
-                    break
+                break
+            round_num = self._compute_round(speaker)
 
-                # 3. Budget check (hard ceiling, cross-member)
-                try:
-                    await self._budget.check(member=speaker)
-                except BudgetExceeded as exc:
-                    reason = TerminationReason(
-                        reason="budget",
-                        detail=f"Shared budget exhausted: {exc.message}",
-                        by_hard_cap=True,
-                    )
-                    break
-
-                # 4. Speak
-                member = self._floor.members[speaker]
-                logger.info(
-                    "[ensemble] round %d → %s (turn %d)",
-                    round_num,
-                    speaker,
-                    len(self._floor.transcript),
-                )
-
-                turn = await member.speak(self._floor, round_num=round_num)
-                self._floor.append(turn)
-
-                # 5. Commit actual cost to shared budget
-                await self._budget.commit(
-                    member=speaker,
-                    turns=1,
-                    tokens=0,  # per-turn token count not surfaced by FloorMember; cost is the load-bearing axis
-                    cost_usd=turn.cost_usd,
-                )
-
-                yield FloorTurnEvent(turn=turn, floor_snapshot=self._floor.snapshot())
-
-                # 6. Re-check budget after commit — may have latched exhausted
-                if self._budget.is_exhausted():
-                    reason = TerminationReason(
-                        reason="budget",
-                        detail=f"Shared budget latched exhausted after {speaker}'s turn",
-                        by_hard_cap=True,
-                    )
-                    break
-
-            if reason is None:
-                reason = TerminationReason(
-                    reason="unknown",
-                    detail="Floor exited loop without a termination reason",
-                )
-
-            yield EnsembleCompletedEvent(
-                reason=reason,
-                floor_snapshot=self._floor.snapshot(),
-                final_transcript=list(self._floor.transcript),
+            # 2. Termination check (policy: round cap, business strategy)
+            stop, policy_reason = self._spec.termination.should_stop(
+                self._floor, next_round=round_num
             )
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001 — surface as a failed event, don't crash the stream
-            logger.exception("[ensemble] pipeline crashed: %s", exc)
-            yield EnsembleCompletedEvent(
-                reason=TerminationReason(
-                    reason="error",
-                    detail=f"{type(exc).__name__}: {exc}",
-                    by_hard_cap=False,
-                ),
-                floor_snapshot=self._floor.snapshot(),
-                final_transcript=list(self._floor.transcript),
+            if stop and policy_reason is not None:
+                self._reason = policy_reason
+                break
+
+            # 3. Budget check (hard ceiling, cross-member)
+            try:
+                await self._budget.check(member=speaker)
+            except BudgetExceeded as exc:
+                self._reason = TerminationReason(
+                    reason="budget",
+                    detail=f"Shared budget exhausted: {exc.message}",
+                    by_hard_cap=True,
+                )
+                break
+
+            # 4. Speak
+            member = self._floor.members[speaker]
+            logger.info(
+                "[ensemble] round %d → %s (turn %d)",
+                round_num,
+                speaker,
+                len(self._floor.transcript),
             )
+
+            turn = await member.speak(self._floor, round_num=round_num)
+            self._floor.append(turn)
+
+            # 5. Commit actual cost to shared budget
+            await self._budget.commit(
+                member=speaker,
+                turns=1,
+                tokens=turn.tokens,
+                cost_usd=turn.cost_usd,
+            )
+
+            yield FloorTurnEvent(turn=turn, floor_snapshot=self._floor.snapshot())
+
+            # 6. Re-check budget after commit — may have latched exhausted
+            if self._budget.is_exhausted():
+                self._reason = TerminationReason(
+                    reason="budget",
+                    detail=f"Shared budget latched exhausted after {speaker}'s turn",
+                    by_hard_cap=True,
+                )
+                break
+
+    def _completed(self, reason: TerminationReason) -> FloorTurnEvent | EnsembleCompletedEvent:
+        return EnsembleCompletedEvent(
+            reason=reason,
+            floor_snapshot=self._floor.snapshot(),
+            final_transcript=list(self._floor.transcript),
+        )
 
 
 async def ensemble_stream(

@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from prodagent.backends.memory.lock import InProcessLockStore
 from prodagent.core.exceptions import BudgetExceeded
+from prodagent.runtime.coordination._stage import StageDriver
+from prodagent.runtime.coordination._store import RoundedLockableStore
 from prodagent.runtime.coordination.termination import (
     MaxRounds,
     TerminationPolicy,
@@ -57,20 +59,18 @@ class BoardSlot:
     version: int
 
 
-class Board:
-    """Shared ``dict[str, BoardSlot]`` guarded by one ``asyncio.Lock``.
+class Board(RoundedLockableStore):
+    """Shared ``dict[str, BoardSlot]`` — a versioned map of structured fields.
 
-    Not :class:`~prodagent.runtime.coordination.floor.SharedFloor`'s
-    append-only transcript — Blackboard experts overwrite structured fields, so
-    writes need version checks, not just ordering. Lock+mutable-state recipe
-    mirrors :class:`BudgetLedger`."""
+    Not :class:`~prodagent.runtime.coordination.floor.SharedFloor`'s append-only
+    transcript: Blackboard experts overwrite structured fields, so writes need
+    optimistic-concurrency version checks, not just ordering. A
+    :class:`RoundedLockableStore` — the lock and round counter come from the base."""
 
     def __init__(self) -> None:
+        super().__init__()
         self._slots: dict[str, BoardSlot] = {}
         self._changes: list[str] = []
-        self._lock = asyncio.Lock()
-        self._round_count = 0
-        self.started_at = time.monotonic()
 
     async def write(self, key: str, value: Any, *, expected_version: int | None = None) -> int:
         """Write ``key``, returning the new version. Raises :class:`VersionConflict`
@@ -105,19 +105,16 @@ class Board:
             "elapsed_s": time.monotonic() - self.started_at,
         }
 
-    def round_count(self) -> int:
-        """Duck-typed for :class:`~prodagent.runtime.coordination.termination.TerminationPolicy`,
-        which only calls ``floor.round_count()``. Advanced by the pipeline via
-        :meth:`_advance_round`, not by writes."""
-        return self._round_count
-
     def _drain_changes(self) -> list[str]:
         """Keys written since the last drain — consumed once per pipeline round."""
         changes, self._changes = self._changes, []
         return changes
 
-    def _advance_round(self, round_num: int) -> None:
-        self._round_count = round_num
+    def fingerprint(self) -> tuple[int, int]:
+        """Liveness fingerprint — the sum of slot versions rises on every write
+        and never falls, so it changes iff a write landed this round; the
+        un-drained change count disambiguates back-to-back same-version rounds."""
+        return (sum(s.version for s in self._slots.values()), len(self._changes))
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +151,7 @@ class BoardWrite:
     author: str
     expected_version: int | None = None
     cost_usd: float = 0.0
+    tokens: int = 0
 
 
 @runtime_checkable
@@ -225,12 +223,15 @@ class BlackboardCompletedEvent:
 # ---------------------------------------------------------------------------
 
 
-class Blackboard:
+class Blackboard(StageDriver[BoardWriteEvent | BlackboardCompletedEvent]):
     """Drives a Blackboard: each round, scan triggers against keys that changed
     last round, dispatch matching triggers (event = concurrent fan-out,
-    buzz_in = lock-first-then-compute), fold writes back in."""
+    buzz_in = lock-first-then-compute), fold writes back in.
+
+    Crash→error and finalize-to-unknown are handled by :class:`StageDriver`."""
 
     def __init__(self, spec: BlackboardSpec) -> None:
+        super().__init__()
         self._spec = spec
         self.board = Board()
         self._budget = spec.budget
@@ -249,7 +250,7 @@ class Blackboard:
             await self._budget.commit(
                 member=expert_name,
                 turns=1,
-                tokens=0,
+                tokens=write.tokens if write is not None else 0,
                 cost_usd=write.cost_usd if write is not None else 0.0,
                 reserved_turns=1,
             )
@@ -298,79 +299,65 @@ class Blackboard:
             await self._spec.lock_store.release(won_token)
         return [write if name == winner else None for name in trigger.experts]
 
-    async def run(self) -> AsyncGenerator[BoardWriteEvent | BlackboardCompletedEvent, None]:
-        reason: TerminationReason | None = None
+    async def _rounds(self) -> AsyncGenerator[BoardWriteEvent, None]:
+        """One round per iteration: match changed-key triggers → dispatch
+        (event fan-out or buzz_in lock-race) → fold writes. Sets
+        ``self._reason`` when the board should stop. Crash→error and
+        finalize-to-unknown are handled by :meth:`StageDriver.run`."""
         round_num = 0
-        try:
-            while True:
-                stop, policy_reason = self._spec.termination.should_stop(
-                    self.board, next_round=round_num
-                )
-                if stop and policy_reason is not None:
-                    reason = policy_reason
-                    break
-
-                if self._spec.terminal_check is not None and self._spec.terminal_check(self.board):
-                    reason = TerminationReason(
-                        reason="terminal_check", detail="Board satisfied terminal_check"
-                    )
-                    break
-
-                self.board._advance_round(round_num)
-                changed = self.board._drain_changes() if round_num > 0 else []
-                matched = [t for t in self._spec.triggers.values() if t.matches(changed)]
-                if not matched:
-                    reason = TerminationReason(
-                        reason="quiescent",
-                        detail="No trigger matched — board has no pending work",
-                    )
-                    break
-
-                any_write = False
-                for trigger in matched:
-                    dispatch = (
-                        self._dispatch_buzz_in
-                        if trigger.mode == "buzz_in"
-                        else self._dispatch_event
-                    )
-                    results = await dispatch(trigger)
-                    for write in results:
-                        if write is None:
-                            continue
-                        any_write = True
-                        await self.board.write(
-                            write.key, write.value, expected_version=write.expected_version
-                        )
-                        yield BoardWriteEvent(
-                            write=write,
-                            trigger_name=trigger.name,
-                            board_snapshot=self.board.snapshot(),
-                        )
-
-                if not any_write:
-                    reason = TerminationReason(
-                        reason="no_contribution",
-                        detail=f"Matched trigger(s) {[t.name for t in matched]} produced no writes",
-                    )
-                    break
-
-                round_num += 1
-
-            if reason is None:
-                reason = TerminationReason(
-                    reason="unknown", detail="Blackboard exited loop without a termination reason"
-                )
-            yield BlackboardCompletedEvent(reason=reason, board_snapshot=self.board.snapshot())
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001 — surface as a failed event, don't crash the stream
-            logger.exception("[blackboard] pipeline crashed: %s", exc)
-            yield BlackboardCompletedEvent(
-                reason=TerminationReason(
-                    reason="error", detail=f"{type(exc).__name__}: {exc}", by_hard_cap=False
-                ),
-                board_snapshot=self.board.snapshot(),
+        while True:
+            stop, policy_reason = self._spec.termination.should_stop(
+                self.board, next_round=round_num
             )
+            if stop and policy_reason is not None:
+                self._reason = policy_reason
+                break
+
+            if self._spec.terminal_check is not None and self._spec.terminal_check(self.board):
+                self._reason = TerminationReason(
+                    reason="terminal_check", detail="Board satisfied terminal_check"
+                )
+                break
+
+            self.board._advance_round(round_num)
+            changed = self.board._drain_changes() if round_num > 0 else []
+            matched = [t for t in self._spec.triggers.values() if t.matches(changed)]
+            if not matched:
+                self._reason = TerminationReason(
+                    reason="quiescent",
+                    detail="No trigger matched — board has no pending work",
+                )
+                break
+
+            before = self.board.fingerprint()
+            for trigger in matched:
+                dispatch = (
+                    self._dispatch_buzz_in if trigger.mode == "buzz_in" else self._dispatch_event
+                )
+                results = await dispatch(trigger)
+                for write in results:
+                    if write is None:
+                        continue
+                    await self.board.write(
+                        write.key, write.value, expected_version=write.expected_version
+                    )
+                    yield BoardWriteEvent(
+                        write=write,
+                        trigger_name=trigger.name,
+                        board_snapshot=self.board.snapshot(),
+                    )
+
+            if self.board.fingerprint() == before:
+                self._reason = TerminationReason(
+                    reason="no_contribution",
+                    detail=f"Matched trigger(s) {[t.name for t in matched]} produced no writes",
+                )
+                break
+
+            round_num += 1
+
+    def _completed(self, reason: TerminationReason) -> BoardWriteEvent | BlackboardCompletedEvent:
+        return BlackboardCompletedEvent(reason=reason, board_snapshot=self.board.snapshot())
 
 
 async def blackboard_stream(
@@ -465,6 +452,8 @@ class AgentBlackboardMember:
             value=output,
             author=self.name,
             cost_usd=float(getattr(run, "cost_usd", 0.0) or 0.0),
+            tokens=int(getattr(run, "input_tokens", 0) or 0)
+            + int(getattr(run, "output_tokens", 0) or 0),
         )
 
     def _wire_board_injector_once(self) -> None:

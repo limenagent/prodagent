@@ -30,16 +30,19 @@ class PlanEventType(StrEnum):
 
 @dataclass
 class Event:
+    # ``event_type`` is ``str`` (not ``PlanEventType``) so the log serves any
+    # event-sourced domain — plan execution passes a ``PlanEventType``, the
+    # WorkQueue slice passes a ``QueueEventType``. Both are ``StrEnum`` <: ``str``.
     seq: int
     event_id: str
-    event_type: PlanEventType
+    event_type: str
     plan_id: str
     version: int
     timestamp: float
     data: dict[str, Any]
 
     @classmethod
-    def make(cls, event_type: PlanEventType, plan_id: str, version: int, **data: Any) -> Event:
+    def make(cls, event_type: str, plan_id: str, version: int, **data: Any) -> Event:
         return cls(
             seq=0,
             event_id=str(uuid.uuid4()),

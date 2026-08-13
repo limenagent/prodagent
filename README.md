@@ -51,7 +51,7 @@
 ### 编排能力
 
 - **三执行模式** —— `PLAN_FIRST`（LLM 动态出 PLAN DAG，可审计、可 HITL、可断点续跑）/ `REACTIVE`（ReAct 循环，边走边看）/ `Workflow`（人写静态 PLAN DAG）。
-- **Agent 协作** —— 五个原语，驱动方式各不相同：`agents=` push 垂直委派（父 spawn 子，子返回结果，父继续）；`peers=` push 横向接力（终止当前 run，peer 接力继续）；`Ensemble` 多人共用对话区，轮流发言；`Blackboard` 共用看板，字段变化触发专家，`buzz_in` 先抢锁再算；`WorkQueue` worker 主动领活，超时回收，重试耗尽转死信。五者共用 `BudgetLedger` 预算账本。
+- **多 Agent 协作** —— 五个原语，按「拓扑 × 分派模型」正交分类：`agents=` 垂直委派（树 · 子返回结果）、`peers=` 横向接力（链 · 转交控制权）、`Ensemble` 共享会话（轮流发言）、`Blackboard` 共享可变状态（字段变化触发 / `buzz_in` 抢锁先算）、`WorkQueue` 任务池（worker 主动领活 · 租约超时回收 · 重试转死信）。不各写各的——共用同一套底盘：`BudgetLedger` 四维预算账本、`TerminationPolicy` 强制硬顶、`DeadLetterStore` 死信兜底，一处修复，全员受益。
 - **上下文三明治** —— state / memory / skills / history / reminder 五段式组装，每段独立可控、独立可压缩。
 - **五级压缩** —— NONE / TOOL_COMPRESS / HISTORY_SUMMARY / TOPIC_SUMMARY / EMERGENCY，按 token 占用比例自动触发，每级有明确的语义损失边界。
 - **工具系统** —— `@tool` 装饰器声明式注册，按副作用分层（LOW/MEDIUM/HIGH）；原生 MCP 协议接入外部工具。
