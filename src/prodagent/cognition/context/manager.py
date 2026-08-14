@@ -49,12 +49,11 @@ class _Sandwich:
     reminder_msg: Message | None = None
 
     def to_messages(self) -> MessageList:
-        msgs: list[Message] = []
+        msgs: list[Message] = list(self.history)
         if self.memory_msg is not None:
             msgs.append(self.memory_msg)
         if self.skills_msg is not None:
             msgs.append(self.skills_msg)
-        msgs.extend(self.history)
         if self.state_msg is not None:
             msgs.append(self.state_msg)
         if self.reminder_msg is not None:
@@ -62,13 +61,8 @@ class _Sandwich:
         return msgs
 
     def stable_prefix_len(self) -> int:
-        """Count of messages ahead of the cache boundary (memory + skills + history)."""
-        n = len(self.history)
-        if self.memory_msg is not None:
-            n += 1
-        if self.skills_msg is not None:
-            n += 1
-        return n
+        """Count of messages ahead of the cache boundary (history only)."""
+        return len(self.history)
 
 
 def format_state(run: AgentRun) -> str:
@@ -116,7 +110,7 @@ class ContextManager:
 
     @property
     def cache_boundary_index(self) -> int | None:
-        """Index of the last message in the stable (memory+skills+history) prefix."""
+        """Index of the last history message (the cache-stable prefix)."""
         return self._cache_boundary_index
 
     @property
