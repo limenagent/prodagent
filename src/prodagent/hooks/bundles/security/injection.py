@@ -30,7 +30,7 @@ class InjectionDefenseHooks:
         self._handoff_actions = allowed_handoff_actions
 
     def attach(self, hooks: HookRegistry) -> None:
-        # L1-L4 scans at priority 50 (below permission 100 / taint 90).
+        # L1-L4 scans at priority 50; L5 output/KB/handoff checks veto at 80.
         hooks.register_checker(CheckPoint.SESSION_START, self.scan_task, priority=50)
         hooks.register_checker(CheckPoint.TOOL_RESULT, self.scan_tool_result, priority=50)
         hooks.register_checker(CheckPoint.CONTEXT_BUILD, self.scan_context, priority=50)

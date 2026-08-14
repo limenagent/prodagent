@@ -37,7 +37,7 @@ class FakeLLMAdapter:
         system: str | list[dict[str, Any]] = "",
         tools: list[dict[str, Any]] | None = None,
         config: LLMConfig | None = None,
-        on_chunk: Callable[[str], Awaitable[None]],
+        on_chunk: Callable[[str], Awaitable[None]] | None = None,
     ) -> LLMResponse:
         if self._latency_ms > 0:
             await asyncio.sleep(self._latency_ms / 1_000)
@@ -58,7 +58,7 @@ class FakeLLMAdapter:
                 output_tokens=10,
             )
 
-        if response.content:
+        if on_chunk is not None and response.content:
             for word in response.content.split():
                 await on_chunk(word + " ")
                 await asyncio.sleep(0)

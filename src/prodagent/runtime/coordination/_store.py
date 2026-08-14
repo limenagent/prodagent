@@ -3,7 +3,9 @@
 ``Ensemble`` / ``Blackboard`` / ``WorkQueue`` each drive a shared mutable store:
 ``SharedFloor`` (append-only transcript), ``Board`` (versioned map), ``SharedQueue``
 (lease-based claim deque). They are informal instances of one model — a store + an
-activation policy — and they share the same *read-side contract*: a round-aware,
+activation policy (the *activation* axis is named explicitly in
+:mod:`prodagent.runtime.coordination.activation`) — and they share the same
+*read-side contract*: a round-aware,
 snapshotable state with a liveness fingerprint. That contract lives here, once,
 so :class:`~prodagent.runtime.coordination.termination.TerminationPolicy` can
 treat any store uniformly via ``round_count()`` and any driver can ask "did this

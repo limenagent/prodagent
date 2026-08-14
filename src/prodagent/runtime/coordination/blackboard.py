@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from prodagent.backends.memory.lock import InProcessLockStore
-from prodagent.core.exceptions import BudgetExceeded
 from prodagent.runtime.coordination._stage import StageDriver
 from prodagent.runtime.coordination._store import RoundedLockableStore
 from prodagent.runtime.coordination.termination import (
@@ -237,24 +236,21 @@ class Blackboard(StageDriver[BoardWriteEvent | BlackboardCompletedEvent]):
         self._budget = spec.budget
 
     async def _compute(self, expert_name: str, trigger: Trigger) -> BoardWrite | None:
-        """Reserve → try_contribute → commit for one expert. Shared by both
-        modes — the only difference is what gates a candidate reaching here."""
-        if self._budget is not None:
-            try:
-                await self._budget.reserve(member=expert_name, turns=1)
-            except BudgetExceeded:
-                return None
+        """Reserve → try_contribute → commit for one expert, via the shared
+        :meth:`StageDriver._run_enveloped`. Shared by both modes — the only
+        difference is what gates a candidate reaching here."""
         member = self._spec.experts[expert_name]
-        write = await member.try_contribute(self.board, trigger=trigger)
-        if self._budget is not None:
-            await self._budget.commit(
-                member=expert_name,
-                turns=1,
-                tokens=write.tokens if write is not None else 0,
-                cost_usd=write.cost_usd if write is not None else 0.0,
-                reserved_turns=1,
-            )
-        return write
+        produced: list[BoardWrite | None] = []
+
+        async def _act() -> tuple[int, float] | None:
+            write = await member.try_contribute(self.board, trigger=trigger)
+            produced.append(write)
+            if write is None:
+                return None
+            return write.tokens, write.cost_usd
+
+        await self._run_enveloped(expert_name, _act)
+        return produced[0] if produced else None
 
     async def _dispatch_event(self, trigger: Trigger) -> list[BoardWrite | None]:
         return list(
@@ -280,9 +276,6 @@ class Blackboard(StageDriver[BoardWriteEvent | BlackboardCompletedEvent]):
         async def _race(name: str) -> None:
             nonlocal winner, token
             try:
-                # Non-blocking try-acquire — a losing candidate must never begin
-                # computing. timeout=0 on InProcessLockStore is a true trylock
-                # (see backends/memory/lock.py).
                 acquired = await self._spec.lock_store.acquire(lock_name, timeout=0)
             except TimeoutError:
                 return

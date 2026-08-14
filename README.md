@@ -27,8 +27,8 @@
 - **崩溃恢复** —— checkpoint + 事件日志 + 乐观版本控制，进程崩了重启从断点续跑。
 - **可替换后端** —— 默认 file + memory 开箱即用，生产可换 Postgres / Neo4j / Qdrant / Redis。
 - **重试** —— fixed / exponential / jittered 三种 backoff 策略，按错误码统一分类决定是否重试、是否降级。
-- **熔断** —— 工具级（ CLOSED → OPEN → HALF_OPEN 自动探测恢复）+ Agent级（反复越权的 Agent 自动 suspend）。
-- **安全** —— 五层注入防护管道 + 三级污点追踪 + 写时拦截 + 分层工具权限 + HITL 审批门禁。
+- **熔断** —— 工具级（ CLOSED → OPEN → HALF_OPEN 自动探测恢复）。
+- **安全** —— 五层注入防护管道 + 写时拦截 + HITL 审批门禁。
 - **可观测** —— Span 追踪 + OTLP 导出 + 轨迹漂移检测。
 - **评估测试** —— 黄金评测集 + LLM Judge + CI 回归。
 
@@ -41,8 +41,8 @@
 | 崩溃恢复 | `ports/checkpoint.py`、`backends/file/checkpoint.py`、`backends/postgres/checkpoint.py`、`backends/postgres/_versioned.py`、`core/event_log.py`、`ports/event_log.py`、`runtime/plan/event_log.py`、`core/state/run.py` |
 | 可替换后端 | `ports/`（15 个 Protocol 端口）、`backends/factory.py`、`backends/registry.py`、`backends/file/`、`backends/memory/`、`backends/postgres/`、`backends/neo4j/`、`backends/qdrant/`、`backends/redis/` |
 | 重试 | `resilience/reliability/retry.py`、`resilience/transport/http_retry.py`、`core/error_classifier.py`、`core/error_reason.py` |
-| 熔断 | `tooling/reliability/circuit_breaker.py`、`guardrail/permission/circuit_breaker.py`、`guardrail/permission/scopes.py` |
-| 安全 | `guardrail/injection/pipeline.py`、`guardrail/injection/trust_chain.py`、`guardrail/patterns.py`、`guardrail/permission/taint.py`、`guardrail/permission/scopes.py`、`guardrail/approval/gate.py`、`guardrail/approval/routing.py`、`guardrail/approval/formatter.py`、`hooks/bundles/security/` |
+| 熔断 | `tooling/reliability/circuit_breaker.py` |
+| 安全 | `guardrail/injection/pipeline.py`、`guardrail/injection/trust_chain.py`、`guardrail/patterns.py`、`guardrail/approval/gate.py`、`guardrail/approval/routing.py`、`guardrail/approval/formatter.py`、`hooks/bundles/security/` |
 | 可观测 | `core/observability.py`、`resilience/observability/otel_exporter.py`、`resilience/observability/drift.py`、`resilience/observability/audit.py`、`resilience/observability/scrubber.py`、`ports/span.py`、`hooks/bundles/observability.py` |
 | 评估测试 | `evaluation/evals/dataset.py`、`evaluation/evals/judge.py`、`evaluation/evals/runner.py`、`evaluation/testing/trace_assert.py`、`evaluation/testing/cassette.py` |
 
@@ -51,8 +51,17 @@
 ### 编排能力
 
 - **三执行模式** —— `PLAN_FIRST`（LLM 动态出 PLAN DAG，可审计、可 HITL、可断点续跑）/ `REACTIVE`（ReAct 循环，边走边看）/ `Workflow`（人写静态 PLAN DAG）。
-- **多 Agent 协作** —— 五个原语，按「拓扑 × 分派模型」正交分类：`agents=` 垂直委派（树 · 子返回结果）、`peers=` 横向接力（链 · 转交控制权）、`Ensemble` 共享会话（轮流发言）、`Blackboard` 共享可变状态（字段变化触发 / `buzz_in` 抢锁先算）、`WorkQueue` 任务池（worker 主动领活 · 租约超时回收 · 重试转死信）。不各写各的——共用同一套底盘：`BudgetLedger` 四维预算账本、`TerminationPolicy` 强制硬顶、`DeadLetterStore` 死信兜底，一处修复，全员受益。
-- **上下文三明治** —— state / memory / skills / history / reminder 五段式组装，每段独立可控、独立可压缩。
+- **多 Agent 协作** —— 五个原语 = 「共享状态（store）× 激活策略（activation）」两个正交轴的组合：
+
+  | 原语 | 共享状态（写语义） | 激活策略（谁被唤醒）                                                                                 |
+  |---|---|------------------------------------------------------------------------------------------------------|
+  | `agents=` 垂直委派 | 父子结果传递（树） | 父推送任务给子                                                                                       |
+  | `peers=` 横向接力 | HandoffPacket（链） | 上一个转交控制权                                                                                     |
+  | `Ensemble` 共享会话 | `SharedFloor` 追加式 transcript | `RoundRobin` 轮流 / `Moderated` 主持人选人 / `FreeForAll` 全员并发发言（辩论 / 头脑风暴 / 角色扮演） |
+  | `Blackboard` 共享可变状态 | `Board` 版本化字段（乐观并发） | `Trigger` 字段变化触发，并行 fan-out / 抢锁先算（流水线式知识加工（上一步的输出是下一步的输入）      |
+  | `WorkQueue` 任务池 | `SharedQueue` 租约队列 | worker 主动领活 · 租约超时回收                                                                       |
+
+ - **上下文三明治** —— state / memory / skills / history / reminder 五段式组装，每段独立可控、独立可压缩。
 - **五级压缩** —— NONE / TOOL_COMPRESS / HISTORY_SUMMARY / TOPIC_SUMMARY / EMERGENCY，按 token 占用比例自动触发，每级有明确的语义损失边界。
 - **工具系统** —— `@tool` 装饰器声明式注册，按副作用分层（LOW/MEDIUM/HIGH）；原生 MCP 协议接入外部工具。
 
@@ -62,7 +71,7 @@
 | 能力 | 核心源文件（`src/prodagent/`） |
 |---|---|
 | 三执行模式 | `runtime/agent.py`、`runtime/plan/planner.py`、`runtime/plan/dag.py`、`runtime/plan/executor.py`、`runtime/plan/step_runner.py`、`runtime/plan/bootstrap.py`、`runtime/reactive.py`、`runtime/workflow.py`、`runtime/runner.py` |
-| Agent 协作 | `runtime/coordination/spawn.py`、`runtime/coordination/peer.py`、`runtime/coordination/ensemble.py`、`runtime/coordination/floor.py`、`runtime/coordination/floor_projection.py`、`runtime/coordination/blackboard.py`、`runtime/coordination/work_queue.py`、`runtime/coordination/budget_ledger.py`、`runtime/coordination/handoff.py`、`runtime/coordination/termination.py`、`runtime/coordination/run_loop.py`、`runtime/coordination/parent_runtime.py` |
+| Agent 协作 | `runtime/coordination/spawn.py`、`runtime/coordination/peer.py`、`runtime/coordination/ensemble.py`、`runtime/coordination/floor.py`、`runtime/coordination/floor_projection.py`、`runtime/coordination/blackboard.py`、`runtime/coordination/work_queue.py`、`runtime/coordination/activation.py`、`runtime/coordination/_stage.py`、`runtime/coordination/_store.py`、`runtime/coordination/budget_ledger.py`、`runtime/coordination/handoff.py`、`runtime/coordination/termination.py`、`runtime/coordination/run_loop.py`、`runtime/coordination/parent_runtime.py` |
 | 上下文三明治 | `cognition/context/manager.py`、`cognition/context/budget.py`、`cognition/context/spill.py`、`cognition/context/tool_results.py` |
 | 五级压缩 | `cognition/context/compression/pipeline.py`、`cognition/context/compression/summarizer.py`、`cognition/context/compression/formatting.py` |
 | 工具系统 | `tooling/decorator.py`、`tooling/base.py`、`tooling/registry.py`、`tooling/dispatcher.py`、`tooling/runner.py`、`tooling/search.py`、`tooling/skill_resolver.py`、`tooling/reliability/locks.py`、`mcp/bridge.py`、`mcp/client.py`、`mcp/registry.py`、`mcp/config.py`、`mcp/transports/` |

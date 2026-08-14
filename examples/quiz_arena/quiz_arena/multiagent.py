@@ -4,7 +4,9 @@ the unified :class:`MultiAgentEvent` envelope.
 Two phases share one adapter and one ``stream()``:
 
 - ``backstage_review`` (WorkQueue) — two reviewers race to claim and validate
-  questions. All 5 questions pass validation and enter the live quiz.
+  questions. Lease timeouts requeue the item; retries that hit the ceiling are
+  dead-lettered (``q4``/``q5`` are unvalidatable, so they're destined for the
+  dead-letter queue).
 - ``live_quiz`` (Blackboard) — host writes ``state`` with the next question;
   three contestants satisfy the ``buzz_in`` trigger, but only the lock winner
   computes — losers never have ``try_contribute`` called.
@@ -205,10 +207,10 @@ class QuizArenaAdapter:
     async def stream(self):
         # Phase 1 — backstage review (WorkQueue).
         self._phase = "backstage_review"
-        yield PhaseStarted("backstage_review", detail="审核员审题：两道审核员并行，快速审完所有题目")
+        yield PhaseStarted("backstage_review", detail="审核员审题：q4/q5 注定死信")
         workers = {
             "quick_reviewer": QuickReviewer("quick_reviewer"),
-            "flaky_reviewer": FlakyReviewer("flaky_reviewer"),
+            "flaky_reviewer": FlakyReviewer("flaky_reviewer", hang_on="q2"),
         }
         work_spec = WorkQueueSpec(
             workers=workers,
@@ -220,10 +222,10 @@ class QuizArenaAdapter:
             yield ev
         yield PhaseCompleted(
             "backstage_review",
-            detail=f"{len(self._validated)}/{len(QUESTION_BANK)} 道题全部通过审核",
+            detail=f"{len(self._validated)}/{len(QUESTION_BANK)} 道题通过审核",
             counts={
-                "通过": len(self._validated),
-                "总计": len(QUESTION_BANK),
+                "validated": len(self._validated),
+                "dead_lettered": len(QUESTION_BANK) - len(self._validated),
             },
         )
 

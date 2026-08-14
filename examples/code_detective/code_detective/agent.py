@@ -88,7 +88,7 @@ def build_code_detective_agent(
 ) -> Agent:
     """组装 Code Detective Agent。
 
-    Console/Span/Memory/Approval/Learning/Taint 全部由
+    Console/Span/Memory/Approval/Learning 全部由
     ``Agent.attach_default_hooks`` 接线 —— example 不碰 hook bundle。
     LearningHooks 的 synthesizer + aux LLM 也由框架从 fw lazy resolve。
     """

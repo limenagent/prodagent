@@ -96,7 +96,6 @@ def test_bundles_do_not_accept_hook_registry_kwarg():
     from prodagent.hooks.bundles.security import (
         ApprovalHooks,
         InjectionDefenseHooks,
-        PermissionHooks,
     )
     from prodagent.hooks.observers.console import ConsoleObserverHooks
 
@@ -104,7 +103,6 @@ def test_bundles_do_not_accept_hook_registry_kwarg():
         MemoryHooks,
         ConsoleObserverHooks,
         SpanObserverHooks,
-        PermissionHooks,
         ApprovalHooks,
         InjectionDefenseHooks,
     ]:

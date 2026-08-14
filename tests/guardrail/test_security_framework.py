@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent import DataFlowBlocked, PromptInjectionDetected, SecurityViolation
-from prodagent.core.exceptions import AgentSuspended
-from prodagent.core.types import ToolCall, ToolMeta
+from prodagent import PromptInjectionDetected, SecurityViolation
+from prodagent.core.types import ToolCall
 from prodagent.guardrail.approval import (
     ApprovalDecision,
     ContextAwareApprovalFormatter,
@@ -14,106 +13,8 @@ from prodagent.guardrail.injection import (
     KnowledgeBaseWriteGuard,
     validate_handoff_security,
 )
-from prodagent.guardrail.permission import (
-    ContextTaintMonitor,
-    PermissionCircuitBreaker,
-    TaintLevel,
-)
 from prodagent.hooks.checkpoint import CheckPoint
 from prodagent.hooks.registry import HookRegistry
-
-
-async def _noop_async(**kwargs):
-    return {}
-
-
-class TestContextTaintMonitor:
-    def test_clean_context_allows_exfiltration(self):
-        monitor = ContextTaintMonitor()
-        meta = ToolMeta(name="send_email", is_exfiltration_tool=True)
-        monitor.check_before_call("send_email", meta)
-
-    def test_pii_declaration_raises_taint(self):
-        monitor = ContextTaintMonitor()
-        pii_meta = ToolMeta(name="query_user", produces_pii=True)
-        monitor.on_tool_return({"name": "Alice"}, pii_meta)
-        assert monitor.taint == TaintLevel.RESTRICTED
-
-    def test_pii_regex_raises_taint(self):
-        monitor = ContextTaintMonitor()
-        monitor.on_tool_return({"phone": "13812345678"}, ToolMeta(name="q"))
-        assert monitor.taint == TaintLevel.RESTRICTED
-
-    def test_restricted_context_blocks_exfiltration(self):
-        monitor = ContextTaintMonitor()
-        monitor.on_tool_return("user phone: 13812345678", ToolMeta(name="q"))
-        with pytest.raises(DataFlowBlocked):
-            monitor.check_before_call(
-                "send_email", ToolMeta(name="send_email", is_exfiltration_tool=True)
-            )
-
-    def test_secret_escalates_to_sensitive(self):
-        monitor = ContextTaintMonitor()
-        monitor.on_tool_return(
-            {
-                "key": "sk-ant-abc123xyz789qwerty456789qwerty456789qwerty456789qwerty456789qwerty456789qwerty456789qwerty"
-            },
-            ToolMeta(name="q"),
-        )
-        assert monitor.taint == TaintLevel.SENSITIVE
-
-    def test_sensitive_context_blocks_exfiltration(self):
-        monitor = ContextTaintMonitor()
-        monitor.taint = TaintLevel.SENSITIVE
-        with pytest.raises(DataFlowBlocked):
-            monitor.check_before_call(
-                "http_post", ToolMeta(name="http_post", is_exfiltration_tool=True)
-            )
-
-    def test_taint_is_monotonic_no_downgrade(self):
-        monitor = ContextTaintMonitor()
-        monitor.taint = TaintLevel.SENSITIVE
-        monitor.on_tool_return("totally clean data", ToolMeta(name="q"))
-        assert monitor.taint == TaintLevel.SENSITIVE
-
-    def test_reset_clears_taint(self):
-        monitor = ContextTaintMonitor()
-        monitor.taint = TaintLevel.RESTRICTED
-        monitor.begin_session()
-        assert monitor.taint == TaintLevel.PUBLIC
-
-
-class TestPermissionCircuitBreaker:
-    def test_no_violation_allows_execution(self):
-        breaker = PermissionCircuitBreaker(failure_threshold=3)
-        breaker.check("agent-1")
-
-    def test_below_threshold_does_not_suspend(self):
-        breaker = PermissionCircuitBreaker(failure_threshold=3)
-        breaker.record_violation("agent-1", "test violation 1")
-        breaker.record_violation("agent-1", "test violation 2")
-        breaker.check("agent-1")
-
-    def test_threshold_breach_raises_agent_suspended(self):
-        breaker = PermissionCircuitBreaker(failure_threshold=3)
-        breaker.record_violation("agent-1")
-        breaker.record_violation("agent-1")
-        with pytest.raises(AgentSuspended):
-            breaker.record_violation("agent-1")
-
-    def test_suspended_agent_blocked_on_check(self):
-        breaker = PermissionCircuitBreaker(failure_threshold=1)
-        with pytest.raises(AgentSuspended):
-            breaker.record_violation("agent-x")
-        with pytest.raises(AgentSuspended):
-            breaker.check("agent-x")
-
-    def test_operator_reset_allows_resumption(self):
-        breaker = PermissionCircuitBreaker(failure_threshold=1)
-        with pytest.raises(AgentSuspended):
-            breaker.record_violation("agent-1")
-        breaker.reset("agent-1")
-        breaker.check("agent-1")
 
 
 class TestKnowledgeBaseWriteGuard:
@@ -223,29 +124,6 @@ class TestContextAwareApprovalFormatter:
 
 
 class TestDirectBundleConstruction:
-    def test_permission_bundle_with_all_collaborators(self):
-        from prodagent.guardrail.permission import (
-            ContextTaintMonitor,
-            PermissionCircuitBreaker,
-            PermissionMatrix,
-        )
-        from prodagent.hooks.bundles.security import PermissionHooks
-
-        breaker = PermissionCircuitBreaker()
-        matrix = (
-            PermissionMatrix.builder("ops-agent")
-            .allow(operations={"read"}, objects={"orders"})
-            .build()
-        )
-        monitor = ContextTaintMonitor()
-
-        bundle = PermissionHooks(
-            matrix=matrix,
-            circuit_breaker=breaker,
-            taint_monitor=monitor,
-        )
-        assert bundle is not None
-
     def test_injection_bundle_with_kb_guard(self):
         from prodagent.guardrail.injection import GuardrailPipeline, KnowledgeBaseWriteGuard
         from prodagent.hooks.bundles.security import InjectionDefenseHooks
@@ -265,15 +143,6 @@ class TestDirectBundleConstruction:
 
 
 class TestBundleAttach:
-    def test_permission_bundle_registers_tool_call_and_result(self):
-        from prodagent.guardrail.permission import ContextTaintMonitor
-        from prodagent.hooks.bundles.security import PermissionHooks
-
-        hooks = HookRegistry()
-        PermissionHooks(taint_monitor=ContextTaintMonitor()).attach(hooks)
-        assert hooks.has_check_handlers(CheckPoint.TOOL_CALL)
-        assert hooks.has_check_handlers(CheckPoint.TOOL_RESULT)
-
     def test_injection_bundle_registers_handoff(self):
         from prodagent.guardrail.injection import GuardrailPipeline
         from prodagent.hooks.bundles.security import InjectionDefenseHooks
@@ -291,64 +160,6 @@ class TestBundleAttach:
         hooks = HookRegistry()
         InjectionDefenseHooks(pipeline=GuardrailPipeline()).attach(hooks)
         assert not hooks.has_check_handlers(CheckPoint.AGENT_HANDOFF)
-
-
-class TestPermissionHooks:
-    async def test_blocking_hook_fires_on_tool_call(self):
-        from prodagent.hooks.bundles.security import PermissionHooks
-        from prodagent.tooling.base import FunctionTool
-        from prodagent.tooling.registry import ToolRegistry
-
-        hooks = HookRegistry()
-        monitor = ContextTaintMonitor()
-        monitor.taint = TaintLevel.RESTRICTED
-
-        registry = ToolRegistry()
-        registry.register(
-            FunctionTool(
-                name="send_email",
-                fn=_noop_async,
-                meta=ToolMeta(name="send_email", is_exfiltration_tool=True),
-                schema={"name": "send_email", "input_schema": {"type": "object"}},
-            )
-        )
-
-        PermissionHooks(
-            tool_registry=registry,
-            taint_monitor=monitor,
-        ).attach(hooks)
-
-        with pytest.raises(DataFlowBlocked):
-            await hooks.check_blocking(CheckPoint.TOOL_CALL, name="send_email", params={})
-
-    async def test_taint_updated_after_tool_result(self):
-        from prodagent.hooks.bundles.security import PermissionHooks
-        from prodagent.tooling.base import FunctionTool
-        from prodagent.tooling.registry import ToolRegistry
-
-        hooks = HookRegistry()
-        monitor = ContextTaintMonitor()
-
-        registry = ToolRegistry()
-        registry.register(
-            FunctionTool(
-                name="query_user",
-                fn=_noop_async,
-                meta=ToolMeta(name="query_user", produces_pii=True),
-                schema={"name": "query_user", "input_schema": {"type": "object"}},
-            )
-        )
-
-        PermissionHooks(
-            tool_registry=registry,
-            taint_monitor=monitor,
-        ).attach(hooks)
-
-        assert monitor.taint == TaintLevel.PUBLIC
-        await hooks.check_blocking(
-            CheckPoint.TOOL_RESULT, name="query_user", result={"name": "Alice"}
-        )
-        assert monitor.taint == TaintLevel.RESTRICTED
 
 
 class TestInjectionDefenseHooks:

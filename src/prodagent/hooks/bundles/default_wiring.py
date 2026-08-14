@@ -56,20 +56,6 @@ class ApprovalDefaultBundle:
         agent.config.approval = approval_hooks.approval_gate
 
 
-class PermissionDefaultBundle:
-    """Taint monitoring — dedupes against ``extensions=[PermissionHooks(...)]``."""
-
-    def attach(self, agent: Agent, fw: FrameworkConfig | None, registry: HookRegistry) -> None:
-        from prodagent.guardrail.permission import ContextTaintMonitor
-        from prodagent.hooks.bundles.security import PermissionHooks
-
-        for ext in agent.config.extensions:
-            if isinstance(ext, PermissionHooks):
-                return
-        monitor = ContextTaintMonitor(tool_registry=agent.tool_registry)
-        PermissionHooks(taint_monitor=monitor, tool_registry=agent.tool_registry).attach(registry)
-
-
 class InjectionDefaultBundle:
     """L1-L5 prompt-injection + PII defense — dedupes against ``extensions=``."""
 

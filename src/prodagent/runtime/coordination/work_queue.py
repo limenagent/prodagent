@@ -17,7 +17,6 @@ accounting is delegated to :class:`~prodagent.ports.dead_letter.DeadLetterStore`
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from collections import deque
@@ -27,9 +26,9 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
 from prodagent.core.event_log import Event
-from prodagent.core.exceptions import BudgetExceeded
 from prodagent.runtime.coordination._stage import StageDriver
 from prodagent.runtime.coordination._store import RoundedLockableStore
+from prodagent.runtime.coordination.activation import Activation
 from prodagent.runtime.coordination.termination import (
     MaxRounds,
     TerminationPolicy,
@@ -475,26 +474,29 @@ class WorkQueue(StageDriver[WorkQueueEvent]):
             await self.queue.record_enqueued()
 
     async def _run_worker(self, worker_name: str) -> WorkResult | None:
-        """Reserve → try_claim_and_run → commit for one worker. A worker that
-        can't reserve a turn never claims anything this round.
+        """Reserve → try_claim_and_run → commit for one worker, via the shared
+        :meth:`StageDriver._run_enveloped`. A worker that can't reserve a turn
+        never claims anything this round.
 
         A worker whose ``try_claim_and_run`` *raises* is treated as idle for this
         round, not allowed to kill the queue — mirroring how Ensemble/Blackboard
-        isolate a failing member. Its reservation is released (the crashed attempt
-        doesn't consume a turn; the requeue retries and re-charges then). Any item
-        it half-claimed stays in ``claimed`` and is recovered by the lease-expiry
-        sweep, so a raise and a "crash after claim" (return ``None``) converge on
-        the same lease-recovery path."""
-        if self._budget is not None:
-            try:
-                await self._budget.reserve(member=worker_name, turns=1)
-            except BudgetExceeded:
-                return None
+        isolate a failing member. The envelope releases its reservation (the
+        crashed attempt doesn't consume a turn; the requeue retries and
+        re-charges then). Any item it half-claimed stays in ``claimed`` and is
+        recovered by the lease-expiry sweep, so a raise and a "crash after
+        claim" (return ``None``) converge on the same lease-recovery path."""
         worker = self._spec.workers[worker_name]
-        try:
+        produced: list[WorkResult | None] = []
+
+        async def _act() -> tuple[int, float] | None:
             result = await worker.try_claim_and_run(self.queue, name=worker_name)
-        except asyncio.CancelledError:
-            raise
+            produced.append(result)
+            if result is None:
+                return None
+            return result.tokens, result.cost_usd
+
+        try:
+            await self._run_enveloped(worker_name, _act)
         except Exception as exc:  # noqa: BLE001 — isolate one bad worker from the queue
             logger.warning(
                 "[work_queue] worker %s raised %s: %s — treating as idle this round; "
@@ -503,18 +505,8 @@ class WorkQueue(StageDriver[WorkQueueEvent]):
                 type(exc).__name__,
                 exc,
             )
-            if self._budget is not None:
-                await self._budget.release(member=worker_name, reserved_turns=1)
             return None
-        if self._budget is not None:
-            await self._budget.commit(
-                member=worker_name,
-                turns=1,
-                tokens=result.tokens if result is not None else 0,
-                cost_usd=result.cost_usd if result is not None else 0.0,
-                reserved_turns=1,
-            )
-        return result
+        return produced[0] if produced else None
 
     async def _rounds(self) -> AsyncGenerator[WorkQueueEvent, None]:
         """One round per iteration: sweep expired leases, then fan out workers to
@@ -559,9 +551,15 @@ class WorkQueue(StageDriver[WorkQueueEvent]):
                 break
 
             before = self.queue.fingerprint()
-            results = await asyncio.gather(*(self._run_worker(name) for name in self._spec.workers))
+            activation = Activation(
+                members=list(self._spec.workers),
+                dispatch="concurrent",
+                round_num=round_num,
+                label="pull",
+            )
+            results = await self._dispatch(activation, self._run_worker)
 
-            for worker_name, result in zip(self._spec.workers, results, strict=True):
+            for worker_name, result in results:
                 if result is None:
                     continue
                 yield ItemClaimedEvent(

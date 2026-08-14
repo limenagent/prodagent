@@ -118,9 +118,7 @@ class Planner:
             role = m.get("role", "") if isinstance(m, dict) else getattr(m, "role", "")
             if role in ("user", "assistant"):
                 clean.append(m)
-        clean.append(
-            {"role": "user", "content": _replan_user_prompt(plan, failed_step, error)}
-        )
+        clean.append({"role": "user", "content": _replan_user_prompt(plan, failed_step, error)})
         raw = await self._call_llm(clean, self._build_system(system, self._replan_system), run)
         return self._parse_steps(raw)
 

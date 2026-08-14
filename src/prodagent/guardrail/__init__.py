@@ -1,5 +1,5 @@
-"""prodagent.guardrail — three security layers (injection / permission / approval).
+"""prodagent.guardrail — two security layers (injection / approval).
 
 Import directly from the subpackages: ``guardrail.injection``,
-``guardrail.permission``, ``guardrail.approval``.
+``guardrail.approval``.
 """

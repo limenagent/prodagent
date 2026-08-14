@@ -35,11 +35,7 @@ class ContractViolationError(AgentError):
 
 
 class PermissionDenied(AgentError):
-    """Violates the three-dimensional permission matrix."""
-
-
-class DataFlowBlocked(AgentError):
-    """Cross-tool data-exfiltration pattern detected and blocked."""
+    """Tool call not permitted for this agent or session."""
 
 
 class PromptInjectionDetected(AgentError):
@@ -63,10 +59,6 @@ class SuspendPendingApproval(AgentError):
         super().__init__(message, tool=tool, request_id=request_id, **context)
         self.tool = tool
         self.request_id = request_id
-
-
-class AgentSuspended(AgentError):
-    """Suspended by security circuit breaker after repeated violations."""
 
 
 class SecurityViolation(AgentError):
@@ -117,9 +109,7 @@ class LLMError(AgentError):
 
 SECURITY_VETO_EXCEPTIONS: tuple[type[BaseException], ...] = (
     PermissionDenied,
-    DataFlowBlocked,
     PromptInjectionDetected,
-    AgentSuspended,
     SecurityViolation,
     SuspendPendingApproval,
 )

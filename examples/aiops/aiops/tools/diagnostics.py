@@ -56,7 +56,6 @@ async def query_metrics(service: str, metric: str, window: str = "5m") -> dict:
         reversibility=0.95,
         estimated_latency_ms=500,
         domain="observability",
-        produces_pii=True,
     )
 )
 async def tail_logs(service: str, lines: int = 50, grep: str = "") -> dict:

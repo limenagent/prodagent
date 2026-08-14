@@ -5,11 +5,12 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 from prodagent.core.budget import HardBudget
 from prodagent.core.exceptions import BudgetExceeded
 from prodagent.runtime.coordination._stage import StageDriver
+from prodagent.runtime.coordination.activation import Activation
 from prodagent.runtime.coordination.budget_ledger import SharedBudget
 from prodagent.runtime.coordination.floor import FloorMember, FloorTurn, SharedFloor
 from prodagent.runtime.coordination.floor_projection import (
@@ -24,7 +25,7 @@ from prodagent.runtime.coordination.termination import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+    from collections.abc import AsyncGenerator, Awaitable, Callable
 
     from prodagent.core.events import AgentEvent
     from prodagent.core.types import ToolCall
@@ -37,6 +38,8 @@ __all__ = [
     "Ensemble",
     "AgentFloorMember",
     "RoundRobin",
+    "Moderated",
+    "FreeForAll",
     "SpeakingOrder",
     "FloorTurnEvent",
     "EnsembleCompletedEvent",
@@ -51,9 +54,17 @@ __all__ = [
 
 @runtime_checkable
 class SpeakingOrder(Protocol):
-    """Decides who speaks next. Minimal closed loop implements only
-    :class:`RoundRobin`; ``Moderated`` (judge picks) and ``FreeForAll``
-    (first-ready-wins, locked) are deferred."""
+    """Decides who speaks next. Built-in orders: :class:`RoundRobin` (fixed
+    order, looping), :class:`Moderated` (a delegated judge picks — an LLM
+    moderator, a scoring rule, anything async), :class:`FreeForAll` (all
+    members speak concurrently every round, no arbitration).
+
+    The pipeline adapts whatever it gets to
+    :class:`~prodagent.runtime.coordination.activation.Activation`: an object
+    with an async ``pick_speaker`` becomes a serial single-member activation
+    per pick (Moderated); an object with ``activation()`` returns batches
+    itself (FreeForAll); anything else is the classic sync ``next_speaker``
+    protocol (RoundRobin and user orders)."""
 
     def next_speaker(self, floor: SharedFloor) -> str | None:
         """Return the next member name, or None if the order has no more
@@ -76,6 +87,66 @@ class RoundRobin:
             return names[0]
         idx = names.index(last)
         return names[(idx + 1) % len(names)]
+
+
+# ---------------------------------------------------------------------------
+# Moderated + FreeForAll — the two deferred orders, now real
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Moderated:
+    """A delegated judge picks the next speaker — the AutoGen "selector" shape.
+
+    ``picker`` is any ``async (floor) -> name | None``: an LLM moderator that
+    reads the transcript and names the most relevant next speaker, a rule that
+    alternates critic/author, a priority function. Returning ``None`` means
+    "the moderator concludes the discussion" — the floor stops with a
+    ``no_speaker`` termination, the graceful exit round-robin can't express.
+
+    Round semantics: a round is one pass over whoever the moderator selects.
+    If the picked speaker already spoke in the current round, a new round
+    begins — so ``max_rounds`` still bounds the floor regardless of pick order.
+    """
+
+    picker: Callable[[SharedFloor], Awaitable[str | None]]
+
+    async def pick_speaker(self, floor: SharedFloor) -> str | None:
+        return await self.picker(floor)
+
+    def round_of(self, floor: SharedFloor, speaker: str) -> int:
+        if not floor.transcript:
+            return 0
+        last = floor.transcript[-1]
+        if any(t.speaker == speaker and t.round == last.round for t in floor.transcript):
+            return last.round + 1
+        return last.round
+
+
+@dataclass
+class FreeForAll:
+    """No speaking order — every member speaks *concurrently* every round.
+
+    Runs as one ``dispatch="concurrent"`` activation per round: all members'
+    ``speak()`` calls overlap, turns land in member order (deterministic
+    stream even though the speaks overlap). Budget honesty: the shared budget
+    is checked once before the batch and each member's actuals are committed
+    as they finish, but the exhausted re-check happens after the batch — a
+    cost-cap overshoot is bounded by one round of concurrent speaks, the same
+    shape as Blackboard's concurrent trigger fan-out. If members must not
+    duplicate work, that's arbitration — use :class:`Moderated` on the floor
+    or Blackboard ``buzz_in`` instead.
+    """
+
+    def activation(self, floor: SharedFloor) -> Activation:
+        # Every batch is a fresh round: floor.round_count() = max round + 1,
+        # which is exactly "the round after everything on the floor so far".
+        return Activation(
+            members=floor.member_names(),
+            dispatch="concurrent",
+            round_num=floor.round_count(),
+            label="free_for_all",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -340,13 +411,15 @@ class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
         super().__init__()
         self._spec = spec
         self._floor = spec.build_floor()
-        self._budget = spec.budget or self._build_default_budget()
+        # Narrow the base's Optional attribute: Ensemble always has a budget
+        # (unlike Blackboard/WorkQueue, where None means unbudgeted).
+        self._budget: SharedBudget = spec.budget or self._build_default_budget()
         # Re-bind spec.budget to the resolved one so callers reading it after
         # the run see actuals.
         spec.budget = self._budget
 
     def _compute_round(self, speaker: str) -> int:
-        """Round index the next ``speaker`` would speak in.
+        """Round index the next ``speaker`` would speak in (round-robin sense).
 
         Empty floor → round 0. Otherwise look at the last turn: if the next
         speaker comes *before or at* the last speaker in speaking order,
@@ -359,6 +432,38 @@ class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
         if names.index(speaker) <= names.index(last.speaker):
             return last.round + 1
         return last.round
+
+    async def _next_activation(self) -> Activation | None:
+        """Adapt the spec's speaking order to an :class:`Activation`.
+
+        Three shapes, checked in order: ``activation()`` (batch orders —
+        FreeForAll), async ``pick_speaker`` (Moderated and user orders shaped
+        like it), sync ``next_speaker`` (RoundRobin and user orders shaped
+        like it). ``None`` means the order itself ran out of speakers."""
+        order = self._spec.order
+        if hasattr(order, "activation"):
+            batched = cast("FreeForAll", order)  # duck-typed: any batch order qualifies
+            return batched.activation(self._floor)
+        if hasattr(order, "pick_speaker"):
+            moderated = cast("Moderated", order)  # duck-typed: any async picker qualifies
+            speaker = await moderated.pick_speaker(self._floor)
+            if speaker is None:
+                return None
+            return Activation(
+                members=[speaker],
+                dispatch="serial",
+                round_num=moderated.round_of(self._floor, speaker),
+                label="moderated",
+            )
+        speaker = order.next_speaker(self._floor)
+        if speaker is None:
+            return None
+        return Activation(
+            members=[speaker],
+            dispatch="serial",
+            round_num=self._compute_round(speaker),
+            label=type(order).__name__,
+        )
 
     def _build_default_budget(self) -> SharedBudget:
         """Rough default: sum each member's own HardBudget into a floor cap.
@@ -396,24 +501,24 @@ class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
         )
 
     async def _rounds(self) -> AsyncGenerator[FloorTurnEvent, None]:
-        """One turn per iteration: pick speaker → check termination/budget →
-        speak → commit → yield the turn. Sets ``self._reason`` and returns when
-        the floor should stop. Crash→error and finalize-to-unknown are handled
-        by :meth:`StageDriver.run`."""
+        """One activation per iteration: adapt order → check termination/budget
+        → dispatch (serial pick or concurrent batch) → append/commit per turn →
+        yield. Sets ``self._reason`` and returns when the floor should stop.
+        Crash→error and finalize-to-unknown are handled by
+        :meth:`StageDriver.run`."""
         while True:
-            # 1. Pick next speaker + compute the round they'd speak in.
-            #    Done before termination/budget checks so the policy sees
-            #    "the floor is about to enter round N" — max_rounds means
-            #    "no member speaks in round N or later" (max_rounds=2 →
-            #    2 × N turns for N members).
-            speaker = self._spec.order.next_speaker(self._floor)
-            if speaker is None:
+            # 1. Pick the next activation + the round it belongs in. Done
+            #    before termination/budget checks so the policy sees "the
+            #    floor is about to enter round N" — max_rounds means "no
+            #    member speaks in round N or later".
+            activation = await self._next_activation()
+            if activation is None:
                 self._reason = TerminationReason(
                     reason="no_speaker",
                     detail="Speaking order returned None — floor has no next speaker",
                 )
                 break
-            round_num = self._compute_round(speaker)
+            round_num = activation.round_num
 
             # 2. Termination check (policy: round cap, business strategy)
             stop, policy_reason = self._spec.termination.should_stop(
@@ -423,9 +528,12 @@ class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
                 self._reason = policy_reason
                 break
 
-            # 3. Budget check (hard ceiling, cross-member)
+            # 3. Budget check (hard ceiling, cross-member) — once before the
+            #    batch; per-member actuals are committed as they complete and
+            #    the exhausted re-check runs after the batch, so a concurrent
+            #    batch can overshoot the cap by at most itself.
             try:
-                await self._budget.check(member=speaker)
+                await self._budget.check(member=activation.members[0])
             except BudgetExceeded as exc:
                 self._reason = TerminationReason(
                     reason="budget",
@@ -434,7 +542,36 @@ class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
                 )
                 break
 
-            # 4. Speak
+            # 4. Dispatch — serial (one speaker) or concurrent (FreeForAll).
+            results = await self._dispatch(activation, self._speak_member(round_num))
+
+            for _name, turn in results:
+                if turn is None:
+                    continue  # defensive — speak() always returns a turn
+                self._floor.append(turn)
+                await self._budget.commit(
+                    member=turn.speaker,
+                    turns=1,
+                    tokens=turn.tokens,
+                    cost_usd=turn.cost_usd,
+                )
+                yield FloorTurnEvent(turn=turn, floor_snapshot=self._floor.snapshot())
+
+            # 5. Re-check budget after commit — may have latched exhausted
+            if self._budget.is_exhausted():
+                self._reason = TerminationReason(
+                    reason="budget",
+                    detail=f"Shared budget latched exhausted after {activation.why()}",
+                    by_hard_cap=True,
+                )
+                break
+
+    def _speak_member(self, round_num: int) -> Callable[[str], Awaitable[FloorTurn]]:
+        """``run_one`` factory for :meth:`StageDriver._dispatch` — speak one
+        member. An unknown member name raises KeyError inside, which the
+        StageDriver crash guard turns into a terminal error event."""
+
+        async def _speak(speaker: str) -> FloorTurn:
             member = self._floor.members[speaker]
             logger.info(
                 "[ensemble] round %d → %s (turn %d)",
@@ -442,28 +579,9 @@ class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
                 speaker,
                 len(self._floor.transcript),
             )
+            return await member.speak(self._floor, round_num=round_num)
 
-            turn = await member.speak(self._floor, round_num=round_num)
-            self._floor.append(turn)
-
-            # 5. Commit actual cost to shared budget
-            await self._budget.commit(
-                member=speaker,
-                turns=1,
-                tokens=turn.tokens,
-                cost_usd=turn.cost_usd,
-            )
-
-            yield FloorTurnEvent(turn=turn, floor_snapshot=self._floor.snapshot())
-
-            # 6. Re-check budget after commit — may have latched exhausted
-            if self._budget.is_exhausted():
-                self._reason = TerminationReason(
-                    reason="budget",
-                    detail=f"Shared budget latched exhausted after {speaker}'s turn",
-                    by_hard_cap=True,
-                )
-                break
+        return _speak
 
     def _completed(self, reason: TerminationReason) -> FloorTurnEvent | EnsembleCompletedEvent:
         return EnsembleCompletedEvent(

@@ -219,9 +219,6 @@ class ToolMeta:
     domain: str = "general"
     resource_id: str | None = None  # shared resource key — executor serialises concurrent writes
     lock_strategy: str | None = None
-    is_exfiltration_tool: bool = False
-    produces_pii: bool = False
-    produces_secrets: bool = False
     max_result_chars: float = 100_000
 
     @property
