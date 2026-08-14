@@ -30,7 +30,6 @@ async def test_spawn_timeout_returns_permanent_error(monkeypatch) -> None:
         ctx=ParentRuntime(
             constraints=[],
             budget=None,
-            lock_registry=None,
             parent_run_id="parent-timeout",
             checkpoint=None,
             event_log=None,

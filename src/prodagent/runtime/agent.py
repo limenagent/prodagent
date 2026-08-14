@@ -31,7 +31,6 @@ from prodagent.runtime.config import AgentConfig
 from prodagent.runtime.coordination.accounting import SpawnAccumulator
 from prodagent.runtime.coordination.parent_runtime import ParentRuntime
 from prodagent.runtime.runner import collect_final_run, drive_stream
-from prodagent.tooling.reliability.locks import LockRegistry
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable
@@ -112,7 +111,6 @@ class Agent:
         checkers: list[tuple[Any, Callable[..., Any]]] | None = None,
         event_handlers: list[tuple[Any, Callable[..., Any]]] | None = None,
         # Internal
-        lock_registry: LockRegistry | None = None,
         initial_plan: Plan | None = None,
         spawn_accumulator: SpawnAccumulator | None = None,
     ) -> None:
@@ -179,7 +177,6 @@ class Agent:
 
         self._hooks_wired: bool = False
         self._session_store: SessionStore | None = None
-        self._lock_registry = lock_registry or LockRegistry()
 
         # Resolve workflow eagerly
         if workflow is not None:
@@ -455,7 +452,6 @@ class Agent:
             framework=runtime.framework_config,
             constraints=list(runtime.constraints),
             budget=runtime.budget,
-            lock_registry=runtime.lock_registry,
             mode=self.mode,
             checkpoint=runtime.checkpoint,
             event_log=runtime.event_log,
@@ -476,7 +472,6 @@ class Agent:
             framework_config=parent.framework_config,
             constraints=parent.constraints,
             budget=self.budget_config,
-            lock_registry=parent.lock_registry,
             checkpoint=checkpoint if checkpoint is not None else parent.config.checkpoint,
             event_log=event_log if event_log is not None else parent.config.event_log,
             accumulator=self.config.spawn_accumulator or SpawnAccumulator(),
@@ -571,10 +566,6 @@ class Agent:
     @property
     def child_agents(self) -> list[Agent]:
         return list(self.config.agents)
-
-    @property
-    def lock_registry(self) -> LockRegistry:
-        return self._lock_registry
 
     @property
     def hooks(self) -> HookRegistry | None:

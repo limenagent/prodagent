@@ -17,6 +17,7 @@ bundle 的 ApprovalHooks 把它路由到人工审批 —— playground 里弹 ap
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from prodagent import SideEffectLevel, ToolMeta, tool
@@ -64,6 +65,28 @@ async def propose_order(
 
 # ── HIGH: 不可逆 —— HITL 门禁 ────────────────────────────────────────────────
 
+# 第十章"隔离优于共享": 锁是 Tool 实现者自己的职责,框架执行器不管。
+# orders 资源用 Tool 内自持的 asyncio.Lock 串行化;忙时返回结构化
+# resource_busy 反馈,由上层 LLM 决定让路还是稍后重试。
+_ORDERS_LOCK = asyncio.Lock()
+_ORDERS_LOCK_WAIT_S = 0.05  # 必须小于 estimated_latency_ms / 1000(外层还有工具超时)
+
+
+async def _acquire_orders_lock() -> dict | None:
+    """拿到 orders 锁返回 None;拿不到返回 LLM 可读的 RESOURCE_BUSY 反馈。"""
+    try:
+        await asyncio.wait_for(_ORDERS_LOCK.acquire(), timeout=_ORDERS_LOCK_WAIT_S)
+        return None
+    except TimeoutError:
+        return {
+            "error": True,
+            "reason": "resource_busy",
+            "code": "resource_busy",
+            "error_severity": "yellow",
+            "message": "Resource 'orders' is busy (held by another agent).",
+            "hint": "Try an alternative task or retry later.",
+        }
+
 
 @tool(
     meta=ToolMeta(
@@ -91,7 +114,8 @@ async def place_order(
     [TRIGGER] 用户明确同意("可以"/"下单"/"确认")后调。
     [CONSTRAINT] HIGH —— 框架会自动 suspend 等人工审批,调用方直接调用即可,
     不要在文本里请求确认。
-    [MUTEX] 持有 ``orders`` 资源锁。
+    [MUTEX] Tool 内自持 asyncio 锁(``orders``)—— 忙时返回 RESOURCE_BUSY,
+    由上层 LLM 决定让路或稍后重试。
 
     Args:
         proposal_id: 要下单的方案 ID(``propose_order`` 返回的)—— 审计锚点,
@@ -103,17 +127,23 @@ async def place_order(
         ice: 冰度。
         idempotency_key: 由 host 注入。
     """
-    return {
-        "order_id": f"ORD-{uuid.uuid4().hex[:8].upper()}",
-        "proposal_id": proposal_id,
-        "placed": True,
-        "drink": drink,
-        "unit_price": unit_price,
-        "quantity": quantity,
-        "sugar": sugar,
-        "ice": ice,
-        "total_price": unit_price * quantity,
-    }
+    busy = await _acquire_orders_lock()
+    if busy is not None:
+        return busy
+    try:
+        return {
+            "order_id": f"ORD-{uuid.uuid4().hex[:8].upper()}",
+            "proposal_id": proposal_id,
+            "placed": True,
+            "drink": drink,
+            "unit_price": unit_price,
+            "quantity": quantity,
+            "sugar": sugar,
+            "ice": ice,
+            "total_price": unit_price * quantity,
+        }
+    finally:
+        _ORDERS_LOCK.release()
 
 
 __all__ = [

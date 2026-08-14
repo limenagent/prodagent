@@ -125,7 +125,6 @@ class LeafExecutorFactory:
         ctx_manager = agent.build_context_manager(system, fw, ctx)
         dispatcher = ToolDispatcher(
             {t.name: t for t in active_tools},
-            lock_registry=agent.lock_registry,
             tool_registry=agent.tool_registry,
             hooks=agent.hooks,
             skills=agent.skills,

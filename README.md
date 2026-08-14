@@ -74,7 +74,7 @@
 | Agent 协作 | `runtime/coordination/spawn.py`、`runtime/coordination/peer.py`、`runtime/coordination/ensemble.py`、`runtime/coordination/floor.py`、`runtime/coordination/floor_projection.py`、`runtime/coordination/blackboard.py`、`runtime/coordination/work_queue.py`、`runtime/coordination/activation.py`、`runtime/coordination/_stage.py`、`runtime/coordination/_store.py`、`runtime/coordination/budget_ledger.py`、`runtime/coordination/handoff.py`、`runtime/coordination/termination.py`、`runtime/coordination/run_loop.py`、`runtime/coordination/parent_runtime.py` |
 | 上下文三明治 | `cognition/context/manager.py`、`cognition/context/budget.py`、`cognition/context/spill.py`、`cognition/context/tool_results.py` |
 | 五级压缩 | `cognition/context/compression/pipeline.py`、`cognition/context/compression/summarizer.py`、`cognition/context/compression/formatting.py` |
-| 工具系统 | `tooling/decorator.py`、`tooling/base.py`、`tooling/registry.py`、`tooling/dispatcher.py`、`tooling/runner.py`、`tooling/search.py`、`tooling/skill_resolver.py`、`tooling/reliability/locks.py`、`mcp/bridge.py`、`mcp/client.py`、`mcp/registry.py`、`mcp/config.py`、`mcp/transports/` |
+| 工具系统 | `tooling/decorator.py`、`tooling/base.py`、`tooling/registry.py`、`tooling/dispatcher.py`、`tooling/runner.py`、`tooling/search.py`、`tooling/skill_resolver.py`、`mcp/bridge.py`、`mcp/client.py`、`mcp/registry.py`、`mcp/config.py`、`mcp/transports/` |
 
 </details>
 

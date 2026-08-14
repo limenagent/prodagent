@@ -12,6 +12,33 @@ import time
 
 from prodagent import SideEffectLevel, ToolMeta, tool
 
+# 第十章"隔离优于共享": 锁是 Tool 实现者自己的职责,框架执行器不管。
+# 两组共享资源各自用 Tool 内自持的 asyncio.Lock 串行化;忙时返回结构化
+# resource_busy 反馈,由上层 LLM 决定让路还是稍后重试。
+# 等待时长必须小于该工具 estimated_latency_ms / 1000(外层还有工具超时)。
+_INCIDENT_LOCK = asyncio.Lock()  # resource_id="incident-tracker"
+_K8S_LOCK = asyncio.Lock()  # resource_id="kubernetes-cluster"
+_INCIDENT_LOCK_WAIT_S = 0.1
+_K8S_LOCK_WAIT_S = 1.0
+
+
+async def _acquire_resource_lock(
+    lock: asyncio.Lock, resource_id: str, wait_s: float
+) -> dict | None:
+    """拿到锁返回 None;拿不到返回 LLM 可读的 RESOURCE_BUSY 反馈。"""
+    try:
+        await asyncio.wait_for(lock.acquire(), timeout=wait_s)
+        return None
+    except TimeoutError:
+        return {
+            "error": True,
+            "reason": "resource_busy",
+            "code": "resource_busy",
+            "error_severity": "yellow",
+            "message": f"Resource {resource_id!r} is busy (held by another agent).",
+            "hint": "Try an alternative task or retry later.",
+        }
+
 
 @tool(
     meta=ToolMeta(
@@ -71,6 +98,8 @@ async def update_incident(
     动作后用。
     [EXAMPLE] update_incident(incident_id='INC-00001234', status='investigating',
     message='在 payment-service 上发现 OOMKilled pod，正在重启受影响 pod')
+    [MUTEX] Tool 内自持 asyncio 锁(``incident-tracker``)—— 忙时返回
+        RESOURCE_BUSY,由上层 LLM 决定让路或稍后重试。
 
     Args:
         incident_id: open_incident 返回的 incident ID（如 'INC-00001234'）
@@ -78,12 +107,18 @@ async def update_incident(
         message:     发现了什么或做了什么（更新文本 / 备注正文）。用 'message'，不是 'summary'、'note' 或 'intent'。
         next_steps:  agent run 结束后人工需要做什么（可选）
     """
-    return {
-        "incident_id": incident_id,
-        "status": status,
-        "updated": True,
-        "next_steps_preview": next_steps[:200],
-    }
+    busy = await _acquire_resource_lock(_INCIDENT_LOCK, "incident-tracker", _INCIDENT_LOCK_WAIT_S)
+    if busy is not None:
+        return busy
+    try:
+        return {
+            "incident_id": incident_id,
+            "status": status,
+            "updated": True,
+            "next_steps_preview": next_steps[:200],
+        }
+    finally:
+        _INCIDENT_LOCK.release()
 
 
 @tool(
@@ -108,19 +143,27 @@ async def restart_pod(service: str, pod_name: str, reason: str = "") -> dict:
     get_pod_status 拿到带 hash 后缀的准确 pod_name。
     [EXAMPLE] restart_pod(service='payment-service',
     pod_name='payment-service-7d9f8b-mq9r', reason='OOMKilled 5 次')
+    [MUTEX] Tool 内自持 asyncio 锁(``kubernetes-cluster``)—— 忙时返回
+        RESOURCE_BUSY,由上层 LLM 决定让路或稍后重试。
 
     Args:
         service:  Deployment 名（如 'payment-service'）—— 父资源，不是 pod 名，不是 incident_id
         pod_name: get_pod_status 返回的带随机 hash 后缀的完整 pod 名（如 'payment-service-7d9f8b-mq9r'）—— 不是服务名
         reason:   重启简短原因（审计用）
     """
-    await asyncio.sleep(0.05)  # simulate API call latency
-    return {
-        "pod_name": pod_name,
-        "service": service,
-        "status": "accepted",
-        "reason": reason,
-    }
+    busy = await _acquire_resource_lock(_K8S_LOCK, "kubernetes-cluster", _K8S_LOCK_WAIT_S)
+    if busy is not None:
+        return busy
+    try:
+        await asyncio.sleep(0.05)  # simulate API call latency
+        return {
+            "pod_name": pod_name,
+            "service": service,
+            "status": "accepted",
+            "reason": reason,
+        }
+    finally:
+        _K8S_LOCK.release()
 
 
 @tool(
@@ -142,19 +185,27 @@ async def rollback(service: str, sha: str, reason: str = "") -> dict:
     —— 是代码变更，不是 pod 回收。
     [CONSTRAINT] HIGH 副作用 —— 触发运维审批门禁。始终先调 get_pr_diff
     确认 SHA 是根因。没有开 incident 记录证据的情况下绝不回滚。
+    [MUTEX] Tool 内自持 asyncio 锁(``kubernetes-cluster``)—— 忙时返回
+        RESOURCE_BUSY,由上层 LLM 决定让路或稍后重试。
 
     Args:
         service: Deployment 名（如 'payment-service'）
         sha:     要回滚到的目标 SHA（get_recent_deploys 里的上一个好部署）
         reason:  简短原因（审计用）
     """
-    await asyncio.sleep(0.05)
-    return {
-        "service": service,
-        "rolled_back_to": sha,
-        "status": "accepted",
-        "reason": reason,
-    }
+    busy = await _acquire_resource_lock(_K8S_LOCK, "kubernetes-cluster", _K8S_LOCK_WAIT_S)
+    if busy is not None:
+        return busy
+    try:
+        await asyncio.sleep(0.05)
+        return {
+            "service": service,
+            "rolled_back_to": sha,
+            "status": "accepted",
+            "reason": reason,
+        }
+    finally:
+        _K8S_LOCK.release()
 
 
 @tool(
@@ -218,9 +269,18 @@ async def silence_alert(alert_name: str, duration_minutes: int = 60, reason: str
 async def create_incident_note(incident_id: str, note: str, author: str = "sentinel-agent") -> dict:
     """往 PagerDuty/Jira 的 incident 时间线发一条备注。
 
+    [MUTEX] Tool 内自持 asyncio 锁(``incident-tracker``)—— 忙时返回
+        RESOURCE_BUSY,由上层 LLM 决定让路或稍后重试。
+
     Args:
         incident_id: incident 标识
         note:        备注文本（支持 Markdown）
         author:      作者署名
     """
-    return {"incident_id": incident_id, "status": "posted", "author": author}
+    busy = await _acquire_resource_lock(_INCIDENT_LOCK, "incident-tracker", _INCIDENT_LOCK_WAIT_S)
+    if busy is not None:
+        return busy
+    try:
+        return {"incident_id": incident_id, "status": "posted", "author": author}
+    finally:
+        _INCIDENT_LOCK.release()

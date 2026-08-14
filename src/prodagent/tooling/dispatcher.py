@@ -45,12 +45,10 @@ if TYPE_CHECKING:
     from prodagent.hooks.registry import HookRegistry
     from prodagent.tooling.base import FunctionTool
     from prodagent.tooling.registry import ToolRegistry
-    from prodagent.tooling.reliability.locks import LockRegistry
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TOOL_TIMEOUT_S = 3.0
-_DEFAULT_LOCK_WAIT_TIMEOUT_S = 10.0
 
 
 def _default_tool_retry_policy() -> RetryPolicy:
@@ -67,7 +65,6 @@ class ToolDispatcher:
         self,
         tool_map: dict[str, FunctionTool],
         *,
-        lock_registry: LockRegistry | None = None,
         tool_registry: ToolRegistry | None = None,
         hooks: HookRegistry | None = None,
         skills: SkillRegistry | None = None,
@@ -78,7 +75,6 @@ class ToolDispatcher:
         skill_resolver: SkillResolver | None = None,
     ) -> None:
         self._tool_map = tool_map
-        self._lock_registry = lock_registry
         self._tool_registry = tool_registry
         self._hooks = hooks
         self._agent_id = agent_id
@@ -116,7 +112,7 @@ class ToolDispatcher:
         """Dispatch ``call`` through probe → approval gate → hooks → invoke → hooks.
 
         ``get_skill`` shares this pipeline but carries no ``ToolMeta``, so the
-        approval gate and resource lock (both gated on ``meta``) no-op for it.
+        approval gate (gated on ``meta``) no-ops for it.
         """
         if call.name == GET_SKILL_TOOL_NAME:
             meta = None
@@ -214,6 +210,14 @@ class ToolDispatcher:
                 )
                 return result
 
+            if result.error.reason is ErrorReason.RESOURCE_BUSY:
+                logger.info(
+                    "Tool '%s' RESOURCE_BUSY — deferring to the LLM (no executor retry): %s",
+                    call.name,
+                    result.error.message,
+                )
+                return result
+
             retry_count = run.retry_count(call.name)
             if retry_count >= max_retries:
                 logger.warning("Tool '%s' YELLOW — retries exhausted", call.name)
@@ -268,17 +272,7 @@ class ToolDispatcher:
             return await asyncio.wait_for(fn_tool(**c.params, run_id=run_id), timeout=timeout)
 
         try:
-            if (
-                self._lock_registry is not None
-                and meta is not None
-                and meta.resource_id
-                and not meta.is_readonly
-            ):
-                result = await self._lock_registry.execute(
-                    call, meta, _raw, self._agent_id, wait_timeout=_DEFAULT_LOCK_WAIT_TIMEOUT_S
-                )
-            else:
-                result = await _raw(call)
+            result = await _raw(call)
 
         except SECURITY_VETO_EXCEPTIONS:
             raise

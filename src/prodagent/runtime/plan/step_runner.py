@@ -174,6 +174,8 @@ class StepRunner:
 
         if result.outcome in (ToolOutcome.ABORT, ToolOutcome.RETRY):
             error_msg = result.error.message if result.error is not None else ""
+            if error_msg and result.error is not None and result.error.hint:
+                error_msg = f"{error_msg} — hint: {result.error.hint}"
             return StepFailed(
                 step=step,
                 error=ToolAbortError(error_msg or "Tool returned red error"),

@@ -31,6 +31,7 @@ class ErrorReason(StrEnum):
     BUDGET_EXCEEDED = "budget_exceeded"
     RUNTIME_LOOP_DETECTED = "runtime_loop_detected"
     TOOL_NOT_AVAILABLE = "tool_not_available"
+    RESOURCE_BUSY = "resource_busy"
     # catch-all
     UNKNOWN = "unknown"
 

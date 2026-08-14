@@ -217,8 +217,7 @@ class ToolMeta:
     estimated_latency_ms: float = 1_000.0
     reversibility: float | None = None
     domain: str = "general"
-    resource_id: str | None = None  # shared resource key — executor serialises concurrent writes
-    lock_strategy: str | None = None
+    resource_id: str | None = None
     max_result_chars: float = 100_000
 
     @property
@@ -398,7 +397,14 @@ class ToolResult(Generic[_T]):
                     ToolError(
                         reason=reason,
                         code=raw.get("code", ""),
-                        error_severity=ErrorSeverity.coerce(raw.get("error_severity")),
+                        error_severity=ErrorSeverity.coerce(
+                            raw.get("error_severity"),
+                            default=(
+                                ErrorSeverity.RED
+                                if reason in NON_RETRYABLE_REASONS
+                                else ErrorSeverity.YELLOW
+                            ),
+                        ),
                         message=message,
                         hint=raw.get("hint", ""),
                     ),

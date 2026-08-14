@@ -21,6 +21,7 @@ _EXPECTED_VALUES = {
     "budget_exceeded",
     "runtime_loop_detected",
     "tool_not_available",
+    "resource_busy",
     "unknown",
 }
 
@@ -39,13 +40,20 @@ _EXPECTED_NON_RETRYABLE = {
 }
 
 
-def test_error_reason_has_exactly_18_values():
+def test_error_reason_has_exactly_19_values():
     assert {r.value for r in ErrorReason} == _EXPECTED_VALUES
-    assert len(ErrorReason) == 18
+    assert len(ErrorReason) == 19
 
 
 def test_non_retryable_reasons_table_is_exhaustive_and_correct():
     assert NON_RETRYABLE_REASONS == _EXPECTED_NON_RETRYABLE
+
+
+def test_resource_busy_is_retryable_class_but_deferred_to_the_llm():
+    """resource_busy is YELLOW-severity (not in NON_RETRYABLE), yet the
+    dispatcher must not auto-retry it — the LLM decides to yield or retry."""
+    assert ErrorReason.RESOURCE_BUSY.value == "resource_busy"
+    assert ErrorReason.RESOURCE_BUSY not in NON_RETRYABLE_REASONS
 
 
 def test_retryable_reasons_are_every_reason_not_in_non_retryable_table():
@@ -58,6 +66,7 @@ def test_retryable_reasons_are_every_reason_not_in_non_retryable_table():
         ErrorReason.CONNECTION,
         ErrorReason.CONTEXT_OVERFLOW,
         ErrorReason.PAYLOAD_TOO_LARGE,
+        ErrorReason.RESOURCE_BUSY,
     }
 
 

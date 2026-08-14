@@ -73,7 +73,7 @@ Getting an Agent to run, and keeping it alive in production, are two different t
 | Inter-agent collaboration | `runtime/coordination/spawn.py`, `runtime/coordination/peer.py`, `runtime/coordination/ensemble.py`, `runtime/coordination/floor.py`, `runtime/coordination/floor_projection.py`, `runtime/coordination/blackboard.py`, `runtime/coordination/work_queue.py`, `runtime/coordination/activation.py`, `runtime/coordination/_stage.py`, `runtime/coordination/_store.py`, `runtime/coordination/budget_ledger.py`, `runtime/coordination/handoff.py`, `runtime/coordination/termination.py`, `runtime/coordination/run_loop.py`, `runtime/coordination/parent_runtime.py` |
 | Context sandwich | `cognition/context/manager.py`, `cognition/context/budget.py`, `cognition/context/spill.py`, `cognition/context/tool_results.py` |
 | Five-level compression | `cognition/context/compression/pipeline.py`, `cognition/context/compression/summarizer.py`, `cognition/context/compression/formatting.py` |
-| Tool system | `tooling/decorator.py`, `tooling/base.py`, `tooling/registry.py`, `tooling/dispatcher.py`, `tooling/runner.py`, `tooling/search.py`, `tooling/skill_resolver.py`, `tooling/reliability/locks.py`, `mcp/bridge.py`, `mcp/client.py`, `mcp/registry.py`, `mcp/config.py`, `mcp/transports/` |
+| Tool system | `tooling/decorator.py`, `tooling/base.py`, `tooling/registry.py`, `tooling/dispatcher.py`, `tooling/runner.py`, `tooling/search.py`, `tooling/skill_resolver.py`, `mcp/bridge.py`, `mcp/client.py`, `mcp/registry.py`, `mcp/config.py`, `mcp/transports/` |
 
 </details>
 

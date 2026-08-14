@@ -10,9 +10,32 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 
 from prodagent import SideEffectLevel, ToolMeta, tool
+
+# 第十章"隔离优于共享": 锁是 Tool 实现者自己的职责,框架执行器不管。
+# restaurant-booking 资源用 Tool 内自持的 asyncio.Lock 串行化;忙时返回
+# 结构化 resource_busy 反馈,由上层 LLM 决定让路还是稍后重试。
+_BOOKING_LOCK = asyncio.Lock()
+_BOOKING_LOCK_WAIT_S = 0.1  # 必须小于 estimated_latency_ms / 1000(外层还有工具超时)
+
+
+async def _acquire_booking_lock() -> dict | None:
+    """拿到 restaurant-booking 锁返回 None;拿不到返回 LLM 可读的 RESOURCE_BUSY 反馈。"""
+    try:
+        await asyncio.wait_for(_BOOKING_LOCK.acquire(), timeout=_BOOKING_LOCK_WAIT_S)
+        return None
+    except TimeoutError:
+        return {
+            "error": True,
+            "reason": "resource_busy",
+            "code": "resource_busy",
+            "error_severity": "yellow",
+            "message": "Resource 'restaurant-booking' is busy (held by another agent).",
+            "hint": "Try an alternative task or retry later.",
+        }
 
 # ── 假数据库 ────────────────────────────────────────────────────────────────
 
@@ -184,16 +207,23 @@ async def book_restaurant(restaurant: str, date: str, party_size: int, idempoten
     """预订餐厅。
 
     [TRIGGER] restaurant peer 选定餐厅后调。
-    [MUTEX] 持有 ``restaurant-booking`` 锁。
+    [MUTEX] Tool 内自持 asyncio 锁(``restaurant-booking``)—— 忙时返回
+        RESOURCE_BUSY,由上层 LLM 决定让路或稍后重试。
     [IDEMPOTENT] host 注入 idempotency_key,重放返回缓存结果。
     """
-    return {
-        "booked": True,
-        "restaurant": restaurant,
-        "date": date,
-        "party_size": party_size,
-        "idempotency_key": idempotency_key,
-    }
+    busy = await _acquire_booking_lock()
+    if busy is not None:
+        return busy
+    try:
+        return {
+            "booked": True,
+            "restaurant": restaurant,
+            "date": date,
+            "party_size": party_size,
+            "idempotency_key": idempotency_key,
+        }
+    finally:
+        _BOOKING_LOCK.release()
 
 
 # ── transport peer 工具 ──────────────────────────────────────────────────────

@@ -53,7 +53,6 @@ async def test_run_child_directly_returns_failed_on_none_run(tmp_path: Path) -> 
         ctx=ParentRuntime(
             constraints=[],
             budget=None,
-            lock_registry=None,
             parent_run_id="parent-1",
             checkpoint=None,
             event_log=None,
@@ -88,7 +87,6 @@ async def test_run_child_returns_failed_when_executor_raises(tmp_path: Path) -> 
         ctx=ParentRuntime(
             constraints=[],
             budget=None,
-            lock_registry=None,
             parent_run_id="parent-2",
             checkpoint=None,
             event_log=None,

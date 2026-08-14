@@ -304,3 +304,52 @@ def test_tool_returning_tool_error_propagates_through_dispatcher():
     raw = asyncio.run(disp.dispatch(ToolCall(name="fail_permanently", params={})))
     tr = ToolResult.from_raw(raw, tool="fail_permanently")
     assert tr.outcome is ToolOutcome.ABORT
+
+
+def test_tool_result_from_raw_normalizes_resource_busy_to_retry():
+    """A bare resource_busy dict (no explicit severity) stays YELLOW/RETRY —
+    severity is derived from the reason, mirroring ToolError.from_reason."""
+    from prodagent import ToolResult
+    from prodagent.core.error_reason import ErrorReason
+    from prodagent.core.types import ErrorSeverity, ToolOutcome
+
+    raw = {
+        "error": True,
+        "reason": "resource_busy",
+        "code": "resource_busy",
+        "message": "Resource 'orders' is busy (held by another agent).",
+        "hint": "Try an alternative task or retry later.",
+    }
+    tr = ToolResult.from_raw(raw, tool="place_order")
+    assert tr.outcome is ToolOutcome.RETRY
+    assert tr.error is not None
+    assert tr.error.reason is ErrorReason.RESOURCE_BUSY
+    assert tr.error.error_severity is ErrorSeverity.YELLOW
+    assert tr.error.hint == "Try an alternative task or retry later."
+
+
+def test_tool_result_from_raw_explicit_severity_wins_over_reason_default():
+    from prodagent import ToolResult
+    from prodagent.core.types import ToolOutcome
+
+    raw = {
+        "error": True,
+        "reason": "resource_busy",
+        "error_severity": "red",
+        "message": "busy",
+    }
+    tr = ToolResult.from_raw(raw, tool="t")
+    assert tr.outcome is ToolOutcome.ABORT
+
+
+def test_tool_result_from_raw_reason_derived_severity_for_retryable_reason():
+    from prodagent import ToolResult
+    from prodagent.core.error_reason import ErrorReason
+    from prodagent.core.types import ErrorSeverity, ToolOutcome
+
+    raw = {"error": True, "reason": "connection", "message": "conn refused"}
+    tr = ToolResult.from_raw(raw, tool="t")
+    assert tr.outcome is ToolOutcome.RETRY
+    assert tr.error is not None
+    assert tr.error.reason is ErrorReason.CONNECTION
+    assert tr.error.error_severity is ErrorSeverity.YELLOW

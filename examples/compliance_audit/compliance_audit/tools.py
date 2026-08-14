@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from typing import TYPE_CHECKING, Any
@@ -18,6 +19,28 @@ from prodagent import SideEffectLevel, ToolMeta, tool
 
 if TYPE_CHECKING:
     from prodagent.llm.base import LLMClient
+
+# 第十章"隔离优于共享": 锁是 Tool 实现者自己的职责,框架执行器不管。
+# regulator-portal 资源用 Tool 内自持的 asyncio.Lock 串行化;忙时返回
+# 结构化 resource_busy 反馈,由上层 LLM 决定让路还是稍后重试。
+_REGULATOR_LOCK = asyncio.Lock()
+_REGULATOR_LOCK_WAIT_S = 0.1  # 必须小于 estimated_latency_ms / 1000(外层还有工具超时)
+
+
+async def _acquire_regulator_lock() -> dict | None:
+    """拿到 regulator-portal 锁返回 None;拿不到返回 LLM 可读的 RESOURCE_BUSY 反馈。"""
+    try:
+        await asyncio.wait_for(_REGULATOR_LOCK.acquire(), timeout=_REGULATOR_LOCK_WAIT_S)
+        return None
+    except TimeoutError:
+        return {
+            "error": True,
+            "reason": "resource_busy",
+            "code": "resource_busy",
+            "error_severity": "yellow",
+            "message": "Resource 'regulator-portal' is busy (held by another agent).",
+            "hint": "Try an alternative task or retry later.",
+        }
 
 # ── 假交易流水 —— 5 条，混了正常 / 可疑 / 高危 ─────────────────────────────────
 
@@ -221,43 +244,50 @@ async def submit_to_regulator(
 
     [TRIGGER] 综合完可疑标注和实体关联后调。
     [SIDE_EFFECT] MEDIUM —— 对外提交，不可逆。
-    [MUTEX] 持有 ``regulator-portal`` 资源锁。
+    [MUTEX] Tool 内自持 asyncio 锁(``regulator-portal``)—— 忙时返回
+        RESOURCE_BUSY,由上层 LLM 决定让路或稍后重试。
     [IDEMPOTENT] host 注入 idempotency_key，重放返回缓存结果，防止重复提交。
 
     参数灵活：可以传 suspicious_tx_ids (list[str])，也可以传 flagged (list[dict])
     和 entities (list[dict])，工具会自动提取 tx_id。
     """
-    # 从多种输入格式中提取 tx_id 列表
-    tx_ids: list[str] = []
-    if suspicious_tx_ids:
-        if isinstance(suspicious_tx_ids, list):
-            for item in suspicious_tx_ids:
-                if isinstance(item, str):
-                    tx_ids.append(item)
-                elif isinstance(item, dict):
-                    tx_ids.append(str(item.get("tx_id", item)))
-    if not tx_ids and flagged:
-        if isinstance(flagged, list):
-            for item in flagged:
-                if isinstance(item, dict):
-                    tx_ids.append(str(item.get("tx_id", "")))
+    busy = await _acquire_regulator_lock()
+    if busy is not None:
+        return busy
+    try:
+        # 从多种输入格式中提取 tx_id 列表
+        tx_ids: list[str] = []
+        if suspicious_tx_ids:
+            if isinstance(suspicious_tx_ids, list):
+                for item in suspicious_tx_ids:
+                    if isinstance(item, str):
+                        tx_ids.append(item)
+                    elif isinstance(item, dict):
+                        tx_ids.append(str(item.get("tx_id", item)))
+        if not tx_ids and flagged:
+            if isinstance(flagged, list):
+                for item in flagged:
+                    if isinstance(item, dict):
+                        tx_ids.append(str(item.get("tx_id", "")))
 
-    # sar_summary 可能是 str、dict（模板引用了整个上游输出）或其他类型，统一转字符串
-    if sar_summary and not isinstance(sar_summary, str):
-        sar_summary = json.dumps(sar_summary, ensure_ascii=False, default=str)
-    summary = sar_summary or (
-        f"SAR based on {len(tx_ids)} suspicious transaction(s)"
-        f"{' and entity analysis' if entities else ''}"
-    )
-    # 安全截断：确保 summary 是字符串
-    if not isinstance(summary, str):
-        summary = json.dumps(summary, ensure_ascii=False, default=str)
-    return {
-        "submitted": True,
-        "sar_summary": summary[:120],
-        "suspicious_tx_ids": tx_ids,
-        "idempotency_key": idempotency_key,
-    }
+        # sar_summary 可能是 str、dict（模板引用了整个上游输出）或其他类型，统一转字符串
+        if sar_summary and not isinstance(sar_summary, str):
+            sar_summary = json.dumps(sar_summary, ensure_ascii=False, default=str)
+        summary = sar_summary or (
+            f"SAR based on {len(tx_ids)} suspicious transaction(s)"
+            f"{' and entity analysis' if entities else ''}"
+        )
+        # 安全截断：确保 summary 是字符串
+        if not isinstance(summary, str):
+            summary = json.dumps(summary, ensure_ascii=False, default=str)
+        return {
+            "submitted": True,
+            "sar_summary": summary[:120],
+            "suspicious_tx_ids": tx_ids,
+            "idempotency_key": idempotency_key,
+        }
+    finally:
+        _REGULATOR_LOCK.release()
 
 
 # ── draft_sar_for_review: 只读恢复工具（submit 被拒后的 fallback）──────────────
