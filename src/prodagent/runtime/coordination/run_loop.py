@@ -7,7 +7,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
-from prodagent.core.exceptions import BudgetExceeded, PromptInjectionDetected
+from prodagent.core.exceptions import SECURITY_VETO_EXCEPTIONS, BudgetExceeded
 from prodagent.core.state.run import AgentRun, child_run_id, is_child_subordinate, make_failed_run
 from prodagent.core.types import ExecutionMode, MessageList, RunState
 from prodagent.hooks import fire as _fire
@@ -260,11 +260,12 @@ class RunLoop:
                 CheckPoint.RUN_COMPLETE,
                 run_id=run.run_id,
                 final_output=run.final_output or "",
+                run=run,
                 turns=run.turn_count,
                 cost_usd=run.cost_usd,
                 state=run.state.value,
             )
-        except PromptInjectionDetected:
+        except SECURITY_VETO_EXCEPTIONS:
             run.state = RunState.FAILED
             await self._save_checkpoint(run, ctx, hooks)
             raise

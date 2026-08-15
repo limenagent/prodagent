@@ -23,7 +23,6 @@ def default_hook_bundles() -> list[HookBundle]:
         ApprovalDefaultBundle,
         CacheMonitorDefaultBundle,
         ConsoleDefaultBundle,
-        InjectionDefaultBundle,
         LearningDefaultBundle,
         SpanDefaultBundle,
     )
@@ -33,6 +32,5 @@ def default_hook_bundles() -> list[HookBundle]:
         CacheMonitorDefaultBundle(),
         SpanDefaultBundle(),
         ApprovalDefaultBundle(),
-        InjectionDefaultBundle(),
         LearningDefaultBundle(),
     ]

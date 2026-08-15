@@ -131,9 +131,10 @@ def _manager_over(tmp_path) -> MemoryManager:
 async def test_document_add_guard_blocks_poisoned_memory(tmp_path):
     mgr = _manager_over(tmp_path)
     hooks = HookRegistry()
-    InjectionDefenseHooks(pipeline=GuardrailPipeline(), kb_guard=KnowledgeBaseWriteGuard()).attach(
-        hooks
-    )
+    # Patterns injected (app policy): the assert below pins PromptInjectionDetected,
+    # whereas the always-on density heuristic alone raises SecurityViolation.
+    kb_guard = KnowledgeBaseWriteGuard(patterns=[r"ignore\s+(?:all\s+)?previous\s+instructions"])
+    InjectionDefenseHooks(pipeline=GuardrailPipeline(), kb_guard=kb_guard).attach(hooks)
     MemoryHooks(mgr).attach(hooks)
 
     poisoned = MemoryRecord(
@@ -281,3 +282,23 @@ async def test_classify_skips_spawn_child(tmp_path):
 
     stored = mgr._documents.load_memories()
     assert len(stored) == 0, "spawn child must be skipped"
+
+
+async def test_default_wiring_registers_no_injection_checkers():
+    """Injection defence is opt-in — the default bundles must not scan anything."""
+    from prodagent.hooks.checkpoint import CheckPoint
+
+    agent = Agent(
+        name="default-wiring",
+        system_prompt="verify",
+        llm=script({"content": "ok"}),
+        mode=ExecutionMode.REACTIVE,
+    )
+    hooks = agent.attach_default_hooks()
+    assert hooks is not None
+    assert not hooks.has_check_handlers(CheckPoint.SESSION_START)
+    assert not hooks.has_check_handlers(CheckPoint.CONTEXT_BUILD)
+    assert not hooks.has_check_handlers(CheckPoint.TOOL_CALL)
+    assert not hooks.has_check_handlers(CheckPoint.TOOL_RESULT)
+    assert not hooks.has_check_handlers(CheckPoint.RUN_COMPLETE)
+    assert not any(type(ext).__name__ == "InjectionDefenseHooks" for ext in agent.config.extensions)

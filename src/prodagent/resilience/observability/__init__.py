@@ -7,7 +7,7 @@ from prodagent.resilience.observability.audit import (
     AuditLogger,
 )
 from prodagent.resilience.observability.drift import Drift, DriftDetector, DriftReport
-from prodagent.resilience.observability.scrubber import DefaultScrubber, PassthroughScrubber
+from prodagent.resilience.observability.scrubber import PassthroughScrubber, PatternScrubber
 
 __all__ = [
     "AgentSpan",
@@ -17,7 +17,7 @@ __all__ = [
     "DriftDetector",
     "DriftReport",
     "PassthroughScrubber",
-    "DefaultScrubber",
+    "PatternScrubber",
 ]
 
 

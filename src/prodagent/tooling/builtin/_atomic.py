@@ -9,7 +9,8 @@ from pathlib import Path
 def check_path(path: Path, allowed: list[Path]) -> Path | None:
     resolved = path.resolve(strict=False)
     if not allowed:
-        return resolved
+        # Deny-all: an empty allowlist is a misconfiguration, not "anywhere".
+        return None
     for root in allowed:
         if resolved == root or resolved.is_relative_to(root):
             return resolved

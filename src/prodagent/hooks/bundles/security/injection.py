@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from prodagent.core.exceptions import SensitiveContentDetected
+from prodagent.guardrail.injection.policy import OutputDisposition
 from prodagent.hooks.checkpoint import CheckPoint
 
 if TYPE_CHECKING:
@@ -53,13 +55,7 @@ class InjectionDefenseHooks:
         self, *, result: dict[str, Any] | None = None, name: str = "", **_: Any
     ) -> None:
         if result:
-            from prodagent.guardrail.injection import scan_for_injection
-
-            scan_for_injection(
-                str(result),
-                source=f"tool_result:{name}",
-                extra_patterns=self._pipeline.extra_patterns,
-            )
+            self._pipeline.scan_text(str(result), source=f"tool_result:{name}")
 
     def scan_context(self, *, messages: list[Any] | None = None, **_: Any) -> None:
         if not messages:
@@ -72,15 +68,29 @@ class InjectionDefenseHooks:
         params = params or {}
         self._pipeline.filter_tool_args(name, params)
 
-    def scan_output(self, *, final_output: str = "", **_: Any) -> None:
+    def scan_output(self, *, final_output: str = "", run: Any = None, **_: Any) -> None:
         if not final_output:
             return
-        _clean, findings = self._pipeline.filter_output(final_output)
-        if findings:
-            from prodagent.core.exceptions import PromptInjectionDetected
-
-            raise PromptInjectionDetected(
-                f"L5 output scan found {len(findings)} issue(s) in final output: {findings[:3]}"
+        clean, findings = self._pipeline.filter_output(final_output)
+        if not findings:
+            return
+        disposition = self._pipeline.policy.output_disposition
+        if disposition is OutputDisposition.VETO:
+            raise SensitiveContentDetected(
+                f"L5 output scan found {len(findings)} sensitive item(s) in final output",
+                findings=findings[:5],
+            )
+        if disposition is OutputDisposition.REDACT and run is not None and clean != final_output:
+            run.final_output = clean
+            if getattr(run, "structured_output", None) is not None:
+                # Parsed before redaction — now stale.
+                run.structured_output = None
+            logger.warning("L5 redacted %d sensitive item(s) from final output", len(findings))
+        else:  # OBSERVE (or REDACT without a run object to write back to)
+            logger.warning(
+                "L5 output scan observed %d sensitive item(s): %s",
+                len(findings),
+                findings[:3],
             )
 
     def guard_kb_write(self, *, document: str = "", source: str = "unknown", **_: Any) -> None:
@@ -88,7 +98,7 @@ class InjectionDefenseHooks:
             self._kb_guard.guard_document(document, source)
 
     def validate_handoff(self, *, handoff_data: dict[str, Any] | None = None, **_: Any) -> None:
-        if handoff_data is None:
+        if handoff_data is None or self._handoff_actions is None:
             return
         from prodagent.guardrail.injection import validate_handoff_security
 

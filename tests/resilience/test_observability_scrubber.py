@@ -1,12 +1,43 @@
+from prodagent.resilience.observability.audit import AuditLogger
 from prodagent.resilience.observability.scrubber import (
     _REDACTED,
-    DefaultScrubber,
     PassthroughScrubber,
+    PatternScrubber,
 )
+
+# Test-local policy — mirrors what an app injects. The framework ships no
+# default keys or patterns; redaction only happens with these.
+_KEYS = frozenset(
+    {
+        "password",
+        "passwd",
+        "secret",
+        "api_key",
+        "api_token",
+        "apikey",
+        "token",
+        "access_token",
+        "ssn",
+        "card_number",
+    }
+)
+_PATTERNS = [
+    r"sk-[a-zA-Z0-9]{20,}",
+    r"sk-ant-[a-zA-Z0-9\-_]{20,}",
+    r"ghp_[a-zA-Z0-9]{36}",
+    r"ghs_[a-zA-Z0-9]{36}",
+    r"AKIA[0-9A-Z]{16}",
+    r"\b\d{3}-\d{2}-\d{4}\b",  # SSN
+    r"\b(?:4\d{3}|5[1-5]\d{2})[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b",  # Visa/MC
+]
+
+
+def _scrubber() -> PatternScrubber:
+    return PatternScrubber(keys=_KEYS, patterns=_PATTERNS)
 
 
 def test_scrubber_redacts_sensitive_keys_case_insensitive():
-    scrubber = DefaultScrubber()
+    scrubber = _scrubber()
     payload = {
         "Password": "secret123",
         "API_TOKEN": "sk-abc123",
@@ -21,7 +52,7 @@ def test_scrubber_redacts_sensitive_keys_case_insensitive():
 
 
 def test_scrubber_redacts_openai_key_patterns():
-    scrubber = DefaultScrubber()
+    scrubber = _scrubber()
     payload = {
         "key": "sk-verylongkeyherethatisatleast20chars",
         "secret": "sk-proj-abc123def456",
@@ -32,42 +63,42 @@ def test_scrubber_redacts_openai_key_patterns():
 
 
 def test_scrubber_redacts_anthropic_key_patterns():
-    scrubber = DefaultScrubber()
+    scrubber = _scrubber()
     payload = {"key": "sk-ant-api03-abc123-def456789012"}
     result = scrubber.scrub(payload)
     assert result["key"] == _REDACTED
 
 
 def test_scrubber_redacts_github_pat():
-    scrubber = DefaultScrubber()
+    scrubber = _scrubber()
     payload = {"token": "ghp_1234567890abcdef1234567890abcdef12345678"}
     result = scrubber.scrub(payload)
     assert result["token"] == _REDACTED
 
 
 def test_scrubber_redacts_github_actions_token():
-    scrubber = DefaultScrubber()
+    scrubber = _scrubber()
     payload = {"token": "ghs_1234567890abcdef1234567890abcdef12345678"}
     result = scrubber.scrub(payload)
     assert result["token"] == _REDACTED
 
 
 def test_scrubber_redacts_aws_access_key_id():
-    scrubber = DefaultScrubber()
+    scrubber = _scrubber()
     payload = {"key": "AKIAIOSFODNN7EXAMPLE"}
     result = scrubber.scrub(payload)
     assert result["key"] == _REDACTED
 
 
 def test_scrubber_redacts_ssn():
-    scrubber = DefaultScrubber()
+    scrubber = _scrubber()
     payload = {"ssn": "123-45-6789"}
     result = scrubber.scrub(payload)
     assert result["ssn"] == _REDACTED
 
 
 def test_scrubber_redacts_visa_and_mastercard():
-    scrubber = DefaultScrubber()
+    scrubber = _scrubber()
     tests = [
         "4111111111111111",
         "5454545454545454",
@@ -79,7 +110,7 @@ def test_scrubber_redacts_visa_and_mastercard():
 
 
 def test_scrubber_handles_nested_dicts():
-    scrubber = DefaultScrubber()
+    scrubber = _scrubber()
     payload = {
         "user": {
             "name": "Alice",
@@ -94,7 +125,7 @@ def test_scrubber_handles_nested_dicts():
 
 
 def test_scrubber_handles_lists():
-    scrubber = DefaultScrubber()
+    scrubber = _scrubber()
     payload = {
         "items": [
             {"name": "item1", "token": "sk-abc"},
@@ -111,7 +142,7 @@ def test_scrubber_handles_lists():
 
 
 def test_scrubber_redacts_dict_in_list_by_key():
-    scrubber = DefaultScrubber()
+    scrubber = _scrubber()
     payload = {"items": [{"password": "x", "name": "alice"}]}
     result = scrubber.scrub(payload)
     assert result["items"][0]["password"] == _REDACTED
@@ -119,7 +150,7 @@ def test_scrubber_redacts_dict_in_list_by_key():
 
 
 def test_scrubber_redacts_nested_dict_in_list_in_dict():
-    scrubber = DefaultScrubber()
+    scrubber = _scrubber()
     payload = {
         "outer": {
             "records": [
@@ -135,8 +166,8 @@ def test_scrubber_redacts_nested_dict_in_list_in_dict():
     assert result["outer"]["records"][1]["token"] == _REDACTED
 
 
-def test_scrubber_extra_keys():
-    scrubber = DefaultScrubber(extra_keys=frozenset({"patient_id", "dob", "mrn"}))
+def test_scrubber_app_specific_keys():
+    scrubber = PatternScrubber(keys=frozenset({"patient_id", "dob", "mrn"}))
     payload = {
         "password": "pw123",
         "patient_id": "PAT-123",
@@ -144,18 +175,18 @@ def test_scrubber_extra_keys():
         "name": "Alice",
     }
     result = scrubber.scrub(payload)
-    assert result["password"] == _REDACTED
     assert result["patient_id"] == _REDACTED
     assert result["dob"] == _REDACTED
     assert result["name"] == "Alice"
+    # "password" is not in this app's key set — untouched
+    assert result["password"] == "pw123"
 
 
 def test_scrubber_preserves_non_sensitive_data():
-    scrubber = DefaultScrubber()
+    scrubber = _scrubber()
     payload = {
         "name": "Alice",
         "age": 30,
-        "email": "<EMAIL_ADDRESS>",
         "message": "Hello world",
     }
     result = scrubber.scrub(payload)
@@ -163,11 +194,23 @@ def test_scrubber_preserves_non_sensitive_data():
 
 
 def test_scrubber_handles_empty_structures():
-    scrubber = DefaultScrubber()
+    scrubber = _scrubber()
     assert scrubber.scrub({}) == {}
     assert scrubber.scrub({"key": "val"}) == {"key": "val"}
     assert scrubber.scrub({"list": []}) == {"list": []}
     assert scrubber.scrub({"dict": {}}) == {"dict": {}}
+
+
+def test_empty_policy_redacts_nothing():
+    """Default configuration is pass-through — nothing is redacted."""
+    scrubber = PatternScrubber()
+    payload = {
+        "password": "secret123",
+        "api_key": "sk-verylongkeyherethatisatleast20chars",
+        "ssn": "123-45-6789",
+        "email": "alice@example.com",
+    }
+    assert scrubber.scrub(payload) == payload
 
 
 def test_passthrough_scrubber():
@@ -177,10 +220,6 @@ def test_passthrough_scrubber():
     assert result == payload
 
 
-def test_scrubber_all_sensitive_keys():
-    scrubber = DefaultScrubber()
-    from prodagent.resilience.observability.scrubber import _SENSITIVE_KEYS
-
-    for key in _SENSITIVE_KEYS:
-        result = scrubber.scrub({key: "value"})
-        assert result[key] == _REDACTED, f"Key {key} not redacted"
+def test_audit_logger_defaults_to_passthrough():
+    logger = AuditLogger()
+    assert isinstance(logger._scrubber, PassthroughScrubber)

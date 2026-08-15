@@ -42,6 +42,10 @@ class PromptInjectionDetected(AgentError):
     """Input contains prompt-injection payload; request quarantined."""
 
 
+class SensitiveContentDetected(AgentError):
+    """Output contains sensitive content (PII/secret) per the app's policy; vetoed."""
+
+
 class SuspendPendingApproval(AgentError):
     """Execution suspended pending human approval.
 
@@ -110,6 +114,7 @@ class LLMError(AgentError):
 SECURITY_VETO_EXCEPTIONS: tuple[type[BaseException], ...] = (
     PermissionDenied,
     PromptInjectionDetected,
+    SensitiveContentDetected,
     SecurityViolation,
     SuspendPendingApproval,
 )

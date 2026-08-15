@@ -7,6 +7,7 @@ from prodagent.guardrail.injection.pipeline import (
     scan_for_injection,
     scan_for_pii,
 )
+from prodagent.guardrail.injection.policy import InjectionPolicy, OutputDisposition
 from prodagent.guardrail.injection.trust_chain import (
     KnowledgeBaseWriteGuard,
     validate_handoff_security,
@@ -16,6 +17,8 @@ __all__ = [
     "GuardrailPipeline",
     "scan_for_injection",
     "scan_for_pii",
+    "InjectionPolicy",
+    "OutputDisposition",
     "KnowledgeBaseWriteGuard",
     "validate_handoff_security",
 ]

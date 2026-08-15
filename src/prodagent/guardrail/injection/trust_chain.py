@@ -4,23 +4,24 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from prodagent.core.exceptions import PromptInjectionDetected, SecurityViolation
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
 
 
 class KnowledgeBaseWriteGuard:
-    """Intercepts poisoned documents at write time, not query time."""
+    """Intercepts poisoned documents at write time, not query time.
 
-    _INSTRUCTION_PATTERNS: list[str] = [
-        r"(?:please\s+)?ignore\s+(?:all\s+)?(?:previous|above|prior)\s+(?:instructions?|rules?|prompts?)",
-        r"(?:system|admin|administrator)\s*[:]\s*.{0,80}",
-        r"you\s+are\s+now\s+(?:a\s+)?(?:different|new|another|unrestricted)",
-        r"forget\s+(?:everything|all\s+previous)",
-    ]
-    _COMPILED = [re.compile(p, re.IGNORECASE) for p in _INSTRUCTION_PATTERNS]
+    ``patterns`` are app policy (raw strings compiled case-insensitively, or
+    pre-compiled patterns); with none configured the pattern check is skipped
+    and only the imperative-density heuristic runs. The heuristic is mechanism
+    — generic linguistics, no domain vocabulary — so it stays always-on.
+    """
 
     _IMPERATIVE_WORDS = re.compile(
         r"\b(?:ignore|forget|override|bypass|disregard)\b",
@@ -41,8 +42,13 @@ class KnowledgeBaseWriteGuard:
 
     IMPERATIVE_DENSITY_THRESHOLD = 0.10
 
+    def __init__(self, patterns: Sequence[str | re.Pattern[str]] = ()) -> None:
+        self._compiled: list[re.Pattern[str]] = [
+            re.compile(p, re.IGNORECASE) if isinstance(p, str) else p for p in patterns
+        ]
+
     def guard_document(self, doc: str, source: str = "unknown") -> None:
-        for pattern in self._COMPILED:
+        for pattern in self._compiled:
             if pattern.search(doc):
                 raise PromptInjectionDetected(
                     f"Poisoned document rejected at write time (source={source!r})",
@@ -78,25 +84,15 @@ class KnowledgeBaseWriteGuard:
         return max_density
 
 
-_DEFAULT_ALLOWED_ACTIONS: frozenset[str] = frozenset(
-    {
-        "query_db",
-        "generate_report",
-        "escalate_human",
-        "complete",
-        "search_knowledge_base",
-        "send_notification",
-    }
-)
-
-
 def validate_handoff_security(
     data: dict[str, Any],
-    allowed_actions: frozenset[str] | None = None,
+    *,
+    allowed_actions: frozenset[str],
 ) -> None:
-    """Semantic injection gate — runs in series with HandoffContract.validate."""
-    allowed = allowed_actions if allowed_actions is not None else _DEFAULT_ALLOWED_ACTIONS
+    """Semantic injection gate — runs in series with HandoffContract.validate.
 
+    ``allowed_actions`` is the app's action vocabulary — required, no default.
+    """
     for fld in ("status", "result_data", "next_action"):
         if fld not in data:
             raise SecurityViolation(
@@ -112,10 +108,10 @@ def validate_handoff_security(
         )
 
     action = data.get("next_action", "")
-    if action not in allowed:
+    if action not in allowed_actions:
         raise SecurityViolation(
             f"Agent handoff next_action={action!r} not whitelisted — "
-            f"suspected injection payload. Allowed: {sorted(allowed)}",
+            f"suspected injection payload. Allowed: {sorted(allowed_actions)}",
             next_action=action,
-            allowed=sorted(allowed),
+            allowed=sorted(allowed_actions),
         )

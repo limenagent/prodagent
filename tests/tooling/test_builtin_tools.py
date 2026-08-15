@@ -65,12 +65,32 @@ class TestReadTool:
         assert wire["is_image"]
         assert "base64" in wire["content"]
 
-    async def test_read_no_allowed_dirs_reads_anywhere(self, tmp_path):
-        f = tmp_path / "any.txt"
-        f.write_text("hello")
+    async def test_default_allowed_dirs_is_cwd(self, tmp_path, monkeypatch):
+        """No allowlist configured collapses to cwd — least privilege by default."""
+        inside = tmp_path / "inside.txt"
+        inside.write_text("hello")
+        outside = tmp_path.parent / "outside-probe.txt"
+        outside.write_text("secret")
+
+        monkeypatch.chdir(tmp_path)
         tool = make_read(allowed_dirs=None)
-        result = await tool(file_path=str(f))
+        result = await tool(file_path=str(inside))
         assert result.to_wire()["ok"]
+
+        blocked = await tool(file_path=str(outside))
+        assert blocked.error is not None
+        assert blocked.error.code == "path_not_allowed"
+        outside.unlink()
+
+    async def test_explicit_allowed_dirs_widen_access(self, tmp_path):
+        other = tmp_path.parent / "widen-probe.txt"
+        other.write_text("wider")
+        try:
+            tool = make_read(allowed_dirs=[tmp_path, tmp_path.parent])
+            result = await tool(file_path=str(other))
+            assert result.to_wire()["ok"]
+        finally:
+            other.unlink()
 
 
 class TestEditTool:
@@ -208,3 +228,11 @@ class TestFsBundle:
         content = f.read_text()
         assert "ALPHA" in content
         assert "GAMMA" in content
+
+
+class TestCheckPath:
+    def test_empty_allowlist_denies_all(self, tmp_path):
+        from prodagent.tooling.builtin._atomic import check_path
+
+        # Empty allowlist is a misconfiguration, not "anywhere" — deny all.
+        assert check_path(tmp_path / "f.txt", []) is None
