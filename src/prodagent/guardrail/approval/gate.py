@@ -50,8 +50,6 @@ class ApprovalGate:
         self,
         call: ToolCall,
         *,
-        confidence: float = 0.9,
-        reversibility: float = 0.5,
         run_id: str = "",
         pending_approval_id: str | None = None,
     ) -> ApprovalDecision:
@@ -73,7 +71,6 @@ class ApprovalGate:
         request_id = str(uuid.uuid4())
         formatted = self._fmt.format(
             call,
-            reversibility=reversibility,
             old_content=call.params.get("old_content") if call.params else None,
             new_content=call.params.get("new_content") if call.params else None,
             affected_count=call.params.get("count", 0) if call.params else 0,
@@ -83,19 +80,15 @@ class ApprovalGate:
             request_id=request_id,
             tool_name=call.name,
             params=call.params,
-            confidence=confidence,
-            reversibility=reversibility,
             context_summary=formatted,
             run_id=run_id,
         )
         self._pending[request_id] = req
 
         logger.info(
-            "APPROVAL SUSPENDED [%s]: tool='%s' conf=%.2f rev=%.2f — awaiting submit_decision()",
+            "APPROVAL SUSPENDED [%s]: tool='%s' — awaiting submit_decision()",
             request_id,
             call.name,
-            confidence,
-            reversibility,
         )
         raise SuspendPendingApproval(
             f"Approval deferred for '{call.name}' — awaiting submit_decision().",

@@ -6,8 +6,8 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from prodagent.core.exceptions import SuspendPendingApproval
-from prodagent.core.types import ToolCall, ToolMeta
-from prodagent.guardrail.approval import ApprovalDecision, should_request_review
+from prodagent.core.types import ToolCall
+from prodagent.guardrail.approval import ApprovalDecision
 from prodagent.hooks.checkpoint import BlockingResult, CheckPoint
 from prodagent.hooks.events import HookEvent
 
@@ -16,8 +16,6 @@ if TYPE_CHECKING:
     from prodagent.hooks.registry import HookRegistry
 
 logger = logging.getLogger(__name__)
-
-_DEFAULT_REVERSIBILITY = 0.5
 
 
 class ApprovalHooks:
@@ -50,37 +48,16 @@ class ApprovalHooks:
         *,
         name: str = "",
         params: dict[str, Any] | None = None,
-        confidence: float | None = None,
-        meta: ToolMeta | None = None,
         run_id: str = "",
         pending_approval_id: str | None = None,
         **_: Any,
     ) -> BlockingResult | None:
-        if confidence is None:
-            decision = ApprovalDecision.FULL_APPROVAL
-            logger.info(
-                "[ApprovalHooks] confidence unreported — routing HIGH tool to "
-                "human approval: tool=%s",
-                name,
-            )
-        else:
-            decision = should_request_review(meta, confidence)
-        if decision == ApprovalDecision.AUTO_EXECUTE:
-            logger.debug(
-                "[ApprovalHooks] AUTO_EXECUTE: tool=%s conf=%.2f rev=%.2f",
-                name,
-                confidence if confidence is not None else float("nan"),
-                meta.reversibility if meta else _DEFAULT_REVERSIBILITY,
-            )
-            return None
-
         if pending_approval_id is None and self._hooks is not None:
             await self._hooks.fire(
                 HookEvent.APPROVAL_REQUEST,
                 name=name,
                 params=params or {},
                 level="HIGH",
-                confidence=confidence if confidence is not None else 0.0,
                 run_id=run_id,
             )
 
@@ -88,16 +65,6 @@ class ApprovalHooks:
         try:
             gate_decision = await self._gate.evaluate(
                 call,
-                confidence=confidence if confidence is not None else 0.0,
-                reversibility=(
-                    (
-                        meta.reversibility
-                        if meta.reversibility is not None
-                        else _DEFAULT_REVERSIBILITY
-                    )
-                    if meta
-                    else _DEFAULT_REVERSIBILITY
-                ),
                 run_id=run_id,
                 pending_approval_id=pending_approval_id,
             )

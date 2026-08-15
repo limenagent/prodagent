@@ -28,7 +28,6 @@ from prodagent.tooling import tool
     meta=ToolMeta(
         name="delete_record",
         side_effect_level=SideEffectLevel.HIGH,
-        reversibility=0.0,
     ),
 )
 async def delete_record(record_id: str) -> dict:
@@ -129,7 +128,7 @@ async def test_after_approval_parent_resumes_and_child_completes(tmp_path):
     request_id = run1.pending_approval_id
 
     # Approve the child's HIGH tool call.
-    await gate.submit_decision(request_id, ApprovalDecision.FULL_APPROVAL)
+    await gate.submit_decision(request_id, ApprovalDecision.APPROVE)
 
     # Turn 2: resume — parent retries spawn_agent, child resumes DAG, completes.
     run2 = await parent.chat(resume=True, session_id="parent-run-2")

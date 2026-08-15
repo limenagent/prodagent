@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any
 
 from prodagent.core.exceptions import SuspendPendingApproval
 from prodagent.core.types import SKILL_INJECTION_KEY, ToolCall, ToolOutcome, ToolResult
-from prodagent.guardrail.approval.routing import extract_confidence
 from prodagent.hooks.checkpoint import CheckPoint
 from prodagent.hooks.events import HookEvent
 
@@ -102,7 +101,6 @@ class SkillResolver:
                 tool=call.name,
             )
 
-        confidence = extract_confidence(call)
         run_id = self._agent_id
         try:
             approval = await self._hooks.check_blocking(
@@ -110,8 +108,6 @@ class SkillResolver:
                 name=call.name,
                 params=call.params,
                 side_effect_level=meta.side_effect_level.value,
-                confidence=confidence,
-                meta=meta,
                 run_id=run_id,
                 pending_approval_id=self._pending_approval_id,
             )

@@ -10,7 +10,6 @@ from prodagent import SideEffectLevel, ToolMeta, tool
         name="query_metrics",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        reversibility=0.95,
         estimated_latency_ms=300,
         domain="observability",
     )
@@ -53,7 +52,6 @@ async def query_metrics(service: str, metric: str, window: str = "5m") -> dict:
         name="tail_logs",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        reversibility=0.95,
         estimated_latency_ms=500,
         domain="observability",
     )
@@ -97,7 +95,6 @@ async def tail_logs(service: str, lines: int = 50, grep: str = "") -> dict:
         name="get_pod_status",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        reversibility=0.95,
         estimated_latency_ms=200,
         domain="kubernetes",
     )
@@ -125,7 +122,6 @@ async def get_pod_status(service: str, namespace: str = "production") -> dict:
         name="check_slo",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        reversibility=0.95,
         estimated_latency_ms=250,
         domain="observability",
     )
@@ -177,7 +173,6 @@ _SLO_BY_SERVICE = {
         name="get_recent_deploys",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        reversibility=0.95,
         estimated_latency_ms=200,
         domain="kubernetes",
     )
@@ -211,7 +206,6 @@ async def get_recent_deploys(service: str, limit: int = 5) -> dict:
         name="get_pr_diff",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        reversibility=0.95,
         estimated_latency_ms=800,
         domain="git",
     )
@@ -262,7 +256,6 @@ async def get_pr_diff(sha: str, service: str = "") -> dict:
         name="capture_dashboard",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        reversibility=0.95,
         estimated_latency_ms=2000,
         domain="observability",
     )

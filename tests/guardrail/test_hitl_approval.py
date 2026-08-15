@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 
 from prodagent import Agent, ExecutionMode, RunState, SideEffectLevel, ToolMeta
 from prodagent.backends.file.checkpoint import FileCheckpointStore
@@ -14,7 +13,7 @@ from prodagent.tooling import tool
 
 @tool(
     name="restart_pod",
-    meta=ToolMeta(name="restart_pod", side_effect_level=SideEffectLevel.HIGH, reversibility=0.1),
+    meta=ToolMeta(name="restart_pod", side_effect_level=SideEffectLevel.HIGH),
 )
 async def restart_pod(service: str) -> dict:
     return {"restarted": service}
@@ -82,7 +81,7 @@ def test_resume_after_approval_reexecutes_pending_call(tmp_path):
         "the assistant's tool_call request must survive the checkpoint"
     )
 
-    asyncio.run(gate.submit_decision(run1.pending_approval_id, ApprovalDecision.FULL_APPROVAL))
+    asyncio.run(gate.submit_decision(run1.pending_approval_id, ApprovalDecision.APPROVE))
 
     llm2 = script({"content": "Pod restarted."})
     agent2 = _high_tool_agent(llm2, hitl, store=store)
@@ -109,54 +108,12 @@ def test_no_bundle_suspends_high_tool():
     assert not any(c.name == "restart_pod" for c in run.tool_history)
 
 
-def test_gate_request_forces_full_approval_when_confidence_is_none():
-    import pytest
-
-    from prodagent.core.exceptions import SuspendPendingApproval
-
-    gate = ApprovalGate()
-    hitl = ApprovalHooks(gate=gate)
-
-    async def _call_without_confidence() -> None:
-        await hitl.gate_request(
-            name="restart_pod",
-            params={"service": "api"},
-            confidence=None,
-            meta=ToolMeta(
-                name="restart_pod", side_effect_level=SideEffectLevel.HIGH, reversibility=0.1
-            ),
-            run_id="test-run",
-        )
-
-    with pytest.raises(SuspendPendingApproval):
-        asyncio.run(_call_without_confidence())
-
-
-def test_gate_request_accepts_explicit_confidence():
-    gate = ApprovalGate()
-    hitl = ApprovalHooks(gate=gate)
-
-    async def _call_with_confidence() -> None:
-        with contextlib.suppress(Exception):
-            await hitl.gate_request(
-                name="restart_pod",
-                params={"service": "api"},
-                confidence=0.3,
-                meta=ToolMeta(
-                    name="restart_pod", side_effect_level=SideEffectLevel.HIGH, reversibility=0.1
-                ),
-                run_id="test-run",
-            )
-
-    asyncio.run(_call_with_confidence())
-
-
-def test_missing_confidence_forces_full_approval_under_fail_open_policy():
+def test_gate_suspends_under_fail_open_policy():
     import pytest
 
     from prodagent.core.exceptions import SuspendPendingApproval
     from prodagent.hooks.checkpoint import CheckPoint
-    from prodagent.hooks.registry import FailurePolicy, HookRegistry
+    from prodagent.hooks.registry import FailurePolicy
 
     gate = ApprovalGate()
     hitl = ApprovalHooks(gate=gate)
@@ -164,20 +121,16 @@ def test_missing_confidence_forces_full_approval_under_fail_open_policy():
     hooks = HookRegistry(failure_policy=FailurePolicy.FAIL_OPEN)
     hitl.attach(hooks)
 
-    async def _dispatch_without_confidence() -> None:
+    async def _dispatch() -> None:
         await hooks.check_blocking(
             CheckPoint.APPROVAL_REQUEST,
             name="restart_pod",
             params={"service": "api"},
-            confidence=None,
-            meta=ToolMeta(
-                name="restart_pod", side_effect_level=SideEffectLevel.HIGH, reversibility=0.1
-            ),
             run_id="test-run",
         )
 
     with pytest.raises(SuspendPendingApproval):
-        asyncio.run(_dispatch_without_confidence())
+        asyncio.run(_dispatch())
 
 
 def test_resume_then_new_high_call_does_not_reuse_stale_approval_id(tmp_path):
@@ -218,7 +171,7 @@ def test_resume_then_new_high_call_does_not_reuse_stale_approval_id(tmp_path):
     first_request_id = r1.approval_request_id
     assert first_request_id
 
-    asyncio.run(gate.submit_decision(first_request_id, ApprovalDecision.FULL_APPROVAL))
+    asyncio.run(gate.submit_decision(first_request_id, ApprovalDecision.APPROVE))
     dispatcher.set_pending_approval_id(first_request_id)
 
     r2 = asyncio.run(dispatcher.dispatch(call))

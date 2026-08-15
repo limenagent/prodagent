@@ -21,21 +21,14 @@ class ContextAwareApprovalFormatter:
         self,
         call: ToolCall,
         *,
-        reversibility: float = 0.5,
         old_content: str | None = None,
         new_content: str | None = None,
         affected_count: int = 0,
         environment: str = "unknown",
-        extra: dict[str, Any] | None = None,
     ) -> str:
-        if extra and "reversible" in extra:
-            reversible = bool(extra["reversible"])
-        else:
-            reversible = (reversibility or 0) >= 0.70
         parts: list[str] = [
             "[APPROVAL REQUIRED]",
             f"Tool       : {call.name}",
-            "Reversible : NO" if not reversible else "Reversible : YES",
         ]
 
         if old_content is not None and new_content is not None:

@@ -215,7 +215,6 @@ class ToolMeta:
     side_effect_level: SideEffectLevel = SideEffectLevel.LOW
     enforced_idempotent: bool = False  # host injects idempotency_key; tool fn must accept it
     estimated_latency_ms: float = 1_000.0
-    reversibility: float | None = None
     domain: str = "general"
     resource_id: str | None = None
     max_result_chars: float = 100_000

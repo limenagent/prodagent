@@ -30,7 +30,6 @@ from prodagent.tooling import tool
     meta=ToolMeta(
         name="delete_record",
         side_effect_level=SideEffectLevel.HIGH,
-        reversibility=0.0,
     ),
 )
 async def delete_record(record_id: str) -> dict:
@@ -106,7 +105,7 @@ async def test_shared_registry_child_suspends_then_completes_after_one_approval(
     assert request_id
 
     # Approve the child's HIGH tool call.
-    await gate.submit_decision(request_id, ApprovalDecision.FULL_APPROVAL)
+    await gate.submit_decision(request_id, ApprovalDecision.APPROVE)
 
     # Turn 2: resume — must complete, not re-suspend.
     run2 = await parent.chat(resume=True, session_id="shared-registry-1")

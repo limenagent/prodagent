@@ -55,7 +55,7 @@ async def run_example(example: GoldenExample) -> AgentRun:
     # the eval tests orchestration, not the approval gate.
     run = await agent.chat(example.task, session_id=run_id)
     while run.state is RunState.SUSPENDED and run.pending_approval_id:
-        await agent.submit_approval(run.pending_approval_id, "brief_approval")
+        await agent.submit_approval(run.pending_approval_id, "approve")
         run = await agent.chat(resume=True, session_id=run_id)
     return run
 

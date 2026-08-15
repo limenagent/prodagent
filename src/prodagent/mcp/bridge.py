@@ -108,17 +108,10 @@ def _make_tool(
 ) -> FunctionTool:
     qname = qualified_name(info.server_name, info.name)
     semaphore = asyncio.Semaphore(max_concurrency)
-    if is_readonly:
-        reversibility = 1.0
-    elif level is SideEffectLevel.LOW:
-        reversibility = 0.7
-    else:
-        reversibility = 0.3
     meta = ToolMeta(
         name=qname,
         is_readonly=is_readonly,
         side_effect_level=level,
-        reversibility=reversibility,
         domain=f"mcp:{info.server_name}",
         estimated_latency_ms=float(timeout_ms),
     )

@@ -108,16 +108,6 @@ def tool(
                 side_effect_level=SideEffectLevel.LOW,
             )
 
-        if (
-            base_meta.side_effect_level in (SideEffectLevel.MEDIUM, SideEffectLevel.HIGH)
-            and base_meta.reversibility is None
-        ):
-            raise ValueError(
-                f"@tool {tool_name!r}: side_effect_level={base_meta.side_effect_level.value} "
-                "requires reversibility to be set (0.0=irreversible, 1.0=fully reversible). "
-                "Without it the approval matrix cannot classify the tool."
-            )
-
         schema = _infer_schema(fn, tool_name, doc)
         return FunctionTool(name=tool_name, fn=fn, meta=base_meta, schema=schema)
 

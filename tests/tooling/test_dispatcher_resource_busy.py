@@ -44,7 +44,6 @@ async def test_same_resource_id_calls_run_concurrently():
             meta=ToolMeta(
                 name=name,
                 side_effect_level=SideEffectLevel.MEDIUM,
-                reversibility=0.5,
                 estimated_latency_ms=2_000,
                 resource_id="shared-resource",
             ),
@@ -88,7 +87,6 @@ async def test_resource_busy_not_retried_by_dispatcher(monkeypatch):
         meta=ToolMeta(
             name="busy_tool",
             side_effect_level=SideEffectLevel.MEDIUM,
-            reversibility=0.5,
         ),
     )
     async def busy_tool() -> dict:
@@ -120,7 +118,6 @@ async def test_resource_busy_returns_first_attempt_even_with_retry_budget():
         meta=ToolMeta(
             name="busy_tool2",
             side_effect_level=SideEffectLevel.MEDIUM,
-            reversibility=0.5,
         ),
     )
     async def busy_tool2() -> dict:
@@ -154,7 +151,6 @@ async def test_yellow_non_busy_reason_still_retries(monkeypatch):
         meta=ToolMeta(
             name="flaky_conn",
             side_effect_level=SideEffectLevel.MEDIUM,
-            reversibility=0.5,
         ),
     )
     async def flaky_conn() -> dict:

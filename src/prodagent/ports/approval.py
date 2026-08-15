@@ -18,9 +18,7 @@ from typing import Protocol, runtime_checkable
 class ApprovalDecision(StrEnum):
     """Outcome of an approval evaluation. Persisted as the store value."""
 
-    AUTO_EXECUTE = "auto_execute"
-    BRIEF_APPROVAL = "brief_approval"
-    FULL_APPROVAL = "full_approval"
+    APPROVE = "approve"
     REJECT = "reject"
 
 
@@ -31,8 +29,6 @@ class ApprovalRequest:
     request_id: str
     tool_name: str
     params: dict[str, object]
-    confidence: float
-    reversibility: float  # 0.0 = irreversible, 1.0 = fully reversible
     context_summary: str
     run_id: str = ""
     created_at: float = field(default_factory=time.time)

@@ -42,7 +42,7 @@
 | 可替换后端 | `ports/`（15 个 Protocol 端口）、`backends/factory.py`、`backends/registry.py`、`backends/file/`、`backends/memory/`、`backends/postgres/`、`backends/neo4j/`、`backends/qdrant/`、`backends/redis/` |
 | 重试 | `resilience/reliability/retry.py`、`resilience/transport/http_retry.py`、`core/error_classifier.py`、`core/error_reason.py` |
 | 熔断 | `tooling/reliability/circuit_breaker.py` |
-| 安全 | `guardrail/injection/pipeline.py`、`guardrail/injection/trust_chain.py`、`guardrail/patterns.py`、`guardrail/approval/gate.py`、`guardrail/approval/routing.py`、`guardrail/approval/formatter.py`、`hooks/bundles/security/` |
+| 安全 | `guardrail/injection/pipeline.py`、`guardrail/injection/trust_chain.py`、`guardrail/patterns.py`、`guardrail/approval/gate.py`、`guardrail/approval/formatter.py`、`hooks/bundles/security/` |
 | 可观测 | `core/observability.py`、`resilience/observability/otel_exporter.py`、`resilience/observability/drift.py`、`resilience/observability/audit.py`、`resilience/observability/scrubber.py`、`ports/span.py`、`hooks/bundles/observability.py` |
 | 评估测试 | `evaluation/evals/dataset.py`、`evaluation/evals/judge.py`、`evaluation/evals/runner.py`、`evaluation/testing/trace_assert.py`、`evaluation/testing/cassette.py` |
 

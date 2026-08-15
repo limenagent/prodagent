@@ -20,8 +20,6 @@ def _req_to_dict(req: ApprovalRequest) -> dict[str, Any]:
         "request_id": req.request_id,
         "tool_name": req.tool_name,
         "params": req.params,
-        "confidence": req.confidence,
-        "reversibility": req.reversibility,
         "context_summary": req.context_summary,
         "run_id": req.run_id,
         "created_at": req.created_at,
@@ -37,8 +35,6 @@ def _req_from_dict(d: dict[str, Any]) -> ApprovalRequest:
         request_id=d["request_id"],
         tool_name=d.get("tool_name", ""),
         params=d.get("params", {}),
-        confidence=d.get("confidence", 0.0),
-        reversibility=d.get("reversibility", 0.5),
         context_summary=d.get("context_summary", ""),
         run_id=d.get("run_id", ""),
         created_at=d.get("created_at", time.time()),
@@ -90,8 +86,6 @@ class RedisApprovalStore:
                             request_id=request_id,
                             tool_name="",
                             params={},
-                            confidence=0.0,
-                            reversibility=0.5,
                             context_summary="",
                         )
                     else:

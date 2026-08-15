@@ -196,7 +196,6 @@ async def search_restaurants(city: str, cuisine: str = "") -> dict:
         name="book_restaurant",
         is_readonly=False,
         side_effect_level=SideEffectLevel.MEDIUM,
-        reversibility=0.5,
         estimated_latency_ms=200,
         domain="travel",
         resource_id="restaurant-booking",

@@ -370,7 +370,7 @@ def build_app(
         run_id = body.get("run_id", "")
         request_id = body.get("request_id", "")
         decision = body.get("decision", "")
-        if decision not in ("full_approval", "brief_approval", "reject"):
+        if decision not in ("approve", "reject"):
             raise HTTPException(status_code=400, detail=f"invalid decision: {decision!r}")
 
         ctx = state.driving.get(run_id)

@@ -51,7 +51,7 @@ async def test_dispatch_with_retry_uses_default_policy(monkeypatch):
 
     @tool(
         name="flaky",
-        meta=ToolMeta(name="flaky", side_effect_level=SideEffectLevel.MEDIUM, reversibility=0.5),
+        meta=ToolMeta(name="flaky", side_effect_level=SideEffectLevel.MEDIUM),
     )
     async def flaky() -> ToolError:
         nonlocal attempts
@@ -84,7 +84,7 @@ async def test_dispatch_with_retry_honours_custom_policy(monkeypatch):
 
     @tool(
         name="flaky2",
-        meta=ToolMeta(name="flaky2", side_effect_level=SideEffectLevel.MEDIUM, reversibility=0.5),
+        meta=ToolMeta(name="flaky2", side_effect_level=SideEffectLevel.MEDIUM),
     )
     async def flaky2() -> ToolError:
         nonlocal attempts
@@ -114,7 +114,7 @@ async def test_dispatch_with_retry_red_does_not_retry():
 
     @tool(
         name="bad",
-        meta=ToolMeta(name="bad", side_effect_level=SideEffectLevel.MEDIUM, reversibility=0.5),
+        meta=ToolMeta(name="bad", side_effect_level=SideEffectLevel.MEDIUM),
     )
     async def bad() -> ToolError:
         nonlocal attempts
@@ -139,7 +139,7 @@ async def test_dispatch_with_retry_ok_returns_immediately():
 
     @tool(
         name="ok_tool",
-        meta=ToolMeta(name="ok_tool", side_effect_level=SideEffectLevel.MEDIUM, reversibility=0.5),
+        meta=ToolMeta(name="ok_tool", side_effect_level=SideEffectLevel.MEDIUM),
     )
     async def ok_tool() -> dict:
         nonlocal attempts

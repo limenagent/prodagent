@@ -13,7 +13,7 @@ from prodagent.tooling import tool
 
 @tool(
     name="restart_pod",
-    meta=ToolMeta(name="restart_pod", side_effect_level=SideEffectLevel.HIGH, reversibility=0.1),
+    meta=ToolMeta(name="restart_pod", side_effect_level=SideEffectLevel.HIGH),
 )
 async def restart_pod(service: str) -> dict:
     return {"restarted": service}
@@ -33,7 +33,7 @@ def _high_tool_agent(llm, gate: ApprovalGate, *, store) -> Agent:
 
 
 async def _drive_to_completion(
-    agent: Agent, task: str, *, session_id: str, decision: str = "brief_approval"
+    agent: Agent, task: str, *, session_id: str, decision: str = "approve"
 ) -> RunState:
     run = await agent.chat(task, session_id=session_id)
     while run.state is RunState.SUSPENDED and run.pending_approval_id:

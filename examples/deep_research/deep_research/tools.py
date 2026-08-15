@@ -424,7 +424,6 @@ async def web_fetch(url: str) -> dict:
         name="synthesize_report",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        reversibility=0.95,
         estimated_latency_ms=100,
         domain="research",
     )

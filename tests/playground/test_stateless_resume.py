@@ -164,7 +164,7 @@ def test_approve_after_simulated_restart_resumes_run(
 
     resp = client.post(
         "/api/approve",
-        json={"run_id": run_id, "request_id": request_id, "decision": "brief_approval"},
+        json={"run_id": run_id, "request_id": request_id, "decision": "approve"},
     )
     assert resp.status_code == 200, resp.text
     assert resp.json() == {"status": "resuming", "run_id": run_id}
@@ -176,7 +176,7 @@ def test_approve_after_simulated_restart_resumes_run(
     # If still driving, check the stub captured the approval.
     if ctx is not None:
         agent = ctx.agent
-        assert ("req-1", "brief_approval", "web") in agent.approvals
+        assert ("req-1", "approve", "web") in agent.approvals
 
 
 def test_approve_unknown_run_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -189,7 +189,7 @@ def test_approve_unknown_run_returns_404(tmp_path: Path, monkeypatch: pytest.Mon
 
     resp = client.post(
         "/api/approve",
-        json={"run_id": "never-existed", "request_id": "r", "decision": "brief_approval"},
+        json={"run_id": "never-existed", "request_id": "r", "decision": "approve"},
     )
     assert resp.status_code == 404
     assert "unknown run" in resp.json()["detail"]
@@ -205,7 +205,7 @@ def test_approve_child_run_id_rejected(tmp_path: Path, monkeypatch: pytest.Monke
 
     resp = client.post(
         "/api/approve",
-        json={"run_id": "root::peer", "request_id": "r", "decision": "brief_approval"},
+        json={"run_id": "root::peer", "request_id": "r", "decision": "approve"},
     )
     assert resp.status_code == 400
     assert "child" in resp.json()["detail"].lower()
@@ -307,7 +307,7 @@ def test_approve_on_already_completed_run_is_idempotent(
 
     resp = client.post(
         "/api/approve",
-        json={"run_id": "cc1cb9174d99", "request_id": "req-stale", "decision": "brief_approval"},
+        json={"run_id": "cc1cb9174d99", "request_id": "req-stale", "decision": "approve"},
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"].startswith("already_")
@@ -385,7 +385,7 @@ def test_approve_completed_root_with_suspended_peer_resumes(
         json={
             "run_id": root_run_id,
             "request_id": request_id,
-            "decision": "brief_approval",
+            "decision": "approve",
         },
     )
     assert resp.status_code == 200, resp.text
@@ -396,7 +396,7 @@ def test_approve_completed_root_with_suspended_peer_resumes(
     ctx = app.state.playground.driving.get(root_run_id)
     if ctx is not None:
         agent = ctx.agent
-        assert (request_id, "brief_approval", "web") in agent.approvals
+        assert (request_id, "approve", "web") in agent.approvals
 
 
 def test_reconstruct_target_run_id_is_self_for_genuinely_terminal_run(
@@ -570,7 +570,7 @@ def test_approve_after_restart_uses_session_to_find_run(
         json={
             "run_id": session_id,
             "request_id": request_id,
-            "decision": "brief_approval",
+            "decision": "approve",
         },
     )
     # The bug returns 404 "unknown run"; the fix returns 200 "resuming".
@@ -580,4 +580,4 @@ def test_approve_after_restart_uses_session_to_find_run(
     ctx = app.state.playground.driving.get(session_id)
     if ctx is not None:
         agent = ctx.agent
-        assert (request_id, "brief_approval", "web") in agent.approvals
+        assert (request_id, "approve", "web") in agent.approvals

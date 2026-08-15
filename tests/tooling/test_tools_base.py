@@ -177,7 +177,6 @@ def test_function_tool_meta():
             name="noop",
             is_readonly=False,
             side_effect_level=SideEffectLevel.MEDIUM,
-            reversibility=0.5,
             enforced_idempotent=True,
         ),
     )(noop)

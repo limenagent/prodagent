@@ -940,7 +940,7 @@ function showApprovalModal(ev) {
     close();
   };
 
-  approveBtn.onclick = () => submit("brief_approval");
+  approveBtn.onclick = () => submit("approve");
   rejectBtn.onclick = () => submit("reject");
 }
 

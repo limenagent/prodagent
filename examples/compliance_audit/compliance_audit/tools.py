@@ -113,7 +113,6 @@ def set_llm(llm: LLMClient | None) -> None:
         name="extract_transactions",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        reversibility=1.0,
         estimated_latency_ms=100,
         domain="compliance",
     )
@@ -159,7 +158,6 @@ _ENTITIES = {
         name="flag_suspicious",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        reversibility=1.0,
         estimated_latency_ms=50,
         domain="compliance",
     )
@@ -191,7 +189,6 @@ async def flag_suspicious(transactions: Any = None, **kwargs: Any) -> dict[str, 
         name="enrich_entity",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        reversibility=1.0,
         estimated_latency_ms=50,
         domain="compliance",
     )
@@ -226,7 +223,6 @@ async def enrich_entity(transactions: Any = None, **kwargs: Any) -> dict[str, An
         name="submit_to_regulator",
         is_readonly=False,
         side_effect_level=SideEffectLevel.HIGH,
-        reversibility=0.0,
         estimated_latency_ms=200,
         domain="compliance",
         resource_id="regulator-portal",
@@ -303,7 +299,6 @@ async def submit_to_regulator(
         name="draft_sar_for_review",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        reversibility=1.0,
         estimated_latency_ms=100,
         domain="compliance",
     )

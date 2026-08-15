@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 
-from prodagent import SideEffectLevel, ToolMeta
 from prodagent.core.exceptions import SuspendPendingApproval
 from prodagent.guardrail.approval import ApprovalDecision, ApprovalGate
 from prodagent.hooks.bundles.security import ApprovalHooks
@@ -27,9 +26,6 @@ def _make_hooks() -> tuple[HookRegistry, ApprovalHooks, list[dict]]:
     return hooks, hitl, captured
 
 
-_META = ToolMeta(name="restart_pod", side_effect_level=SideEffectLevel.HIGH, reversibility=0.1)
-
-
 def test_approval_request_event_fires_on_fresh_request():
     hooks, hitl, captured = _make_hooks()
 
@@ -38,8 +34,6 @@ def test_approval_request_event_fires_on_fresh_request():
             await hitl.gate_request(
                 name="restart_pod",
                 params={"service": "api"},
-                confidence=0.3,
-                meta=_META,
                 run_id="r1",
             )
 
@@ -49,7 +43,6 @@ def test_approval_request_event_fires_on_fresh_request():
     ev = captured[0]
     assert ev["name"] == "restart_pod"
     assert ev["level"] == "HIGH"
-    assert ev["confidence"] == 0.3
     assert ev["run_id"] == "r1"
 
 
@@ -63,8 +56,6 @@ def test_approval_request_event_not_refired_on_resume():
             await hitl.gate_request(
                 name="restart_pod",
                 params={"service": "api"},
-                confidence=0.3,
-                meta=_META,
                 run_id="r1",
             )
 
@@ -72,15 +63,13 @@ def test_approval_request_event_not_refired_on_resume():
     assert len(captured) == 1
 
     req_id = next(iter(gate._pending.keys()))
-    asyncio.run(gate.submit_decision(req_id, ApprovalDecision.FULL_APPROVAL))
+    asyncio.run(gate.submit_decision(req_id, ApprovalDecision.APPROVE))
 
     async def _resume() -> None:
         with contextlib.suppress(Exception):
             await hitl.gate_request(
                 name="restart_pod",
                 params={"service": "api"},
-                confidence=0.3,
-                meta=_META,
                 run_id="r1",
                 pending_approval_id=req_id,
             )

@@ -44,7 +44,6 @@ async def _acquire_resource_lock(
     meta=ToolMeta(
         name="open_incident",
         side_effect_level=SideEffectLevel.LOW,
-        reversibility=0.9,
         estimated_latency_ms=300,
         domain="incident",
     )
@@ -73,7 +72,6 @@ async def open_incident(title: str, severity: str, affected_services: list[str])
     meta=ToolMeta(
         name="update_incident",
         side_effect_level=SideEffectLevel.LOW,
-        reversibility=0.9,
         estimated_latency_ms=300,
         domain="incident",
         resource_id="incident-tracker",
@@ -125,7 +123,6 @@ async def update_incident(
     meta=ToolMeta(
         name="restart_pod",
         side_effect_level=SideEffectLevel.HIGH,
-        reversibility=0.1,
         estimated_latency_ms=3000,
         domain="kubernetes",
         resource_id="kubernetes-cluster",
@@ -170,7 +167,6 @@ async def restart_pod(service: str, pod_name: str, reason: str = "") -> dict:
     meta=ToolMeta(
         name="rollback",
         side_effect_level=SideEffectLevel.HIGH,
-        reversibility=0.1,
         estimated_latency_ms=5000,
         domain="kubernetes",
         resource_id="kubernetes-cluster",
@@ -212,7 +208,6 @@ async def rollback(service: str, sha: str, reason: str = "") -> dict:
     meta=ToolMeta(
         name="scale_deployment",
         side_effect_level=SideEffectLevel.MEDIUM,
-        reversibility=0.5,
         estimated_latency_ms=2000,
         domain="kubernetes",
     )
@@ -234,7 +229,6 @@ async def scale_deployment(service: str, replicas: int, reason: str = "") -> dic
     meta=ToolMeta(
         name="silence_alert",
         side_effect_level=SideEffectLevel.LOW,
-        reversibility=0.9,
         estimated_latency_ms=500,
         domain="observability",
     )
@@ -260,7 +254,6 @@ async def silence_alert(alert_name: str, duration_minutes: int = 60, reason: str
     meta=ToolMeta(
         name="create_incident_note",
         side_effect_level=SideEffectLevel.LOW,
-        reversibility=0.9,
         estimated_latency_ms=300,
         domain="incident",
         resource_id="incident-tracker",

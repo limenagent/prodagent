@@ -27,4 +27,3 @@ def test_description_does_not_touch_tool_meta():
         return "x"
 
     assert f.meta.side_effect_level.value == "low"
-    assert f.meta.reversibility is None

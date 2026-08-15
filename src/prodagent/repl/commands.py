@@ -150,8 +150,8 @@ async def cmd_tools(agent: Agent, last_run: AgentRun | None) -> None:
 
     if registry is not None:
         print("  Registered tools:")
-        print(f"  {'name':<24} {'level':<6} {'rev':<6} {'domain':<14} role")
-        print(f"  {'─' * 24} {'─' * 6} {'─' * 6} {'─' * 14} {'─' * 10}")
+        print(f"  {'name':<24} {'level':<6} {'domain':<14} role")
+        print(f"  {'─' * 24} {'─' * 6} {'─' * 14} {'─' * 10}")
         for role in ("investigate", "remediate", "general"):
             try:
                 tools = await registry.get_active_tools(role=role)
@@ -162,10 +162,9 @@ async def cmd_tools(agent: Agent, last_run: AgentRun | None) -> None:
                 continue
             for t in tools:
                 m = t.meta
-                rev = f"{m.reversibility:.2f}" if m.reversibility is not None else "—"
                 print(
                     f"  {m.name:<24} {level_icon.get(m.side_effect_level, '?'):<6} "
-                    f"{rev:<6} {(m.domain or '-'):<14} {role}"
+                    f"{(m.domain or '-'):<14} {role}"
                 )
 
     if mcp_configs:

@@ -28,7 +28,6 @@ from prodagent import SideEffectLevel, ToolMeta, tool
         name="propose_order",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        reversibility=1.0,
         estimated_latency_ms=20,
         domain="food_delivery",
     )
@@ -93,7 +92,6 @@ async def _acquire_orders_lock() -> dict | None:
         name="place_order",
         is_readonly=False,
         side_effect_level=SideEffectLevel.HIGH,
-        reversibility=0.1,
         estimated_latency_ms=100,
         domain="food_delivery",
         resource_id="orders",

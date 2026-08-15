@@ -40,7 +40,7 @@ Getting an Agent to run, and keeping it alive in production, are two different t
 | Pluggable backends | `ports/` (15 Protocol ports), `backends/factory.py`, `backends/registry.py`, `backends/file/`, `backends/memory/`, `backends/postgres/`, `backends/neo4j/`, `backends/qdrant/`, `backends/redis/` |
 | Retry | `resilience/reliability/retry.py`, `resilience/transport/http_retry.py`, `core/error_classifier.py`, `core/error_reason.py` |
 | Circuit breaking | `tooling/reliability/circuit_breaker.py` |
-| Security | `guardrail/injection/pipeline.py`, `guardrail/injection/trust_chain.py`, `guardrail/patterns.py`, `guardrail/approval/gate.py`, `guardrail/approval/routing.py`, `guardrail/approval/formatter.py`, `hooks/bundles/security/` |
+| Security | `guardrail/injection/pipeline.py`, `guardrail/injection/trust_chain.py`, `guardrail/patterns.py`, `guardrail/approval/gate.py`, `guardrail/approval/formatter.py`, `hooks/bundles/security/` |
 | Observability | `core/observability.py`, `resilience/observability/otel_exporter.py`, `resilience/observability/drift.py`, `resilience/observability/audit.py`, `resilience/observability/scrubber.py`, `ports/span.py`, `hooks/bundles/observability.py` |
 | Eval & testing | `evaluation/evals/dataset.py`, `evaluation/evals/judge.py`, `evaluation/evals/runner.py`, `evaluation/testing/trace_assert.py`, `evaluation/testing/cassette.py` |
 

@@ -50,7 +50,7 @@ async def test_serial_write_order_preserved():
 
     @tool(
         name="write_x",
-        meta=ToolMeta(name="write_x", side_effect_level=SideEffectLevel.MEDIUM, reversibility=0.5),
+        meta=ToolMeta(name="write_x", side_effect_level=SideEffectLevel.MEDIUM),
     )
     async def write_x() -> dict:
         order.append("x")
@@ -58,7 +58,7 @@ async def test_serial_write_order_preserved():
 
     @tool(
         name="write_y",
-        meta=ToolMeta(name="write_y", side_effect_level=SideEffectLevel.MEDIUM, reversibility=0.5),
+        meta=ToolMeta(name="write_y", side_effect_level=SideEffectLevel.MEDIUM),
     )
     async def write_y() -> dict:
         order.append("y")
@@ -78,9 +78,7 @@ async def test_high_tool_suspends_without_approval_bundle():
 
     @tool(
         name="page_oncall",
-        meta=ToolMeta(
-            name="page_oncall", side_effect_level=SideEffectLevel.HIGH, reversibility=0.1
-        ),
+        meta=ToolMeta(name="page_oncall", side_effect_level=SideEffectLevel.HIGH),
     )
     async def page_oncall(team: str) -> dict:  # pragma: no cover — must not run
         return {"paged": team}
@@ -102,9 +100,7 @@ async def test_high_tool_suspends_leaves_no_tool_result():
 
     @tool(
         name="critical_op",
-        meta=ToolMeta(
-            name="critical_op", side_effect_level=SideEffectLevel.HIGH, reversibility=0.1
-        ),
+        meta=ToolMeta(name="critical_op", side_effect_level=SideEffectLevel.HIGH),
     )
     async def critical_op() -> dict:  # pragma: no cover — must not run
         return {"done": True}
@@ -133,7 +129,7 @@ async def test_mixed_reads_and_writes():
 
     @tool(
         name="do_write",
-        meta=ToolMeta(name="do_write", side_effect_level=SideEffectLevel.MEDIUM, reversibility=0.5),
+        meta=ToolMeta(name="do_write", side_effect_level=SideEffectLevel.MEDIUM),
     )
     async def do_write() -> dict:
         return {"type": "write"}
@@ -160,9 +156,7 @@ async def test_high_tool_does_not_drop_prior_readonly_results():
 
     @tool(
         name="dangerous_write",
-        meta=ToolMeta(
-            name="dangerous_write", side_effect_level=SideEffectLevel.HIGH, reversibility=0.1
-        ),
+        meta=ToolMeta(name="dangerous_write", side_effect_level=SideEffectLevel.HIGH),
     )
     async def dangerous_write() -> dict:  # pragma: no cover — must not run
         return {}
@@ -198,9 +192,7 @@ async def test_high_tool_first_still_allows_later_readonly():
 
     @tool(
         name="dangerous_write",
-        meta=ToolMeta(
-            name="dangerous_write", side_effect_level=SideEffectLevel.HIGH, reversibility=0.1
-        ),
+        meta=ToolMeta(name="dangerous_write", side_effect_level=SideEffectLevel.HIGH),
     )
     async def dangerous_write() -> dict:  # pragma: no cover
         return {}
@@ -298,7 +290,6 @@ async def test_enforced_idempotent_injects_key_bound_to_call_site():
         meta=ToolMeta(
             name="refund_order",
             side_effect_level=SideEffectLevel.MEDIUM,
-            reversibility=0.1,
             enforced_idempotent=True,
         ),
     )
@@ -331,7 +322,6 @@ async def test_enforced_idempotent_does_not_overwrite_model_supplied_key():
         meta=ToolMeta(
             name="charge_card",
             side_effect_level=SideEffectLevel.MEDIUM,
-            reversibility=0.1,
             enforced_idempotent=True,
         ),
     )

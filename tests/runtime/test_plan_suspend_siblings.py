@@ -162,7 +162,7 @@ async def test_resume_after_approval_reexecutes_suspended_step(tmp_path):
 
     @tool(
         name="rollback",
-        meta=ToolMeta(name="rollback", side_effect_level=SideEffectLevel.HIGH, reversibility=0.1),
+        meta=ToolMeta(name="rollback", side_effect_level=SideEffectLevel.HIGH),
     )
     async def rollback(service: str) -> dict:
         call_log.append("rollback")
@@ -170,7 +170,7 @@ async def test_resume_after_approval_reexecutes_suspended_step(tmp_path):
 
     @tool(
         name="verify",
-        meta=ToolMeta(name="verify", side_effect_level=SideEffectLevel.LOW, reversibility=1.0),
+        meta=ToolMeta(name="verify", side_effect_level=SideEffectLevel.LOW),
     )
     async def verify(service: str) -> dict:
         call_log.append("verify")
@@ -222,7 +222,7 @@ async def test_resume_after_approval_reexecutes_suspended_step(tmp_path):
     assert run1.pending_approval_id is not None
 
     # Approve: deferred decision recorded in gate.
-    await agent.submit_approval(run1.pending_approval_id, "brief_approval", approver_id="test")
+    await agent.submit_approval(run1.pending_approval_id, "approve", approver_id="test")
 
     # Resume: rollback re-executes (consuming deferred decision), verify runs.
     events2: list = []

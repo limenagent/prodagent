@@ -4,11 +4,7 @@ import pytest
 
 from prodagent import PromptInjectionDetected, SecurityViolation
 from prodagent.core.types import ToolCall
-from prodagent.guardrail.approval import (
-    ApprovalDecision,
-    ContextAwareApprovalFormatter,
-)
-from prodagent.guardrail.approval.routing import _route
+from prodagent.guardrail.approval import ContextAwareApprovalFormatter
 from prodagent.guardrail.injection import (
     KnowledgeBaseWriteGuard,
     validate_handoff_security,
@@ -80,24 +76,6 @@ class TestAgentHandoffValidator:
             {"status": "ok", "result_data": {}, "next_action": "custom_action"},
             allowed_actions=frozenset({"custom_action"}),
         )
-
-
-class TestConfidenceReversibilityRouting:
-    def test_high_conf_high_rev_auto_execute(self):
-        assert _route(0.95, 0.80) == ApprovalDecision.AUTO_EXECUTE
-
-    def test_high_conf_low_rev_brief_approval(self):
-        assert _route(0.95, 0.30) == ApprovalDecision.BRIEF_APPROVAL
-
-    def test_low_conf_high_rev_auto_with_reason(self):
-        assert _route(0.70, 0.80) == ApprovalDecision.AUTO_EXECUTE
-
-    def test_low_conf_low_rev_full_approval(self):
-        assert _route(0.70, 0.30) == ApprovalDecision.FULL_APPROVAL
-
-    def test_boundary_confidence(self):
-        assert _route(0.85, 0.80) == ApprovalDecision.AUTO_EXECUTE
-        assert _route(0.84, 0.30) == ApprovalDecision.FULL_APPROVAL
 
 
 class TestContextAwareApprovalFormatter:

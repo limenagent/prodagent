@@ -152,7 +152,6 @@ def make_edit(
         name="edit",
         is_readonly=False,
         side_effect_level=SideEffectLevel.MEDIUM,
-        reversibility=0.5,
         domain="fs:edit",
         estimated_latency_ms=1_000,
     )

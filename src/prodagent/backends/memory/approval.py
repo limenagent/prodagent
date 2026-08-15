@@ -34,8 +34,6 @@ class InMemoryApprovalStore:
                 request_id=request_id,
                 tool_name="",
                 params={},
-                confidence=0.0,
-                reversibility=0.5,
                 context_summary="",
             )
             self._requests[request_id] = req

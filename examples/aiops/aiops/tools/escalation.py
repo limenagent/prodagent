@@ -1,7 +1,7 @@
 """L3 升级工具 —— MEDIUM 副作用，无需审批即可执行。
 
-MEDIUM + ``reversibility=0.95`` 把审批矩阵路由到 AUTO_EXECUTE，门禁不
-拦截。对照 HIGH 工具（restart_pod、rollback），那些必须暂停等运维签字。
+审批门只拦截 HIGH 工具，MEDIUM 直接执行。对照 HIGH 工具
+（restart_pod、rollback），那些必须暂停等运维签字。
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from prodagent import SideEffectLevel, ToolMeta, tool
     meta=ToolMeta(
         name="page_oncall",
         side_effect_level=SideEffectLevel.MEDIUM,
-        reversibility=0.95,
         estimated_latency_ms=1000,
         domain="incident",
     )
