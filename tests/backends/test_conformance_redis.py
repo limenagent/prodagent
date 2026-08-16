@@ -1,7 +1,7 @@
 """Run the port conformance suite against the ``redis`` backend.
 
 Redis is a KV + TTL engine — that is what it is good at. The ports run against
-it here are the ephemeral / in-flight ones: cache, lock, idempotency,
+it here are the ephemeral / in-flight ones: cache, lock,
 approval, dead_letter. Relational state (checkpoint, event_log, document,
 span) and typed state (graph, vector) do NOT belong in Redis — those live in
 ``test_conformance_postgres`` / ``test_conformance_neo4j`` /
@@ -32,9 +32,6 @@ from prodagent.backends.conformance import (
     run_dead_letter_conformance,
     run_dead_letter_escalation_conformance,
     run_dead_letter_message_isolation_conformance,
-    run_idempotency_concurrent_conformance,
-    run_idempotency_conformance,
-    run_idempotency_key_isolation_conformance,
     run_lock_conformance,
     run_lock_mutual_exclusion_conformance,
     run_lock_nonblocking_tryacquire_conformance,
@@ -43,7 +40,6 @@ from prodagent.backends.conformance import (
 from prodagent.backends.redis.approval import RedisApprovalStore
 from prodagent.backends.redis.cache import RedisCache
 from prodagent.backends.redis.dead_letter import RedisDeadLetterQueue
-from prodagent.backends.redis.idempotency import RedisIdempotencyStore
 from prodagent.backends.redis.lock import RedisLockStore
 
 
@@ -148,27 +144,6 @@ async def test_redis_approval_decision_flow_conformance(async_client, clean_asyn
 async def test_redis_approval_decision_overwrite_conformance(async_client, clean_async):
     await run_approval_decision_overwrite_conformance(
         lambda: RedisApprovalStore(async_client, namespace=clean_async)
-    )
-
-
-# ── idempotency (async) ───────────────────────────────────────────────────────
-
-
-async def test_redis_idempotency_conformance(async_client, clean_async):
-    await run_idempotency_conformance(
-        lambda: RedisIdempotencyStore(async_client, namespace=clean_async)
-    )
-
-
-async def test_redis_idempotency_key_isolation_conformance(async_client, clean_async):
-    await run_idempotency_key_isolation_conformance(
-        lambda: RedisIdempotencyStore(async_client, namespace=clean_async)
-    )
-
-
-async def test_redis_idempotency_concurrent_conformance(async_client, clean_async):
-    await run_idempotency_concurrent_conformance(
-        lambda: RedisIdempotencyStore(async_client, namespace=clean_async)
     )
 
 

@@ -20,9 +20,6 @@ from prodagent.backends.conformance import (
     run_graph_node_conformance,
     run_graph_node_merge_conformance,
     run_graph_traverse_depth_conformance,
-    run_idempotency_concurrent_conformance,
-    run_idempotency_conformance,
-    run_idempotency_key_isolation_conformance,
     run_lock_conformance,
     run_lock_mutual_exclusion_conformance,
     run_lock_nonblocking_tryacquire_conformance,
@@ -38,7 +35,6 @@ from prodagent.backends.memory import (
     InMemoryCache,
     InMemoryDeadLetterQueue,
     InMemoryGraphStore,
-    InMemoryIdempotencyStore,
     InMemoryVectorStore,
     InProcessLockStore,
 )
@@ -50,10 +46,6 @@ def _mem_cache():
 
 def _mem_approval():
     return lambda: InMemoryApprovalStore()
-
-
-def _mem_idempotency():
-    return lambda: InMemoryIdempotencyStore()
 
 
 def _mem_lock():
@@ -100,21 +92,6 @@ async def test_memory_approval_decision_flow_conformance():
 
 async def test_memory_approval_decision_overwrite_conformance():
     await run_approval_decision_overwrite_conformance(_mem_approval())
-
-
-# ── idempotency ───────────────────────────────────────────────────────────────
-
-
-async def test_memory_idempotency_conformance():
-    await run_idempotency_conformance(_mem_idempotency())
-
-
-async def test_memory_idempotency_key_isolation_conformance():
-    await run_idempotency_key_isolation_conformance(_mem_idempotency())
-
-
-async def test_memory_idempotency_concurrent_conformance():
-    await run_idempotency_concurrent_conformance(_mem_idempotency())
 
 
 # ── lock ──────────────────────────────────────────────────────────────────────

@@ -112,7 +112,13 @@ class PlanExecutor:
             hooks=hooks,
             framework_config=framework_config,
         )
-        self._step_runner = StepRunner(tool_executor, self._log, hooks=hooks, agent_name=agent_name)
+        self._step_runner = StepRunner(
+            tool_executor,
+            self._log,
+            hooks=hooks,
+            agent_name=agent_name,
+            dispatcher=dispatcher,
+        )
         self._bootstrap = PlanBootstrap(
             self._log,
             self._planner,

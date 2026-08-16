@@ -81,7 +81,7 @@ class BackendConfig:
 
     - Relational/durable state (documents, checkpoint, event_log, span) →
       ``file`` (single host) or ``postgres`` (multi-replica).
-    - Ephemeral/in-flight state (cache, lock, idempotency, approval,
+    - Ephemeral/in-flight state (cache, lock, approval,
       dead_letter) → ``memory`` (single host) or ``redis`` (multi-replica).
     - Graph (nodes + edges, traversal) → ``neo4j``. Graphs belong in a graph
       database, period.
@@ -103,7 +103,6 @@ class BackendConfig:
     # Ephemeral / in-flight — low-latency coordination state.
     cache: Literal["memory", "redis"] = "memory"
     lock: Literal["memory", "redis"] = "memory"
-    idempotency: Literal["memory", "redis"] = "memory"
     approval: Literal["memory", "redis"] = "memory"
     dead_letter: Literal["memory", "redis"] = "memory"
 
@@ -164,7 +163,6 @@ _PROD_BACKEND_DEFAULTS: dict[str, str] = {
     "span": "postgres",
     "cache": "redis",
     "lock": "redis",
-    "idempotency": "redis",
     "approval": "redis",
     "dead_letter": "redis",
     "graph": "neo4j",

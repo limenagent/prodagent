@@ -72,7 +72,8 @@ class ToolRunner:
 
             meta = self._dispatcher.meta_for(call.name)
             if meta is not None and meta.enforced_idempotent:
-                call.params.setdefault("idempotency_key", f"{run.run_id}:{run.turn_count}:{i}")
+                run.idempotency_seq += 1
+                call.params.setdefault("idempotency_key", f"{run.run_id}:c{run.idempotency_seq}")
 
             run.last_action = f"{call.name}({list(call.params.keys())})"
             run.tool_history.append(call)

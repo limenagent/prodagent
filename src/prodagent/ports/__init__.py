@@ -12,7 +12,6 @@ from prodagent.ports.document import DocumentStore
 from prodagent.ports.event_log import EventLog
 from prodagent.ports.experience import ExperienceStore
 from prodagent.ports.graph import GraphStore
-from prodagent.ports.idempotency import IdempotencyStore
 from prodagent.ports.leaf_executor import LeafExecutor
 from prodagent.ports.llm import LLMClient
 from prodagent.ports.lock import LockStore, LockToken
@@ -30,7 +29,6 @@ __all__ = [
     "EventLog",
     "ExperienceStore",
     "GraphStore",
-    "IdempotencyStore",
     "LeafExecutor",
     "LLMClient",
     "LockStore",

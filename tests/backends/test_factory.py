@@ -19,7 +19,6 @@ from prodagent.backends.factory import (
     resolve_document,
     resolve_event_log,
     resolve_graph,
-    resolve_idempotency,
     resolve_lock,
     resolve_span_exporter,
     resolve_vector,
@@ -35,7 +34,6 @@ from prodagent.backends.memory import (
     InMemoryApprovalStore,
     InMemoryCache,
     InMemoryDeadLetterQueue,
-    InMemoryIdempotencyStore,
     InMemoryVectorStore,
     InProcessLockStore,
 )
@@ -47,7 +45,6 @@ from prodagent.ports import (
     DeadLetterStore,
     DocumentStore,
     EventLog,
-    IdempotencyStore,
     LockStore,
     SpanExporter,
     VectorStore,
@@ -70,12 +67,10 @@ def test_default_ephemeral_picks_memory():
     cfg = FrameworkConfig.default()
     assert cfg.backend.cache == "memory"
     assert cfg.backend.lock == "memory"
-    assert cfg.backend.idempotency == "memory"
     assert cfg.backend.approval == "memory"
     assert cfg.backend.dead_letter == "memory"
     assert isinstance(resolve_cache(cfg), InMemoryCache)
     assert isinstance(resolve_approval(cfg), InMemoryApprovalStore)
-    assert isinstance(resolve_idempotency(cfg), InMemoryIdempotencyStore)
     assert isinstance(resolve_lock(cfg), InProcessLockStore)
     assert isinstance(resolve_dead_letter(cfg), InMemoryDeadLetterQueue)
 
@@ -97,7 +92,6 @@ def test_resolvers_return_protocol_instances():
     assert isinstance(resolve_checkpoint(cfg), CheckpointStore)
     assert isinstance(resolve_event_log(cfg), EventLog)
     assert isinstance(resolve_approval(cfg), ApprovalStore)
-    assert isinstance(resolve_idempotency(cfg), IdempotencyStore)
     assert isinstance(resolve_lock(cfg), LockStore)
     assert isinstance(resolve_dead_letter(cfg), DeadLetterStore)
     assert isinstance(resolve_span_exporter(cfg), SpanExporter)
@@ -163,14 +157,12 @@ def test_redis_ephemeral_resolvers_return_redis_classes():
     from prodagent.backends.redis.approval import RedisApprovalStore
     from prodagent.backends.redis.cache import RedisCache
     from prodagent.backends.redis.dead_letter import RedisDeadLetterQueue
-    from prodagent.backends.redis.idempotency import RedisIdempotencyStore
     from prodagent.backends.redis.lock import RedisLockStore
 
     cfg = FrameworkConfig(
         backend=BackendConfig(
             cache="redis",
             lock="redis",
-            idempotency="redis",
             approval="redis",
             dead_letter="redis",
             redis_namespace="factory-test",
@@ -178,7 +170,6 @@ def test_redis_ephemeral_resolvers_return_redis_classes():
     )
     assert isinstance(resolve_cache(cfg), RedisCache)
     assert isinstance(resolve_approval(cfg), RedisApprovalStore)
-    assert isinstance(resolve_idempotency(cfg), RedisIdempotencyStore)
     assert isinstance(resolve_lock(cfg), RedisLockStore)
     assert isinstance(resolve_dead_letter(cfg), RedisDeadLetterQueue)
 
@@ -232,7 +223,6 @@ def test_factory_module_exposes_all_resolvers():
         "resolve_event_log",
         "resolve_cache",
         "resolve_approval",
-        "resolve_idempotency",
         "resolve_lock",
         "resolve_dead_letter",
         "resolve_span_exporter",

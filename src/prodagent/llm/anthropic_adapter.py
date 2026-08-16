@@ -231,14 +231,16 @@ class AnthropicAdapter:
                 )
 
         usage = raw.usage
+        cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+        cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
         return LLMResponse(
             content="\n".join(text_parts),
             tool_calls=tool_calls,
             stop_reason=StopReason.coerce(raw.stop_reason),
-            input_tokens=usage.input_tokens,
+            input_tokens=usage.input_tokens + cache_read + cache_write,
             output_tokens=usage.output_tokens,
             model=raw.model,
-            cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
-            cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0) or 0,
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
             reasoning_content="\n".join(thinking_parts),
         )

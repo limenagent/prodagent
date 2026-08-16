@@ -45,6 +45,7 @@ class LLMConfig:
     cost_per_million_input: float = 0.0
     cost_per_million_output: float = 0.0
     cache_read_discount: float = 0.1
+    cache_write_premium: float = 1.25
     cache_boundary_index: int | None = None
 
     def __post_init__(self) -> None:
@@ -60,6 +61,7 @@ class LLMConfig:
             input_rate_per_million=self.cost_per_million_input,
             output_rate_per_million=self.cost_per_million_output,
             cache_read_discount=self.cache_read_discount,
+            cache_write_premium=self.cache_write_premium,
         )
         return token_cost_usd(response, pricing)
 

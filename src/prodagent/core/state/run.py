@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Generic
 
 from typing_extensions import TypeVar
 
+from prodagent.core.error_classifier import ClassifiedError
 from prodagent.core.types import (
     LLMResponse,
     MessageList,
@@ -147,10 +148,13 @@ class AgentRun(Generic[_RunT]):
     tool_failures: int = 0
     last_action: str | None = None
     retry_counter: dict[str, int] = field(default_factory=dict)
+    fingerprints: list[str] = field(default_factory=list)
+    idempotency_seq: int = 0
     pending_tool_call: ToolCall | None = None
     pending_approval_id: str | None = None
     pending_handoff: PendingHandoff | None = None
     last_error: str | None = None
+    error: ClassifiedError | None = None
     plan_state: JsonDict | None = None
     plan_last_seq: int = 0
     checkpoint_version: int = 0
@@ -195,6 +199,14 @@ class AgentRun(Generic[_RunT]):
     def reset_retry(self, tool_name: str) -> None:
         self.retry_counter[tool_name] = 0
 
+    def push_fingerprint(self, fp: str, *, window: int) -> int:
+        """Append a tool-call fingerprint to the sliding window and return how
+        many times it now occurs within that window (the dead-loop count)."""
+        self.fingerprints.append(fp)
+        if len(self.fingerprints) > window:
+            del self.fingerprints[: len(self.fingerprints) - window]
+        return self.fingerprints.count(fp)
+
     @property
     def total_tokens(self) -> int:
         return self.metrics.input_tokens + self.metrics.output_tokens
@@ -213,8 +225,9 @@ class AgentRun(Generic[_RunT]):
 
     def to_dict(self) -> JsonDict:
         """Durable subset needed to resume a crashed run losslessly:
-        transcript, retry/pending counters (no double side effects / lost
-        approval), and error/last_error (crash scene)."""
+        transcript, retry/fingerprint/pending counters (no double side
+        effects / lost approval / lost loop memory), and error/last_error
+        (crash scene)."""
         return {
             "run_id": self.run_id,
             "task": self.task,
@@ -235,12 +248,15 @@ class AgentRun(Generic[_RunT]):
             "last_action": self.last_action,
             "start_time": self.start_time,
             "retry_counter": dict(self.retry_counter),
+            "fingerprints": list(self.fingerprints),
+            "idempotency_seq": self.idempotency_seq,
             "pending_tool_call": (
                 self.pending_tool_call.to_dict() if self.pending_tool_call else None
             ),
             "pending_approval_id": self.pending_approval_id,
             "pending_handoff": self.pending_handoff.to_dict() if self.pending_handoff else None,
             "last_error": self.last_error,
+            "error": self.error.to_dict() if self.error is not None else None,
             "plan_state": self.plan_state,
             "plan_last_seq": self.plan_last_seq,
             "is_peer_continuation": self.is_peer_continuation,
@@ -263,12 +279,17 @@ class AgentRun(Generic[_RunT]):
             last_action=d.get("last_action"),
             start_time=d.get("start_time", time.time()),
             retry_counter=dict(d.get("retry_counter", {})),
+            fingerprints=list(d.get("fingerprints", [])),
+            idempotency_seq=d.get("idempotency_seq", 0),
             pending_tool_call=(
                 _toolcall_from_dict(d["pending_tool_call"]) if d.get("pending_tool_call") else None
             ),
             pending_approval_id=d.get("pending_approval_id"),
             pending_handoff=PendingHandoff.from_dict(d.get("pending_handoff")),
             last_error=d.get("last_error"),
+            error=(
+                ClassifiedError.from_dict(d["error"]) if isinstance(d.get("error"), dict) else None
+            ),
             plan_state=d.get("plan_state"),
             plan_last_seq=d.get("plan_last_seq", 0),
             is_peer_continuation=d.get("is_peer_continuation", False),

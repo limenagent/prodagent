@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from prodagent.hooks.registry import HookRegistry
     from prodagent.runtime.plan.dag import Plan, PlanStep
     from prodagent.runtime.plan.event_log import PlanEventLog
+    from prodagent.tooling.dispatcher import ToolDispatcher
 
 logger = logging.getLogger(__name__)
 
@@ -107,11 +108,13 @@ class StepRunner:
         *,
         hooks: HookRegistry | None = None,
         agent_name: str = "",
+        dispatcher: ToolDispatcher | None = None,
     ) -> None:
         self._execute_tool = tool_executor
         self._log = log
         self._hooks = hooks
         self._agent_name = agent_name
+        self._dispatcher = dispatcher
         self._commit_lock = asyncio.Lock()
 
     async def run_one(
@@ -126,6 +129,11 @@ class StepRunner:
             params=plan.resolve_params(step),
             call_id=_call_id(step.step_id, run.run_id),
         )
+        meta = self._dispatcher.meta_for(call.name) if self._dispatcher is not None else None
+        if meta is not None and meta.enforced_idempotent:
+            call.params.setdefault(
+                "idempotency_key", f"{run.run_id}:{step.step_id}:a{step.attempts}"
+            )
         if run.pending_handoff is not None:
             return StepSuccess(
                 step=step,

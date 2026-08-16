@@ -2,7 +2,7 @@
 
 Postgres is a relational database — that is what it is good at. The ports run
 against it here are the relational / durable ones: checkpoint, event_log,
-document, span. Ephemeral state (cache, lock, idempotency, approval,
+document, span. Ephemeral state (cache, lock, approval,
 dead_letter) belongs in Redis or memory (see ``test_conformance_redis``);
 graph and vector belong in their own dedicated engines.
 

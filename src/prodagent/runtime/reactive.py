@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any
 
 from prodagent.core.budget import HardBudget
 from prodagent.core.config import LoopConfig
+from prodagent.core.error_classifier import classify_error
+from prodagent.core.error_reason import ErrorLayer
 from prodagent.core.events import (
     AgentEvent,
     RunCompletedEvent,
@@ -143,6 +145,7 @@ class ReactiveLoop:
     @staticmethod
     def _record_fault(run: AgentRun, exc: BaseException) -> None:
         run.last_error = str(exc)
+        run.error = classify_error(exc, layer=ErrorLayer.RUNTIME)
 
     @staticmethod
     def _prune_unresolved_tool_uses(run: AgentRun) -> None:
@@ -420,6 +423,7 @@ class ReactiveLoop:
                     self._prune_unresolved_tool_uses(existing)
                 existing.state = RunState.RUNNING
                 existing.last_error = None
+                existing.error = None
                 logger.info(
                     "ReactiveLoop[%s] resuming from checkpoint: %d messages, turn=%d",
                     run_id,

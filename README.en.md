@@ -246,7 +246,7 @@ graph TD
     P --> R[Relational<br/>CheckpointStore · EventLog<br/>SessionStore · DocumentStore<br/>ExperienceStore]
     P --> G[Graph<br/>GraphStore]
     P --> V[Vector<br/>VectorStore]
-    P --> T[Cache & Coordination<br/>CacheStore · LockStore<br/>IdempotencyStore · ApprovalStore<br/>DeadLetterStore]
+    P --> T[Cache & Coordination<br/>CacheStore · LockStore<br/>ApprovalStore · DeadLetterStore]
     P --> X[Infrastructure<br/>LLMClient · Tool · SpanExporter]
     R -.-> PG[(Postgres)]
     G -.-> NEO[(Neo4j)]

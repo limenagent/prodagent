@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from prodagent import RunState
+from prodagent.core.error_classifier import ClassifiedError
+from prodagent.core.error_reason import ErrorReason
 from prodagent.core.state import AgentRun
 from prodagent.core.types import ToolCall
 
@@ -20,8 +22,11 @@ def _rich_run() -> AgentRun:
     run.tool_failures = 1
     run.last_action = "refund"
     run.retry_counter = {"refund": 2}
+    run.fingerprints = ["fp1", "fp2", "fp3"]
+    run.idempotency_seq = 7
     run.pending_tool_call = ToolCall(name="refund", params={"order": 42}, call_id="c1")
     run.last_error = "403 Forbidden"
+    run.error = ClassifiedError(reason=ErrorReason.AUTH_FORBIDDEN, retryable=False, status_code=403)
     run.plan_state = {"steps": {}, "version": 3}
     run.plan_last_seq = 7
     return run
@@ -42,7 +47,13 @@ def test_full_round_trip_preserves_every_field():
     assert restored.tool_failures == 1
     assert restored.last_action == "refund"
     assert restored.retry_counter == {"refund": 2}
+    assert restored.fingerprints == ["fp1", "fp2", "fp3"]
+    assert restored.idempotency_seq == 7
     assert restored.last_error == "403 Forbidden"
+    assert restored.error is not None
+    assert restored.error.reason is ErrorReason.AUTH_FORBIDDEN
+    assert restored.error.retryable is False
+    assert restored.error.status_code == 403
     assert restored.plan_state == {"steps": {}, "version": 3}
     assert restored.plan_last_seq == 7
 
@@ -66,7 +77,10 @@ def test_clean_run_has_no_crash_scene():
     run = AgentRun(run_id="r2", task="hi")
     restored = AgentRun.from_dict(run.to_dict())
     assert restored.last_error is None
+    assert restored.error is None
     assert restored.pending_tool_call is None
+    assert restored.fingerprints == []
+    assert restored.idempotency_seq == 0
 
 
 def test_start_time_survives_round_trip():

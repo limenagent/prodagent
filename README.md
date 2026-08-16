@@ -233,7 +233,7 @@ graph TD
     P --> R[关系型<br/>CheckpointStore · EventLog<br/>SessionStore · DocumentStore<br/>ExperienceStore]
     P --> G[图<br/>GraphStore]
     P --> V[向量<br/>VectorStore]
-    P --> T[缓存与协调<br/>CacheStore · LockStore<br/>IdempotencyStore · ApprovalStore<br/>DeadLetterStore]
+    P --> T[缓存与协调<br/>CacheStore · LockStore<br/>ApprovalStore · DeadLetterStore]
     P --> X[基础设施<br/>LLMClient · Tool · SpanExporter]
     R -.-> PG[(Postgres)]
     G -.-> NEO[(Neo4j)]

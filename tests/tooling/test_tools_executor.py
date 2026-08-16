@@ -308,8 +308,52 @@ async def test_enforced_idempotent_injects_key_bound_to_call_site():
     await _run_batch(runner, run, calls)
 
     assert len(captured) == 2
-    assert captured[0]["idempotency_key"] == "run-xyz:3:0"
-    assert captured[1]["idempotency_key"] == "run-xyz:3:1"
+    # Keys anchor on the persisted idempotency_seq (turn-independent), so a
+    # call re-executed after a crash-restore re-derives the same key.
+    assert captured[0]["idempotency_key"] == "run-xyz:c1"
+    assert captured[1]["idempotency_key"] == "run-xyz:c2"
+    assert run.idempotency_seq == 2
+
+
+@pytest.mark.asyncio
+async def test_rollback_restore_rederives_same_idempotency_keys():
+    """Crash mid-turn: the checkpoint (taken before the batch) rolls the seq
+    back with the transcript, so re-executing the batch re-derives the same
+    keys — the external system suppresses the duplicate side effect."""
+
+    captured: list[dict] = []
+
+    @tool(
+        name="refund_order",
+        meta=ToolMeta(
+            name="refund_order",
+            side_effect_level=SideEffectLevel.MEDIUM,
+            enforced_idempotent=True,
+        ),
+    )
+    async def refund_order(order_id: str, idempotency_key: str = "") -> dict:
+        captured.append({"order_id": order_id, "idempotency_key": idempotency_key})
+        return {"refunded": order_id}
+
+    async def _drive(run: AgentRun) -> list[str]:
+        captured.clear()
+        calls = [
+            ToolCall(name="refund_order", params={"order_id": "A1"}),
+            ToolCall(name="refund_order", params={"order_id": "A2"}),
+        ]
+        runner = ToolRunner(_dispatcher(refund_order))
+        await _run_batch(runner, run, calls)
+        return [c["idempotency_key"] for c in captured]
+
+    run = AgentRun(run_id="rb", task="refund")
+    checkpoint = run.to_dict()  # saved before the side-effect batch
+
+    first = await _drive(run)
+    restored = AgentRun.from_dict(checkpoint)
+    second = await _drive(restored)
+
+    assert first == ["rb:c1", "rb:c2"]
+    assert second == first
 
 
 @pytest.mark.asyncio

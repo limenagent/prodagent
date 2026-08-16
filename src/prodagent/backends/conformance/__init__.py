@@ -61,11 +61,6 @@ from prodagent.backends.conformance.graph import (
     run_graph_node_merge_conformance,
     run_graph_traverse_depth_conformance,
 )
-from prodagent.backends.conformance.idempotency import (
-    run_idempotency_concurrent_conformance,
-    run_idempotency_conformance,
-    run_idempotency_key_isolation_conformance,
-)
 from prodagent.backends.conformance.lock import (
     run_lock_conformance,
     run_lock_mutual_exclusion_conformance,
@@ -114,9 +109,6 @@ __all__ = [
     "run_graph_node_conformance",
     "run_graph_node_merge_conformance",
     "run_graph_traverse_depth_conformance",
-    "run_idempotency_conformance",
-    "run_idempotency_concurrent_conformance",
-    "run_idempotency_key_isolation_conformance",
     "run_lock_conformance",
     "run_lock_mutual_exclusion_conformance",
     "run_lock_nonblocking_tryacquire_conformance",

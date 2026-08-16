@@ -42,7 +42,11 @@ def _context_hash(run: AgentRun) -> str:
 
 
 class ProgressMonitor:
-    """Detect dead loops and ghost loops for one run."""
+    """Detect dead loops and ghost loops for one run.
+
+    The dead-loop window lives on the run (``AgentRun.fingerprints``) so it is
+    checkpointed: a resumed run keeps its loop memory instead of re-tripping
+    the same loop from a zeroed counter."""
 
     def __init__(
         self,
@@ -54,7 +58,6 @@ class ProgressMonitor:
         self._repeat_threshold = repeat_threshold
         self._window_size = window_size
         self._stall_threshold = stall_threshold
-        self._fingerprints: dict[str, collections.deque[str]] = {}
         self._hashes: collections.deque[str] = collections.deque(maxlen=stall_threshold)
 
     def check(self, run: AgentRun, new_call: ToolCall | None = None) -> None:
@@ -65,17 +68,12 @@ class ProgressMonitor:
 
     def _check_dead_loop(self, run: AgentRun, new_call: ToolCall) -> None:
         fp = _tool_fingerprint(new_call)
-        bucket = self._fingerprints.get(fp)
-        if bucket is None:
-            bucket = collections.deque(maxlen=self._window_size)
-            self._fingerprints[fp] = bucket
-        bucket.append(fp)
-        count = len(bucket)
+        count = run.push_fingerprint(fp, window=self._window_size)
 
         if count >= self._repeat_threshold:
             raise InfiniteLoopDetected(
                 f"Dead loop: tool '{new_call.name}' with identical params "
-                f"called {count} times within last {self._window_size} turns "
+                f"called {count} times within the last {self._window_size} calls "
                 f"(threshold={self._repeat_threshold})",
                 run_id=run.run_id,
                 tool=new_call.name,

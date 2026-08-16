@@ -15,7 +15,6 @@ from prodagent.ports import (
     EventLog,
     ExperienceStore,
     GraphStore,
-    IdempotencyStore,
     LockStore,
     SessionStore,
     SpanExporter,
@@ -34,7 +33,6 @@ __all__ = [
     "resolve_event_log",
     "resolve_cache",
     "resolve_approval",
-    "resolve_idempotency",
     "resolve_lock",
     "resolve_dead_letter",
     "resolve_span_exporter",
@@ -125,14 +123,6 @@ _BACKENDS: dict[str, dict[str, Spec]] = {
         "memory": ("prodagent.backends.memory.approval:InMemoryApprovalStore", [], {}),
         "redis": (
             "prodagent.backends.redis.approval:RedisApprovalStore",
-            [_r("redis_async_client")],
-            {"namespace": _b("redis_namespace")},
-        ),
-    },
-    "idempotency": {
-        "memory": ("prodagent.backends.memory.idempotency:InMemoryIdempotencyStore", [], {}),
-        "redis": (
-            "prodagent.backends.redis.idempotency:RedisIdempotencyStore",
             [_r("redis_async_client")],
             {"namespace": _b("redis_namespace")},
         ),
@@ -235,12 +225,6 @@ def resolve_cache(framework_config: FrameworkConfig | None = None) -> CacheStore
 
 def resolve_approval(framework_config: FrameworkConfig | None = None) -> ApprovalStore:
     return cast("ApprovalStore", _resolve("approval", framework_config, expect=ApprovalStore))
-
-
-def resolve_idempotency(framework_config: FrameworkConfig | None = None) -> IdempotencyStore:
-    return cast(
-        "IdempotencyStore", _resolve("idempotency", framework_config, expect=IdempotencyStore)
-    )
 
 
 def resolve_lock(framework_config: FrameworkConfig | None = None) -> LockStore:

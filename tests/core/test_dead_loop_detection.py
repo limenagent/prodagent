@@ -72,8 +72,7 @@ class TestDeadLoopDetection:
         for _ in range(3):
             mon.check(run, new_call=a)
             mon.check(run, new_call=b)
-        for bucket in mon._fingerprints.values():
-            assert len(bucket) <= 5
+        assert len(run.fingerprints) <= 5
 
     def test_window_slides_old_burst_stops_counting(self, run):
         a = _call("grep", pattern="error")
@@ -84,9 +83,10 @@ class TestDeadLoopDetection:
             distinct = _call("grep", pattern=f"p{i}")
             mon.check(run, new_call=distinct)
         a_key = _tool_fingerprint(a)
-        a_bucket = mon._fingerprints[a_key]
-        assert len(a_bucket) == 4
-        assert len(a_bucket) <= 5
+        assert a_key not in run.fingerprints
+        assert len(run.fingerprints) == 5
+        # The old burst was evicted: one more identical call must not trip.
+        mon.check(run, new_call=a)
 
     def test_window_scroll_evicts_oldest_fingerprint(self, run):
         a = _call("grep", pattern="error")
@@ -96,6 +96,16 @@ class TestDeadLoopDetection:
         with pytest.raises(InfiniteLoopDetected):
             mon.check(run, new_call=a)
         a_key = _tool_fingerprint(a)
-        a_bucket = mon._fingerprints[a_key]
-        assert len(a_bucket) == 5
-        assert a_bucket.maxlen == 5
+        assert run.fingerprints == [a_key] * 5
+
+    def test_fingerprint_window_survives_serialization(self, run):
+        a = _call("grep", pattern="error")
+        mon = _monitor()
+        for _ in range(4):
+            mon.check(run, new_call=a)
+        restored = AgentRun.from_dict(run.to_dict())
+        a_key = _tool_fingerprint(a)
+        assert restored.fingerprints == [a_key] * 4
+        # A resumed run keeps its loop memory: the 5th identical call trips.
+        with pytest.raises(InfiniteLoopDetected):
+            mon.check(restored, new_call=a)

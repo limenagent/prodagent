@@ -1,9 +1,9 @@
 """LockStore port — named distributed lock primitive.
 
 Other ports (CheckpointStore.save with expected_version, EventLog.append with
-expected_seq, ApprovalStore.submit_decision, IdempotencyStore.check_and_mark)
-rely on this for mutual exclusion across processes. Exposed publicly so user
-code protecting custom critical sections can use the same backend.
+expected_seq, ApprovalStore.submit_decision) rely on this for mutual exclusion
+across processes. Exposed publicly so user code protecting custom critical
+sections can use the same backend.
 """
 
 from __future__ import annotations

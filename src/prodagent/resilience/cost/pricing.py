@@ -17,14 +17,18 @@ class PricingTable:
     output_rate_per_million: float
     # Fraction of input rate charged for cache-read tokens (Anthropic 0.1, OpenAI 0.5).
     cache_read_discount: float = 0.1
+    # Multiplier on input rate charged for cache-write tokens (Anthropic 1.25).
+    cache_write_premium: float = 1.25
 
 
 def token_cost_usd(response: LLMResponse, pricing: PricingTable) -> float:
     cache_read = response.cache_read_tokens or 0
-    input_billed = max(0, response.input_tokens - cache_read)
+    cache_write = response.cache_write_tokens or 0
+    input_billed = max(0, response.input_tokens - cache_read - cache_write)
     cost = (
         input_billed / 1_000_000 * pricing.input_rate_per_million
         + response.output_tokens / 1_000_000 * pricing.output_rate_per_million
         + cache_read / 1_000_000 * (pricing.input_rate_per_million * pricing.cache_read_discount)
+        + cache_write / 1_000_000 * (pricing.input_rate_per_million * pricing.cache_write_premium)
     )
     return max(0.0, cost)

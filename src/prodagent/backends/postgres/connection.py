@@ -32,7 +32,7 @@ def sync_pool_from_env(*, min_size: int = 1, max_size: int = 8) -> Any:
 
 def async_pool_from_env(*, min_size: int = 1, max_size: int = 8) -> Any:
     """An async ``AsyncConnectionPool`` — for async ports (checkpoint,
-    event_log, cache, approval, idempotency, lock).
+    event_log, cache, approval, lock).
     """
     from psycopg_pool import AsyncConnectionPool
 
