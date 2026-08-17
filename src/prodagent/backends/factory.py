@@ -139,12 +139,12 @@ _BACKENDS: dict[str, dict[str, Spec]] = {
         "memory": (
             "prodagent.backends.memory.dead_letter:InMemoryDeadLetterQueue",
             [],
-            {"max_retries": _o("spawn_dlq_max_retries")},
+            {"max_retries": _o("dead_letter_max_retries")},
         ),
         "redis": (
             "prodagent.backends.redis.dead_letter:RedisDeadLetterQueue",
             [_r("redis_sync_client")],
-            {"namespace": _b("redis_namespace"), "max_retries": _o("spawn_dlq_max_retries")},
+            {"namespace": _b("redis_namespace"), "max_retries": _o("dead_letter_max_retries")},
         ),
     },
     "graph": {

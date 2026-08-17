@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
@@ -12,7 +13,6 @@ from prodagent.core.error_reason import ErrorReason
 from prodagent.core.exceptions import (
     SECURITY_VETO_EXCEPTIONS,
     BudgetExceeded,
-    ContractViolationError,
 )
 from prodagent.core.types import (
     ErrorSeverity,
@@ -21,16 +21,24 @@ from prodagent.core.types import (
     ToolError,
     ToolMeta,
 )
-from prodagent.hooks.checkpoint import CheckPoint
 from prodagent.hooks.events import HookEvent
 from prodagent.runtime._tool_merge import attach_tools
 from prodagent.runtime.coordination.budget_ledger import BudgetLedger
-from prodagent.runtime.coordination.handoff import (
-    HandoffContract,
-    HandoffInterceptor,
-    HandoffPacket,
+from prodagent.runtime.coordination.messaging.contract import (
+    DEFAULT_CHILD_CONTRACT,
+    MessageContract,
 )
-from prodagent.runtime.coordination.idempotency import IdempotentMessageHandler
+from prodagent.runtime.coordination.messaging.envelope import (
+    Crossing,
+    CrossingKind,
+    Direction,
+)
+from prodagent.runtime.coordination.messaging.idempotency import IdempotentMessageHandler
+from prodagent.runtime.coordination.messaging.packet import HandoffPacket
+from prodagent.runtime.coordination.messaging.pipeline import (
+    admission_pipeline,
+    assembly_pipeline,
+)
 from prodagent.runtime.coordination.parent_runtime import ParentRuntime, describe_agent
 from prodagent.tooling.base import FunctionTool
 
@@ -155,25 +163,61 @@ class Spawn:
         self._framework_config = framework_config or FrameworkConfig.from_env()
         self._ctx = ctx
         orch = self._framework_config.orchestration
-        self._idempotency = IdempotentMessageHandler(ttl_seconds=orch.spawn_idempotency_ttl_s)
-        self._handoff_output_max_chars = orch.spawn_handoff_output_max_chars
+        self._handoff_output_max_chars = orch.handoff_output_max_chars
         self._default_timeout_s = orch.spawn_default_timeout_s
-        self._interceptor = HandoffInterceptor()
-        self._dlq: DeadLetterStore | None = dead_letter_queue
-        self._default_contract = HandoffContract(
-            required_fields=["output", "state"],
-            field_types={"output": str, "state": str},
-            strict=True,
+        self._dlq: DeadLetterStore = (
+            dead_letter_queue
+            if dead_letter_queue is not None
+            else resolve_dead_letter(self._framework_config)
         )
-        # spawn_agent is is_readonly=True (see build_tool) precisely so multiple
-        # calls in one turn dispatch *concurrently* via asyncio.gather in
-        # ToolRunner.run_batch. Without a lock-protected ledger, N concurrent
-        # children sharing one SpawnAccumulator can each pass a stale budget
-        # snapshot and jointly blow past the cap before any of them commits.
-        # This ledger only tracks accumulator-scoped spend (turns/tokens/cost of
-        # the children themselves) — the parent run's own base spend is still
-        # checked at turn boundaries via check_spawn_budget, unchanged.
         self._budget_ledger = BudgetLedger(max=ctx.budget) if ctx.budget is not None else None
+        self._idempotency = IdempotentMessageHandler(ttl_seconds=orch.handoff_idempotency_ttl_s)
+        self._dispatch_pipeline = assembly_pipeline(
+            dedupe=self._idempotency,
+            hooks=self._hooks,
+            dead_letter=self.dlq,
+        )
+        self._result_pipeline = admission_pipeline(
+            contract=self._contract_for,
+            trim=self._bound_result,
+            hooks=self._hooks,
+            dead_letter=self.dlq,
+            audit_event=self._result_audit_event,
+            max_chars=self._handoff_output_max_chars,
+        )
+
+    def _contract_for(self, crossing: Crossing[Any]) -> MessageContract | None:
+        """Resolve each child's declared output contract from its result."""
+        payload = crossing.payload
+        agent = payload.get("agent", "") if isinstance(payload, Mapping) else ""
+        spec = self._spec_map.get(agent)
+        if spec is not None and spec.config.output_contract is not None:
+            return spec.config.output_contract
+        return DEFAULT_CHILD_CONTRACT
+
+    def _bound_result(self, payload: Any) -> Any:
+        """Cap the child's free-text output — one knob bounds every
+        agent-produced string crossing any boundary."""
+        if isinstance(payload, Mapping) and isinstance(payload.get("output"), str):
+            return {**payload, "output": payload["output"][: self._handoff_output_max_chars]}
+        return payload
+
+    def _result_audit_event(
+        self, crossing: Crossing[Any]
+    ) -> tuple[HookEvent, dict[str, Any]] | None:
+        payload = crossing.payload if isinstance(crossing.payload, Mapping) else {}
+        return (
+            HookEvent.AGENT_RESULT,
+            {
+                "name": payload.get("agent", crossing.from_agent),
+                "state": payload.get("state", ""),
+                "turns": crossing.meta.get("turns", 0),
+                "output": str(payload.get("output", ""))[:120],
+                "depth": crossing.meta.get("depth", 0),
+                "parent_run_id": crossing.meta.get("parent_run_id"),
+                "child_run_id": crossing.meta.get("child_run_id"),
+            },
+        )
 
     @property
     def accumulator(self) -> SpawnAccumulator:
@@ -181,8 +225,6 @@ class Spawn:
 
     @property
     def dlq(self) -> DeadLetterStore:
-        if self._dlq is None:
-            self._dlq = resolve_dead_letter(self._framework_config)
         return self._dlq
 
     async def spawn(
@@ -217,7 +259,29 @@ class Spawn:
             task[:60],
         )
 
-        if await self._idempotency.is_duplicate(packet.message_id):
+        from prodagent.core.state.run import child_run_id as _child_run_id
+
+        child_run_id = (
+            _child_run_id(self._ctx.parent_run_id, name) if self._ctx.parent_run_id else None
+        )
+
+        # DOWNSTREAM crossing: dispatch the packet to the child through the
+        # assembly pipeline (dedupe + gate). Rejected dispatches die before
+        # the child burns any budget.
+        dispatch = await self._dispatch_pipeline.process(
+            Crossing.mint(
+                direction=Direction.DOWNSTREAM,
+                kind=CrossingKind.DISPATCH,
+                from_agent="parent",
+                to=name,
+                payload=packet,
+                trace_id=self._ctx.parent_run_id or "",
+                message_id=packet.message_id,
+                depth=self._ctx.depth + 1,
+                child_run_id=child_run_id or "",
+            )
+        )
+        if dispatch.status == "duplicate":
             logger.warning(
                 "IdempotentHandler[%s]: duplicate suppressed (agent=%s)",
                 packet.message_id[:8],
@@ -228,12 +292,13 @@ class Spawn:
                 STATE_DUPLICATE,
                 "Duplicate request suppressed by idempotency layer",
             ).as_dict()
+        if dispatch.status == "rejected":
+            return short_result(
+                name,
+                STATE_HANDOFF_REJECTED,
+                f"Dispatch rejected: {dispatch.reason}",
+            ).as_dict()
 
-        from prodagent.core.state.run import child_run_id as _child_run_id
-
-        child_run_id = (
-            _child_run_id(self._ctx.parent_run_id, name) if self._ctx.parent_run_id else None
-        )
         await self._fire(
             HookEvent.AGENT_SPAWN,
             name=name,
@@ -294,39 +359,50 @@ class Spawn:
 
         self._ctx.accumulator.add(result)
 
-        contract = spec.config.output_contract or self._default_contract
-        try:
-            self._interceptor.intercept(result.as_dict(), contract)
-        except ContractViolationError as exc:
-            dlq_state = self.dlq.on_failure(packet.message_id, result.as_dict(), str(exc))
-            logger.warning(
-                "HandoffInterceptor[%s]: contract violation (%s) → %s",
-                packet.task_id[:8],
-                exc.message[:80],
-                dlq_state,
+        # UPSTREAM crossing: the child's result enters the parent's world
+        # through the admission pipeline (per-spec contract → trim → security
+        # gate → audit). Same message_id as the dispatch — one logical
+        # crossing, two directions. Rejections are dead-lettered at the
+        # pipeline boundary; strict contract violations never reach the parent.
+        delivery = await self._result_pipeline.process(
+            Crossing.mint(
+                direction=Direction.UPSTREAM,
+                kind=CrossingKind.RESULT,
+                from_agent=name,
+                to="parent",
+                payload=result.as_dict(),
+                trace_id=self._ctx.parent_run_id or "",
+                message_id=packet.message_id,
+                depth=self._ctx.depth + 1,
+                parent_run_id=self._ctx.parent_run_id,
+                child_run_id=child_run_id or "",
+                turns=result.turns,
             )
-            if contract.strict:
+        )
+        if delivery.status == "rejected":
+            if delivery.stage == "gate":
                 return short_result(
                     name,
-                    STATE_CONTRACT_VIOLATION,
-                    f"Child result rejected by contract: {exc}",
+                    STATE_HANDOFF_REJECTED,
+                    f"Handoff rejected by security policy: {delivery.reason}",
                 ).as_dict()
+            return short_result(
+                name,
+                STATE_CONTRACT_VIOLATION,
+                f"Child result rejected by contract: {delivery.reason}",
+            ).as_dict()
 
-        rejected = await self._check_handoff_security(packet, result, name)
-        if rejected is not None:
-            return rejected.as_dict()
-
-        await self._fire(
-            HookEvent.AGENT_RESULT,
-            name=name,
-            state=result.state,
-            turns=result.turns,
-            output=(result.output or "")[:120],
-            depth=self._ctx.depth + 1,
-            parent_run_id=self._ctx.parent_run_id,
-            child_run_id=child_run_id,
-        )
-        return result.as_dict()
+        # What the parent's context receives: the contract-whitelisted view
+        # plus the four accounting scalars (budget facts the whitelist doesn't
+        # know). tool_history and other internal fields never cross.
+        admitted = delivery.crossing.payload
+        return {
+            **admitted,
+            "turns": result.turns,
+            "cost_usd": result.cost_usd,
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+        }
 
     async def _run_with_timeout(
         self, spec: Agent, task: str, packet: HandoffPacket, child_run_id: str | None
@@ -402,40 +478,6 @@ class Spawn:
             approval_request_id=run.pending_approval_id or "",
             failed_reason="failed" if run.state is RunState.FAILED else None,
         )
-
-    async def _check_handoff_security(
-        self,
-        packet: HandoffPacket,
-        child: ChildResult,
-        name: str,
-    ) -> ChildResult | None:
-        """L7 handoff checkpoint — a registered checker can veto the result."""
-        if not self._hooks:
-            return None
-        handoff_data = {
-            "status": child.state,
-            "result_data": {
-                "agent": name,
-                "output": (child.output or "")[: self._handoff_output_max_chars],
-                "turns": child.turns,
-            },
-            "next_action": "complete",
-        }
-        try:
-            blocked = await self._hooks.check_blocking(
-                CheckPoint.AGENT_HANDOFF,
-                handoff_data=handoff_data,
-            )
-        except SECURITY_VETO_EXCEPTIONS as sec_exc:
-            logger.warning("AGENT_HANDOFF[%s]: rejected (%s)", packet.task_id[:8], sec_exc)
-            return short_result(
-                name,
-                STATE_HANDOFF_REJECTED,
-                f"Handoff rejected by security policy: {sec_exc}",
-            )
-        if blocked.blocked:
-            return short_result(name, STATE_HANDOFF_REJECTED, "Handoff blocked by security policy")
-        return None
 
     async def _fire(self, event: HookEvent, **fields: Any) -> None:
         if self._hooks:

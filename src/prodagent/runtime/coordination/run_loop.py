@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+import uuid
+from typing import TYPE_CHECKING, Any
 
 from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.core.exceptions import SECURITY_VETO_EXCEPTIONS, BudgetExceeded
@@ -16,7 +17,14 @@ from prodagent.hooks.checkpoint import CheckPoint
 from prodagent.hooks.events import HookEvent
 from prodagent.runtime.coordination.accounting import SpawnAccumulator, fold_spawn_accounting
 from prodagent.runtime.coordination.budget_ledger import BudgetLedger
-from prodagent.runtime.coordination.handoff import HandoffPacket
+from prodagent.runtime.coordination.messaging.envelope import Crossing, CrossingKind, Direction
+from prodagent.runtime.coordination.messaging.idempotency import IdempotentMessageHandler
+from prodagent.runtime.coordination.messaging.packet import HandoffPacket
+from prodagent.runtime.coordination.messaging.pipeline import (
+    Pipeline,
+    admission_pipeline,
+    assembly_pipeline,
+)
 from prodagent.runtime.factory import LeafExecutorFactory
 from prodagent.runtime.run_context import RunContext
 
@@ -60,13 +68,48 @@ class RunLoop:
         self._factory = LeafExecutorFactory(
             forced_mode=forced_mode, initial_messages=initial_messages
         )
-        # Cross-hop ledger for the peer chain (peers=). Without it, each hop's
-        # own HardBudget only bounds *that* hop — an N-hop chain could legally
-        # spend N times the configured budget (max_peer_chain caps hop count,
-        # not cumulative spend). One ledger, built from the root agent's own
-        # budget, threaded across every hop of this chain.
         self._peer_budget: BudgetLedger | None = (
             BudgetLedger(max=root_agent.budget_config) if root_agent.budget_config else None
+        )
+        self._relay_dedupe: IdempotentMessageHandler | None = None
+        self._relay_pipe: Pipeline | None = None
+
+    def _relay_pipeline(self) -> Pipeline:
+        """Assembly pipeline for peer relays, built on first handoff.
+
+        Dedupe is shared across the whole chain (one handler per RunLoop);
+        hooks are read at first relay, when executor preparation has attached
+        them. The PEER_HANDOFF audit event fires from the pipeline's last
+        slot — only for crossings that were actually delivered.
+        """
+        if self._relay_pipe is None:
+            fw = self._ctx.agent.framework_config
+            orch = fw.orchestration if fw is not None else None
+            ttl = orch.handoff_idempotency_ttl_s if orch is not None else 600.0
+            self._relay_dedupe = IdempotentMessageHandler(ttl_seconds=ttl)
+            self._relay_pipe = assembly_pipeline(
+                dedupe=self._relay_dedupe,
+                hooks=self._ctx.agent.hooks,
+                audit_event=self._relay_audit_event,
+            )
+        return self._relay_pipe
+
+    @staticmethod
+    def _relay_audit_event(
+        crossing: Crossing[Any],
+    ) -> tuple[HookEvent, dict[str, Any]] | None:
+        packet = crossing.payload
+        task = getattr(packet, "task_description", "")
+        return (
+            HookEvent.PEER_HANDOFF,
+            {
+                "from_agent": crossing.from_agent,
+                "to_agent": crossing.to,
+                "task": task[:120] if task else "",
+                "depth": crossing.meta.get("depth", 0),
+                "parent_run_id": crossing.meta.get("parent_run_id"),
+                "child_run_id": crossing.meta.get("child_run_id"),
+            },
         )
 
     async def run(self) -> AsyncGenerator[AgentEvent, None]:
@@ -176,19 +219,36 @@ class RunLoop:
             input_refs=handoff.input_refs or {},
             prior_output=prior_output,
         )
+        if not handoff.message_id:
+            handoff.message_id = str(uuid.uuid4())  # checkpoint written pre-migration
         peer_run_id = child_run_id(self._root_run_id, peer_name)
         handoff.peer_run_id = peer_run_id  # persist on the run before save below
-        parent_hooks = self._ctx.agent.hooks
-        if parent_hooks is not None:
-            await parent_hooks.fire(
-                HookEvent.PEER_HANDOFF,
+
+        delivery = await self._relay_pipeline().process(
+            Crossing.mint(
+                direction=Direction.DOWNSTREAM,
+                kind=CrossingKind.HANDOFF,
                 from_agent=self._ctx.agent.name,
-                to_agent=peer_name,
-                task=handoff.task[:120] if handoff.task else "",
+                to=peer_name,
+                payload=packet,
+                trace_id=self._root_run_id,
+                message_id=handoff.message_id,
                 depth=self._ctx.depth + 1,
                 parent_run_id=self._ctx.run_id,
                 child_run_id=peer_run_id,
             )
+        )
+        if delivery.status != "delivered":
+            # A duplicate relay (checkpointed handoff replayed in-process) or a
+            # gate veto — the chain stops here and the current run settles.
+            logger.warning(
+                "[orchestrator] handoff %s → %s not delivered (%s): %s",
+                self._ctx.agent.name,
+                peer_name,
+                delivery.status,
+                delivery.reason,
+            )
+            return None
 
         if ctx.checkpoint is not None:
             await ctx.checkpoint.save(run, expected_version=run.checkpoint_version)
@@ -230,6 +290,35 @@ class RunLoop:
                         "RunLoop[%s] structured output parse failed: %s",
                         run.run_id,
                         exc,
+                    )
+            # The chain root's final output is an UPSTREAM crossing into the
+            # caller's world — if the root agent declared an output contract,
+            # it is admitted here, mirroring the structured-output gate above.
+            contract = self._root_agent.config.output_contract
+            if contract is not None and run.state is RunState.COMPLETED:
+                settle_pipeline = admission_pipeline(contract=contract)
+                delivery = await settle_pipeline.process(
+                    Crossing.mint(
+                        direction=Direction.UPSTREAM,
+                        kind=CrossingKind.RESULT,
+                        from_agent=self._root_agent.name,
+                        to="caller",
+                        payload={
+                            "agent": self._root_agent.name,
+                            "output": run.final_output or "",
+                            "state": run.state.value,
+                        },
+                        trace_id=self._root_run_id,
+                        message_id=f"{self._root_run_id}:settle",
+                    )
+                )
+                if delivery.status == "rejected":
+                    run.state = RunState.FAILED
+                    run.last_error = f"contract violation: {delivery.reason}"
+                    logger.warning(
+                        "RunLoop[%s] root output rejected by contract: %s",
+                        run.run_id,
+                        delivery.reason,
                     )
 
         if run.state is RunState.FAILED:

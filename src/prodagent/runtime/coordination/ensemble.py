@@ -7,6 +7,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
+from prodagent.backends.factory import resolve_dead_letter
 from prodagent.core.budget import HardBudget
 from prodagent.core.exceptions import BudgetExceeded
 from prodagent.runtime.coordination._stage import StageDriver
@@ -16,7 +17,18 @@ from prodagent.runtime.coordination.floor import FloorMember, FloorTurn, SharedF
 from prodagent.runtime.coordination.floor_projection import (
     FloorProjection,
     PublicTextOnly,
-    project_floor,
+)
+from prodagent.runtime.coordination.messaging.envelope import (
+    Crossing,
+    CrossingKind,
+    Direction,
+)
+from prodagent.runtime.coordination.messaging.interceptors import ProjectionInterceptor
+from prodagent.runtime.coordination.messaging.pipeline import (
+    Pipeline,
+    Slot,
+    admission_pipeline,
+    assembly_pipeline,
 )
 from prodagent.runtime.coordination.termination import (
     MaxRounds,
@@ -29,9 +41,16 @@ if TYPE_CHECKING:
 
     from prodagent.core.events import AgentEvent
     from prodagent.core.types import ToolCall
+    from prodagent.hooks.registry import HookRegistry
+    from prodagent.ports.dead_letter import DeadLetterStore
     from prodagent.runtime.agent import Agent
+    from prodagent.runtime.coordination.messaging.pipeline import Interceptor
 
 logger = logging.getLogger(__name__)
+
+_TURN_TEXT_MAX_CHARS = 4000
+"""Admission bound for a floor turn's text — mirrors PublicTextOnly's
+per-view cap so the transcript itself (not just its projections) is bounded."""
 
 __all__ = [
     "EnsembleSpec",
@@ -226,6 +245,7 @@ class AgentFloorMember:
         self._session_id = session_id
         self._slot = _FloorViewSlot()
         self._injector_wired = False
+        self._view_pipe: Pipeline | None = None
         self.last_run_id: str = ""
         """Run id of the most recent ``agent.chat()`` call — set after each
         ``speak()``. Lets callers (e.g. turn-signal collectors) correlate hook
@@ -235,10 +255,31 @@ class AgentFloorMember:
     def name(self) -> str:
         return self._agent.name
 
+    def _view_pipeline(self, floor: SharedFloor) -> Pipeline:
+        """DOWNSTREAM view pipeline: the shared transcript enters this
+        member's context through the plane, with the floor projection as the
+        AFTER_CONTRACT capability (per-viewer filtering is the floor's trim)."""
+        if self._view_pipe is None:
+            projection: FloorProjection = getattr(floor, "_projection", PublicTextOnly())
+            pipe = assembly_pipeline(hooks=self._agent.hooks)
+            pipe.add(Slot.AFTER_CONTRACT, ProjectionInterceptor(self.name, projection))
+            self._view_pipe = pipe
+        return self._view_pipe
+
     async def speak(self, floor: SharedFloor, *, round_num: int) -> FloorTurn:
-        # Project the floor for this viewer, stash in the slot the injector reads.
-        projection: FloorProjection = getattr(floor, "_projection", PublicTextOnly())
-        self._slot.view = project_floor(floor, viewer=self.name, projection=projection)
+        # The transcript → member-context crossing goes through the plane;
+        # what lands in the slot the injector reads is the delivered view.
+        delivery = await self._view_pipeline(floor).process(
+            Crossing.mint(
+                direction=Direction.DOWNSTREAM,
+                kind=CrossingKind.DISPATCH,
+                from_agent="floor",
+                to=self.name,
+                payload=list(floor.transcript),
+                trace_id=floor.session_id,
+            )
+        )
+        self._slot.view = delivery.crossing.payload
         self._slot.topic = floor.topic
         self._slot.round_num = round_num
 
@@ -348,6 +389,19 @@ class EnsembleSpec:
 
     session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
+    hooks: HookRegistry | None = None
+    """Registry for the speech-admission gate. ``None`` (default) means the
+    gate is dormant — mount it by passing the members' shared registry once
+    you register ``CheckPoint.AGENT_HANDOFF`` checkers."""
+
+    dead_letter: DeadLetterStore | None = None
+    """Where rejected turns land. ``None`` (default) resolves the framework's
+    dead-letter backend."""
+
+    admission_interceptors: list[tuple[Slot, Interceptor]] = field(default_factory=list)
+    """User-injected semantics on the speech pipeline (injection rules,
+    judges, redaction) — mounted at their declared slots, order preserved."""
+
     def __post_init__(self) -> None:
         if not self.members:
             raise ValueError("EnsembleSpec.members cannot be empty")
@@ -417,6 +471,30 @@ class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
         # Re-bind spec.budget to the resolved one so callers reading it after
         # the run see actuals.
         spec.budget = self._budget
+        # Speech admission (UPSTREAM): a member's turn enters the shared
+        # transcript — the one boundary every other member's context reads
+        # from — through the messaging plane. No contract (FloorTurn is
+        # framework-typed); the trim bounds the free text.
+        self._speech_pipeline: Pipeline = admission_pipeline(
+            trim=self._bound_turn,
+            hooks=spec.hooks,
+            dead_letter=spec.dead_letter
+            if spec.dead_letter is not None
+            else resolve_dead_letter(None),
+        )
+        for slot, interceptor in spec.admission_interceptors:
+            self._speech_pipeline.add(slot, interceptor)
+
+    @staticmethod
+    def _bound_turn(payload: Any) -> Any:
+        """Cap each turn's free text — one long-winded (or poisoned) member
+        must not blow every other member's context window."""
+        if payload is not None and len(payload.text) > _TURN_TEXT_MAX_CHARS:
+            trimmed = payload.text[:_TURN_TEXT_MAX_CHARS] + (
+                f"\n…(truncated, {len(payload.text) - _TURN_TEXT_MAX_CHARS} more chars)"
+            )
+            payload.text = trimmed
+        return payload
 
     def _compute_round(self, speaker: str) -> int:
         """Round index the next ``speaker`` would speak in (round-robin sense).
@@ -548,14 +626,53 @@ class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
             for _name, turn in results:
                 if turn is None:
                     continue  # defensive — speak() always returns a turn
-                self._floor.append(turn)
+                # Budget first — the spend happened the moment the member
+                # spoke, whether or not its speech is admitted to the floor.
                 await self._budget.commit(
                     member=turn.speaker,
                     turns=1,
                     tokens=turn.tokens,
                     cost_usd=turn.cost_usd,
                 )
-                yield FloorTurnEvent(turn=turn, floor_snapshot=self._floor.snapshot())
+                delivery = await self._speech_pipeline.process(
+                    Crossing.mint(
+                        direction=Direction.UPSTREAM,
+                        kind=CrossingKind.SPEECH,
+                        from_agent=turn.speaker,
+                        to=self._floor.session_id,
+                        payload=turn,
+                        trace_id=self._floor.session_id,
+                        message_id=turn.turn_id,
+                        round=round_num,
+                    )
+                )
+                if delivery.status == "duplicate":
+                    logger.warning(
+                        "[ensemble] turn %s replayed — not appended twice",
+                        turn.turn_id[:8],
+                    )
+                    continue
+                if delivery.status == "rejected":
+                    # A poisoned turn never enters the shared transcript. A
+                    # pass turn keeps the speaking order advancing (RoundRobin
+                    # keys off the last speaker) — the floor survives a
+                    # poisoned member, mirroring the member-crash path.
+                    logger.warning(
+                        "[ensemble] turn by %s rejected (%s) — recording pass turn",
+                        turn.speaker,
+                        delivery.reason[:120],
+                    )
+                    recorded = FloorTurn(
+                        speaker=turn.speaker,
+                        round=turn.round,
+                        text="",
+                        tool_calls=[],
+                        turn_id=turn.turn_id,
+                    )
+                else:
+                    recorded = delivery.crossing.payload
+                self._floor.append(recorded)
+                yield FloorTurnEvent(turn=recorded, floor_snapshot=self._floor.snapshot())
 
             # 5. Re-check budget after commit — may have latched exhausted
             if self._budget.is_exhausted():
@@ -584,10 +701,17 @@ class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
         return _speak
 
     def _completed(self, reason: TerminationReason) -> FloorTurnEvent | EnsembleCompletedEvent:
+        # The terminal event is the most likely artifact to be logged or
+        # persisted wholesale, so it carries a projected digest — safe by
+        # construction under either built-in projection. The full transcript
+        # stays on the floor for the app that owns this run.
+        projection = self._spec.projection
         return EnsembleCompletedEvent(
             reason=reason,
             floor_snapshot=self._floor.snapshot(),
-            final_transcript=list(self._floor.transcript),
+            final_transcript=[
+                projection.project(turn, viewer="") for turn in self._floor.transcript
+            ],
         )
 
 

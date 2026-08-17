@@ -89,7 +89,7 @@ def validate_handoff_security(
     *,
     allowed_actions: frozenset[str],
 ) -> None:
-    """Semantic injection gate — runs in series with HandoffContract.validate.
+    """Semantic injection gate — runs in series with MessageContract.validate.
 
     ``allowed_actions`` is the app's action vocabulary — required, no default.
     """

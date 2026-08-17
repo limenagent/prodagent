@@ -61,6 +61,8 @@
   | `Blackboard` 共享可变状态 | `Board` 版本化字段（乐观并发） | `Trigger` 字段变化触发，并行 fan-out / 抢锁先算（流水线式知识加工（上一步的输出是下一步的输入）      |
   | `WorkQueue` 任务池 | `SharedQueue` 租约队列 | worker 主动领活 · 租约超时回收                                                                       |
 
+- **统一通信底座（messaging）** —— 拓扑会繁殖，越界只有两个方向。五个原语的每一次 Agent 边界穿越都走同一个卡口：`Crossing` 信封（方向 × 类型 × 类型化载荷）+ 能力管道（固定卡位：去重 → 准入契约 → 裁剪/投影 → 安全门 → 审计）+ 死信边界。下行（`assembly_pipeline`）在源头组装、容器即白名单；上行（`admission_pipeline`）在进门处验收（契约校验 + 白名单改写 + 注入门）。消毒只是底座的能力之一——身份追踪、投射、观测、治理搭同一趟车；语义策略（注入规则 / LLM Judge）由用户注入卡位，框架只出机制不出策略。
+
  - **上下文三明治** —— state / memory / skills / history / reminder 五段式组装，每段独立可控、独立可压缩。
 - **五级压缩** —— NONE / TOOL_COMPRESS / HISTORY_SUMMARY / TOPIC_SUMMARY / EMERGENCY，按 token 占用比例自动触发，每级有明确的语义损失边界。
 - **工具系统** —— `@tool` 装饰器声明式注册，按副作用分层（LOW/MEDIUM/HIGH）；原生 MCP 协议接入外部工具。
@@ -71,7 +73,7 @@
 | 能力 | 核心源文件（`src/prodagent/`） |
 |---|---|
 | 三执行模式 | `runtime/agent.py`、`runtime/plan/planner.py`、`runtime/plan/dag.py`、`runtime/plan/executor.py`、`runtime/plan/step_runner.py`、`runtime/plan/bootstrap.py`、`runtime/reactive.py`、`runtime/workflow.py`、`runtime/runner.py` |
-| Agent 协作 | `runtime/coordination/spawn.py`、`runtime/coordination/peer.py`、`runtime/coordination/ensemble.py`、`runtime/coordination/floor.py`、`runtime/coordination/floor_projection.py`、`runtime/coordination/blackboard.py`、`runtime/coordination/work_queue.py`、`runtime/coordination/activation.py`、`runtime/coordination/_stage.py`、`runtime/coordination/_store.py`、`runtime/coordination/budget_ledger.py`、`runtime/coordination/handoff.py`、`runtime/coordination/termination.py`、`runtime/coordination/run_loop.py`、`runtime/coordination/parent_runtime.py` |
+| Agent 协作 | `runtime/coordination/spawn.py`、`runtime/coordination/peer.py`、`runtime/coordination/ensemble.py`、`runtime/coordination/floor.py`、`runtime/coordination/floor_projection.py`、`runtime/coordination/blackboard.py`、`runtime/coordination/work_queue.py`、`runtime/coordination/activation.py`、`runtime/coordination/_stage.py`、`runtime/coordination/_store.py`、`runtime/coordination/budget_ledger.py`、`runtime/coordination/termination.py`、`runtime/coordination/messaging/`（envelope / contract / pipeline / interceptors / packet）、`runtime/coordination/run_loop.py`、`runtime/coordination/parent_runtime.py` |
 | 上下文三明治 | `cognition/context/manager.py`、`cognition/context/budget.py`、`cognition/context/spill.py`、`cognition/context/tool_results.py` |
 | 五级压缩 | `cognition/context/compression/pipeline.py`、`cognition/context/compression/summarizer.py`、`cognition/context/compression/formatting.py` |
 | 工具系统 | `tooling/decorator.py`、`tooling/base.py`、`tooling/registry.py`、`tooling/dispatcher.py`、`tooling/runner.py`、`tooling/search.py`、`tooling/skill_resolver.py`、`mcp/bridge.py`、`mcp/client.py`、`mcp/registry.py`、`mcp/config.py`、`mcp/transports/` |

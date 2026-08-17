@@ -62,10 +62,10 @@ class OrchestrationConfig:
 
     planning_max_tokens: int = 16_384
     spawn_default_timeout_s: float = 900.0
-    spawn_idempotency_ttl_s: float = 600.0
-    spawn_handoff_output_max_chars: int = 2000
+    handoff_idempotency_ttl_s: float = 600.0
+    handoff_output_max_chars: int = 2000
     spawn_tool_timeout_ms: float = 900_000.0
-    spawn_dlq_max_retries: int = 3
+    dead_letter_max_retries: int = 3
     max_peer_chain: int = 5
     events_dir: str = ".prodagent/events"
     runs_dir: str = ".prodagent/runs"

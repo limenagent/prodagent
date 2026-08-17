@@ -53,6 +53,10 @@ class PendingHandoff:
     input_refs: dict[str, str] = field(default_factory=dict)
     prior_output: str = ""
     peer_run_id: str | None = None
+    message_id: str = ""
+    """Identity of the relay crossing — minted once when the handoff tool
+    fires, reused by the relay (and by crash-replay suppression). Checkpoints
+    written before this field existed load with "" and mint at relay time."""
 
     def to_dict(self) -> JsonDict:
         return asdict(self)
@@ -69,6 +73,7 @@ class PendingHandoff:
             input_refs=dict(d.get("input_refs") or {}),
             prior_output=d.get("prior_output", ""),
             peer_run_id=d.get("peer_run_id"),
+            message_id=d.get("message_id", ""),
         )
 
 

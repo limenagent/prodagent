@@ -9,9 +9,21 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
+from prodagent.backends.factory import resolve_dead_letter
 from prodagent.backends.memory.lock import InProcessLockStore
 from prodagent.runtime.coordination._stage import StageDriver
 from prodagent.runtime.coordination._store import RoundedLockableStore
+from prodagent.runtime.coordination.messaging.envelope import (
+    Crossing,
+    CrossingKind,
+    Direction,
+)
+from prodagent.runtime.coordination.messaging.pipeline import (
+    Pipeline,
+    Slot,
+    admission_pipeline,
+    assembly_pipeline,
+)
 from prodagent.runtime.coordination.termination import (
     MaxRounds,
     TerminationPolicy,
@@ -21,11 +33,20 @@ from prodagent.runtime.coordination.termination import (
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable
 
+    from prodagent.hooks.registry import HookRegistry
+    from prodagent.ports.dead_letter import DeadLetterStore
     from prodagent.ports.lock import LockStore, LockToken
     from prodagent.runtime.agent import Agent
     from prodagent.runtime.coordination.budget_ledger import BudgetLedger
+    from prodagent.runtime.coordination.messaging.contract import MessageContract
+    from prodagent.runtime.coordination.messaging.pipeline import Interceptor
 
 logger = logging.getLogger(__name__)
+
+_VALUE_MAX_CHARS_DEFAULT = 2000
+"""Admission bound for free-text board values — mirrors
+``OrchestrationConfig.handoff_output_max_chars``; override per board via
+``BlackboardSpec.value_max_chars``."""
 
 __all__ = [
     "Board",
@@ -185,6 +206,26 @@ class BlackboardSpec:
     """Backs buzz_in arbitration. Defaults to the in-process store — this
     primitive is single-process only, but the port stays swappable."""
 
+    contracts: dict[str, MessageContract] | None = None
+    """Per-key admission contracts for written values. A key with no declared
+    contract is admitted as-is — the board is an open workspace by default,
+    apps declare shapes for the keys that matter."""
+
+    hooks: HookRegistry | None = None
+    """Registry for the write-admission gate. ``None`` (default) keeps the
+    gate dormant — pass a registry once you register AGENT_HANDOFF checkers."""
+
+    dead_letter: DeadLetterStore | None = None
+    """Where rejected writes (and lost version races) land. ``None`` (default)
+    resolves the framework's dead-letter backend."""
+
+    value_max_chars: int = 0
+    """Admission bound for free-text values. ``0`` → framework default."""
+
+    write_interceptors: list[tuple[Slot, Interceptor]] = field(default_factory=list)
+    """User-injected semantics on the write pipeline — mounted at their
+    declared slots, order preserved."""
+
     def __post_init__(self) -> None:
         if not self.experts:
             raise ValueError("BlackboardSpec.experts cannot be empty")
@@ -234,6 +275,37 @@ class Blackboard(StageDriver[BoardWriteEvent | BlackboardCompletedEvent]):
         self._spec = spec
         self.board = Board()
         self._budget = spec.budget
+        self._value_max_chars = spec.value_max_chars or _VALUE_MAX_CHARS_DEFAULT
+        self._dlq: DeadLetterStore = (
+            spec.dead_letter if spec.dead_letter is not None else resolve_dead_letter(None)
+        )
+        # Write admission (UPSTREAM): an expert's value enters a board slot —
+        # the shared state every downstream expert reads — through the
+        # messaging plane. The crossing's payload is the *value* itself; the
+        # envelope carries key (to), author (from_agent), and version lineage.
+        self._write_pipeline: Pipeline = admission_pipeline(
+            contract=self._contract_for,
+            trim=self._bound_value,
+            hooks=spec.hooks,
+            dead_letter=self._dlq,
+        )
+        for slot, interceptor in spec.write_interceptors:
+            self._write_pipeline.add(slot, interceptor)
+
+    def _contract_for(self, crossing: Crossing[Any]) -> MessageContract | None:
+        """Per-key contracts declared on the spec; undeclared keys admit as-is."""
+        if self._spec.contracts:
+            return self._spec.contracts.get(crossing.to)
+        return None
+
+    def _bound_value(self, value: Any) -> Any:
+        """Cap free-text values — one verbose expert must not blow every other
+        expert's context window. Structured values are the contracts' business."""
+        if isinstance(value, str) and len(value) > self._value_max_chars:
+            return value[: self._value_max_chars] + (
+                f"\n…(truncated, {len(value) - self._value_max_chars} more chars)"
+            )
+        return value
 
     async def _compute(self, expert_name: str, trigger: Trigger) -> BoardWrite | None:
         """Reserve → try_contribute → commit for one expert, via the shared
@@ -331,9 +403,50 @@ class Blackboard(StageDriver[BoardWriteEvent | BlackboardCompletedEvent]):
                 for write in results:
                     if write is None:
                         continue
-                    await self.board.write(
-                        write.key, write.value, expected_version=write.expected_version
+                    delivery = await self._write_pipeline.process(
+                        Crossing.mint(
+                            direction=Direction.UPSTREAM,
+                            kind=CrossingKind.WRITE,
+                            from_agent=write.author,
+                            to=write.key,
+                            payload=write.value,
+                            trigger=trigger.name,
+                            round=round_num,
+                        )
                     )
+                    if delivery.status != "delivered":
+                        # Rejected by contract or gate — this expert's
+                        # contribution is faulted, the board carries on.
+                        logger.warning(
+                            "[blackboard] write by %s to %r not admitted (%s): %s",
+                            write.author,
+                            write.key,
+                            delivery.status,
+                            delivery.reason[:120],
+                        )
+                        continue
+                    write.value = delivery.crossing.payload
+                    try:
+                        await self.board.write(
+                            write.key, write.value, expected_version=write.expected_version
+                        )
+                    except VersionConflict as exc:
+                        # Lost an optimistic-concurrency race — dead letter the
+                        # losing write and keep the board alive. (Previously
+                        # this escaped to the StageDriver crash guard and
+                        # killed the whole run.)
+                        logger.warning(
+                            "[blackboard] version conflict on %r by %s: %s — write dropped",
+                            write.key,
+                            write.author,
+                            exc,
+                        )
+                        self._dlq.on_failure(
+                            f"{trigger.name}:{write.author}:{write.key}",
+                            {"kind": "write", "from_agent": write.author, "to": write.key},
+                            str(exc),
+                        )
+                        continue
                     yield BoardWriteEvent(
                         write=write,
                         trigger_name=trigger.name,
@@ -384,8 +497,18 @@ def _format_board_block(slot: _BoardViewSlot) -> str:
         return ""
     lines = [f"[BOARD] trigger: {slot.trigger_name}", "state:"]
     for key, entry in slot.snapshot.get("slots", {}).items():
-        lines.append(f"  {key} (v{entry['version']}): {entry['value']}")
+        rendered = _render_value(entry["value"], _VALUE_MAX_CHARS_DEFAULT)
+        lines.append(f"  {key} (v{entry['version']}): {rendered}")
     return "\n".join(lines)
+
+
+def _render_value(value: Any, max_chars: int) -> str:
+    """Bounded rendering of a slot value — every expert's context gets the
+    same guarantee the floor's projection gives its members."""
+    text = value if isinstance(value, str) else repr(value)
+    if len(text) > max_chars:
+        return text[:max_chars] + f"\n…(truncated, {len(text) - max_chars} more chars)"
+    return text
 
 
 def _make_board_injector(slot: _BoardViewSlot) -> Any:
@@ -411,13 +534,30 @@ class AgentBlackboardMember:
         self._write_key = write_key
         self._slot = _BoardViewSlot()
         self._injector_wired = False
+        self._view_pipe: Pipeline | None = None
 
     @property
     def name(self) -> str:
         return self._agent.name
 
+    def _view_pipeline(self) -> Pipeline:
+        """DOWNSTREAM view pipeline: the board snapshot enters this expert's
+        context through the plane (gate fires only if checkers registered)."""
+        if self._view_pipe is None:
+            self._view_pipe = assembly_pipeline(hooks=self._agent.hooks)
+        return self._view_pipe
+
     async def try_contribute(self, board: Board, *, trigger: Trigger) -> BoardWrite | None:
-        self._slot.snapshot = board.snapshot()
+        delivery = await self._view_pipeline().process(
+            Crossing.mint(
+                direction=Direction.DOWNSTREAM,
+                kind=CrossingKind.DISPATCH,
+                from_agent="board",
+                to=self.name,
+                payload=board.snapshot(),
+            )
+        )
+        self._slot.snapshot = delivery.crossing.payload
         self._slot.trigger_name = trigger.name
         self._wire_board_injector_once()
 

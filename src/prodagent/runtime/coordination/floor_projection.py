@@ -3,12 +3,11 @@
 :class:`~prodagent.runtime.coordination.floor.SharedFloor` is the single source
 of truth for what was said, but not every member should see every byte — a
 member's private tool results are a capability-leak if they reach another
-member's view. Same move as
-:class:`~prodagent.runtime.coordination.handoff.HandoffInterceptor` (filter
-what crosses an agent boundary) but different mechanism: ``HandoffInterceptor``
-filters a one-shot dict once at handoff; ``FloorProjection`` filters a
-growing list of structured turns per-viewer, every ``speak()``. The same turn
-can produce different views for different viewers.
+member's view. Same move as the messaging plane's contract admission (filter
+what crosses an agent boundary) but different mechanism: admission filters a
+one-shot payload once at the boundary; ``FloorProjection`` filters a growing
+list of structured turns per-viewer, every ``speak()``. The same turn can
+produce different views for different viewers.
 """
 
 from __future__ import annotations

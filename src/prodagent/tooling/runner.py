@@ -154,6 +154,8 @@ class ToolRunner:
     def _is_handoff(result: ToolResult, call: ToolCall, run: AgentRun) -> bool:
         if result.outcome is not ToolOutcome.HANDOFF:
             return False
+        import uuid
+
         from prodagent.core.state.run import PendingHandoff
 
         h = result.handoff or {}
@@ -163,6 +165,7 @@ class ToolRunner:
             peer_name=peer,
             task=h.get("task", ""),
             input_refs=dict(h.get("input_refs") or {}),
+            message_id=str(uuid.uuid4()),
         )
         run.final_output = f"Handed off to {peer}" if peer else "Handed off"
         run.tool_history = [c for c in run.tool_history if c is not call]

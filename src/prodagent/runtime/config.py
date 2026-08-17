@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from prodagent.ports import CheckpointStore, EventLog, SessionStore, Tool
     from prodagent.runtime.agent import Agent
     from prodagent.runtime.coordination.accounting import SpawnAccumulator
-    from prodagent.runtime.coordination.handoff import HandoffContract
+    from prodagent.runtime.coordination.messaging.contract import MessageContract
     from prodagent.runtime.plan.dag import Plan
     from prodagent.tooling.registry import ToolRegistry
 
@@ -43,7 +43,7 @@ class AgentConfig:
     event_log: EventLog | None = None
     session_store: SessionStore | None = None
     spill_store: ToolResultSpillStore | None = None
-    output_contract: HandoffContract | None = None
+    output_contract: MessageContract | None = None
     spawn_accumulator: SpawnAccumulator | None = None
     initial_plan: Plan | None = None
     max_replans: int = 2

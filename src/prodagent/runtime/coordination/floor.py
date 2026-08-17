@@ -152,7 +152,8 @@ class SharedFloor(SharedStore):
 
     def recent_turns(self, *, limit: int) -> list[FloorTurn]:
         """Last ``limit`` turns, oldest-first. Caps how much history each
-        member sees — mirrors ``prior_output_max_chars`` in :class:`HandoffPacket`."""
+        member sees — mirrors ``prior_output_max_chars`` in the messaging
+        plane's :class:`~prodagent.runtime.coordination.messaging.packet.HandoffPacket`."""
         if limit <= 0 or not self.transcript:
             return []
         return list(self.transcript[-limit:])

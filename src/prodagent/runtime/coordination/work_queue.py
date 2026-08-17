@@ -29,6 +29,12 @@ from prodagent.core.event_log import Event
 from prodagent.runtime.coordination._stage import StageDriver
 from prodagent.runtime.coordination._store import RoundedLockableStore
 from prodagent.runtime.coordination.activation import Activation
+from prodagent.runtime.coordination.messaging.envelope import (
+    Crossing,
+    CrossingKind,
+    Direction,
+)
+from prodagent.runtime.coordination.messaging.pipeline import admission_pipeline
 from prodagent.runtime.coordination.termination import (
     MaxRounds,
     TerminationPolicy,
@@ -38,9 +44,11 @@ from prodagent.runtime.coordination.termination import (
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
+    from prodagent.hooks.registry import HookRegistry
     from prodagent.ports.dead_letter import DeadLetterStore
     from prodagent.ports.event_log import EventLog
     from prodagent.runtime.coordination.budget_ledger import BudgetLedger
+    from prodagent.runtime.coordination.messaging.contract import MessageContract
 
 logger = logging.getLogger(__name__)
 
@@ -368,6 +376,16 @@ class WorkQueueSpec:
     """Optional durable projection — append every transition so the queue
     survives a crash and can be rebuilt via :meth:`SharedQueue.restore`."""
 
+    payload_contract: MessageContract | None = None
+    """Admission contract for item payloads, checked at construction — the
+    whitelist-at-source rule. Fail-fast beats dead-lettering a workload that
+    was born malformed: the durable event log then only ever records admitted
+    payloads."""
+
+    hooks: HookRegistry | None = None
+    """Registry for the task-result gate. ``None`` (default) keeps the gate
+    dormant — pass a registry once you register AGENT_HANDOFF checkers."""
+
     def __post_init__(self) -> None:
         if not self.workers:
             raise ValueError("WorkQueueSpec.workers cannot be empty")
@@ -376,6 +394,13 @@ class WorkQueueSpec:
         ids = [item.item_id for item in self.items]
         if len(ids) != len(set(ids)):
             raise ValueError("WorkQueueSpec.items must have unique item_id values")
+        if self.payload_contract is not None:
+            for item in self.items:
+                ok, error = self.payload_contract.validate(item.payload)
+                if not ok:
+                    raise ValueError(
+                        f"WorkItem {item.item_id!r} payload rejected at enqueue: {error}"
+                    )
 
 
 # ---------------------------------------------------------------------------
@@ -451,6 +476,21 @@ class WorkQueue(StageDriver[WorkQueueEvent]):
         )
         self._budget = spec.budget
         self._opened = False
+        # Task-result admission (UPSTREAM): a worker's report enters the
+        # queue's resolution state through the messaging plane. Deliberately
+        # no dead letter of its own — a governance rejection becomes an
+        # ordinary failure that flows into the queue's existing fail() →
+        # retry/dead-letter path, composing with rather than duplicating the
+        # queue's error boundary.
+        self._result_pipeline = admission_pipeline(trim=self._bound_error, hooks=spec.hooks)
+
+    @staticmethod
+    def _bound_error(payload: Any) -> Any:
+        """Cap a worker's error text — one verbose crash must not flood every
+        consumer of the queue's events."""
+        if payload is not None and payload.error is not None and len(payload.error) > 2000:
+            payload.error = payload.error[:2000] + "\n…(truncated)"
+        return payload
 
     async def _open(self) -> None:
         """Lazy durable setup, run once before the first round. With an event
@@ -490,9 +530,29 @@ class WorkQueue(StageDriver[WorkQueueEvent]):
 
         async def _act() -> tuple[int, float] | None:
             result = await worker.try_claim_and_run(self.queue, name=worker_name)
-            produced.append(result)
             if result is None:
+                produced.append(None)
                 return None
+            delivery = await self._result_pipeline.process(
+                Crossing.mint(
+                    direction=Direction.UPSTREAM,
+                    kind=CrossingKind.TASK_RESULT,
+                    from_agent=worker_name,
+                    to=self._spec.run_id or "queue",
+                    payload=result,
+                )
+            )
+            if delivery.status == "rejected":
+                result = WorkResult(
+                    item_id=result.item_id,
+                    outcome="failure",
+                    error=f"rejected by admission: {delivery.reason}",
+                    cost_usd=result.cost_usd,
+                    tokens=result.tokens,
+                )
+            else:
+                result = delivery.crossing.payload
+            produced.append(result)
             return result.tokens, result.cost_usd
 
         try:

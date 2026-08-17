@@ -108,7 +108,7 @@ def test_none_config_uses_default():
 
 def test_dead_letter_inherits_max_retries_from_config():
     cfg = FrameworkConfig.default()
-    cfg.orchestration.spawn_dlq_max_retries = 7
+    cfg.orchestration.dead_letter_max_retries = 7
     dlq = resolve_dead_letter(cfg)
     assert isinstance(dlq, InMemoryDeadLetterQueue)
     assert dlq._max_retries == 7

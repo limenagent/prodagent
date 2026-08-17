@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from prodagent.llm.base import LLMClient
     from prodagent.mcp.config import MCPServerConfig
     from prodagent.ports import CheckpointStore, EventLog, SessionStore, Tool
-    from prodagent.runtime.coordination.handoff import HandoffContract
+    from prodagent.runtime.coordination.messaging.contract import MessageContract
     from prodagent.runtime.plan.dag import Plan
     from prodagent.runtime.run_context import RunContext
     from prodagent.runtime.workflow import Workflow
@@ -102,7 +102,7 @@ class Agent:
         event_log: EventLog | None = None,
         session_store: SessionStore | None = None,
         spill_store: ToolResultSpillStore | None = None,
-        output_contract: HandoffContract | None = None,
+        output_contract: MessageContract | None = None,
         approval: ApprovalProvider | None = None,
         memory: MemoryProvider | None = None,
         # Extensions & hook points

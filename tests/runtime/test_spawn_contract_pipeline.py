@@ -8,7 +8,7 @@ from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
 from prodagent.core.config import FrameworkConfig
 from prodagent.core.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.coordination.handoff import HandoffContract
+from prodagent.runtime.coordination.messaging.contract import MessageContract
 from prodagent.runtime.coordination.parent_runtime import ParentRuntime
 from prodagent.runtime.coordination.spawn import Spawn
 
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _reactive_child(*, output_contract: HandoffContract | None = None) -> Agent:
+def _reactive_child(*, output_contract: MessageContract | None = None) -> Agent:
     return Agent(
         "responder",
         system_prompt="reply with status",
@@ -70,7 +70,7 @@ async def test_contract_passes_returns_clean_result(tmp_path: Path):
 
 
 async def test_strict_contract_violation_rejects_and_notifies_dlq(tmp_path: Path):
-    contract = HandoffContract(
+    contract = MessageContract(
         required_fields=["output", "state"],
         field_types={"output": int, "state": str},
         strict=True,
@@ -98,7 +98,7 @@ async def test_strict_contract_violation_rejects_and_notifies_dlq(tmp_path: Path
 
 
 async def test_lenient_contract_violation_passes_raw_result(tmp_path: Path):
-    contract = HandoffContract(
+    contract = MessageContract(
         required_fields=["output"],
         field_types={"output": int},
         strict=False,
