@@ -27,9 +27,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from prodagent import FakeLLMAdapter, LLMClient, script
 from prodagent.core.types import LLMResponse, MessageList, StopReason
-from prodagent.llm.base import LLMClient
-from prodagent.llm.fake import FakeLLMAdapter, script
 
 _URLS = {
     "gpt4o": "https://example.com/gpt4o-bench",

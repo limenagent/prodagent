@@ -22,7 +22,7 @@ class PostgresSpanExporter:
         self._ns = namespace
         self._closed = False
 
-    def export(self, span: AgentSpan) -> None:
+    async def export(self, span: AgentSpan) -> None:
         if self._closed:
             return
         blob = json.dumps(asdict(span), default=str, ensure_ascii=False)
@@ -34,5 +34,5 @@ class PostgresSpanExporter:
                 )
             conn.commit()
 
-    def shutdown(self) -> None:
+    async def shutdown(self) -> None:
         self._closed = True

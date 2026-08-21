@@ -34,7 +34,7 @@ class FileExperienceStore:
         if not self._path.exists():
             self._path.touch()
 
-    def record(self, record: ExperienceRecord) -> None:
+    async def record(self, record: ExperienceRecord) -> None:
         """Append *record* to the journal."""
         line = record.to_jsonl()
         try:
@@ -61,7 +61,7 @@ class FileExperienceStore:
         except Exception:
             logger.debug("FileExperienceStore: trim failed")
 
-    def load_all(self) -> list[ExperienceRecord]:
+    async def load_all(self) -> list[ExperienceRecord]:
         """Load every record from the journal (most recent last)."""
         records: list[ExperienceRecord] = []
         try:

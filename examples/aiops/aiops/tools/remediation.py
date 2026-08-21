@@ -15,7 +15,7 @@ from prodagent import SideEffectLevel, ToolMeta, tool
 # 第十章"隔离优于共享": 锁是 Tool 实现者自己的职责,框架执行器不管。
 # 两组共享资源各自用 Tool 内自持的 asyncio.Lock 串行化;忙时返回结构化
 # resource_busy 反馈,由上层 LLM 决定让路还是稍后重试。
-# 等待时长必须小于该工具 estimated_latency_ms / 1000(外层还有工具超时)。
+# 等待时长必须小于该工具 timeout_seconds（外层还有工具超时）。
 _INCIDENT_LOCK = asyncio.Lock()  # resource_id="incident-tracker"
 _K8S_LOCK = asyncio.Lock()  # resource_id="kubernetes-cluster"
 _INCIDENT_LOCK_WAIT_S = 0.1
@@ -44,7 +44,7 @@ async def _acquire_resource_lock(
     meta=ToolMeta(
         name="open_incident",
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=300,
+        timeout_seconds=300 / 1_000,
         domain="incident",
     )
 )
@@ -72,7 +72,7 @@ async def open_incident(title: str, severity: str, affected_services: list[str])
     meta=ToolMeta(
         name="update_incident",
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=300,
+        timeout_seconds=300 / 1_000,
         domain="incident",
         resource_id="incident-tracker",
     )
@@ -123,7 +123,7 @@ async def update_incident(
     meta=ToolMeta(
         name="restart_pod",
         side_effect_level=SideEffectLevel.HIGH,
-        estimated_latency_ms=3000,
+        timeout_seconds=3000 / 1_000,
         domain="kubernetes",
         resource_id="kubernetes-cluster",
     )
@@ -167,7 +167,7 @@ async def restart_pod(service: str, pod_name: str, reason: str = "") -> dict:
     meta=ToolMeta(
         name="rollback",
         side_effect_level=SideEffectLevel.HIGH,
-        estimated_latency_ms=5000,
+        timeout_seconds=5000 / 1_000,
         domain="kubernetes",
         resource_id="kubernetes-cluster",
     )
@@ -208,7 +208,7 @@ async def rollback(service: str, sha: str, reason: str = "") -> dict:
     meta=ToolMeta(
         name="scale_deployment",
         side_effect_level=SideEffectLevel.MEDIUM,
-        estimated_latency_ms=2000,
+        timeout_seconds=2000 / 1_000,
         domain="kubernetes",
     )
 )
@@ -229,7 +229,7 @@ async def scale_deployment(service: str, replicas: int, reason: str = "") -> dic
     meta=ToolMeta(
         name="silence_alert",
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=500,
+        timeout_seconds=500 / 1_000,
         domain="observability",
     )
 )
@@ -254,7 +254,7 @@ async def silence_alert(alert_name: str, duration_minutes: int = 60, reason: str
     meta=ToolMeta(
         name="create_incident_note",
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=300,
+        timeout_seconds=300 / 1_000,
         domain="incident",
         resource_id="incident-tracker",
     )

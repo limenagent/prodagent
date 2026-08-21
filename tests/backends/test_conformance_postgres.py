@@ -212,17 +212,17 @@ def test_pg_document_constraint_storage_conformance(sync_pool, clean_sync):
 # ── span (sync) ───────────────────────────────────────────────────────────────
 
 
-def test_pg_span_conformance(sync_pool, clean_sync):
-    run_span_conformance(lambda: PostgresSpanExporter(sync_pool, namespace=clean_sync))
+async def test_pg_span_conformance(sync_pool, clean_sync):
+    await run_span_conformance(lambda: PostgresSpanExporter(sync_pool, namespace=clean_sync))
 
 
-def test_pg_span_shutdown_idempotent_conformance(sync_pool, clean_sync):
-    run_span_shutdown_idempotent_conformance(
+async def test_pg_span_shutdown_idempotent_conformance(sync_pool, clean_sync):
+    await run_span_shutdown_idempotent_conformance(
         lambda: PostgresSpanExporter(sync_pool, namespace=clean_sync)
     )
 
 
-def test_pg_span_export_after_shutdown_conformance(sync_pool, clean_sync):
-    run_span_export_after_shutdown_conformance(
+async def test_pg_span_export_after_shutdown_conformance(sync_pool, clean_sync):
+    await run_span_export_after_shutdown_conformance(
         lambda: PostgresSpanExporter(sync_pool, namespace=clean_sync)
     )

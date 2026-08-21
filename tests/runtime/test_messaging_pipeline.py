@@ -27,11 +27,11 @@ class _RecordingDeadLetter:
     def __init__(self):
         self.calls: list[tuple[str, dict, str]] = []
 
-    def on_failure(self, message_id, payload, error):
+    async def on_failure(self, message_id, payload, error):
         self.calls.append((message_id, payload, error))
         return "dead_letter"
 
-    def dead_letters(self):
+    async def dead_letters(self):
         return []
 
 

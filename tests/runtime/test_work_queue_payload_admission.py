@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
-from prodagent.hooks.checkpoint import BlockingResult, CheckPoint
+from prodagent.hooks.gates import BlockingResult, Gate
 from prodagent.hooks.registry import HookRegistry
 from prodagent.runtime.coordination.messaging.contract import MessageContract
 from prodagent.runtime.coordination.termination import MaxRounds, TerminationPolicy
@@ -98,7 +98,7 @@ async def test_gate_rejected_result_becomes_failure_via_fail_path():
             return BlockingResult(blocked=True, reason="poisoned report")
         return BlockingResult(blocked=False)
 
-    registry.register_checker(CheckPoint.AGENT_HANDOFF, veto)
+    registry.register_checker(Gate.AGENT_HANDOFF, veto)
     liar = _ScriptedWorker(
         "liar", [WorkResult(item_id="i-1", outcome="success", error="leak: secrets")]
     )

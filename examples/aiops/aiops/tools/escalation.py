@@ -13,7 +13,7 @@ from prodagent import SideEffectLevel, ToolMeta, tool
     meta=ToolMeta(
         name="page_oncall",
         side_effect_level=SideEffectLevel.MEDIUM,
-        estimated_latency_ms=1000,
+        timeout_seconds=1000 / 1_000,
         domain="incident",
     )
 )

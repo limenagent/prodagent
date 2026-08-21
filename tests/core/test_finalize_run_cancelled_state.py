@@ -9,6 +9,7 @@ from prodagent.hooks.events import HookEvent
 from prodagent.hooks.registry import HookRegistry
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.agent import Agent
+from prodagent.runtime.config import AgentConfig
 
 
 async def test_cancelled_run_reports_failed_state() -> None:
@@ -37,7 +38,7 @@ async def test_cancelled_run_reports_failed_state() -> None:
             name="block",
             is_readonly=True,
             side_effect_level=SideEffectLevel.LOW,
-            estimated_latency_ms=600_000,
+            timeout_seconds=600.0,
         ),
         schema={
             "name": "block",
@@ -51,8 +52,11 @@ async def test_cancelled_run_reports_failed_state() -> None:
         "cancel_me",
         system_prompt="plan something",
         tools=[tool],
-        llm=FakeLLMAdapter(responses=[LLMResponse(content=plan_json, stop_reason="end_turn")]),
-        hooks=hooks,
+        config=AgentConfig(
+            name="cancel_me",
+            llm=FakeLLMAdapter(responses=[LLMResponse(content=plan_json, stop_reason="end_turn")]),
+            hooks=hooks,
+        ),
     )
 
     run_task = asyncio.create_task(agent.chat("do something", session_id="cancel-test"))

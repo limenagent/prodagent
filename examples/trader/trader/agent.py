@@ -20,17 +20,19 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
-import sys
-import uuid
 
-from prodagent import Agent, ExecutionMode, HardBudget
-from prodagent.cognition.memory import MemoryManager
-from prodagent.core.config import FrameworkConfig
+from prodagent import (
+    Agent,
+    AgentConfig,
+    ExecutionMode,
+    FrameworkConfig,
+    HardBudget,
+    LLMClient,
+    MemoryManager,
+    script,
+)
 from prodagent.hooks.bundles.memory import MemoryHooks
-from prodagent.llm.base import LLMClient
-from prodagent.llm.fake import script
 
 from trader.tools import place_order, propose_order
 
@@ -144,9 +146,12 @@ def build_trader_agent(
         "trader",
         system_prompt=_SYSTEM_PROMPT,
         tools=[propose_order, place_order],
-        llm=llm,
-        framework=fw,
         mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_turns=20, max_cost_usd=0.50, max_seconds=300.0),
-        extensions=[MemoryHooks(resolved_memory)],
+        config=AgentConfig(
+            name="trader",
+            llm=llm,
+            framework=fw,
+            extensions=[MemoryHooks(resolved_memory)],
+        ),
     )

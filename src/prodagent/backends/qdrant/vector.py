@@ -35,7 +35,7 @@ class QdrantVectorStore:
                 vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
             )
 
-    def upsert(
+    async def upsert(
         self, id: str, embedding: list[float], metadata: dict[str, Any] | None = None
     ) -> None:
         from qdrant_client.http.models import PointStruct
@@ -51,7 +51,7 @@ class QdrantVectorStore:
             ],
         )
 
-    def search(
+    async def search(
         self,
         query: list[float],
         top_k: int = 5,
@@ -79,7 +79,7 @@ class QdrantVectorStore:
             for r in results
         ]
 
-    def delete(self, id: str) -> None:
+    async def delete(self, id: str) -> None:
         import contextlib
 
         from qdrant_client.http.models import PointIdsList

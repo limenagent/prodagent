@@ -153,6 +153,6 @@ def make_edit(
         is_readonly=False,
         side_effect_level=SideEffectLevel.MEDIUM,
         domain="fs:edit",
-        estimated_latency_ms=1_000,
+        timeout_seconds=30.0,
     )
     return tool(_edit, name="edit", description=_EDIT_DESCRIPTION, meta=meta)

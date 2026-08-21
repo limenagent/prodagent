@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from prodagent.cognition.memory.embedder import cosine as _cosine
+from prodagent.core.vectors import cosine as _cosine
 from prodagent.ports.vector import VectorHit
 
 __all__ = ["InMemoryVectorStore"]
@@ -17,7 +17,7 @@ class InMemoryVectorStore:
         self._vecs: dict[str, list[float]] = {}
         self._meta: dict[str, dict[str, Any]] = {}
 
-    def upsert(
+    async def upsert(
         self, id: str, embedding: list[float], metadata: dict[str, Any] | None = None
     ) -> None:
         self._vecs[id] = list(embedding)
@@ -26,7 +26,7 @@ class InMemoryVectorStore:
         else:
             self._meta[id] = dict(metadata)
 
-    def search(
+    async def search(
         self,
         query: list[float],
         top_k: int = 5,
@@ -44,6 +44,6 @@ class InMemoryVectorStore:
         hits.sort(key=lambda h: h.score, reverse=True)
         return hits[:top_k]
 
-    def delete(self, id: str) -> None:
+    async def delete(self, id: str) -> None:
         self._vecs.pop(id, None)
         self._meta.pop(id, None)

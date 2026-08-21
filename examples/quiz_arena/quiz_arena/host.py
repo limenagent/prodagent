@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections import deque
 from typing import Any
 
-from prodagent.runtime.coordination.blackboard import Board, BoardWrite, Trigger
+from prodagent import Board, BoardWrite, Trigger
 
 
 class HostMember:

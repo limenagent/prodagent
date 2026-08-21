@@ -43,6 +43,15 @@ class Workflow:
         self._hooks: HookRegistry | None = None
 
     def bind(self, llm: LLMClient | None, hooks: HookRegistry | None) -> None:
+        # llm_step tool closures capture this instance at authoring time, so a
+        # Workflow is bound exactly once. Re-binding a *different* client would
+        # silently rewire every plan compiled from it — refuse loudly instead.
+        if self._llm is not None and llm is not self._llm:
+            raise ValueError(
+                "This Workflow is already bound to another LLM client. A Workflow "
+                "instance owns one binding (its llm_step closures capture it); build "
+                "a fresh Workflow per Agent."
+            )
         self._llm = llm
         self._hooks = hooks
 
@@ -225,7 +234,7 @@ class Workflow:
             name=name,
             is_readonly=True,
             side_effect_level=SideEffectLevel.LOW,
-            estimated_latency_ms=resolved_timeout_ms,
+            timeout_seconds=resolved_timeout_ms / 1_000,
         )
         fn_tool = FunctionTool(name=name, fn=_llm_fn, meta=meta, schema=schema, inject_run_id=True)
         return fn_tool

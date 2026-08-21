@@ -34,12 +34,12 @@ def _make_span(**overrides) -> AgentSpan:
 otel = pytest.importorskip("opentelemetry.sdk.trace", reason="opentelemetry-sdk not installed")
 
 
-def test_exporter_constructs_with_console_protocol():
+async def test_exporter_constructs_with_console_protocol():
     from prodagent.resilience.observability.otel_exporter import OtelSpanExporter
 
     exporter = OtelSpanExporter(protocol="console", service_name="test-svc")
     assert exporter is not None
-    exporter.shutdown()
+    await exporter.shutdown()
 
 
 def test_exporter_rejects_unknown_protocol():
@@ -49,7 +49,7 @@ def test_exporter_rejects_unknown_protocol():
         OtelSpanExporter(protocol="carrier-pigeon")
 
 
-def test_export_creates_span_with_genai_attributes():
+async def test_export_creates_span_with_genai_attributes():
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import (
         SimpleSpanProcessor,
@@ -67,7 +67,7 @@ def test_export_creates_span_with_genai_attributes():
     exporter._tracer = provider.get_tracer("prodagent", "0.1.0")
 
     span = _make_span()
-    exporter.export(span)
+    await exporter.export(span)
 
     finished = memory.get_finished_spans()
     assert len(finished) == 1
@@ -81,10 +81,10 @@ def test_export_creates_span_with_genai_attributes():
     assert attrs["prodagent.system_prompt_version"] == "v3"
     assert attrs["prodagent.retrieved_context_count"] == 2
     assert attrs["prodagent.llm_reasoning"] == "thinking…"
-    exporter.shutdown()
+    await exporter.shutdown()
 
 
-def test_export_marks_error_status_and_records_exception():
+async def test_export_marks_error_status_and_records_exception():
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import (
         SimpleSpanProcessor,
@@ -103,22 +103,22 @@ def test_export_marks_error_status_and_records_exception():
     exporter._tracer = provider.get_tracer("prodagent", "0.1.0")
 
     span = _make_span(error="model timeout")
-    exporter.export(span)
+    await exporter.export(span)
 
     emitted = memory.get_finished_spans()[0]
     assert emitted.status.status_code == StatusCode.ERROR
     assert "model timeout" in (emitted.status.description or "")
     assert len(emitted.events) >= 1
-    exporter.shutdown()
+    await exporter.shutdown()
 
 
-def test_export_after_shutdown_is_dropped(caplog):
+async def test_export_after_shutdown_is_dropped(caplog):
     from prodagent.resilience.observability.otel_exporter import OtelSpanExporter
 
     exporter = OtelSpanExporter(protocol="console")
-    exporter.shutdown()
+    await exporter.shutdown()
     caplog.set_level("WARNING")
-    exporter.export(_make_span())
+    await exporter.export(_make_span())
     assert any("span dropped" in r.message for r in caplog.records)
 
 
@@ -140,13 +140,13 @@ def test_hex_to_span_id_pads_short_hex():
     assert _hex_to_span_id(full) == int(full, 16)
 
 
-def test_otel_satisfies_span_exporter_protocol():
+async def test_otel_satisfies_span_exporter_protocol():
     from prodagent.ports.span import SpanExporter
     from prodagent.resilience.observability.otel_exporter import OtelSpanExporter
 
     exporter = OtelSpanExporter(protocol="console")
     assert isinstance(exporter, SpanExporter)
-    exporter.shutdown()
+    await exporter.shutdown()
 
 
 class _ImportBlocker:
@@ -197,7 +197,7 @@ def test_missing_otel_raises_with_install_hint():
         assert "prodagent[otel]" in str(excinfo.value)
 
 
-def test_console_protocol_works_without_otlp_exporters():
+async def test_console_protocol_works_without_otlp_exporters():
     with _blocked_imports(
         "opentelemetry.exporter.otlp.proto.grpc",
         "opentelemetry.exporter.otlp.proto.http",
@@ -205,8 +205,8 @@ def test_console_protocol_works_without_otlp_exporters():
         from prodagent.resilience.observability.otel_exporter import OtelSpanExporter
 
         exporter = OtelSpanExporter(protocol="console", service_name="lite-svc")
-        exporter.export(_make_span())
-        exporter.shutdown()
+        await exporter.export(_make_span())
+        await exporter.shutdown()
 
 
 def test_grpc_protocol_fails_clearly_without_grpc_exporter():

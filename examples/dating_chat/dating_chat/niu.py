@@ -26,7 +26,7 @@ from prodagent.runtime.coordination.floor import FloorTurn, SharedFloor
 from dating_chat.fake_llm import NIU_SYSTEM_PROMPT, build_niu_fake_llm
 
 if TYPE_CHECKING:
-    from prodagent.llm.base import LLMClient
+    from prodagent import LLMClient
     from prodagent.ports.tool import Tool
 
 # 从第 4 轮起，处理新输入前先把历史砍到只剩最近 2 轮问答。

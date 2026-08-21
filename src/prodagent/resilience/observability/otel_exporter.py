@@ -115,7 +115,7 @@ class OtelSpanExporter:
         self._tracer = self._provider.get_tracer("prodagent", "0.1.0")
         self._otel = otel  # keep ref for lazy attribute access
 
-    def export(self, span: AgentSpan) -> None:
+    async def export(self, span: AgentSpan) -> None:
         if self._closed:
             logger.warning("OtelSpanExporter.export called after shutdown — span dropped")
             return
@@ -143,7 +143,7 @@ class OtelSpanExporter:
 
         otel_span.end(end_time=int((span.timestamp + span.latency_ms / 1000.0) * 1_000_000_000))
 
-    def shutdown(self) -> None:
+    async def shutdown(self) -> None:
         if self._closed:
             return
         self._closed = True

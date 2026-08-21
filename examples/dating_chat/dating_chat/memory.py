@@ -6,8 +6,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from prodagent import MemoryManager, build_memory_manager
 from prodagent.backends.memory.graph import InMemoryGraphStore
-from prodagent.cognition.memory import MemoryManager, build_memory_manager
 from prodagent.cognition.memory.storage import MemoryRecord, MemoryType
 
 _BASE = Path(__file__).parent

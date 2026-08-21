@@ -15,7 +15,7 @@ class InMemoryGraphStore:
     def __init__(self) -> None:
         self._model = GraphModel()
 
-    def add_node(
+    async def add_node(
         self,
         node_id: str,
         labels: list[str] | None = None,
@@ -23,7 +23,7 @@ class InMemoryGraphStore:
     ) -> None:
         self._model.add_node(node_id, labels, properties)
 
-    def add_edge(
+    async def add_edge(
         self,
         src: str,
         dst: str,
@@ -32,13 +32,13 @@ class InMemoryGraphStore:
     ) -> None:
         self._model.add_edge(src, dst, rel, properties)
 
-    def get_node(self, node_id: str) -> dict[str, Any] | None:
+    async def get_node(self, node_id: str) -> dict[str, Any] | None:
         return self._model.get_node(node_id)
 
-    def list_nodes(self, label: str | None = None) -> list[dict[str, Any]]:
+    async def list_nodes(self, label: str | None = None) -> list[dict[str, Any]]:
         return self._model.list_nodes(label)
 
-    def neighbors(
+    async def neighbors(
         self,
         node_id: str,
         rel: str | None = None,
@@ -46,12 +46,12 @@ class InMemoryGraphStore:
     ) -> list[dict[str, Any]]:
         return self._model.neighbors(node_id, rel, depth)
 
-    def traverse(
+    async def traverse(
         self, start: str, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         raise NotImplementedError(
             "InMemoryGraphStore does not support a query language — use neighbors()"
         )
 
-    def delete_node(self, node_id: str) -> None:
+    async def delete_node(self, node_id: str) -> None:
         self._model.delete_node(node_id)

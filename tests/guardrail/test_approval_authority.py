@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 
-from prodagent import Agent, ExecutionMode, RunState, SideEffectLevel, ToolMeta
+from prodagent import Agent, AgentConfig, ExecutionMode, RunState, SideEffectLevel, ToolMeta
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.core.exceptions import SuspendPendingApproval
 from prodagent.core.types import ToolCall
@@ -72,11 +72,14 @@ def _high_tool_agent(llm, hitl: ApprovalHooks, *, store=None) -> Agent:
         name="ops",
         system_prompt="Restart the pod.",
         tools=[restart_pod],
-        llm=llm,
-        hooks=HookRegistry(),
-        checkpoint=store,
         mode=ExecutionMode.REACTIVE,
-        extensions=[hitl],
+        config=AgentConfig(
+            name="ops",
+            llm=llm,
+            hooks=HookRegistry(),
+            checkpoint=store,
+            extensions=[hitl],
+        ),
     )
 
 

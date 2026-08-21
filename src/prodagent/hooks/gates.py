@@ -1,8 +1,9 @@
-"""Checkpoint and injection point definitions for tri-protocol architecture.
+"""Blocking gates and injection points for the tri-protocol hook bus.
 
-``CheckPoint`` here means a hook-lifecycle blocking gate (can execution proceed
-past this point?) — unrelated to run-state persistence checkpoints, which are
-``CheckpointStore`` / ``run.checkpoint_version`` (see ``hooks/__init__.py``).
+``Gate`` answers one question: *can execution proceed past this point?* A
+checker returns a veto and the run stops there. The word "checkpoint" is
+deliberately reserved for run-state persistence (``CheckpointStore``,
+``run.checkpoint_version``) — the two concepts share no machinery.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ class FailurePolicy(StrEnum):
     FAIL_CLOSED = "fail_closed"
 
 
-class CheckPoint(StrEnum):
+class Gate(StrEnum):
     TOOL_CALL = "checkpoint.tool_call"
     PLAN_APPROVAL = "checkpoint.plan_approval"
 

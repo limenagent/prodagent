@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from prodagent.core.exceptions import ToolCallParseError
 from prodagent.core.types import LLMResponse, MessageList, StopReason, ToolCall
 from prodagent.llm.base import LLMConfig, normalise_content
-from prodagent.resilience.transport.http_retry import with_http_retry
+from prodagent.resilience.transport.http_retry import DeliveryGuard, with_http_retry
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -40,10 +40,11 @@ class OpenAIAdapter:
         if default_config is not None:
             self._default_config = default_config
         else:
+            # Rates resolve via LLMConfig's pricing catalog when unset here.
             self._default_config = LLMConfig(
                 model=model or "gpt-4o",
-                cost_per_million_input=cost_per_million_input or 5.0,
-                cost_per_million_output=cost_per_million_output or 15.0,
+                cost_per_million_input=cost_per_million_input or 0.0,
+                cost_per_million_output=cost_per_million_output or 0.0,
             )
 
     async def complete(
@@ -57,8 +58,20 @@ class OpenAIAdapter:
     ) -> LLMResponse:
         cfg = config or self._default_config
         full_messages = self._build_messages(messages, system)
+        guard = DeliveryGuard()
+        safe_chunk = on_chunk
+
+        if on_chunk is not None:
+
+            async def _guarded_chunk(text: str) -> None:
+                guard.mark()  # first delivery disqualifies transparent retries
+                await on_chunk(text)
+
+            safe_chunk = _guarded_chunk
+
         return await with_http_retry(
-            lambda: self._stream(full_messages, tools=tools, cfg=cfg, on_chunk=on_chunk)
+            lambda: self._stream(full_messages, tools=tools, cfg=cfg, on_chunk=safe_chunk),
+            stream_guard=guard if on_chunk is not None else None,
         )
 
     def _build_messages(

@@ -9,8 +9,7 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
-from prodagent.backends.factory import resolve_dead_letter
-from prodagent.backends.memory.lock import InProcessLockStore
+from prodagent.bootstrap import in_process_lock_store, resolve_dead_letter
 from prodagent.runtime.coordination._stage import StageDriver
 from prodagent.runtime.coordination._store import RoundedLockableStore
 from prodagent.runtime.coordination.messaging.envelope import (
@@ -202,7 +201,7 @@ class BlackboardSpec:
     terminal_check: Callable[[Board], bool] | None = None
     """Business-level "the board is done" check — e.g. all required keys filled.
     Checked before each round, independent of TerminationPolicy."""
-    lock_store: LockStore = field(default_factory=InProcessLockStore)
+    lock_store: LockStore = field(default_factory=in_process_lock_store)
     """Backs buzz_in arbitration. Defaults to the in-process store — this
     primitive is single-process only, but the port stays swappable."""
 
@@ -441,7 +440,7 @@ class Blackboard(StageDriver[BoardWriteEvent | BlackboardCompletedEvent]):
                             write.author,
                             exc,
                         )
-                        self._dlq.on_failure(
+                        await self._dlq.on_failure(
                             f"{trigger.name}:{write.author}:{write.key}",
                             {"kind": "write", "from_agent": write.author, "to": write.key},
                             str(exc),
@@ -592,7 +591,7 @@ class AgentBlackboardMember:
     def _wire_board_injector_once(self) -> None:
         if self._injector_wired:
             return
-        from prodagent.hooks.checkpoint import InjectionPoint
+        from prodagent.hooks.gates import InjectionPoint
 
         hooks = self._agent.hooks
         if hooks is None:

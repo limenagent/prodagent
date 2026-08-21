@@ -28,7 +28,7 @@ from prodagent import SideEffectLevel, ToolMeta, tool
         name="propose_order",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=20,
+        timeout_seconds=20 / 1_000,
         domain="food_delivery",
     )
 )
@@ -68,7 +68,7 @@ async def propose_order(
 # orders 资源用 Tool 内自持的 asyncio.Lock 串行化;忙时返回结构化
 # resource_busy 反馈,由上层 LLM 决定让路还是稍后重试。
 _ORDERS_LOCK = asyncio.Lock()
-_ORDERS_LOCK_WAIT_S = 0.05  # 必须小于 estimated_latency_ms / 1000(外层还有工具超时)
+_ORDERS_LOCK_WAIT_S = 0.05  # 必须小于该工具 timeout_seconds（外层还有工具超时）
 
 
 async def _acquire_orders_lock() -> dict | None:
@@ -92,7 +92,7 @@ async def _acquire_orders_lock() -> dict | None:
         name="place_order",
         is_readonly=False,
         side_effect_level=SideEffectLevel.HIGH,
-        estimated_latency_ms=100,
+        timeout_seconds=100 / 1_000,
         domain="food_delivery",
         resource_id="orders",
         enforced_idempotent=True,

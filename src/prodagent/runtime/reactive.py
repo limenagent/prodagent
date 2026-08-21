@@ -277,11 +277,9 @@ class ReactiveLoop:
                 await _fire(hooks, HookEvent.THINK, text=text, run_id=run.run_id)
             token_events.append(ThinkTokenEvent(token=text, run_id=run.run_id))
 
-        llm_timeout: float | None = None
-        if self._budget is not None:
-            elapsed = run.elapsed_seconds()
-            remaining = self._budget.max_seconds - elapsed
-            llm_timeout = max(0.1, remaining)
+        # self._budget is always set (constructor: budget or HardBudget()).
+        elapsed = run.elapsed_seconds()
+        llm_timeout = max(0.1, self._budget.max_seconds - elapsed)
 
         llm_config = self._llm_config
         if self._context_manager is not None:
@@ -297,18 +295,14 @@ class ReactiveLoop:
             on_chunk=_on_chunk,
         )
         try:
-            response = (
-                await asyncio.wait_for(coro, timeout=llm_timeout)
-                if llm_timeout is not None
-                else await coro
-            )
+            response = await asyncio.wait_for(coro, timeout=llm_timeout)
         except TimeoutError as exc:
             raise BudgetExceeded(
                 f"LLM call timed out after {llm_timeout:.1f}s.",
                 run_id=run.run_id,
                 axis="seconds",
                 value=run.elapsed_seconds(),
-                limit=self._budget.max_seconds if self._budget else 0.0,
+                limit=self._budget.max_seconds,
             ) from exc
         return response, token_events
 
@@ -340,10 +334,10 @@ class ReactiveLoop:
             cache_write_tokens=response.cache_write_tokens,
             cache_hit_ratio=response.cache_read_tokens / max(1, response.input_tokens),
             cost_usd=run.cost_usd,
-            budget_usd=self._budget.max_cost_usd if self._budget else 0,
-            max_turns=self._budget.max_turns if self._budget else 0,
+            budget_usd=self._budget.max_cost_usd,
+            max_turns=self._budget.max_turns,
             elapsed_s=run.elapsed_seconds(),
-            max_seconds=self._budget.max_seconds if self._budget else 0,
+            max_seconds=self._budget.max_seconds,
             model=response.model,
             run_id=run.run_id,
         )

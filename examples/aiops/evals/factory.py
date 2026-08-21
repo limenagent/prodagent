@@ -8,12 +8,11 @@ import uuid
 from dataclasses import replace as _dc_replace
 from pathlib import Path
 
-from prodagent.core.config import FrameworkConfig
+from prodagent import FrameworkConfig, LLMConfig
 from prodagent.core.state import AgentRun
 from prodagent.core.types import RunState
 from prodagent.evaluation.evals.dataset import GoldenExample
 from prodagent.evaluation.evals.judge import LLMJudge
-from prodagent.llm.base import LLMConfig
 
 from aiops.agent import build_aiops_agent
 from aiops.testing.fake_llm_scripts import oom_happy_path_script

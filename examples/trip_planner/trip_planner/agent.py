@@ -25,13 +25,17 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from prodagent import Agent, HardBudget
-from prodagent.cognition.memory import MemoryManager
-from prodagent.core.config import FrameworkConfig
+from prodagent import (
+    Agent,
+    AgentConfig,
+    FrameworkConfig,
+    HardBudget,
+    LLMClient,
+    MemoryManager,
+    script,
+)
 from prodagent.evaluation.skills.registry import SkillRegistry
 from prodagent.hooks.bundles.memory import MemoryHooks
-from prodagent.llm.base import LLMClient
-from prodagent.llm.fake import script
 
 from trip_planner.fake_llm import build_fake_llm
 from trip_planner.memory import build_memory
@@ -99,11 +103,14 @@ def build_trip_planner_agent(
         "trip_planner",
         system_prompt=_SYSTEM_PROMPT,
         tools=[],
-        skills=skills,
-        llm=llm,
-        framework=framework_config,
         workflow=wf,
-        agents=[itinerary, restaurant, transport],
         budget=HardBudget(max_turns=25, max_cost_usd=1.5, max_seconds=900.0),
-        extensions=[MemoryHooks(resolved_memory)],
+        config=AgentConfig(
+            name="trip_planner",
+            skills=skills,
+            llm=llm,
+            framework=framework_config,
+            agents=[itinerary, restaurant, transport],
+            extensions=[MemoryHooks(resolved_memory)],
+        ),
     )

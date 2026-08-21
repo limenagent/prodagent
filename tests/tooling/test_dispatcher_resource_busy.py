@@ -44,7 +44,7 @@ async def test_same_resource_id_calls_run_concurrently():
             meta=ToolMeta(
                 name=name,
                 side_effect_level=SideEffectLevel.MEDIUM,
-                estimated_latency_ms=2_000,
+                timeout_seconds=2.0,
                 resource_id="shared-resource",
             ),
         )

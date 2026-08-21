@@ -26,9 +26,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from prodagent import LLMClient, LLMConfig
 from prodagent.core.types import LLMResponse, MessageList, ToolCall
-from prodagent.llm.base import LLMClient, LLMConfig
-
 
 # ── flag_suspicious / enrich_entity 的 canned LLM 响应 ───────────────────────
 

@@ -10,7 +10,7 @@ from prodagent.resilience.observability import (
 )
 
 
-def test_file_exporter_writes_span_as_jsonl(tmp_path: Path):
+async def test_file_exporter_writes_span_as_jsonl(tmp_path: Path):
     path = tmp_path / "trace.jsonl"
     exporter = FileSpanExporter(path)
     span = AgentSpan(
@@ -21,8 +21,8 @@ def test_file_exporter_writes_span_as_jsonl(tmp_path: Path):
         input_payload={"host": "localhost"},
         timestamp=1234567890.0,
     )
-    exporter.export(span)
-    exporter.shutdown()
+    await exporter.export(span)
+    await exporter.shutdown()
 
     lines = path.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) == 1
@@ -32,7 +32,7 @@ def test_file_exporter_writes_span_as_jsonl(tmp_path: Path):
     assert record["input_payload"] == {"host": "localhost"}
 
 
-def test_file_exporter_ignores_sampling(tmp_path: Path):
+async def test_file_exporter_ignores_sampling(tmp_path: Path):
     path = tmp_path / "trace.jsonl"
     audit = AuditLogger(
         exporter=FileSpanExporter(path),
@@ -48,15 +48,15 @@ def test_file_exporter_ignores_sampling(tmp_path: Path):
         timestamp=0.0,
         sampled=False,
     )
-    audit.record(span)
-    audit.shutdown()
+    await audit.record(span)
+    await audit.shutdown()
 
     lines = path.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) == 1
     assert json.loads(lines[0])["action"] == "llm.think"
 
 
-def test_file_exporter_flushes_after_each_write(tmp_path: Path):
+async def test_file_exporter_flushes_after_each_write(tmp_path: Path):
     path = tmp_path / "trace.jsonl"
     exporter = FileSpanExporter(path)
     span = AgentSpan(
@@ -67,10 +67,10 @@ def test_file_exporter_flushes_after_each_write(tmp_path: Path):
         input_payload={},
         timestamp=0.0,
     )
-    exporter.export(span)
+    await exporter.export(span)
     lines = path.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) == 1
-    exporter.shutdown()
+    await exporter.shutdown()
 
 
 async def test_span_observer_emits_span_for_instant_events(tmp_path: Path):
@@ -92,7 +92,7 @@ async def test_span_observer_emits_span_for_instant_events(tmp_path: Path):
     await hooks.fire(HookEvent.MEMORY_RECALL, run_id="run-x", query="ping history", hits=3)
     await hooks.fire(HookEvent.TOKEN_UPDATE, run_id="run-x", input=10, output=5, total=15)
     await hooks.fire(HookEvent.SESSION_END)
-    audit.shutdown()
+    await audit.shutdown()
 
     records = [json.loads(line) for line in path.read_text(encoding="utf-8").strip().splitlines()]
     actions = [r["action"] for r in records]
@@ -120,7 +120,7 @@ async def test_span_observer_instant_spans_have_zero_latency(tmp_path: Path):
     await hooks.fire(HookEvent.SESSION_START, run_id="r1", task="t", phases=1)
     await hooks.fire(HookEvent.SKILLS_READY, run_id="r1", count=3)
     await hooks.fire(HookEvent.SESSION_END, run_id="r1")
-    audit.shutdown()
+    await audit.shutdown()
 
     records = [json.loads(line) for line in path.read_text(encoding="utf-8").strip().splitlines()]
     skills_span = next(r for r in records if r["action"] == "skills.ready")
@@ -146,7 +146,7 @@ async def test_span_observer_paired_events_still_have_latency(tmp_path: Path):
         elapsed_ms=42.0,
     )
     await hooks.fire(HookEvent.SESSION_END, run_id="r1")
-    audit.shutdown()
+    await audit.shutdown()
 
     records = [json.loads(line) for line in path.read_text(encoding="utf-8").strip().splitlines()]
     tool_span = next(r for r in records if r["action"] == "ping")
@@ -178,7 +178,7 @@ async def test_span_observer_parallel_same_name_spans_are_independent(tmp_path: 
         elapsed_ms=20.0,
     )
     await hooks.fire(HookEvent.SESSION_END)
-    audit.shutdown()
+    await audit.shutdown()
 
     records = [json.loads(line) for line in path.read_text(encoding="utf-8").strip().splitlines()]
     ping_spans = [r for r in records if r["action"] == "ping"]

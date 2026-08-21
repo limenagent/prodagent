@@ -104,7 +104,7 @@ def make_glob(allowed_dirs: list[Path] | None = None) -> FunctionTool:
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
         domain="fs:read",
-        estimated_latency_ms=500,
+        timeout_seconds=10.0,
     )
     return tool(_glob, name="glob", description=_GLOB_DESCRIPTION, meta=meta)
 

@@ -10,16 +10,9 @@ import shutil
 from dataclasses import replace as _dc_replace
 from pathlib import Path
 
-from prodagent.cognition.memory import (
-    MemoryClassifier,
-    MemoryManager,
-    MemoryRecord,
-    MemoryType,
-    build_memory_manager,
-)
+from prodagent import FrameworkConfig, LLMClient, MemoryManager, build_memory_manager
+from prodagent.cognition.memory import MemoryClassifier, MemoryRecord, MemoryType
 from prodagent.cognition.memory.conflict import DefaultConflictPolicy
-from prodagent.core.config import FrameworkConfig
-from prodagent.llm.base import LLMClient
 
 _BASE = Path(__file__).parent
 MEMORY_DIR = _BASE / ".memory"

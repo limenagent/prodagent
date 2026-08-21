@@ -12,14 +12,19 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent import Agent, ExecutionMode
+from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.core.budget import HardBudget
 from prodagent.core.state.run import is_child_run_id
 from prodagent.llm.fake import script
 
 
 def _reactive_agent(name: str, *, context: str = "", peers=None) -> Agent:
-    return Agent(name, system_prompt=context, mode=ExecutionMode.REACTIVE, peers=peers)
+    return Agent(
+        name,
+        system_prompt=context,
+        mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(name=name, peers=list(peers or [])),
+    )
 
 
 @pytest.mark.asyncio

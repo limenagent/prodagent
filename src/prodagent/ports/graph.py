@@ -21,7 +21,7 @@ from typing import Any, Protocol, runtime_checkable
 class GraphStore(Protocol):
     """A directed property graph: nodes + typed edges + neighbour traversal."""
 
-    def add_node(
+    async def add_node(
         self,
         node_id: str,
         labels: list[str] | None = None,
@@ -30,7 +30,7 @@ class GraphStore(Protocol):
         """Insert or merge a node. Re-adding merges labels and properties."""
         ...
 
-    def add_edge(
+    async def add_edge(
         self,
         src: str,
         dst: str,
@@ -40,11 +40,11 @@ class GraphStore(Protocol):
         """Insert a directed edge ``src -[rel]-> dst``. Idempotent on (src,dst,rel)."""
         ...
 
-    def get_node(self, node_id: str) -> dict[str, Any] | None:
+    async def get_node(self, node_id: str) -> dict[str, Any] | None:
         """Return ``{id, labels, properties}`` or ``None`` if absent."""
         ...
 
-    def list_nodes(self, label: str | None = None) -> list[dict[str, Any]]:
+    async def list_nodes(self, label: str | None = None) -> list[dict[str, Any]]:
         """All nodes, optionally filtered to those carrying ``label``.
 
         Each entry is ``{id, labels, properties}``. This is a full scan —
@@ -53,7 +53,7 @@ class GraphStore(Protocol):
         """
         ...
 
-    def neighbors(
+    async def neighbors(
         self,
         node_id: str,
         rel: str | None = None,
@@ -64,7 +64,7 @@ class GraphStore(Protocol):
         node returns ``[]``."""
         ...
 
-    def traverse(
+    async def traverse(
         self, start: str, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """Run a backend-native traversal query from ``start``.
@@ -75,7 +75,7 @@ class GraphStore(Protocol):
         """
         ...
 
-    def delete_node(self, node_id: str) -> None:
+    async def delete_node(self, node_id: str) -> None:
         """Remove a node and its incident edges. No-op if missing."""
         ...
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent import Agent
+from prodagent import Agent, AgentConfig
 from prodagent.runtime.workflow import Workflow
 
 
@@ -39,9 +39,8 @@ async def test_workflow_runs_dag_and_picks_terminal_output(fake_llm, hook_regist
     agent = Agent(
         name="wf-agent",
         system_prompt="test",
-        llm=fake_llm,
-        hooks=hook_registry,
         workflow=wf,
+        config=AgentConfig(name="wf-agent", llm=fake_llm, hooks=hook_registry),
     )
 
     run = await agent.chat("hello world")
@@ -61,10 +60,9 @@ async def test_workflow_allow_replan_false_caps_max_replans(fake_llm, hook_regis
     agent = Agent(
         name="wf-agent",
         system_prompt="test",
-        llm=fake_llm,
-        hooks=hook_registry,
         workflow=wf,
         allow_replan=False,
+        config=AgentConfig(name="wf-agent", llm=fake_llm, hooks=hook_registry),
     )
 
     assert agent.max_replans == 0
@@ -85,9 +83,8 @@ async def test_workflow_default_max_replans_is_two(fake_llm, hook_registry):
     agent = Agent(
         name="wf-agent",
         system_prompt="test",
-        llm=fake_llm,
-        hooks=hook_registry,
         workflow=wf,
+        config=AgentConfig(name="wf-agent", llm=fake_llm, hooks=hook_registry),
     )
 
     assert agent.max_replans == 2
@@ -179,7 +176,12 @@ async def test_workflow_llm_step_binds_lazy_resolved_llm():
     wf.llm_step("think", prompt="say hi", is_terminal=True)
 
     # llm=None — simulates real-LLM mode where Agent.llm lazy-resolves from fw.
-    agent = Agent(name="wf-lazy-llm", system_prompt="test", framework=fw, workflow=wf)
+    agent = Agent(
+        name="wf-lazy-llm",
+        system_prompt="test",
+        workflow=wf,
+        config=AgentConfig(name="wf-lazy-llm", framework=fw),
+    )
 
     # The workflow's _llm must have been resolved (not None) when workflow= is set.
     assert wf._llm is not None, "workflow._llm must be bound via Agent.llm property"

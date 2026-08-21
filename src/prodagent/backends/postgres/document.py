@@ -6,13 +6,13 @@ import json
 from typing import TYPE_CHECKING, Any
 
 from prodagent.backends._shared.document_write import build_stored_memory
-from prodagent.cognition.memory.storage import (
+from prodagent.core.time import now_timestamp
+from prodagent.ports.document import (
     MAX_SOFT_MEMORIES,
     MemoryRecord,
     MemoryType,
     StoredMemory,
 )
-from prodagent.core.time import now_timestamp
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -39,13 +39,13 @@ class PostgresDocumentStore:
             rows = cur.fetchall()
         return [StoredMemory.from_dict(json.loads(r[0])) for r in rows]
 
-    def load_memories(self) -> list[StoredMemory]:
+    async def load_memories(self) -> list[StoredMemory]:
         return self._load_all()
 
-    def load_constraints(self) -> list[StoredMemory]:
+    async def load_constraints(self) -> list[StoredMemory]:
         return [m for m in self._load_all() if m.memory_type is MemoryType.CONSTRAINT]
 
-    def save_memories(self, data: list[StoredMemory]) -> None:
+    async def save_memories(self, data: list[StoredMemory]) -> None:
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -62,7 +62,7 @@ class PostgresDocumentStore:
                     )
             conn.commit()
 
-    def append_soft(self, record: MemoryRecord) -> None:
+    async def append_soft(self, record: MemoryRecord) -> None:
         stored = build_stored_memory(record)
         mid = stored.id
 
@@ -103,10 +103,10 @@ class PostgresDocumentStore:
             )
         conn.commit()
 
-    def mark_superseded(self, mem_id: str, superseded: bool) -> None:
+    async def mark_superseded(self, mem_id: str, superseded: bool) -> None:
         self._mutate_mem(mem_id, lambda d: d.__setitem__("superseded", superseded))
 
-    def touch_memory(self, mem_id: str) -> None:
+    async def touch_memory(self, mem_id: str) -> None:
         def _touch(d: dict[str, Any]) -> None:
             d["access_count"] = d.get("access_count", 0) + 1
             d["last_access"] = now_timestamp()

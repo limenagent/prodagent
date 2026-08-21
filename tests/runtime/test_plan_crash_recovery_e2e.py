@@ -13,6 +13,7 @@ from prodagent.core.types import LLMResponse, RunState
 from prodagent.hooks.registry import HookRegistry
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.agent import Agent
+from prodagent.runtime.config import AgentConfig
 from prodagent.tooling import tool
 
 if TYPE_CHECKING:
@@ -96,10 +97,13 @@ async def test_plan_crash_recovery_resumes_from_last_checkpoint(tmp_path):
             name="aiops",
             system_prompt="Remediate incidents.",
             tools=[collect_logs, restart_pod, check_health, post_report],
-            llm=_plan_llm(),
-            hooks=HookRegistry(),
-            checkpoint=checkpoints,
-            event_log=events,
+            config=AgentConfig(
+                name="aiops",
+                llm=_plan_llm(),
+                hooks=HookRegistry(),
+                checkpoint=checkpoints,
+                event_log=events,
+            ),
         )
 
     agent1 = _make_agent()

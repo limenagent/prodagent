@@ -4,8 +4,8 @@ import asyncio
 
 import pytest
 
-from prodagent.hooks.checkpoint import InjectionPoint
 from prodagent.hooks.events import HookEvent
+from prodagent.hooks.gates import InjectionPoint
 from prodagent.hooks.registry import HookRegistry
 
 

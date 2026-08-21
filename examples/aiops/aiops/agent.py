@@ -5,10 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from prodagent import Agent, ExecutionMode, HardBudget
-from prodagent.core.config import FrameworkConfig
+from prodagent import Agent, AgentConfig, ExecutionMode, FrameworkConfig, HardBudget, LLMClient
 from prodagent.evaluation.skills.registry import SkillRegistry
-from prodagent.llm.base import LLMClient
 
 from aiops.child_agents import (
     diagnostic_child_agents,
@@ -75,13 +73,16 @@ def build_aiops_agent(
     return Agent(
         "investigate",
         tools=[page_oncall],
-        tool_registry=build_aiops_tool_registry(),
-        skills=SkillRegistry.from_dir(SKILLS_DIR),
         system_prompt=_SYSTEM_PROMPT,
-        llm=resolved_llm,
-        framework=framework_config,
-        agents=diagnostic_child_agents(),
-        peers=[remediator_agent(llm=resolved_llm)],
         mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_turns=20, max_cost_usd=1.0, max_seconds=1800.0),
+        config=AgentConfig(
+            name="investigate",
+            tool_registry=build_aiops_tool_registry(),
+            skills=SkillRegistry.from_dir(SKILLS_DIR),
+            llm=resolved_llm,
+            framework=framework_config,
+            agents=diagnostic_child_agents(),
+            peers=[remediator_agent(llm=resolved_llm)],
+        ),
     )

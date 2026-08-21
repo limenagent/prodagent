@@ -23,8 +23,8 @@ from prodagent.cognition.context.compression import (
     safe_tail_start,
 )
 from prodagent.core.config import ContextConfig
-from prodagent.hooks.checkpoint import CheckPoint, InjectionPoint
 from prodagent.hooks.events import HookEvent
+from prodagent.hooks.gates import Gate, InjectionPoint
 
 if TYPE_CHECKING:
     from prodagent.cognition.context.spill import ToolResultSpillStore
@@ -378,7 +378,7 @@ class ContextManager:
             max_tokens=max_tokens,
             run_id=run_id,
         )
-        await hooks.check_blocking(CheckPoint.CONTEXT_BUILD, **ctx_data)
+        await hooks.check_blocking(Gate.CONTEXT_BUILD, **ctx_data)
         await hooks.fire(HookEvent.CONTEXT_BUILD, **ctx_data)
 
     async def _collect_memory(

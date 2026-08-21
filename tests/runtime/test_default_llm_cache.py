@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent import Agent, ExecutionMode
+from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent.core.budget import HardBudget
 from prodagent.core.types import LLMResponse
 from prodagent.llm.base import LLMConfig, noop_chunk
 from prodagent.llm.cache import CachingLLMClient
@@ -30,7 +31,7 @@ class TestDefaultCacheWiring:
     def test_resolve_llm_wraps_with_caching_client(self):
         from prodagent.runtime.run_context import _resolve_llm
 
-        agent = Agent("t", system_prompt="x", llm=_CountingLLM())
+        agent = Agent("t", system_prompt="x", config=AgentConfig(name="t", llm=_CountingLLM()))
         llm = _resolve_llm(agent)
         assert isinstance(llm, CachingLLMClient)
 
@@ -39,7 +40,7 @@ class TestDefaultCacheWiring:
 
         inner = _CountingLLM()
         user_cached = CachingLLMClient(inner, None)  # type: ignore[arg-type]
-        agent = Agent("t", system_prompt="x", llm=user_cached)
+        agent = Agent("t", system_prompt="x", config=AgentConfig(name="t", llm=user_cached))
         llm = _resolve_llm(agent)
         assert llm is user_cached
 
@@ -50,14 +51,19 @@ class TestDefaultCacheWiring:
         plain = _CountingLLM()
         assert not isinstance(plain, CachingLLM)
 
-        agent = Agent("t", system_prompt="x", llm=plain)
+        agent = Agent("t", system_prompt="x", config=AgentConfig(name="t", llm=plain))
         llm = _resolve_llm(agent)
         assert isinstance(llm, CachingLLMClient)
         assert llm is not plain
 
     async def test_intra_run_cache_hit_skips_billing(self):
         llm = _CountingLLM()
-        agent = Agent("billing", system_prompt="x", llm=llm, mode=ExecutionMode.REACTIVE)
+        agent = Agent(
+            "billing",
+            system_prompt="x",
+            mode=ExecutionMode.REACTIVE,
+            config=AgentConfig(name="billing", llm=llm),
+        )
         from prodagent.runtime.run_context import _resolve_llm
 
         wrapped = _resolve_llm(agent)
@@ -75,7 +81,7 @@ class TestDefaultCacheWiring:
         llm = _CountingLLM()
         from prodagent.runtime.run_context import _resolve_llm
 
-        agent = Agent("t", system_prompt="x", llm=llm)
+        agent = Agent("t", system_prompt="x", config=AgentConfig(name="t", llm=llm))
         wrapped = _resolve_llm(agent)
 
         cfg = LLMConfig(model="m", temperature=0.7, max_tokens=100)
@@ -102,7 +108,7 @@ class TestDefaultCacheWiring:
         assert agent.config.llm is None
 
         declared = _CountingLLM()
-        agent_with_llm = Agent("t", system_prompt="x", llm=declared)
+        agent_with_llm = Agent("t", system_prompt="x", config=AgentConfig(name="t", llm=declared))
         _resolve_llm(agent_with_llm)
         assert agent_with_llm.config.llm is declared
 
@@ -112,7 +118,11 @@ class TestDefaultCacheWiring:
         from prodagent.core.config import FrameworkConfig
         from prodagent.runtime.run_context import RunContext
 
-        agent = Agent("t", system_prompt="x", framework=FrameworkConfig.default())
+        agent = Agent(
+            "t",
+            system_prompt="x",
+            config=AgentConfig(name="t", framework=FrameworkConfig.default()),
+        )
         assert agent.config.checkpoint is None
         assert agent.config.event_log is None
         async with RunContext(agent=agent, task="t", run_id="r1") as ctx:
@@ -133,7 +143,9 @@ class TestCostSkipping:
         loop = object.__new__(ReactiveLoop)
         loop._llm_config = LLMConfig(model="m")
         loop._hooks = None
-        loop._budget = None
+        loop._budget = (
+            HardBudget()
+        )  # constructor guarantees a budget; default is the unlimited case
 
         cached_resp = LLMResponse(
             content="cached",
@@ -164,7 +176,9 @@ class TestCostSkipping:
             cost_per_million_output=2.0,
         )
         loop._hooks = None
-        loop._budget = None
+        loop._budget = (
+            HardBudget()
+        )  # constructor guarantees a budget; default is the unlimited case
 
         fresh_resp = LLMResponse(
             content="fresh",

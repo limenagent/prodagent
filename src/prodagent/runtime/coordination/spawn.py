@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
-from prodagent.backends.factory import resolve_dead_letter
+from prodagent.bootstrap import resolve_dead_letter
 from prodagent.core.error_reason import ErrorReason
 from prodagent.core.exceptions import (
     SECURITY_VETO_EXCEPTIONS,
@@ -491,7 +491,7 @@ class Spawn:
             is_readonly=True,
             enforced_idempotent=True,
             domain="orchestration",
-            estimated_latency_ms=self._framework_config.orchestration.spawn_tool_timeout_ms,
+            timeout_seconds=self._framework_config.orchestration.spawn_tool_timeout_ms / 1_000,
         )
         return FunctionTool(name="spawn_agent", fn=self.spawn, meta=meta, schema=schema)
 

@@ -18,13 +18,13 @@ from typing import TYPE_CHECKING, Any
 from prodagent import SideEffectLevel, ToolMeta, tool
 
 if TYPE_CHECKING:
-    from prodagent.llm.base import LLMClient
+    from prodagent import LLMClient
 
 # 第十章"隔离优于共享": 锁是 Tool 实现者自己的职责,框架执行器不管。
 # regulator-portal 资源用 Tool 内自持的 asyncio.Lock 串行化;忙时返回
 # 结构化 resource_busy 反馈,由上层 LLM 决定让路还是稍后重试。
 _REGULATOR_LOCK = asyncio.Lock()
-_REGULATOR_LOCK_WAIT_S = 0.1  # 必须小于 estimated_latency_ms / 1000(外层还有工具超时)
+_REGULATOR_LOCK_WAIT_S = 0.1  # 必须小于该工具 timeout_seconds（外层还有工具超时）
 
 
 async def _acquire_regulator_lock() -> dict | None:
@@ -113,7 +113,7 @@ def set_llm(llm: LLMClient | None) -> None:
         name="extract_transactions",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=100,
+        timeout_seconds=100 / 1_000,
         domain="compliance",
     )
 )
@@ -158,7 +158,7 @@ _ENTITIES = {
         name="flag_suspicious",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=50,
+        timeout_seconds=50 / 1_000,
         domain="compliance",
     )
 )
@@ -189,7 +189,7 @@ async def flag_suspicious(transactions: Any = None, **kwargs: Any) -> dict[str, 
         name="enrich_entity",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=50,
+        timeout_seconds=50 / 1_000,
         domain="compliance",
     )
 )
@@ -223,7 +223,7 @@ async def enrich_entity(transactions: Any = None, **kwargs: Any) -> dict[str, An
         name="submit_to_regulator",
         is_readonly=False,
         side_effect_level=SideEffectLevel.HIGH,
-        estimated_latency_ms=200,
+        timeout_seconds=200 / 1_000,
         domain="compliance",
         resource_id="regulator-portal",
         enforced_idempotent=True,
@@ -253,18 +253,16 @@ async def submit_to_regulator(
     try:
         # 从多种输入格式中提取 tx_id 列表
         tx_ids: list[str] = []
-        if suspicious_tx_ids:
-            if isinstance(suspicious_tx_ids, list):
-                for item in suspicious_tx_ids:
-                    if isinstance(item, str):
-                        tx_ids.append(item)
-                    elif isinstance(item, dict):
-                        tx_ids.append(str(item.get("tx_id", item)))
-        if not tx_ids and flagged:
-            if isinstance(flagged, list):
-                for item in flagged:
-                    if isinstance(item, dict):
-                        tx_ids.append(str(item.get("tx_id", "")))
+        if suspicious_tx_ids and isinstance(suspicious_tx_ids, list):
+            for item in suspicious_tx_ids:
+                if isinstance(item, str):
+                    tx_ids.append(item)
+                elif isinstance(item, dict):
+                    tx_ids.append(str(item.get("tx_id", item)))
+        if not tx_ids and flagged and isinstance(flagged, list):
+            for item in flagged:
+                if isinstance(item, dict):
+                    tx_ids.append(str(item.get("tx_id", "")))
 
         # sar_summary 可能是 str、dict（模板引用了整个上游输出）或其他类型，统一转字符串
         if sar_summary and not isinstance(sar_summary, str):
@@ -299,7 +297,7 @@ async def submit_to_regulator(
         name="draft_sar_for_review",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=100,
+        timeout_seconds=100 / 1_000,
         domain="compliance",
     )
 )

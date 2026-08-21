@@ -84,7 +84,7 @@ class Slot(StrEnum):
     """User injection point after admission; built-in trim/projection lives here."""
 
     GATE = "gate"
-    """Security veto — ``CheckPoint.AGENT_HANDOFF``; no-op without checkers."""
+    """Security veto — ``Gate.AGENT_HANDOFF``; no-op without checkers."""
 
     AUDIT = "audit"
     """Fire-only lifecycle events — last, so it sees what actually crossed."""
@@ -146,7 +146,7 @@ class Pipeline:
                     return Delivery("duplicate", current, dup.reason, "dedupe")
                 except CrossingRejected as rejection:
                     if self._dead_letter is not None:
-                        self._dead_letter.on_failure(
+                        await self._dead_letter.on_failure(
                             current.message_id,
                             _dead_letter_payload(current),
                             rejection.reason,

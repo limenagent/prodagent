@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 
-from prodagent import Agent, ExecutionMode
+from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.core.config import FrameworkConfig
 from prodagent.evaluation.skills.registry import SkillRegistry
 from prodagent.hooks.events import HookEvent
@@ -33,10 +33,13 @@ def test_skills_ready_does_not_fire_without_registry():
     agent = Agent(
         name="no-skills",
         system_prompt="x",
-        llm=script({"content": "ok"}),
-        framework=FrameworkConfig(),
         mode=ExecutionMode.REACTIVE,
-        hooks=hooks,
+        config=AgentConfig(
+            name="no-skills",
+            llm=script({"content": "ok"}),
+            framework=FrameworkConfig(),
+            hooks=hooks,
+        ),
     )
     _run_one_turn(agent)
     assert fired == []
@@ -54,11 +57,14 @@ def test_skills_ready_fires_with_empty_registry():
     agent = Agent(
         name="empty-skills",
         system_prompt="x",
-        llm=script({"content": "ok"}),
-        framework=FrameworkConfig(),
         mode=ExecutionMode.REACTIVE,
-        skills=SkillRegistry(),
-        hooks=hooks,
+        config=AgentConfig(
+            name="empty-skills",
+            llm=script({"content": "ok"}),
+            framework=FrameworkConfig(),
+            skills=SkillRegistry(),
+            hooks=hooks,
+        ),
     )
     _run_one_turn(agent)
     assert len(fired) == 1

@@ -8,12 +8,16 @@ from typing import TYPE_CHECKING, Any
 from prodagent.core.types import ExecutionMode
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from prodagent.cognition.context.spill import ToolResultSpillStore
     from prodagent.cognition.memory.manager import MemoryProvider
     from prodagent.core.budget import HardBudget
     from prodagent.core.config import FrameworkConfig
     from prodagent.evaluation.skills.registry import SkillRegistry
     from prodagent.guardrail.approval.gate import ApprovalProvider
+    from prodagent.hooks.events import HookEvent
+    from prodagent.hooks.gates import Gate, InjectionPoint
     from prodagent.hooks.registry import HookRegistry
     from prodagent.llm.base import LLMClient
     from prodagent.mcp.config import MCPServerConfig
@@ -54,7 +58,7 @@ class AgentConfig:
     approval: ApprovalProvider | None = None
     memory: MemoryProvider | None = None
 
-    injectors: list[tuple[Any, Any]] = field(default_factory=list)
-    checkers: list[tuple[Any, Any]] = field(default_factory=list)
-    event_handlers: list[tuple[Any, Any]] = field(default_factory=list)
+    injectors: list[tuple[InjectionPoint, Callable[..., Any]]] = field(default_factory=list)
+    checkers: list[tuple[Gate, Callable[..., Any]]] = field(default_factory=list)
+    event_handlers: list[tuple[HookEvent, Callable[..., Any]]] = field(default_factory=list)
     extensions: list[object] = field(default_factory=list)

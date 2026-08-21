@@ -11,7 +11,7 @@ from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspende
 from prodagent.core.exceptions import SuspendPendingApproval
 from prodagent.core.types import LLMResponse
 from prodagent.hooks import HookRegistry
-from prodagent.hooks.checkpoint import BlockingResult, CheckPoint
+from prodagent.hooks.gates import BlockingResult, Gate
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.plan.executor import PlanExecutor
 
@@ -67,7 +67,7 @@ async def _suspend_plan(*, plan_id, **__) -> BlockingResult:
 def _executor_with_checker(checker, tmp_path):
     events, checkpoints = _stores(tmp_path)
     hooks = HookRegistry()
-    hooks.register_checker(CheckPoint.PLAN_APPROVAL, checker, priority=100)
+    hooks.register_checker(Gate.PLAN_APPROVAL, checker, priority=100)
     return PlanExecutor(
         _plan_llm(_basic_plan()),
         _noop_executor,
@@ -139,7 +139,7 @@ async def test_plan_suspend_resume_via_pending_approval_id(tmp_path):
             return BlockingResult(blocked=False)
         raise SuspendPendingApproval(f"plan {plan_id} suspended", tool="plan", request_id="req-1")
 
-    hooks.register_checker(CheckPoint.PLAN_APPROVAL, checker, priority=100)
+    hooks.register_checker(Gate.PLAN_APPROVAL, checker, priority=100)
     planner = PlanExecutor(
         _plan_llm(_basic_plan()),
         _noop_executor,

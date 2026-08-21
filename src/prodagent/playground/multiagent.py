@@ -323,9 +323,10 @@ def _jsonable(obj: Any) -> Any:
     if hasattr(obj, "model_dump") and callable(obj.model_dump):
         try:
             return _jsonable(obj.model_dump(mode="json"))
-        except Exception:
+        except Exception:  # noqa: BLE001 — serialization falls back to repr
             logger.warning(
                 "[multiagent] model_dump() failed for %r; falling back to repr",
                 type(obj).__name__,
+                exc_info=True,
             )
     return repr(obj)

@@ -53,6 +53,16 @@ class LLMConfig:
             from prodagent.llm.providers import detect_default_model
 
             self.model = detect_default_model()
+        if self.cost_per_million_input == 0.0 and self.cost_per_million_output == 0.0:
+            # Rates left unset — fill from the convenience catalog so the cost
+            # axis of HardBudget is live by default. Explicit rates always win;
+            # unknown models price at zero (FakeLLM included).
+            from prodagent.resilience.cost.pricing import pricing_for_model
+
+            table = pricing_for_model(self.model)
+            if table is not None:
+                self.cost_per_million_input = table.input_rate_per_million
+                self.cost_per_million_output = table.output_rate_per_million
 
     def cost_for_response(self, response: LLMResponse) -> float:
         from prodagent.resilience.cost.pricing import PricingTable, token_cost_usd

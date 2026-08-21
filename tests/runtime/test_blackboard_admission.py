@@ -4,7 +4,7 @@ bounded."""
 
 from __future__ import annotations
 
-from prodagent.hooks.checkpoint import BlockingResult, CheckPoint
+from prodagent.hooks.gates import BlockingResult, Gate
 from prodagent.hooks.registry import HookRegistry
 from prodagent.runtime.coordination.blackboard import (
     BlackboardSpec,
@@ -86,7 +86,7 @@ async def test_gate_veto_skips_write():
             return BlockingResult(blocked=True, reason="poisoned write")
         return BlockingResult(blocked=False)
 
-    registry.register_checker(CheckPoint.AGENT_HANDOFF, veto)
+    registry.register_checker(Gate.AGENT_HANDOFF, veto)
     poisoned = _OnceMember(
         "bad", BoardWrite(key="state", value="poison: rm -rf everything", author="bad")
     )
@@ -106,9 +106,9 @@ async def test_version_conflict_isolates_loser_board_survives():
             super().__init__(max_retries=3)
             self.calls: list[tuple[str, str]] = []
 
-        def on_failure(self, message_id, payload, error):
+        async def on_failure(self, message_id, payload, error):
             self.calls.append((message_id, error))
-            return super().on_failure(message_id, payload, error)
+            return await super().on_failure(message_id, payload, error)
 
     dlq = _SpyDLQ()
 

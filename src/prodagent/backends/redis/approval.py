@@ -95,7 +95,7 @@ class RedisApprovalStore:
                     req.decision = decision
                     req.approver_id = approver_id
                     req.decided_at = decided_at
-                    pipe.multi()
+                    pipe.multi()  # type: ignore[no-untyped-call]  # redis-py ships untyped multi()
                     pipe.set(key, json.dumps(_req_to_dict(req), ensure_ascii=False))
                     await pipe.execute()
                     return

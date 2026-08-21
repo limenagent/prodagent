@@ -1,4 +1,4 @@
-.PHONY: lint test test-cov clean clean-data playground playground-prod config services-up services-down services-logs
+.PHONY: lint test test-cov clean clean-data playground playground-prod config services-up services-down services-logs docs
 
 # Auto-install uv if missing. uv manages Python too, so no separate Python install.
 # Sourced as a target so every entry point gets the guarantee for free.
@@ -11,7 +11,7 @@ _ensure_uv:
 
 playground: _ensure_uv
 	@export PATH="$$HOME/.local/bin:$$PATH"; \
-	uv sync; \
+	uv sync --extra playground; \
 	if [ ! -f .env ]; then \
 		echo "First run — configuring LLM vendor (writing .env)"; \
 		$(MAKE) config; \
@@ -70,6 +70,12 @@ config: _ensure_uv
 	@export PATH="$$HOME/.local/bin:$$PATH"; \
 	uv run python -m prodagent.playground.config_init
 
+docs: _ensure_uv
+	@export PATH="$$HOME/.local/bin:$$PATH"; \
+	uv sync --extra dev --extra docs; \
+	echo "Docs dev server — http://127.0.0.1:8000"; \
+	uv run mkdocs serve
+
 lint: _ensure_uv
 	@export PATH="$$HOME/.local/bin:$$PATH"; \
 	uv sync --extra dev; \
@@ -85,12 +91,12 @@ format: _ensure_uv
 
 test: _ensure_uv
 	@export PATH="$$HOME/.local/bin:$$PATH"; \
-	uv sync --extra testing; \
+	uv sync --extra dev; \
 	uv run pytest tests/ -x -q
 
 test-cov: _ensure_uv
 	@export PATH="$$HOME/.local/bin:$$PATH"; \
-	uv sync --extra testing; \
+	uv sync --extra dev; \
 	uv run pytest tests/ --cov=prodagent --cov-report=term-missing --cov-report=html
 
 clean:

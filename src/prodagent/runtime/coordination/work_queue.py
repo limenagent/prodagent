@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
-from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
+from prodagent.bootstrap import in_memory_dead_letter_queue
 from prodagent.core.event_log import Event
 from prodagent.runtime.coordination._stage import StageDriver
 from prodagent.runtime.coordination._store import RoundedLockableStore
@@ -152,6 +152,10 @@ class SharedQueue(RoundedLockableStore):
         self._pending: deque[WorkItem] = deque(items)
         self._claimed: dict[str, _ClaimInfo] = {}
         self._completed: list[str] = []
+        # Local mirror of dead-lettered item ids — fail() is the only path that
+        # dead-letters, so this count is authoritative without a store round-trip
+        # per snapshot()/fingerprint() (the driver polls both every round).
+        self._dead_lettered: list[str] = []
         self._dead_letter = dead_letter
         self._lease_seconds = lease_seconds
         self._resolution_count = 0
@@ -201,9 +205,11 @@ class SharedQueue(RoundedLockableStore):
                 raise KeyError(f"fail() on unclaimed item {item_id!r}")
             item = claim.item
             item.attempts += 1
-            outcome = self._dead_letter.on_failure(item_id, {"payload": item.payload}, error)
+            outcome = await self._dead_letter.on_failure(item_id, {"payload": item.payload}, error)
             if outcome == "retry":
                 self._pending.append(item)
+            else:
+                self._dead_lettered.append(item_id)
             self._resolution_count += 1
             if outcome == "dead_letter":
                 await self._record(
@@ -225,15 +231,17 @@ class SharedQueue(RoundedLockableStore):
     def is_drained(self) -> bool:
         return not self._pending and not self._claimed
 
-    def dead_letters(self) -> list[dict[str, Any]]:
-        return self._dead_letter.dead_letters()
+    async def dead_letters(self) -> list[dict[str, Any]]:
+        """Full dead-letter records from the store — an operator console read,
+        not something the round loop should poll (snapshot() carries the count)."""
+        return await self._dead_letter.dead_letters()
 
     def snapshot(self) -> dict[str, Any]:
         return {
             "pending": len(self._pending),
             "claimed": len(self._claimed),
             "completed": len(self._completed),
-            "dead_lettered": len(self._dead_letter.dead_letters()),
+            "dead_lettered": len(self._dead_lettered),
             "round_count": self._round_count,
             "elapsed_s": time.monotonic() - self.started_at,
         }
@@ -259,7 +267,7 @@ class SharedQueue(RoundedLockableStore):
             len(self._pending),
             len(self._claimed),
             len(self._completed),
-            len(self._dead_letter.dead_letters()),
+            len(self._dead_lettered),
             self._resolution_count,
         )
 
@@ -302,7 +310,9 @@ class SharedQueue(RoundedLockableStore):
         Note: the in-memory ``DeadLetterStore`` is not itself event-sourced, so
         items dead-lettered before the crash are correctly absent from
         pending/claimed/completed but don't repopulate ``dead_letters()`` — full
-        dead-letter durability is a follow-on (event-source that store too)."""
+        dead-letter durability is a follow-on (event-source that store too). The
+        local ``_dead_lettered`` count *is* rebuilt from the event log, so
+        snapshot()/fingerprint() stay crash-accurate."""
         events = await event_log.get_events(run_id)
         state: dict[str, Any] = {
             "pending": {},
@@ -323,6 +333,7 @@ class SharedQueue(RoundedLockableStore):
         queue._pending = deque(state["pending"].values())
         queue._claimed = state["claimed"]
         queue._completed = state["completed"]
+        queue._dead_lettered = state["dead_lettered"]
         queue._resolution_count = state["resolutions"]
         queue._last_seq = events[-1].seq if events else 0
         return queue
@@ -363,7 +374,7 @@ class WorkQueueSpec:
     workers: dict[str, Worker]
     items: list[WorkItem]
     lease_seconds: float = 30.0
-    dead_letter: DeadLetterStore = field(default_factory=InMemoryDeadLetterQueue)
+    dead_letter: DeadLetterStore = field(default_factory=in_memory_dead_letter_queue)
     termination: TerminationPolicy = field(
         default_factory=lambda: TerminationPolicy(hard_cap=MaxRounds(max_rounds=100))
     )

@@ -175,19 +175,19 @@ async def test_redis_lock_nonblocking_tryacquire_conformance(async_client, clean
 # ── dead_letter (sync) ────────────────────────────────────────────────────────
 
 
-def test_redis_dead_letter_conformance(sync_client, clean_sync):
-    run_dead_letter_conformance(
+async def test_redis_dead_letter_conformance(sync_client, clean_sync):
+    await run_dead_letter_conformance(
         lambda: RedisDeadLetterQueue(sync_client, namespace=clean_sync, max_retries=3)
     )
 
 
-def test_redis_dead_letter_escalation_conformance(sync_client, clean_sync):
-    run_dead_letter_escalation_conformance(
+async def test_redis_dead_letter_escalation_conformance(sync_client, clean_sync):
+    await run_dead_letter_escalation_conformance(
         lambda: RedisDeadLetterQueue(sync_client, namespace=clean_sync, max_retries=3)
     )
 
 
-def test_redis_dead_letter_message_isolation_conformance(sync_client, clean_sync):
-    run_dead_letter_message_isolation_conformance(
+async def test_redis_dead_letter_message_isolation_conformance(sync_client, clean_sync):
+    await run_dead_letter_message_isolation_conformance(
         lambda: RedisDeadLetterQueue(sync_client, namespace=clean_sync, max_retries=3)
     )

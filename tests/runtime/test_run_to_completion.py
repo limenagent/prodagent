@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from prodagent import Agent, ExecutionMode, RunState, SideEffectLevel, ToolMeta
+from prodagent import Agent, AgentConfig, ExecutionMode, RunState, SideEffectLevel, ToolMeta
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.guardrail.approval import ApprovalGate
 from prodagent.hooks.bundles.security import ApprovalHooks
@@ -24,11 +24,14 @@ def _high_tool_agent(llm, gate: ApprovalGate, *, store) -> Agent:
         name="ops",
         system_prompt="Restart the pod.",
         tools=[restart_pod],
-        llm=llm,
-        hooks=HookRegistry(),
-        checkpoint=store,
         mode=ExecutionMode.REACTIVE,
-        extensions=[ApprovalHooks(gate=gate)],
+        config=AgentConfig(
+            name="ops",
+            llm=llm,
+            hooks=HookRegistry(),
+            checkpoint=store,
+            extensions=[ApprovalHooks(gate=gate)],
+        ),
     )
 
 

@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from prodagent.backends.factory import resolve_checkpoint, resolve_event_log
+from prodagent.bootstrap import resolve_checkpoint, resolve_event_log
 from prodagent.core.event_log import (
     Event,
     PlanEventType,
@@ -94,14 +94,31 @@ class PlanEventLog:
             run.checkpoint_version = max(run.checkpoint_version, stored.checkpoint_version)
 
     async def restore_plan(self, run: AgentRun) -> dict[str, Any]:
-        """Restores ``pending_approval_id`` so a plan suspended for HITL can resume through the approval gate."""
+        """Restores the checkpointed run so a resumed plan continues the SAME
+        logical execution — not a fresh one that happens to share the run_id.
+
+        Beyond ``pending_approval_id`` (the HITL gate), the trajectory and the
+        accounting carry forward: zeroing ``tool_history`` / ``metrics`` on
+        resume masks cost and turn regressions in evals, and resetting
+        ``idempotency_seq`` would re-derive keys already consumed before the
+        suspend (INV-IDEM-03: anchors roll back WITH the checkpoint).
+        """
         state, ckpt_version, last_seq = await hybrid_restore(
             run.run_id, self._events, self._checkpoints, apply_event
         )
         run.checkpoint_version = max(run.checkpoint_version, ckpt_version)
         run.plan_last_seq = max(run.plan_last_seq, last_seq)
         stored = await self._checkpoints.load(run.run_id)
-        if stored is not None and stored.pending_approval_id:
+        if stored is None:
+            return state
+        run.metrics = stored.metrics
+        run.start_time = stored.start_time
+        run.tool_history = list(stored.tool_history)
+        run.tool_failures = stored.tool_failures
+        run.retry_counter = dict(stored.retry_counter)
+        run.fingerprints = list(stored.fingerprints)
+        run.idempotency_seq = stored.idempotency_seq
+        if stored.pending_approval_id:
             run.pending_approval_id = stored.pending_approval_id
         return state
 

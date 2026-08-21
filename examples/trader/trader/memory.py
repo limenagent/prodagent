@@ -6,8 +6,7 @@
 
 from __future__ import annotations
 
-from prodagent.cognition.memory import MemoryManager, build_memory_manager
-from prodagent.core.config import FrameworkConfig
+from prodagent import FrameworkConfig, MemoryManager, build_memory_manager
 
 _CONSTRAINTS = [
     "预算上限 200 元,任何订单总价不得超过 200 元。",

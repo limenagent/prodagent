@@ -65,7 +65,7 @@ def _fake_restaurant(i: int) -> dict[str, Any]:
         name="search_restaurant",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=150,
+        timeout_seconds=150 / 1_000,
         domain="dating",
     )
 )
@@ -124,7 +124,7 @@ _GENERIC_DETAIL_REVIEWS = [
         name="check_restaurant_reviews",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=150,
+        timeout_seconds=150 / 1_000,
         domain="dating",
     )
 )

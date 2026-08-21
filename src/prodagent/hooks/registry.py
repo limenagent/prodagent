@@ -9,8 +9,8 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from prodagent.hooks.checkpoint import BlockingResult, CheckPoint, FailurePolicy, InjectionPoint
 from prodagent.hooks.events import HookEvent
+from prodagent.hooks.gates import BlockingResult, FailurePolicy, Gate, InjectionPoint
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +46,7 @@ class HookRegistry:
         self._event_handlers: dict[HookEvent, list[tuple[int, EventHandler]]] = {
             e: [] for e in HookEvent
         }
-        self._check_handlers: dict[CheckPoint, list[tuple[int, CheckHandler]]] = {
-            c: [] for c in CheckPoint
-        }
+        self._check_handlers: dict[Gate, list[tuple[int, CheckHandler]]] = {c: [] for c in Gate}
         self._injectors: dict[InjectionPoint, list[tuple[int, InjectorHandler]]] = {
             p: [] for p in InjectionPoint
         }
@@ -68,9 +66,7 @@ class HookRegistry:
         for event in HookEvent:
             self._insert(self._event_handlers[event], priority, wrapped)
 
-    def register_checker(
-        self, point: CheckPoint, checker: CheckHandler, *, priority: int = 0
-    ) -> None:
+    def register_checker(self, point: Gate, checker: CheckHandler, *, priority: int = 0) -> None:
         self._insert(self._check_handlers[point], priority, _ensure_async(checker))
 
     def register_injector(
@@ -183,7 +179,7 @@ class HookRegistry:
         handlers = self._handlers_for(self._event_handlers[event])
         await self._dispatch_event(handlers, payload, event.value)
 
-    async def check_blocking(self, point: CheckPoint, **data: Any) -> BlockingResult:
+    async def check_blocking(self, point: Gate, **data: Any) -> BlockingResult:
         handlers = self._handlers_for(self._check_handlers[point])
         if not handlers:
             return BlockingResult(blocked=False)
@@ -253,7 +249,7 @@ class HookRegistry:
         handlers = self._handlers_for(self._event_handlers[HookEvent.INJECTION_FAILED])
         await self._dispatch_event(handlers, payload, HookEvent.INJECTION_FAILED.value)
 
-    def has_check_handlers(self, point: CheckPoint) -> bool:
+    def has_check_handlers(self, point: Gate) -> bool:
         return bool(self._check_handlers[point])
 
     def has_injector_handlers(self, point: InjectionPoint) -> bool:

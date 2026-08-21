@@ -22,7 +22,7 @@ class InMemoryDeadLetterQueue:
         self._timestamps: dict[str, float] = {}
         self._last_cleanup = time.monotonic()
 
-    def on_failure(
+    async def on_failure(
         self, message_id: str, payload: dict[str, Any], error: str
     ) -> Literal["dead_letter", "retry"]:
         self._maybe_cleanup()
@@ -48,7 +48,7 @@ class InMemoryDeadLetterQueue:
         )
         return "retry"
 
-    def dead_letters(self) -> list[dict[str, Any]]:
+    async def dead_letters(self) -> list[dict[str, Any]]:
         return list(self._dead.values())
 
     def _maybe_cleanup(self) -> None:

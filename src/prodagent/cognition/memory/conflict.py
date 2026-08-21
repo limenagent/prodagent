@@ -52,13 +52,13 @@ class EmbeddingCandidateFilter:
         self._top_k = top_k
         self._min_cosine = min_cosine
 
-    def candidates(self, new_mem: StoredMemory, store: DocumentStore) -> list[StoredMemory]:
+    async def candidates(self, new_mem: StoredMemory, store: DocumentStore) -> list[StoredMemory]:
         query_vec = (
             new_mem.embedding
             if new_mem.embedding is not None
             else self._embedder.embed(new_mem.content)
         )
-        pool = [m for m in store.load_memories() if m.memory_type == new_mem.memory_type]
+        pool = [m for m in await store.load_memories() if m.memory_type == new_mem.memory_type]
         scored = top_k_by_cosine(
             query_vec,
             pool,
@@ -237,8 +237,8 @@ class SupersedeAction:
     def __init__(self, store: DocumentStore) -> None:
         self._store = store
 
-    def resolve(self, winner: StoredMemory, loser: StoredMemory, reason: str) -> None:
-        self._store.mark_superseded(loser.id, True)
+    async def resolve(self, winner: StoredMemory, loser: StoredMemory, reason: str) -> None:
+        await self._store.mark_superseded(loser.id, True)
         logger.info(
             "[memory] supersede: %s superseded by %s (%s)",
             loser.id,
@@ -275,7 +275,7 @@ class ConflictPipeline:
             created_at=now_timestamp(),
         )
 
-        candidates = self._filter.candidates(transient, store)
+        candidates = await self._filter.candidates(transient, store)
         if not candidates:
             return False
 
@@ -291,5 +291,5 @@ class ConflictPipeline:
                     verdict.reason,
                 )
                 continue
-            self._action.resolve(verdict.winner, verdict.loser, verdict.reason)
+            await self._action.resolve(verdict.winner, verdict.loser, verdict.reason)
         return new_mem_discarded

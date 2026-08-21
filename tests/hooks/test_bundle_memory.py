@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent import Agent, ExecutionMode
+from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.backends.file import FileDocumentStore, FileGraphStore
 from prodagent.cognition.memory.manager import MemoryManager
 from prodagent.cognition.memory.storage import (
@@ -13,7 +13,7 @@ from prodagent.core.exceptions import PromptInjectionDetected
 from prodagent.guardrail.injection import GuardrailPipeline, KnowledgeBaseWriteGuard
 from prodagent.hooks.bundles.memory import MemoryHooks
 from prodagent.hooks.bundles.security import InjectionDefenseHooks
-from prodagent.hooks.checkpoint import InjectionPoint
+from prodagent.hooks.gates import InjectionPoint
 from prodagent.hooks.registry import HookEvent, HookRegistry
 from prodagent.llm.fake import script
 
@@ -31,11 +31,14 @@ class _Store:
 
 def _agent() -> Agent:
     return Agent(
-        name="mem-bundle",
+        "mem-bundle",
         system_prompt="verify",
-        llm=script({"content": "ok"}),
-        hooks=HookRegistry(),
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(
+            name="mem-bundle",
+            llm=script({"content": "ok"}),
+            hooks=HookRegistry(),
+        ),
     )
 
 
@@ -72,12 +75,15 @@ async def test_memory_hooks_wires_only_defined_methods():
 async def test_memory_hooks_plugs_in_via_extend():
     manager = _Store()
     agent = Agent(
-        name="mem-bundle",
+        "mem-bundle",
         system_prompt="verify",
-        llm=script({"content": "ok"}),
-        hooks=HookRegistry(),
         mode=ExecutionMode.REACTIVE,
-        extensions=[MemoryHooks(manager)],
+        config=AgentConfig(
+            name="mem-bundle",
+            llm=script({"content": "ok"}),
+            hooks=HookRegistry(),
+            extensions=[MemoryHooks(manager)],
+        ),
     )
 
     hooks = agent.attach_default_hooks()
@@ -144,7 +150,7 @@ async def test_document_add_guard_blocks_poisoned_memory(tmp_path):
     with pytest.raises(PromptInjectionDetected):
         await mgr.add_memory(poisoned)
 
-    assert mgr._documents.load_memories() == []
+    assert await mgr._documents.load_memories() == []
 
 
 async def test_document_add_guard_passes_clean_memory(tmp_path):
@@ -160,7 +166,7 @@ async def test_document_add_guard_passes_clean_memory(tmp_path):
         memory_type=MemoryType.PREFERENCE,
     )
     await mgr.add_memory(clean)
-    stored = mgr._documents.load_memories()
+    stored = await mgr._documents.load_memories()
     assert len(stored) == 1
     assert stored[0].content == "user prefers dark mode"
 
@@ -171,7 +177,7 @@ async def test_document_add_guard_no_hooks_writes_unchanged(tmp_path):
 
     record = MemoryRecord(content="benign content", memory_type=MemoryType.PREFERENCE)
     await mgr.add_memory(record)
-    assert len(mgr._documents.load_memories()) == 1
+    assert len(await mgr._documents.load_memories()) == 1
 
 
 async def test_classify_runs_on_peer_continuation(tmp_path):
@@ -227,7 +233,7 @@ async def test_classify_runs_on_peer_continuation(tmp_path):
 
     await hooks.fire(HookEvent.SESSION_END, run=peer_run, run_id=peer_run.run_id, state="completed")
 
-    stored = mgr._documents.load_memories()
+    stored = await mgr._documents.load_memories()
     assert len(stored) == 1, "peer continuation must trigger classify (not skip as a child)"
 
 
@@ -280,25 +286,25 @@ async def test_classify_skips_spawn_child(tmp_path):
         HookEvent.SESSION_END, run=child_run, run_id=child_run.run_id, state="completed"
     )
 
-    stored = mgr._documents.load_memories()
+    stored = await mgr._documents.load_memories()
     assert len(stored) == 0, "spawn child must be skipped"
 
 
 async def test_default_wiring_registers_no_injection_checkers():
     """Injection defence is opt-in — the default bundles must not scan anything."""
-    from prodagent.hooks.checkpoint import CheckPoint
+    from prodagent.hooks.gates import Gate
 
     agent = Agent(
-        name="default-wiring",
+        "default-wiring",
         system_prompt="verify",
-        llm=script({"content": "ok"}),
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(name="default-wiring", llm=script({"content": "ok"})),
     )
     hooks = agent.attach_default_hooks()
     assert hooks is not None
-    assert not hooks.has_check_handlers(CheckPoint.SESSION_START)
-    assert not hooks.has_check_handlers(CheckPoint.CONTEXT_BUILD)
-    assert not hooks.has_check_handlers(CheckPoint.TOOL_CALL)
-    assert not hooks.has_check_handlers(CheckPoint.TOOL_RESULT)
-    assert not hooks.has_check_handlers(CheckPoint.RUN_COMPLETE)
+    assert not hooks.has_check_handlers(Gate.SESSION_START)
+    assert not hooks.has_check_handlers(Gate.CONTEXT_BUILD)
+    assert not hooks.has_check_handlers(Gate.TOOL_CALL)
+    assert not hooks.has_check_handlers(Gate.TOOL_RESULT)
+    assert not hooks.has_check_handlers(Gate.RUN_COMPLETE)
     assert not any(type(ext).__name__ == "InjectionDefenseHooks" for ext in agent.config.extensions)

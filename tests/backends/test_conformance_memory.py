@@ -116,16 +116,16 @@ async def test_memory_lock_nonblocking_tryacquire_conformance():
 # ── dead_letter ───────────────────────────────────────────────────────────────
 
 
-def test_memory_dead_letter_conformance():
-    run_dead_letter_conformance(_mem_dead_letter())
+async def test_memory_dead_letter_conformance():
+    await run_dead_letter_conformance(_mem_dead_letter())
 
 
-def test_memory_dead_letter_escalation_conformance():
-    run_dead_letter_escalation_conformance(_mem_dead_letter())
+async def test_memory_dead_letter_escalation_conformance():
+    await run_dead_letter_escalation_conformance(_mem_dead_letter())
 
 
-def test_memory_dead_letter_message_isolation_conformance():
-    run_dead_letter_message_isolation_conformance(_mem_dead_letter())
+async def test_memory_dead_letter_message_isolation_conformance():
+    await run_dead_letter_message_isolation_conformance(_mem_dead_letter())
 
 
 # ── graph ─────────────────────────────────────────────────────────────────────

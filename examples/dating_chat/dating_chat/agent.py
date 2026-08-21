@@ -28,8 +28,7 @@ import dataclasses
 import os
 from typing import TYPE_CHECKING
 
-from prodagent import Agent
-from prodagent.core.config import ContextConfig, FrameworkConfig
+from prodagent import Agent, AgentConfig, ContextConfig, FrameworkConfig
 from prodagent.core.types import ExecutionMode
 from prodagent.hooks.bundles.memory import MemoryHooks
 from prodagent.runtime.coordination.ensemble import AgentFloorMember
@@ -42,7 +41,7 @@ from dating_chat.tools import check_restaurant_reviews
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from prodagent.cognition.memory import MemoryManager
+    from prodagent import MemoryManager
 
 _CONTEXT_CONFIG = ContextConfig(max_tokens=6000)
 
@@ -72,10 +71,13 @@ def build_dating_chat_agent(
         "mei",
         system_prompt=MEI_SYSTEM_PROMPT,
         tools=[check_restaurant_reviews],
-        llm=llm,
-        framework=fw,
         mode=ExecutionMode.REACTIVE,
-        extensions=[MemoryHooks(resolved_memory)],
+        config=AgentConfig(
+            name="mei",
+            llm=llm,
+            framework=fw,
+            extensions=[MemoryHooks(resolved_memory)],
+        ),
     )
 
 

@@ -113,7 +113,7 @@ def _make_tool(
         is_readonly=is_readonly,
         side_effect_level=level,
         domain=f"mcp:{info.server_name}",
-        estimated_latency_ms=float(timeout_ms),
+        timeout_seconds=timeout_ms / 1_000,
     )
     schema = info.to_anthropic_schema()
     schema["name"] = qname

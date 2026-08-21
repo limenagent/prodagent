@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING, Any
 
 from prodagent.core.exceptions import SuspendPendingApproval
 from prodagent.core.types import SKILL_INJECTION_KEY, ToolCall, ToolOutcome, ToolResult
-from prodagent.hooks.checkpoint import CheckPoint
 from prodagent.hooks.events import HookEvent
+from prodagent.hooks.gates import Gate
 
 if TYPE_CHECKING:
     from prodagent.core.types import ToolMeta
@@ -95,7 +95,7 @@ class SkillResolver:
 
         Returns ``None`` if approved, otherwise a SUSPENDED/BLOCKED result.
         """
-        if not self._hooks or not self._hooks.has_check_handlers(CheckPoint.APPROVAL_REQUEST):
+        if not self._hooks or not self._hooks.has_check_handlers(Gate.APPROVAL_REQUEST):
             return ToolResult.suspended(
                 reason=f"Tool '{call.name}' requires human approval before execution",
                 tool=call.name,
@@ -104,7 +104,7 @@ class SkillResolver:
         run_id = self._agent_id
         try:
             approval = await self._hooks.check_blocking(
-                CheckPoint.APPROVAL_REQUEST,
+                Gate.APPROVAL_REQUEST,
                 name=call.name,
                 params=call.params,
                 side_effect_level=meta.side_effect_level.value,

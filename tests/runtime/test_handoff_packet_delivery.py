@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from prodagent import Agent, ExecutionMode
+from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.core.types import LLMResponse, SideEffectLevel, ToolMeta
 from prodagent.llm.fake import script
 from prodagent.ports.llm import LLMClient
@@ -67,8 +67,8 @@ def _child_with_tools(tool_names: list[str]) -> Agent:
         "worker",
         system_prompt="do the work",
         tools=tools,
-        description="worker",
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(name="worker", description="worker"),
     )
 
 

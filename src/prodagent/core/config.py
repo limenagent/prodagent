@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, get_args, get_type_hints
 
 
 @dataclass
@@ -130,6 +130,7 @@ class FrameworkConfig:
     orchestration: OrchestrationConfig = field(default_factory=OrchestrationConfig)
     backend: BackendConfig = field(default_factory=BackendConfig)
     summary_model: str = ""
+    console_observer: bool = False
 
     @classmethod
     def default(cls) -> FrameworkConfig:
@@ -145,16 +146,58 @@ class FrameworkConfig:
         ``PRODAGENT_BACKEND_<KIND>`` when you want a mix.
         """
         fw = cls.default()
-        if os.getenv("PRODAGENT_BACKEND", "").lower() != "prod":
-            _apply_conn_env(fw.backend)
-            return fw
+        fw.console_observer = os.getenv("PRODAGENT_CONSOLE", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        if os.getenv("PRODAGENT_BACKEND", "").lower() == "prod":
+            for field_name, prod_default in _PROD_BACKEND_DEFAULTS.items():
+                setattr(fw.backend, field_name, prod_default)
 
-        for field_name, prod_default in _PROD_BACKEND_DEFAULTS.items():
+        # Per-backend overrides apply in both modes — an explicitly set env var
+        # is user intent, not a suggestion to ignore without a word.
+        for field_name in _BACKEND_KIND_FIELDS:
             env_name = f"PRODAGENT_BACKEND_{field_name.upper()}"
-            setattr(fw.backend, field_name, os.getenv(env_name, prod_default))
+            raw = os.getenv(env_name)
+            if raw is not None:
+                _set_backend_kind(fw.backend, field_name, raw)
         _apply_conn_env(fw.backend)
         return fw
 
+
+def _backend_allowed_values(field_name: str) -> tuple[str, ...]:
+    """Legal values for a BackendConfig Literal field, extracted from its annotation."""
+    anno = get_type_hints(BackendConfig)[field_name]
+    return get_args(anno)
+
+
+def _set_backend_kind(backend: BackendConfig, field_name: str, raw: str) -> None:
+    """Validate + assign a backend-kind env value — fail fast on typos instead
+    of deferring the surprise to the first factory lookup."""
+    allowed = _backend_allowed_values(field_name)
+    if raw not in allowed:
+        raise ValueError(
+            f"PRODAGENT_BACKEND_{field_name.upper()}={raw!r} is not a valid backend. "
+            f"Allowed: {', '.join(allowed)}"
+        )
+    setattr(backend, field_name, raw)
+
+
+_BACKEND_KIND_FIELDS: tuple[str, ...] = (
+    "document",
+    "checkpoint",
+    "event_log",
+    "span",
+    "experience",
+    "session",
+    "cache",
+    "lock",
+    "approval",
+    "dead_letter",
+    "graph",
+    "vector",
+)
 
 _PROD_BACKEND_DEFAULTS: dict[str, str] = {
     "document": "postgres",

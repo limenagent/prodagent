@@ -7,8 +7,8 @@ import pytest
 
 from prodagent.core.exceptions import SecurityViolation
 from prodagent.guardrail.injection.trust_chain import validate_handoff_security
-from prodagent.hooks.checkpoint import BlockingResult, CheckPoint
 from prodagent.hooks.events import HookEvent
+from prodagent.hooks.gates import BlockingResult, Gate
 from prodagent.hooks.registry import HookRegistry
 from prodagent.runtime.coordination.floor import FloorTurn
 from prodagent.runtime.coordination.floor_projection import PublicTextOnly
@@ -131,7 +131,7 @@ def _registry(veto: bool) -> HookRegistry:
             return BlockingResult(blocked=True, reason="policy says no")
         return BlockingResult(blocked=False)
 
-    registry.register_checker(CheckPoint.AGENT_HANDOFF, checker)
+    registry.register_checker(Gate.AGENT_HANDOFF, checker)
     return registry
 
 
@@ -168,7 +168,7 @@ async def test_gate_translates_security_veto_exception():
     async def vetoer(**data):
         raise SecurityViolation("injected instruction detected")
 
-    registry.register_checker(CheckPoint.AGENT_HANDOFF, vetoer)
+    registry.register_checker(Gate.AGENT_HANDOFF, vetoer)
     gate = GateInterceptor(registry)
     crossing = _crossing(CrossingKind.SPEECH, FloorTurn(speaker="a", round=0, text="hi"))
     with pytest.raises(CrossingRejected, match="security policy rejected"):

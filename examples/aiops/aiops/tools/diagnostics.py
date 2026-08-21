@@ -10,7 +10,7 @@ from prodagent import SideEffectLevel, ToolMeta, tool
         name="query_metrics",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=300,
+        timeout_seconds=300 / 1_000,
         domain="observability",
     )
 )
@@ -52,7 +52,7 @@ async def query_metrics(service: str, metric: str, window: str = "5m") -> dict:
         name="tail_logs",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=500,
+        timeout_seconds=500 / 1_000,
         domain="observability",
     )
 )
@@ -95,7 +95,7 @@ async def tail_logs(service: str, lines: int = 50, grep: str = "") -> dict:
         name="get_pod_status",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=200,
+        timeout_seconds=200 / 1_000,
         domain="kubernetes",
     )
 )
@@ -122,7 +122,7 @@ async def get_pod_status(service: str, namespace: str = "production") -> dict:
         name="check_slo",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=250,
+        timeout_seconds=250 / 1_000,
         domain="observability",
     )
 )
@@ -173,7 +173,7 @@ _SLO_BY_SERVICE = {
         name="get_recent_deploys",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=200,
+        timeout_seconds=200 / 1_000,
         domain="kubernetes",
     )
 )
@@ -206,7 +206,7 @@ async def get_recent_deploys(service: str, limit: int = 5) -> dict:
         name="get_pr_diff",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=800,
+        timeout_seconds=800 / 1_000,
         domain="git",
     )
 )
@@ -256,7 +256,7 @@ async def get_pr_diff(sha: str, service: str = "") -> dict:
         name="capture_dashboard",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=2000,
+        timeout_seconds=2000 / 1_000,
         domain="observability",
     )
 )

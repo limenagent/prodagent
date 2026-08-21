@@ -1,19 +1,22 @@
 from __future__ import annotations
 
-from prodagent import Agent, ExecutionMode
-from prodagent.hooks.checkpoint import BlockingResult, CheckPoint, InjectionPoint
+from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent.hooks.gates import BlockingResult, Gate, InjectionPoint
 from prodagent.hooks.registry import HookEvent, HookRegistry
 from prodagent.llm.fake import script
 
 
 def _agent(**kwargs) -> Agent:
     return Agent(
-        name="fluent-ext",
+        "fluent-ext",
         system_prompt="verify",
-        llm=script({"content": "ok"}),
-        hooks=HookRegistry(),
         mode=ExecutionMode.REACTIVE,
-        **kwargs,
+        config=AgentConfig(
+            name="fluent-ext",
+            llm=script({"content": "ok"}),
+            hooks=HookRegistry(),
+            **kwargs,
+        ),
     )
 
 
@@ -30,10 +33,10 @@ async def test_check_registers_checker_with_enum():
         calls.append(kw)
         return BlockingResult(blocked=True, reason="nope")
 
-    agent = _agent(checkers=[(CheckPoint.TOOL_CALL, veto)])
+    agent = _agent(checkers=[(Gate.TOOL_CALL, veto)])
     hooks = _wire(agent)
 
-    result = await hooks.check_blocking(CheckPoint.TOOL_CALL, name="restart_pod")
+    result = await hooks.check_blocking(Gate.TOOL_CALL, name="restart_pod")
     assert result.blocked is True
     assert calls
 
@@ -43,7 +46,7 @@ async def test_check_rejects_non_enum():
         _agent(checkers=[("tool.call", lambda **kw: None)])
         _wire(_agent(checkers=[("tool.call", lambda **kw: None)]))
     except TypeError as exc:
-        assert "CheckPoint" in str(exc)
+        assert "Gate" in str(exc)
         return
     raise AssertionError("expected TypeError")
 

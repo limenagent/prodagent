@@ -20,9 +20,7 @@ from __future__ import annotations
 
 import os
 
-from prodagent import Agent, ExecutionMode, HardBudget
-from prodagent.core.config import FrameworkConfig
-from prodagent.llm.base import LLMClient
+from prodagent import Agent, AgentConfig, ExecutionMode, FrameworkConfig, HardBudget, LLMClient
 
 from compliance_audit.fake_llm import build_fake_llm
 from compliance_audit.tools import (
@@ -33,7 +31,6 @@ from compliance_audit.tools import (
     set_llm,
     submit_to_regulator,
 )
-
 
 # ── 子 agent: audit_workflow (PLAN_FIRST, 无 hardcoded workflow) ──────────
 
@@ -85,11 +82,14 @@ def build_audit_workflow_agent(
             submit_to_regulator,
             draft_sar_for_review,
         ],
-        llm=llm,
-        framework=framework_config,
         mode=ExecutionMode.PLAN_FIRST,
-        max_replans=2,
         budget=HardBudget(max_turns=12, max_cost_usd=0.40, max_seconds=120.0),
+        config=AgentConfig(
+            name="audit_workflow",
+            llm=llm,
+            framework=framework_config,
+            max_replans=2,
+        ),
     )
 
 
@@ -139,11 +139,14 @@ def build_compliance_audit_agent(
         "compliance_audit",
         system_prompt=_MAIN_SYSTEM,
         tools=[extract_transactions],
-        llm=resolved_llm,
-        framework=framework_config,
         mode=ExecutionMode.REACTIVE,
-        agents=[audit_workflow],
         budget=HardBudget(max_turns=20, max_cost_usd=0.60, max_seconds=180.0),
+        config=AgentConfig(
+            name="compliance_audit",
+            llm=resolved_llm,
+            framework=framework_config,
+            agents=[audit_workflow],
+        ),
     )
 
 

@@ -33,13 +33,13 @@ class VectorHit:
 class VectorStore(Protocol):
     """Approximate nearest-neighbour search over embedding vectors."""
 
-    def upsert(
+    async def upsert(
         self, id: str, embedding: list[float], metadata: dict[str, Any] | None = None
     ) -> None:
         """Insert or replace the vector for ``id``. Metadata is merged on replace."""
         ...
 
-    def search(
+    async def search(
         self,
         query: list[float],
         top_k: int = 5,
@@ -53,6 +53,6 @@ class VectorStore(Protocol):
         """
         ...
 
-    def delete(self, id: str) -> None:
+    async def delete(self, id: str) -> None:
         """Remove the vector for ``id``. No-op if missing."""
         ...

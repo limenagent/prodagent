@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent import Agent, ExecutionMode
+from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.core.config import FrameworkConfig
 from prodagent.core.exceptions import PlanAlreadyCompletedError
 from prodagent.core.state.run import AgentRun
@@ -39,10 +39,13 @@ def _workflow_agent(tmp_path) -> Agent:
     return Agent(
         "wf_chat",
         system_prompt="Reply briefly.",
-        llm=script({"content": "first reply"}, {"content": "second reply"}),
-        framework=_fw(tmp_path),
         workflow=wf,
         allow_replan=False,
+        config=AgentConfig(
+            name="wf_chat",
+            llm=script({"content": "first reply"}, {"content": "second reply"}),
+            framework=_fw(tmp_path),
+        ),
     )
 
 
@@ -50,9 +53,12 @@ def _reactive_agent(tmp_path) -> Agent:
     return Agent(
         "reactive_chat",
         system_prompt="Reply briefly.",
-        llm=script({"content": "first reply"}, {"content": "second reply"}),
-        framework=_fw(tmp_path),
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(
+            name="reactive_chat",
+            llm=script({"content": "first reply"}, {"content": "second reply"}),
+            framework=_fw(tmp_path),
+        ),
     )
 
 
@@ -60,18 +66,21 @@ def _plan_first_agent(tmp_path) -> Agent:
     return Agent(
         "plan_first_chat",
         system_prompt="Reply briefly.",
-        llm=script(
-            {
-                "content": '{"steps":[{"id":"s1","action":"reply","params":{},"depends_on":[],"terminal":true}]}'
-            },
-            {"content": "first reply"},
-            {
-                "content": '{"steps":[{"id":"s1","action":"reply","params":{},"depends_on":[],"terminal":true}]}'
-            },
-            {"content": "second reply"},
-        ),
-        framework=_fw(tmp_path),
         mode=ExecutionMode.PLAN_FIRST,
+        config=AgentConfig(
+            name="plan_first_chat",
+            llm=script(
+                {
+                    "content": '{"steps":[{"id":"s1","action":"reply","params":{},"depends_on":[],"terminal":true}]}'
+                },
+                {"content": "first reply"},
+                {
+                    "content": '{"steps":[{"id":"s1","action":"reply","params":{},"depends_on":[],"terminal":true}]}'
+                },
+                {"content": "second reply"},
+            ),
+            framework=_fw(tmp_path),
+        ),
     )
 
 
@@ -186,8 +195,8 @@ def test_construction_asserts_initial_plan_requires_plan_first():
     agent = Agent(
         "bad",
         system_prompt="",
-        llm=script({"content": "x"}),
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(name="bad", llm=script({"content": "x"})),
     )
     # Simulate the broken invariant a future API might introduce.
     agent.config.initial_plan = Plan(plan_id="x")

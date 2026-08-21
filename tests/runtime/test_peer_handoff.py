@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent import Agent, ExecutionMode
+from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.core.state.run import is_child_run_id
 from prodagent.core.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter, script
@@ -19,12 +19,19 @@ def hook_registry():
 
 def _reactive_agent(name: str, *, context: str = "", peers=None, agents=None) -> Agent:
     return Agent(
-        name, system_prompt=context, mode=ExecutionMode.REACTIVE, peers=peers, agents=agents
+        name,
+        system_prompt=context,
+        mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(name=name, peers=list(peers or []), agents=list(agents or [])),
     )
 
 
 def test_handoff_tool_schema_per_peer():
-    peer = Agent("Summarizer", system_prompt="summarizes text", description="Summarizes text")
+    peer = Agent(
+        "Summarizer",
+        system_prompt="summarizes text",
+        config=AgentConfig(name="Summarizer", description="Summarizes text"),
+    )
     tools = build_peer_tools_for_agent([peer], ctx=ParentRuntime(peer_specs=[peer]))
 
     assert len(tools) == 1
@@ -81,7 +88,7 @@ async def test_peer_handoff_basic_plan_first(hook_registry):
     peer_b = _reactive_agent("B", context="you are B")
     peer_b.config.llm = script({"content": "B says: plan-first done!"})
 
-    agent_a = Agent("A", system_prompt="you are A", peers=[peer_b])
+    agent_a = Agent("A", system_prompt="you are A", config=AgentConfig(name="A", peers=[peer_b]))
     plan_json = (
         '{"steps": [{"id": "delegate", "action": "handoff_to_B", '
         '"params": {"task": "handle this"}, "depends_on": [], "is_terminal": true}]}'

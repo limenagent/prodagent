@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from prodagent import LLMClient, LLMConfig
 from prodagent.core.types import LLMResponse, MessageList
-from prodagent.llm.base import LLMClient, LLMConfig
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable

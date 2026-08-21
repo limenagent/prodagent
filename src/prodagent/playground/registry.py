@@ -224,7 +224,7 @@ def discover_examples() -> list[ExampleSpec]:
             adapter_factory: Callable[[], Any] | None = None
             if multiagent_mod_path.exists():
                 adapter_factory = _load_multiagent_adapter(name, multiagent_mod_path)
-        except Exception:
+        except Exception:  # noqa: BLE001 — discovery must survive a bad example
             logger.exception("[playground] failed to load %s", name)
             continue
         specs.append(
@@ -340,7 +340,7 @@ class RunRegistry:
                 continue
             try:
                 await store.aclose()
-            except Exception:
+            except Exception:  # noqa: BLE001 — shutdown must not cascade
                 logger.warning("[playground] failed to close store pool", exc_info=True)
         closed: set[int] = set()
         for spec in self._specs.values():
@@ -350,7 +350,7 @@ class RunRegistry:
             closed.add(id(reg))
             try:
                 await reg.aclose()
-            except Exception:
+            except Exception:  # noqa: BLE001 — shutdown must not cascade
                 logger.warning("[playground] failed to close backend registry", exc_info=True)
 
     async def reconstruct(self, run_id: str) -> ReconstructResult:

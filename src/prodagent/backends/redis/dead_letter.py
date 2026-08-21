@@ -33,7 +33,7 @@ class RedisDeadLetterQueue:
     def _dead_key(self) -> str:
         return namespaced_key(self._ns, "dlq", "dead")
 
-    def on_failure(
+    async def on_failure(
         self,
         message_id: str,
         payload: dict[str, Any],
@@ -60,7 +60,7 @@ class RedisDeadLetterQueue:
             return "dead_letter"
         return "retry"
 
-    def dead_letters(self) -> list[dict[str, Any]]:
+    async def dead_letters(self) -> list[dict[str, Any]]:
         raw = self._client.lrange(self._dead_key(), 0, -1)
         out = []
         for item in raw:

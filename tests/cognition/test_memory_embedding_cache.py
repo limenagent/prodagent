@@ -42,16 +42,14 @@ def manager(stores):
 
 
 class TestEmbeddingCache:
-    def test_write_memory_caches_embedding_on_record(self, manager):
+    async def test_write_memory_caches_embedding_on_record(self, manager):
         mgr, embedder = manager
         record = MemoryRecord(
             content="user prefers dark mode",
             memory_type=MemoryType.PREFERENCE,
         )
-        import asyncio
-
-        asyncio.run(mgr._write_memory(record))
-        mems = mgr._documents.load_memories()
+        await mgr._write_memory(record)
+        mems = await mgr._documents.load_memories()
         assert len(mems) == 1
         assert mems[0].embedding is not None
         assert len(mems[0].embedding) > 0
@@ -64,11 +62,11 @@ class TestEmbeddingCache:
             entity_id="pod-x",
         )
         await mgr.add_memory(record)
-        facts = mgr._facts.load_all()
+        facts = await mgr._facts.load_all()
         assert len(facts) == 1
         assert facts[0].embedding is not None
 
-    def test_embedding_survives_round_trip(self, stores):
+    async def test_embedding_survives_round_trip(self, stores):
         docs, _ = stores
         mem = StoredMemory(
             id="m1",
@@ -76,8 +74,8 @@ class TestEmbeddingCache:
             memory_type=MemoryType.PREFERENCE,
             embedding=[0.1, 0.2, 0.3],
         )
-        docs.save_memories([mem])
-        loaded = docs.load_memories()
+        await docs.save_memories([mem])
+        loaded = await docs.load_memories()
         assert len(loaded) == 1
         assert loaded[0].embedding == [0.1, 0.2, 0.3]
 
@@ -98,17 +96,14 @@ class TestEmbeddingCache:
         assert len(query_embeds) == 1
         assert "user prefers dark mode" not in embedder.calls
 
-    def test_conflict_filter_uses_cached_embedding(self, manager):
+    async def test_conflict_filter_uses_cached_embedding(self, manager):
         mgr, embedder = manager
-        import asyncio
 
-        asyncio.run(
-            mgr._write_memory(
-                MemoryRecord(
-                    content="user prefers dark mode",
-                    memory_type=MemoryType.PREFERENCE,
-                    domain="ui",
-                )
+        await mgr._write_memory(
+            MemoryRecord(
+                content="user prefers dark mode",
+                memory_type=MemoryType.PREFERENCE,
+                domain="ui",
             )
         )
         embedder.calls.clear()
@@ -121,10 +116,10 @@ class TestEmbeddingCache:
             embedding=embedder.embed("user prefers dark theme"),
         )
         embedder.calls.clear()
-        mgr._conflict_pipeline._filter.candidates(new_mem, mgr._documents)
+        await mgr._conflict_pipeline._filter.candidates(new_mem, mgr._documents)
         assert "user prefers dark mode" not in embedder.calls
 
-    def test_fallback_to_embedder_when_embedding_none(self, stores):
+    async def test_fallback_to_embedder_when_embedding_none(self, stores):
         docs, _facts = stores
         embedder = _SpyEmbedder()
         legacy_mem = StoredMemory(
@@ -134,17 +129,15 @@ class TestEmbeddingCache:
             domain="ui",
             embedding=None,
         )
-        docs.save_memories([legacy_mem])
+        await docs.save_memories([legacy_mem])
 
         channel = SemanticChannel(embedder)
-        import asyncio
-
         ctx = RecallContext(
             constraints=[],
-            documents=docs.load_memories(),
+            documents=await docs.load_memories(),
             facts=[],
             static_constraints=[],
             counter=TokenCounter(),
         )
-        asyncio.run(channel.search("legacy", "ui", ctx=ctx))
+        await channel.search("legacy", "ui", ctx=ctx)
         assert "legacy memory" in embedder.calls

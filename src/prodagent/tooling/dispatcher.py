@@ -18,8 +18,8 @@ from prodagent.core.types import (
     ToolOutcome,
     ToolResult,
 )
-from prodagent.hooks.checkpoint import CheckPoint
 from prodagent.hooks.events import HookEvent
+from prodagent.hooks.gates import Gate
 from prodagent.resilience.reliability.retry import Backoff, RetryPolicy
 from prodagent.tooling.skill_resolver import SkillResolver
 
@@ -255,7 +255,7 @@ class ToolDispatcher:
         )
         await self._hooks.fire(HookEvent.TOOL_CALL, **payload)
         try:
-            result = await self._hooks.check_blocking(CheckPoint.TOOL_CALL, **payload)
+            result = await self._hooks.check_blocking(Gate.TOOL_CALL, **payload)
         except SECURITY_VETO_EXCEPTIONS as exc:
             return ToolResult.blocked_by(str(exc), tool=call.name)
         if result.blocked:
@@ -359,7 +359,7 @@ class ToolDispatcher:
         )
         await self._hooks.fire(HookEvent.TOOL_RESULT, **payload)
         try:
-            check = await self._hooks.check_blocking(CheckPoint.TOOL_RESULT, **payload)
+            check = await self._hooks.check_blocking(Gate.TOOL_RESULT, **payload)
         except SECURITY_VETO_EXCEPTIONS as exc:
             return ToolResult.blocked_by(str(exc), tool=call.name)
         if check.blocked:

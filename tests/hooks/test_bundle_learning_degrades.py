@@ -14,6 +14,7 @@ from prodagent.core.config import BackendConfig, FrameworkConfig, OrchestrationC
 from prodagent.evaluation.skills.registry import SkillRegistry
 from prodagent.hooks.events import HookEvent
 from prodagent.runtime.agent import Agent
+from prodagent.runtime.config import AgentConfig
 
 
 def _fw_with_unimplemented_experience() -> FrameworkConfig:
@@ -25,8 +26,11 @@ def _fw_with_unimplemented_experience() -> FrameworkConfig:
 def test_attach_default_hooks_survives_unimplemented_experience_backend():
     agent = Agent(
         "learning-degrade",
-        skills=SkillRegistry(),
-        framework=_fw_with_unimplemented_experience(),
+        config=AgentConfig(
+            name="learning-degrade",
+            skills=SkillRegistry(),
+            framework=_fw_with_unimplemented_experience(),
+        ),
     )
     # Must not raise NotImplementedError.
     registry = agent.attach_default_hooks()
@@ -39,8 +43,11 @@ def test_attach_default_hooks_with_file_experience_still_wires_learning(tmp_path
     fw.orchestration = OrchestrationConfig(experience_path=str(tmp_path / "exp.jsonl"))
     agent = Agent(
         "learning-normal",
-        skills=SkillRegistry(),
-        framework=fw,
+        config=AgentConfig(
+            name="learning-normal",
+            skills=SkillRegistry(),
+            framework=fw,
+        ),
     )
     registry = agent.attach_default_hooks()
     handlers = list(registry.event_handlers(HookEvent.SESSION_END))

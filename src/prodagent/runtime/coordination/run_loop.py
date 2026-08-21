@@ -13,8 +13,8 @@ from prodagent.core.state.run import AgentRun, child_run_id, is_child_subordinat
 from prodagent.core.types import ExecutionMode, MessageList, RunState
 from prodagent.hooks import fire as _fire
 from prodagent.hooks import save_and_fire_checkpoint
-from prodagent.hooks.checkpoint import CheckPoint
 from prodagent.hooks.events import HookEvent
+from prodagent.hooks.gates import Gate
 from prodagent.runtime.coordination.accounting import SpawnAccumulator, fold_spawn_accounting
 from prodagent.runtime.coordination.budget_ledger import BudgetLedger
 from prodagent.runtime.coordination.messaging.envelope import Crossing, CrossingKind, Direction
@@ -346,7 +346,7 @@ class RunLoop:
 
         try:
             await hooks.check_blocking(
-                CheckPoint.RUN_COMPLETE,
+                Gate.RUN_COMPLETE,
                 run_id=run.run_id,
                 final_output=run.final_output or "",
                 run=run,

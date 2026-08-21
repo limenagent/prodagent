@@ -31,7 +31,7 @@ class Neo4jGraphStore:
     def close(self) -> None:
         self._driver.close()
 
-    def add_node(
+    async def add_node(
         self,
         node_id: str,
         labels: list[str] | None = None,
@@ -45,7 +45,7 @@ class Neo4jGraphStore:
         with self._driver.session() as sess:
             sess.run(cypher, id=node_id, props=props)
 
-    def add_edge(
+    async def add_edge(
         self,
         src: str,
         dst: str,
@@ -64,7 +64,7 @@ class Neo4jGraphStore:
         with self._driver.session() as sess:
             sess.run(cypher, src=src, dst=dst, props=props)
 
-    def get_node(self, node_id: str) -> dict[str, Any] | None:
+    async def get_node(self, node_id: str) -> dict[str, Any] | None:
         with self._driver.session() as sess:
             rec = sess.run(
                 "MATCH (n:Entity {id: $id}) "
@@ -75,7 +75,7 @@ class Neo4jGraphStore:
             return None
         return _shape_node(rec)
 
-    def list_nodes(self, label: str | None = None) -> list[dict[str, Any]]:
+    async def list_nodes(self, label: str | None = None) -> list[dict[str, Any]]:
         if label is None:
             cypher = (
                 "MATCH (n:Entity) RETURN n.id AS id, labels(n) AS labels, properties(n) AS props"
@@ -93,7 +93,7 @@ class Neo4jGraphStore:
             records = sess.run(cypher, **params)
             return [_shape_node(rec) for rec in records]
 
-    def neighbors(
+    async def neighbors(
         self,
         node_id: str,
         rel: str | None = None,
@@ -112,7 +112,7 @@ class Neo4jGraphStore:
             records = sess.run(cypher, id=node_id)
             return [_shape_node(rec) for rec in records]
 
-    def traverse(
+    async def traverse(
         self, start: str, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         wrapped = f"MATCH (start:Entity {{id: $start_id}}) WITH start {query}"
@@ -120,7 +120,7 @@ class Neo4jGraphStore:
             records = sess.run(wrapped, start_id=start, **(params or {}))
             return [dict(rec) for rec in records]
 
-    def delete_node(self, node_id: str) -> None:
+    async def delete_node(self, node_id: str) -> None:
         # DETACH DELETE drops the node and its incident edges in one go.
         with self._driver.session() as sess:
             sess.run("MATCH (n:Entity {id: $id}) DETACH DELETE n", id=node_id)

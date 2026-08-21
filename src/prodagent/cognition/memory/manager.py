@@ -29,8 +29,8 @@ from prodagent.cognition.memory.touch_worker import TouchBackWorker
 from prodagent.core.state.run import is_child_subordinate
 from prodagent.core.time import now_utc
 from prodagent.core.types import RunState
-from prodagent.hooks.checkpoint import CheckPoint
 from prodagent.hooks.events import HookEvent
+from prodagent.hooks.gates import Gate
 
 if TYPE_CHECKING:
     from prodagent.cognition.memory.classification import MemoryClassifier
@@ -112,9 +112,9 @@ class MemoryManager:
     async def recall(self, query: str, domain: str | None = None) -> str:
         now = now_utc()
         async with self._get_write_lock():
-            constraints = self._documents.load_constraints()
-            documents = self._documents.load_memories()
-            facts = self._facts.load_all()
+            constraints = await self._documents.load_constraints()
+            documents = await self._documents.load_memories()
+            facts = await self._facts.load_all()
         ctx = RecallContext(
             constraints=constraints,
             documents=documents,
@@ -225,7 +225,7 @@ class MemoryManager:
         async with self._get_write_lock():
             if self._hooks is not None and record.content:
                 await self._hooks.check_blocking(
-                    CheckPoint.DOCUMENT_ADD,
+                    Gate.DOCUMENT_ADD,
                     document=record.content,
                     source=record.source or "classifier",
                 )
@@ -234,7 +234,7 @@ class MemoryManager:
                 record.embedding = self._embedder.embed(record.content)
 
             if record.memory_type is MemoryType.FACT:
-                self._facts.write(record)
+                await self._facts.write(record)
                 return
 
             discarded = (
@@ -246,11 +246,11 @@ class MemoryManager:
                 prefix = record.content[:80]
                 existing = [
                     m
-                    for m in self._documents.load_memories()
+                    for m in await self._documents.load_memories()
                     if m.memory_type == record.memory_type
                 ]
                 if not any(m.content[:80] == prefix for m in existing if not m.superseded):
-                    self._documents.append_soft(record)
+                    await self._documents.append_soft(record)
 
     async def add_memory(self, record: MemoryRecord) -> None:
         await self._persist(record, run_conflict=False)

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from prodagent import Agent, ExecutionMode, HardBudget
+from prodagent import Agent, AgentConfig, ExecutionMode, HardBudget
 from prodagent.core.config import FrameworkConfig
 from prodagent.hooks.registry import HookEvent, HookRegistry
 from prodagent.llm.fake import script
@@ -34,14 +34,17 @@ async def test_agent_lifecycle_full_roundtrip():
         session_id = "lifecycle-test-001"
 
         agent = Agent(
-            name="lifecycle-agent",
+            "lifecycle-agent",
             system_prompt="Echo the input",
             tools=[echo_tool],
             budget=HardBudget(max_turns=2),
-            llm=script({"content": "Echoed: hello world"}),
-            hooks=HookRegistry(),
-            framework=_fw(tmpdir),
             mode=ExecutionMode.REACTIVE,
+            config=AgentConfig(
+                name="lifecycle-agent",
+                llm=script({"content": "Echoed: hello world"}),
+                hooks=HookRegistry(),
+                framework=_fw(tmpdir),
+            ),
         )
 
         run = await agent.chat("hello世界", session_id=session_id)
@@ -62,14 +65,17 @@ async def test_agent_lifecycle_with_early_termination():
             return counter + 1
 
         agent = Agent(
-            name="early-term-agent",
+            "early-term-agent",
             system_prompt="Count up",
             tools=[increment_tool],
             budget=HardBudget(max_turns=1),
-            llm=script({"content": "Calling increment"}),
-            hooks=HookRegistry(),
-            framework=_fw(tmpdir),
             mode=ExecutionMode.REACTIVE,
+            config=AgentConfig(
+                name="early-term-agent",
+                llm=script({"content": "Calling increment"}),
+                hooks=HookRegistry(),
+                framework=_fw(tmpdir),
+            ),
         )
 
         run = await agent.chat("Start counting", session_id=session_id)
@@ -107,14 +113,17 @@ async def test_agent_lifecycle_with_hooks():
         hooks.register_event(HookEvent.SESSION_END, on_session_end)
 
         agent = Agent(
-            name="hooks-agent",
+            "hooks-agent",
             system_prompt="Echo input",
             tools=[echo_tool],
             budget=HardBudget(max_turns=2),
-            llm=script({"content": "Echoed: test"}),
-            hooks=hooks,
-            framework=_fw(tmpdir),
             mode=ExecutionMode.REACTIVE,
+            config=AgentConfig(
+                name="hooks-agent",
+                llm=script({"content": "Echoed: test"}),
+                hooks=hooks,
+                framework=_fw(tmpdir),
+            ),
         )
 
         await agent.chat("test", session_id="hooks-1")
@@ -129,14 +138,17 @@ async def test_agent_lifecycle_crash_recovery():
         session_id = "crash-recovery-test"
 
         agent = Agent(
-            name="crash-agent",
+            "crash-agent",
             system_prompt="Echo input",
             tools=[echo_tool],
             budget=HardBudget(max_turns=2),
-            llm=script({"content": "Echoed: before crash"}),
-            hooks=HookRegistry(),
-            framework=_fw(tmpdir),
             mode=ExecutionMode.REACTIVE,
+            config=AgentConfig(
+                name="crash-agent",
+                llm=script({"content": "Echoed: before crash"}),
+                hooks=HookRegistry(),
+                framework=_fw(tmpdir),
+            ),
         )
 
         run1 = await agent.chat("before crash", session_id=session_id)
@@ -145,14 +157,17 @@ async def test_agent_lifecycle_crash_recovery():
 
         # A fresh agent instance loading the same session can re-chat (new turn).
         recovery_agent = Agent(
-            name="recovery-agent",
+            "recovery-agent",
             system_prompt="Echo input",
             tools=[echo_tool],
             budget=HardBudget(max_turns=2),
-            llm=script({"content": "Echoed: after recovery"}),
-            hooks=HookRegistry(),
-            framework=_fw(tmpdir),
             mode=ExecutionMode.REACTIVE,
+            config=AgentConfig(
+                name="recovery-agent",
+                llm=script({"content": "Echoed: after recovery"}),
+                hooks=HookRegistry(),
+                framework=_fw(tmpdir),
+            ),
         )
 
         run2 = await recovery_agent.chat("continue", session_id=session_id)

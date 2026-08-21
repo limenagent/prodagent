@@ -110,14 +110,14 @@ def test_experience_record_tag_extraction():
     assert "in" not in rec.tags
 
 
-def test_store_record_and_load(tmp_path: Path):
+async def test_store_record_and_load(tmp_path: Path):
     store = FileExperienceStore(path=tmp_path / "exp.jsonl")
     rec = ExperienceRecord.from_run(_completed_run("run-1"))
-    store.record(rec)
+    await store.record(rec)
 
     time.sleep(0.05)
 
-    loaded = store.load_all()
+    loaded = await store.load_all()
     assert len(loaded) == 1
     assert loaded[0].run_id == "run-1"
 
@@ -536,7 +536,7 @@ async def test_improvement_cycle_attaches_to_session_end(tmp_path: Path):
     await hooks.fire(HookEvent.SESSION_END, run=run)
     await asyncio.sleep(0.1)
 
-    all_records = store.load_all()
+    all_records = await store.load_all()
     assert any(r.run_id == "run-attach" for r in all_records)
     assert llm.call_count == 1
     assert registry.get("pod-restart") is not None
@@ -576,7 +576,7 @@ async def test_loop_watch_tags_filter_skips_non_overlapping(tmp_path: Path):
 
     assert llm.call_count == 0, "session outside watch_tags should not patch"
     await asyncio.sleep(0.05)
-    assert any(r.run_id == "run-skip" for r in store.load_all())
+    assert any(r.run_id == "run-skip" for r in await store.load_all())
 
 
 @pytest.mark.asyncio
@@ -610,7 +610,7 @@ async def test_flush_awaits_pending_background_tasks(tmp_path: Path):
     await hooks.fire(HookEvent.SESSION_END, run=run)
     await cycle.flush(timeout=5.0)
 
-    all_records = store.load_all()
+    all_records = await store.load_all()
     assert any(r.run_id == "run-flush" for r in all_records)
     assert llm.call_count == 1
     assert registry.get("pod-restart") is not None

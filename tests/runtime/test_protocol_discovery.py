@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from prodagent import Agent, ExecutionMode
+from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.backends.file import FileDocumentStore, FileGraphStore
 from prodagent.cognition.memory import MemoryProvider
 from prodagent.cognition.memory.manager import MemoryManager
@@ -17,10 +17,13 @@ def test_find_approval_gate_returns_gate_via_protocol():
     agent = Agent(
         name="t",
         system_prompt="x",
-        llm=script({"content": "ok"}),
-        hooks=HookRegistry(),
         mode=ExecutionMode.REACTIVE,
-        extensions=[ApprovalHooks(gate=gate)],
+        config=AgentConfig(
+            name="t",
+            llm=script({"content": "ok"}),
+            hooks=HookRegistry(),
+            extensions=[ApprovalHooks(gate=gate)],
+        ),
     )
     found = agent._find_approval_gate()
     assert found is gate
@@ -28,7 +31,7 @@ def test_find_approval_gate_returns_gate_via_protocol():
 
 
 def test_find_approval_gate_returns_none_without_bundle():
-    agent = Agent(name="t", system_prompt="x", llm=script({"content": "ok"}))
+    agent = Agent(name="t", system_prompt="x", config=AgentConfig(name="t", llm=script({"content": "ok"})))
     assert agent._find_approval_gate() is None
 
 
@@ -40,10 +43,13 @@ def test_memory_manager_returns_manager_via_protocol(tmp_path):
     agent = Agent(
         name="t",
         system_prompt="x",
-        llm=script({"content": "ok"}),
-        hooks=HookRegistry(),
         mode=ExecutionMode.REACTIVE,
-        extensions=[MemoryHooks(manager)],
+        config=AgentConfig(
+            name="t",
+            llm=script({"content": "ok"}),
+            hooks=HookRegistry(),
+            extensions=[MemoryHooks(manager)],
+        ),
     )
     found = agent.memory_manager
     assert found is manager
@@ -51,7 +57,7 @@ def test_memory_manager_returns_manager_via_protocol(tmp_path):
 
 
 def test_memory_manager_returns_none_without_bundle():
-    agent = Agent(name="t", system_prompt="x", llm=script({"content": "ok"}))
+    agent = Agent(name="t", system_prompt="x", config=AgentConfig(name="t", llm=script({"content": "ok"})))
     assert agent.memory_manager is None
 
 
@@ -59,9 +65,12 @@ def test_memory_manager_none_with_framework_but_no_hooks():
     agent = Agent(
         name="t",
         system_prompt="x",
-        llm=script({"content": "ok"}),
-        framework=FrameworkConfig(),
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(
+            name="t",
+            llm=script({"content": "ok"}),
+            framework=FrameworkConfig(),
+        ),
     )
     agent.attach_default_hooks()
     assert agent.memory_manager is None

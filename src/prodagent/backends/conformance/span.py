@@ -1,6 +1,6 @@
 """Conformance tests for ``SpanExporter`` implementations.
 
-SpanExporter methods are synchronous on the port.
+SpanExporter methods are async on the port, like every other store port.
 """
 
 from __future__ import annotations
@@ -26,24 +26,24 @@ def _span(span_id: str = "sp1", trace_id: str = "tr1") -> AgentSpan:
     )
 
 
-def run_span_conformance(make_store: Factory) -> None:
+async def run_span_conformance(make_store: Factory) -> None:
     store = make_store()
 
-    store.export(_span())
-    store.export(_span(span_id="sp2"))
-    store.shutdown()
+    await store.export(_span())
+    await store.export(_span(span_id="sp2"))
+    await store.shutdown()
 
 
-def run_span_shutdown_idempotent_conformance(make_store: Factory) -> None:
+async def run_span_shutdown_idempotent_conformance(make_store: Factory) -> None:
     """``shutdown`` may be called multiple times safely."""
     store = make_store()
-    store.export(_span())
-    store.shutdown()
-    store.shutdown()
+    await store.export(_span())
+    await store.shutdown()
+    await store.shutdown()
 
 
-def run_span_export_after_shutdown_conformance(make_store: Factory) -> None:
+async def run_span_export_after_shutdown_conformance(make_store: Factory) -> None:
     """Whether export-after-shutdown raises or is a no-op is backend-specific;
     the contract is only that shutdown itself does not crash."""
     store = make_store()
-    store.shutdown()
+    await store.shutdown()

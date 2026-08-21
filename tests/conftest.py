@@ -109,12 +109,12 @@ def hook_registry():
 @pytest.fixture
 def simple_agent(fake_llm, hook_registry):
     from prodagent.runtime.agent import Agent
+    from prodagent.runtime.config import AgentConfig
 
     return Agent(
         name="test_agent",
         system_prompt="Test goal",
-        llm=fake_llm,
-        hooks=hook_registry,
+        config=AgentConfig(name="test_agent", llm=fake_llm, hooks=hook_registry),
     )
 
 

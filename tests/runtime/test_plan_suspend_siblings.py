@@ -150,7 +150,7 @@ async def test_resume_after_approval_reexecutes_suspended_step(tmp_path):
     from run.pending_approval_id on resume."""
     import json
 
-    from prodagent import Agent, ExecutionMode, SideEffectLevel, ToolMeta
+    from prodagent import Agent, AgentConfig, ExecutionMode, SideEffectLevel, ToolMeta
     from prodagent.core.types import LLMResponse
     from prodagent.guardrail.approval import ApprovalGate
     from prodagent.hooks.bundles.security import ApprovalHooks
@@ -199,12 +199,15 @@ async def test_resume_after_approval_reexecutes_suspended_step(tmp_path):
         name="remediator",
         system_prompt="Fix the incident.",
         tools=[rollback, verify],
-        llm=llm,
-        hooks=HookRegistry(),
-        checkpoint=store,
-        event_log=events,
         mode=ExecutionMode.PLAN_FIRST,
-        extensions=[ApprovalHooks(gate=gate)],
+        config=AgentConfig(
+            name="remediator",
+            llm=llm,
+            hooks=HookRegistry(),
+            checkpoint=store,
+            event_log=events,
+            extensions=[ApprovalHooks(gate=gate)],
+        ),
     )
     assert agent.mode is ExecutionMode.PLAN_FIRST
 

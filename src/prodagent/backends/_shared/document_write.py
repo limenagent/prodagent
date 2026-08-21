@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from prodagent.cognition.memory.storage import (
+from prodagent.core.time import now_timestamp
+from prodagent.ports.document import (
     EPISODIC_DEFAULT_TTL_DAYS,
     MemoryRecord,
     MemoryType,
     StoredMemory,
     mem_id,
 )
-from prodagent.core.time import now_timestamp
 
 
 def build_stored_memory(record: MemoryRecord) -> StoredMemory:

@@ -34,6 +34,28 @@ __all__ = [
     "SecurityViolation",
     "VersionConflict",
     "CorruptedCheckpointError",
+    # Assembly & infrastructure
+    "FrameworkConfig",
+    "ContextConfig",
+    "LLMClient",
+    "LLMConfig",
+    "FakeLLMAdapter",
+    "script",
+    # Collaboration primitives
+    "Ensemble",
+    "WorkQueue",
+    "Board",
+    "BoardWrite",
+    "Trigger",
+    "RoundRobin",
+    "Moderated",
+    "FreeForAll",
+    "TerminationPolicy",
+    "MaxRounds",
+    "BudgetLedger",
+    # Memory
+    "MemoryManager",
+    "build_memory_manager",
 ]
 
 _SYMBOL_SOURCES: dict[str, str] = {
@@ -58,6 +80,25 @@ _SYMBOL_SOURCES: dict[str, str] = {
     "ClassifiedError": "prodagent.core.error_classifier",
     "classify_error": "prodagent.core.error_classifier",
     "tool": "prodagent.tooling.decorator",
+    "FrameworkConfig": "prodagent.core.config",
+    "ContextConfig": "prodagent.core.config",
+    "LLMClient": "prodagent.llm.base",
+    "LLMConfig": "prodagent.llm.base",
+    "FakeLLMAdapter": "prodagent.llm.fake",
+    "script": "prodagent.llm.fake",
+    "Ensemble": "prodagent.runtime.coordination.ensemble",
+    "RoundRobin": "prodagent.runtime.coordination.ensemble",
+    "Moderated": "prodagent.runtime.coordination.ensemble",
+    "FreeForAll": "prodagent.runtime.coordination.ensemble",
+    "WorkQueue": "prodagent.runtime.coordination.work_queue",
+    "Board": "prodagent.runtime.coordination.blackboard",
+    "BoardWrite": "prodagent.runtime.coordination.blackboard",
+    "Trigger": "prodagent.runtime.coordination.blackboard",
+    "TerminationPolicy": "prodagent.runtime.coordination.termination",
+    "MaxRounds": "prodagent.runtime.coordination.termination",
+    "BudgetLedger": "prodagent.runtime.coordination.budget_ledger",
+    "MemoryManager": "prodagent.cognition.memory",
+    "build_memory_manager": "prodagent.cognition.memory",
 }
 
 

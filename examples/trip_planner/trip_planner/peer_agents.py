@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from prodagent import Agent, ExecutionMode, HardBudget
+from prodagent import Agent, AgentConfig, ExecutionMode, HardBudget
 
 from trip_planner.tools import (
     book_restaurant,
@@ -34,9 +34,12 @@ def itinerary_peer_agent() -> Agent:
             "\"activities\": [...]}], \"total_hotel_cost\": <n>}。"
         ),
         tools=[search_hotels, get_weather],
-        description="只读行程规划专家。选酒店 + 排行程 + 天气适应。",
         mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_seconds=300),
+        config=AgentConfig(
+            name="itinerary",
+            description="只读行程规划专家。选酒店 + 排行程 + 天气适应。",
+        ),
     )
 
 
@@ -52,9 +55,12 @@ def restaurant_peer_agent() -> Agent:
             "\"total_cost\": <n>}。"
         ),
         tools=[search_restaurants, book_restaurant],
-        description="餐厅预订专家。按偏好找 + 订主餐厅。",
         mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_seconds=300),
+        config=AgentConfig(
+            name="restaurant",
+            description="餐厅预订专家。按偏好找 + 订主餐厅。",
+        ),
     )
 
 
@@ -74,12 +80,15 @@ def transport_peer_agent() -> Agent:
             "\"price\": <n>}], \"total_cost\": <n>}。"
         ),
         tools=[search_flights, search_trains],
-        description="只读交通规划专家。航班 + 城际火车。",
         mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_seconds=300),
+        config=AgentConfig(
+            name="transport",
+            description="只读交通规划专家。航班 + 城际火车。",
+        ),
     )
 
 
 def all_peer_agents() -> list[Agent]:
-    """3 个 peer —— 传给 ``Agent(..., agents=[...])`` + workflow 里 ``wf.step(peer)``。"""
+    """3 个 peer —— 传给 ``AgentConfig(agents=[...])`` + workflow 里 ``wf.step(peer)``。"""
     return [itinerary_peer_agent(), restaurant_peer_agent(), transport_peer_agent()]

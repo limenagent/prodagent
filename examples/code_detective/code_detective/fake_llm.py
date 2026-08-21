@@ -22,8 +22,7 @@ from __future__ import annotations
 
 import json
 
-from prodagent.llm.base import LLMClient
-from prodagent.llm.fake import script
+from prodagent import LLMClient, script
 
 # ── 初始 patch:故意写错(用 hash 而不是 hash_with_salt)────────────────────────
 _BROKEN_AUTH = '''"""auth.py —— 含 bug 的认证模块(故意写错)。"""

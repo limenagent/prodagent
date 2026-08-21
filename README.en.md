@@ -3,6 +3,7 @@
 > A production-grade LLM agent framework. The model is probabilistic; production demands determinism — this framework makes the brakes, guardrails, and state machine first-class citizens.
 
 [![PyPI](https://img.shields.io/pypi/v/prodagent)](https://pypi.org/project/prodagent/)
+[![CI](https://github.com/limenagent/prodagent/actions/workflows/ci.yml/badge.svg)](https://github.com/limenagent/prodagent/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 [![Status](https://img.shields.io/badge/status-v1.0.0%20Stable-brightgreen)](https://github.com/limenagent/prodagent/releases)
@@ -26,9 +27,9 @@ Getting an Agent to run, and keeping it alive in production, are two different t
 - **Pluggable backends** — file + memory by default (single-host, zero-dependency); swap to Postgres / Neo4j / Qdrant / Redis in production. Swapping is a config change, not a code change.
 - **Retry** — fixed / exponential / jittered backoff, classified by error code to decide whether to retry or fall back.
 - **Circuit breaking** — tool-level (CLOSED → OPEN → HALF_OPEN auto-recovery).
-- **Security** — five-layer injection-defense pipeline + write-time interception + HITL approval gate.
+- **Security** — five-layer injection-defense pipeline (mechanism built in) + write-time interception + HITL approval gate. Detection policy is injected by the application (`InjectionPolicy`): zero-config passes everything through, and the framework ships no built-in pattern library — what counts as dangerous is your threat model, not the framework's default.
 - **Observability** — span tracing + OTLP export + trajectory drift detection.
-- **Eval & testing** — golden eval suite + LLM Judge + CI regression.
+- **Eval & testing** — golden eval suite + LLM Judge; 1,400+ tests run fully offline (`make test`; CI matrix across three Python versions).
 
 <details>
 <summary>📂 Source file index (click to expand)</summary>
@@ -40,7 +41,7 @@ Getting an Agent to run, and keeping it alive in production, are two different t
 | Pluggable backends | `ports/` (15 Protocol ports), `backends/factory.py`, `backends/registry.py`, `backends/file/`, `backends/memory/`, `backends/postgres/`, `backends/neo4j/`, `backends/qdrant/`, `backends/redis/` |
 | Retry | `resilience/reliability/retry.py`, `resilience/transport/http_retry.py`, `core/error_classifier.py`, `core/error_reason.py` |
 | Circuit breaking | `tooling/reliability/circuit_breaker.py` |
-| Security | `guardrail/injection/pipeline.py`, `guardrail/injection/trust_chain.py`, `guardrail/patterns.py`, `guardrail/approval/gate.py`, `guardrail/approval/formatter.py`, `hooks/bundles/security/` |
+| Security | `guardrail/injection/pipeline.py`, `guardrail/injection/trust_chain.py`, `guardrail/injection/policy.py`, `guardrail/approval/gate.py`, `guardrail/approval/formatter.py`, `hooks/bundles/security/` |
 | Observability | `core/observability.py`, `resilience/observability/otel_exporter.py`, `resilience/observability/drift.py`, `resilience/observability/audit.py`, `resilience/observability/scrubber.py`, `ports/span.py`, `hooks/bundles/observability.py` |
 | Eval & testing | `evaluation/evals/dataset.py`, `evaluation/evals/judge.py`, `evaluation/evals/runner.py`, `evaluation/testing/trace_assert.py`, `evaluation/testing/cassette.py` |
 
@@ -81,7 +82,7 @@ Getting an Agent to run, and keeping it alive in production, are two different t
 ### Advanced capabilities
 
 - **Four-channel long-term memory** — rule / entity / exact / semantic recall in parallel, with ACT-R activation decay.
-- **Tri-protocol hook bus** — Event (notify) / CheckPoint (block) / Injection (inject) separated at the protocol layer.
+- **Tri-protocol hook bus** — Event (notify) / Gate (block) / Injection (inject) separated at the protocol layer.
 - **Self-evolving loop** — successful runs distill into Skills, loaded on demand next time.
 
 <details>
@@ -90,7 +91,7 @@ Getting an Agent to run, and keeping it alive in production, are two different t
 | Capability | Core source files (`src/prodagent/`) |
 |---|---|
 | Four-channel long-term memory | `cognition/memory/manager.py`, `cognition/memory/channels.py`, `cognition/memory/forgetting.py`, `cognition/memory/facts.py`, `cognition/memory/classification.py`, `cognition/memory/storage.py`, `cognition/memory/conflict.py`, `cognition/memory/embedder.py`, `cognition/memory/touch_worker.py`, `hooks/bundles/memory.py` |
-| Tri-protocol hook bus | `hooks/registry.py`, `hooks/events.py`, `hooks/checkpoint.py`, `hooks/bundles/base.py`, `hooks/bundles/default_wiring.py`, `hooks/observers/console.py`, `hooks/observers/cache_monitor.py` |
+| Tri-protocol hook bus | `hooks/registry.py`, `hooks/events.py`, `hooks/gates.py`, `hooks/bundles/base.py`, `hooks/bundles/default_wiring.py`, `hooks/observers/console.py`, `hooks/observers/cache_monitor.py` |
 | Self-evolving loop | `evaluation/learning/skill_synthesizer.py`, `evaluation/learning/experience.py`, `evaluation/learning/storage.py`, `evaluation/skills/registry.py`, `evaluation/reflection/constitutional.py`, `hooks/bundles/learning.py` |
 
 </details>
@@ -209,7 +210,7 @@ graph TD
 
 ### Hook tri-protocol bus
 
-HookRegistry fans out by protocol. Three protocols have distinct semantics: Event is non-blocking notification, CheckPoint blocks until first veto, Injection aggregates injector results.
+HookRegistry fans out by protocol. Three protocols have distinct semantics: Event is non-blocking notification, Gate blocks until first veto, Injection aggregates injector results.
 
 ```mermaid
 graph LR
@@ -225,7 +226,7 @@ graph LR
         LE[Learning]
     end
 
-    subgraph K[CheckPoint · block, first veto wins]
+    subgraph K[Gate · block, first veto wins]
         AP[Approval]
         SE[Security]
     end

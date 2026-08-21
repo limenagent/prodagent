@@ -21,9 +21,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import anyio
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
+
+try:
+    from fastapi import FastAPI, HTTPException
+    from fastapi.responses import HTMLResponse, StreamingResponse
+    from fastapi.staticfiles import StaticFiles
+except ImportError as exc:  # pragma: no cover - exercised via missing-dep test
+    raise RuntimeError(
+        "The playground needs FastAPI, which is not part of the thin core. "
+        "Install it with: pip install 'prodagent[playground]' "
+        "(or 'pip install fastapi uvicorn')"
+    ) from exc
 
 from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.core.types import ExecutionMode, RunState
@@ -487,6 +495,11 @@ def _stream_from_ctx(ctx: RunContext) -> StreamingResponse:
 
 def main(argv: list[str] | None = None) -> int:
     """Serve the playground — the ``prodagent`` console script entry point."""
+    import os
+
+    # The playground terminal mirrors agent activity next to the browser UI.
+    os.environ.setdefault("PRODAGENT_CONSOLE", "1")
+
     parser = argparse.ArgumentParser(
         prog="prodagent",
         description="Serve the interactive prodagent playground.",

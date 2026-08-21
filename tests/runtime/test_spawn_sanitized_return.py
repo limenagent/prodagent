@@ -7,11 +7,11 @@ from __future__ import annotations
 from dataclasses import replace as _dc_replace
 from typing import TYPE_CHECKING
 
-from prodagent import Agent, ExecutionMode
+from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
 from prodagent.core.config import FrameworkConfig
 from prodagent.core.types import LLMResponse
-from prodagent.hooks.checkpoint import BlockingResult, CheckPoint
+from prodagent.hooks.gates import BlockingResult, Gate
 from prodagent.hooks.registry import HookRegistry
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.coordination.messaging.contract import MessageContract
@@ -26,9 +26,12 @@ def _reactive_child(*, output_contract: MessageContract | None = None) -> Agent:
     return Agent(
         "responder",
         system_prompt="reply with status",
-        output_contract=output_contract,
-        description="Returns a status string",
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(
+            name="responder",
+            output_contract=output_contract,
+            description="Returns a status string",
+        ),
     )
 
 
@@ -103,9 +106,9 @@ async def test_lenient_contract_violation_still_dead_letters(tmp_path: Path):
             super().__init__(max_retries=3)
             self.calls: list[str] = []
 
-        def on_failure(self, message_id: str, payload: dict, error: str) -> str:
+        async def on_failure(self, message_id: str, payload: dict, error: str) -> str:
             self.calls.append(error)
-            return super().on_failure(message_id, payload, error)
+            return await super().on_failure(message_id, payload, error)
 
     dlq = _SpyDLQ()
     child = _reactive_child(output_contract=contract)
@@ -123,7 +126,7 @@ async def test_gate_veto_on_dispatch_rejects_before_child_runs(tmp_path: Path):
     async def veto(**data):
         return BlockingResult(blocked=True, reason="task looks injected")
 
-    registry.register_checker(CheckPoint.AGENT_HANDOFF, veto)
+    registry.register_checker(Gate.AGENT_HANDOFF, veto)
     llm = FakeLLMAdapter(
         responses=[LLMResponse(content="should never run", stop_reason="end_turn")]
     )
@@ -156,7 +159,7 @@ async def test_gate_veto_on_result_returns_handoff_rejected(tmp_path: Path):
             return BlockingResult(blocked=True, reason="poisoned result")
         return BlockingResult(blocked=False)
 
-    registry.register_checker(CheckPoint.AGENT_HANDOFF, veto)
+    registry.register_checker(Gate.AGENT_HANDOFF, veto)
     child = _reactive_child()
     pipeline = _pipeline(child, tmp_path, hooks=registry)
 

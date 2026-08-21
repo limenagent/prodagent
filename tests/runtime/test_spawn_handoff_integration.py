@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from prodagent import Agent, ExecutionMode
+from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.llm.fake import script
 from prodagent.tooling.base import FunctionTool
 
@@ -17,8 +17,8 @@ async def test_spawn_tool_respects_duplicate_message_ids():
         "doubler",
         system_prompt="Double the number",
         tools=[tool],
-        description="Doubles a number",
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(name="doubler", description="Doubles a number"),
     )
 
     fake_llm = script(
@@ -50,8 +50,8 @@ async def test_spawn_tool_different_tasks_not_duplicated():
         "doubler",
         system_prompt="Double the number",
         tools=[tool],
-        description="Doubles a number",
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(name="doubler", description="Doubles a number"),
     )
 
     fake_llm = script({"tool": "double", "params": {"x": 5}}, {"content": "Result: 10"})
@@ -70,7 +70,10 @@ async def test_spawn_tool_different_tasks_not_duplicated():
 
 async def test_spawn_tool_creates_handoff_packet():
     child = Agent(
-        "echoer", system_prompt="Echo", description="Echoes input", mode=ExecutionMode.REACTIVE
+        "echoer",
+        system_prompt="Echo",
+        mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(name="echoer", description="Echoes input"),
     )
 
     fake_llm = script({"content": "Echo: test"})
@@ -89,8 +92,8 @@ async def test_spawn_tool_result_has_output_and_state():
     child = Agent(
         "bad_agent",
         system_prompt="Returns malformed result",
-        description="Returns malformed result",
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(name="bad_agent", description="Returns malformed result"),
     )
 
     fake_llm = script({"content": ""})
@@ -111,7 +114,12 @@ def run_async_test(test_func):
 
 
 def _spec(name="worker"):
-    return Agent(name, system_prompt="work", description="worker", mode=ExecutionMode.REACTIVE)
+    return Agent(
+        name,
+        system_prompt="work",
+        mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(name=name, description="worker"),
+    )
 
 
 async def test_spawn_tool_meta_allows_parallel_and_idempotent():
@@ -142,7 +150,7 @@ async def test_spawn_aggregates_cost_into_accumulator():
 
 async def test_l7_handoff_rejection_dead_letters(monkeypatch=None):
     from prodagent.core.exceptions import SecurityViolation
-    from prodagent.hooks.checkpoint import CheckPoint
+    from prodagent.hooks.gates import Gate
     from prodagent.hooks.registry import HookRegistry
     from prodagent.runtime.coordination.spawn import build_spawn_tools_for_agent
 
@@ -151,7 +159,7 @@ async def test_l7_handoff_rejection_dead_letters(monkeypatch=None):
     def _reject(*, handoff_data=None, **_):
         raise SecurityViolation("policy: forbidden next_action")
 
-    hooks.register_checker(CheckPoint.AGENT_HANDOFF, _reject)
+    hooks.register_checker(Gate.AGENT_HANDOFF, _reject)
 
     fake_llm = script({"content": "done"})
     spawn = build_spawn_tools_for_agent([_spec()], llm=fake_llm, hooks=hooks)

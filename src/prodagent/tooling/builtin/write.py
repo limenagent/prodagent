@@ -68,7 +68,7 @@ def make_write(allowed_dirs: list[Path] | None = None) -> FunctionTool:
         is_readonly=False,
         side_effect_level=SideEffectLevel.HIGH,
         domain="fs:write",
-        estimated_latency_ms=1_000,
+        timeout_seconds=30.0,
     )
     return tool(_write, name="write", description=_WRITE_DESCRIPTION, meta=meta)
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from prodagent import Agent, ExecutionMode
+from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.core.config import FrameworkConfig
 from prodagent.core.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
@@ -18,8 +18,7 @@ def _child_that_fails_to_plan() -> Agent:
     return Agent(
         "broken_planner",
         system_prompt="plan something",
-        llm=llm,
-        description="A child whose planner fails",
+        config=AgentConfig(name="broken_planner", llm=llm, description="A child whose planner fails"),
     )
 
 
@@ -75,9 +74,12 @@ async def test_run_child_returns_failed_when_executor_raises(tmp_path: Path) -> 
     child = Agent(
         "exploder",
         system_prompt="will crash",
-        llm=_BoomLLM(),  # type: ignore[arg-type]
-        description="A child whose LLM raises",
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(
+            name="exploder",
+            llm=_BoomLLM(),  # type: ignore[arg-type]
+            description="A child whose LLM raises",
+        ),
     )
     pipeline = Spawn(
         [child],

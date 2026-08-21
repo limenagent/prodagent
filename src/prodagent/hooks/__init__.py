@@ -18,7 +18,7 @@ async def fire(hooks: HookRegistry | None, event: HookEvent, **payload: object) 
 
 
 # "Checkpoint" below means run-state persistence (CheckpointStore snapshot),
-# not the CheckPoint enum (hook-lifecycle blocking gate) defined in checkpoint.py.
+# not the Gate enum (hook-lifecycle blocking gate) defined in gates.py.
 async def fire_checkpoint_failed(
     hooks: HookRegistry | None, run: AgentRun, *, was_failed: bool
 ) -> None:
@@ -51,13 +51,13 @@ async def save_and_fire_checkpoint(
     await fire_checkpoint_failed(hooks, run, was_failed=was_failed)
 
 
-from prodagent.hooks.checkpoint import (  # noqa: E402
+from prodagent.hooks.events import HookEvent  # noqa: E402
+from prodagent.hooks.gates import (  # noqa: E402
     BlockingResult,
-    CheckPoint,
     FailurePolicy,
+    Gate,
     InjectionPoint,
 )
-from prodagent.hooks.events import HookEvent  # noqa: E402
 from prodagent.hooks.registry import (  # noqa: E402
     HookRegistry,
 )
@@ -68,7 +68,7 @@ __all__ = [
     "fire",
     "fire_checkpoint_failed",
     "BlockingResult",
-    "CheckPoint",
+    "Gate",
     "InjectionPoint",
     "FailurePolicy",
 ]

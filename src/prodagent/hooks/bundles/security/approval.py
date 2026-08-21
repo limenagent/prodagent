@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Any
 from prodagent.core.exceptions import SuspendPendingApproval
 from prodagent.core.types import ToolCall
 from prodagent.guardrail.approval import ApprovalDecision
-from prodagent.hooks.checkpoint import BlockingResult, CheckPoint
 from prodagent.hooks.events import HookEvent
+from prodagent.hooks.gates import BlockingResult, Gate
 
 if TYPE_CHECKING:
     from prodagent.guardrail.approval import ApprovalGate
@@ -41,7 +41,7 @@ class ApprovalHooks:
         if self._gate.is_wired_to(hooks):
             return
         self._gate.mark_wired(hooks)
-        hooks.register_checker(CheckPoint.APPROVAL_REQUEST, self.gate_request, priority=100)
+        hooks.register_checker(Gate.APPROVAL_REQUEST, self.gate_request, priority=100)
 
     async def gate_request(
         self,

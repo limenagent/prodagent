@@ -35,7 +35,7 @@ class TouchBackWorker:
         while True:
             mem_id = await queue.get()
             try:
-                await asyncio.to_thread(self._store.touch_memory, mem_id)
+                await self._store.touch_memory(mem_id)
             except Exception as exc:
                 logger.warning("[memory] touch_memory failed for %s: %s", mem_id, exc)
             finally:

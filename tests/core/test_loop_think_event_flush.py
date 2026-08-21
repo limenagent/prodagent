@@ -62,7 +62,7 @@ async def test_reasoning_content_think_event_lands_in_audit_trace(tmp_path: Path
 
     async for _ in loop.stream("test", run_id="run-x"):
         pass
-    audit.shutdown()
+    await audit.shutdown()
 
     records = [
         __import__("json").loads(line)
@@ -100,7 +100,7 @@ async def test_per_token_think_fires_drained_before_think_returns(tmp_path: Path
     await hooks.fire(HookEvent.SESSION_START, run_id="run-y", task="test", phases=1)
     async for _ in loop.stream("test", run_id="run-y"):
         pass
-    audit.shutdown()
+    await audit.shutdown()
 
     records = [
         __import__("json").loads(line)

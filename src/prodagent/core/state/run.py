@@ -144,6 +144,13 @@ class AgentRun(Generic[_RunT]):
 
     metrics: RunMetrics = field(default_factory=RunMetrics)
     start_time: float = field(default_factory=time.time)
+    """Wall-clock start — persisted for display and as the resume baseline."""
+    monotonic_start: float | None = field(default_factory=time.monotonic, repr=False, compare=False)
+    """NTP-immune in-process anchor for :meth:`elapsed_seconds`. ``None`` on a
+    run deserialized from a checkpoint (monotonic clocks are process-relative),
+    in which case elapsed falls back to wall-clock against ``start_time`` —
+    a resumed run's deadline still binds, counting the downtime. Rebase
+    ``start_time`` at the resume site if downtime should be forgiven."""
     parent_run_id: str | None = None
 
     # Mutable working transcript during this turn; copied whole into
@@ -217,6 +224,8 @@ class AgentRun(Generic[_RunT]):
         return self.metrics.input_tokens + self.metrics.output_tokens
 
     def elapsed_seconds(self) -> float:
+        if self.monotonic_start is not None:
+            return time.monotonic() - self.monotonic_start
         return time.time() - self.start_time
 
     def add_tokens(self, response: LLMResponse, *, cost_usd: float) -> None:
@@ -283,6 +292,7 @@ class AgentRun(Generic[_RunT]):
             tool_failures=d.get("tool_failures", 0),
             last_action=d.get("last_action"),
             start_time=d.get("start_time", time.time()),
+            monotonic_start=None,  # process-relative clock meaningless across a restore
             retry_counter=dict(d.get("retry_counter", {})),
             fingerprints=list(d.get("fingerprints", [])),
             idempotency_seq=d.get("idempotency_seq", 0),

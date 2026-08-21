@@ -214,14 +214,27 @@ class ToolMeta:
     is_readonly: bool = False
     side_effect_level: SideEffectLevel = SideEffectLevel.LOW
     enforced_idempotent: bool = False  # host injects idempotency_key; tool fn must accept it
+    timeout_seconds: float = 10.0
+    """Hard deadline — the dispatcher enforces it with ``asyncio.wait_for``.
+    A deadline is a correctness bound, not a forecast; set it from p99.9 of
+    the tool's real runtime, not from what you *expect* it to take."""
     estimated_latency_ms: float = 1_000.0
+    """Typical latency, informational only — schedulers and planners may read
+    it to order work. It is NOT the deadline; ``timeout_seconds`` is."""
     domain: str = "general"
     resource_id: str | None = None
     max_result_chars: float = 100_000
 
-    @property
-    def timeout_seconds(self) -> float:
-        return self.estimated_latency_ms / 1_000
+    def __post_init__(self) -> None:
+        if self.timeout_seconds <= 0:
+            raise ValueError(
+                f"ToolMeta {self.name!r}: timeout_seconds must be > 0 (got {self.timeout_seconds})"
+            )
+        if self.estimated_latency_ms < 0:
+            raise ValueError(
+                f"ToolMeta {self.name!r}: estimated_latency_ms must be >= 0 "
+                f"(got {self.estimated_latency_ms})"
+            )
 
 
 class ErrorSeverity(StrEnum):

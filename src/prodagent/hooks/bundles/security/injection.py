@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from prodagent.core.exceptions import SensitiveContentDetected
 from prodagent.guardrail.injection.policy import OutputDisposition
-from prodagent.hooks.checkpoint import CheckPoint
+from prodagent.hooks.gates import Gate
 
 if TYPE_CHECKING:
     from prodagent.guardrail.injection import (
@@ -33,19 +33,19 @@ class InjectionDefenseHooks:
 
     def attach(self, hooks: HookRegistry) -> None:
         # L1-L4 scans at priority 50; L5 output/KB/handoff checks veto at 80.
-        hooks.register_checker(CheckPoint.SESSION_START, self.scan_task, priority=50)
-        hooks.register_checker(CheckPoint.TOOL_RESULT, self.scan_tool_result, priority=50)
-        hooks.register_checker(CheckPoint.CONTEXT_BUILD, self.scan_context, priority=50)
-        hooks.register_checker(CheckPoint.TOOL_CALL, self.scan_tool_params, priority=50)
+        hooks.register_checker(Gate.SESSION_START, self.scan_task, priority=50)
+        hooks.register_checker(Gate.TOOL_RESULT, self.scan_tool_result, priority=50)
+        hooks.register_checker(Gate.CONTEXT_BUILD, self.scan_context, priority=50)
+        hooks.register_checker(Gate.TOOL_CALL, self.scan_tool_params, priority=50)
 
         # L5 output scan must veto, not just observe.
-        hooks.register_checker(CheckPoint.RUN_COMPLETE, self.scan_output, priority=80)
+        hooks.register_checker(Gate.RUN_COMPLETE, self.scan_output, priority=80)
 
         if self._kb_guard:
-            hooks.register_checker(CheckPoint.DOCUMENT_ADD, self.guard_kb_write, priority=80)
+            hooks.register_checker(Gate.DOCUMENT_ADD, self.guard_kb_write, priority=80)
 
         if self._handoff_actions is not None:
-            hooks.register_checker(CheckPoint.AGENT_HANDOFF, self.validate_handoff, priority=80)
+            hooks.register_checker(Gate.AGENT_HANDOFF, self.validate_handoff, priority=80)
 
     def scan_task(self, *, task: str = "", **_: Any) -> None:
         if task:
@@ -55,7 +55,13 @@ class InjectionDefenseHooks:
         self, *, result: dict[str, Any] | None = None, name: str = "", **_: Any
     ) -> None:
         if result:
-            self._pipeline.scan_text(str(result), source=f"tool_result:{name}")
+            # Scan the string *values*, not the dict's repr — repr quoting and
+            # escaping changes what the patterns see versus the text the model
+            # will actually be shown.
+            self._pipeline.scan_text(
+                "\n".join(str(v) for v in result.values() if isinstance(v, (str, int, float))),
+                source=f"tool_result:{name}",
+            )
 
     def scan_context(self, *, messages: list[Any] | None = None, **_: Any) -> None:
         if not messages:

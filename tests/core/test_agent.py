@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from prodagent import Agent, ExecutionMode, HardBudget, RunState
+from prodagent import Agent, AgentConfig, ExecutionMode, HardBudget, RunState
 from prodagent.hooks.registry import HookRegistry
 from prodagent.llm.fake import script
 from prodagent.tooling import tool
@@ -14,11 +14,10 @@ from prodagent.tooling import tool
 
 def _simple_agent(llm, **kwargs) -> Agent:
     return Agent(
-        name="test-agent",
+        "test-agent",
         system_prompt="Verify system status.",
-        llm=llm,
-        hooks=HookRegistry(),
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(name="test-agent", llm=llm, hooks=HookRegistry()),
         **kwargs,
     )
 
@@ -57,12 +56,11 @@ def test_agent_with_tools():
         {"content": "Service is healthy."},
     )
     agent = Agent(
-        name="ops",
+        "ops",
         system_prompt="Run health check.",
         tools=[health_check],
-        llm=llm,
-        hooks=HookRegistry(),
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(name="ops", llm=llm, hooks=HookRegistry()),
     )
     run = asyncio.run(agent.chat("Is the API healthy?"))
     assert run.state == RunState.COMPLETED
@@ -81,12 +79,15 @@ def test_agent_constraints_in_system_prompt():
             return LLMResponse(content="done", stop_reason="end_turn")
 
     agent = Agent(
-        name="constrained",
+        "constrained",
         system_prompt="Check things.",
-        constraints=["ALWAYS validate input", "NEVER skip logging"],
-        llm=CaptureLLM(),
-        hooks=HookRegistry(),
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(
+            name="constrained",
+            constraints=["ALWAYS validate input", "NEVER skip logging"],
+            llm=CaptureLLM(),
+            hooks=HookRegistry(),
+        ),
     )
     asyncio.run(agent.chat("check"))
 
@@ -106,11 +107,10 @@ def test_agent_context_in_system_prompt():
             return LLMResponse(content="done", stop_reason="end_turn")
 
     agent = Agent(
-        name="ctx-agent",
+        "ctx-agent",
         system_prompt="Incident INC-001: payment service down",
-        llm=CaptureLLM(),
-        hooks=HookRegistry(),
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(name="ctx-agent", llm=CaptureLLM(), hooks=HookRegistry()),
     )
     asyncio.run(agent.chat("handle incident"))
 
@@ -118,12 +118,15 @@ def test_agent_context_in_system_prompt():
 
 
 def test_fluent_api_inject():
-    from prodagent.hooks.checkpoint import InjectionPoint
+    from prodagent.hooks.gates import InjectionPoint
 
     agent = Agent(
-        name="test-agent",
-        llm=script({"content": "ok"}),
-        injectors=[(InjectionPoint.CONTEXT_INJECTOR, lambda q: f"Context: {q}")],
+        "test-agent",
+        config=AgentConfig(
+            name="test-agent",
+            llm=script({"content": "ok"}),
+            injectors=[(InjectionPoint.CONTEXT_INJECTOR, lambda q: f"Context: {q}")],
+        ),
     )
     assert len(agent.injectors) == 1
 
@@ -131,19 +134,19 @@ def test_fluent_api_inject():
 def test_extend_human_approval_registers_checker():
     from prodagent.guardrail.approval import ApprovalGate
     from prodagent.hooks.bundles.security import ApprovalHooks
-    from prodagent.hooks.checkpoint import CheckPoint
+    from prodagent.hooks.gates import Gate
     from prodagent.hooks.registry import HookRegistry
 
     hooks = HookRegistry()
     ApprovalHooks(gate=ApprovalGate()).attach(hooks)
-    assert len(hooks._check_handlers[CheckPoint.APPROVAL_REQUEST]) == 1
+    assert len(hooks._check_handlers[Gate.APPROVAL_REQUEST]) == 1
 
 
 def test_fluent_api_budget():
     agent = Agent(
-        name="test-agent",
-        llm=script({"content": "ok"}),
+        "test-agent",
         budget=HardBudget(max_turns=10, max_cost_usd=0.5, max_seconds=120.0),
+        config=AgentConfig(name="test-agent", llm=script({"content": "ok"})),
     )
     assert agent.budget_config is not None
     assert agent.budget_config.max_turns == 10
@@ -151,15 +154,15 @@ def test_fluent_api_budget():
 
 def test_fluent_api_reactive_plan_first():
     agent = Agent(
-        name="test-agent",
-        llm=script({"content": "ok"}),
+        "test-agent",
         mode=ExecutionMode.PLAN_FIRST,
+        config=AgentConfig(name="test-agent", llm=script({"content": "ok"})),
     )
     assert agent.mode == ExecutionMode.PLAN_FIRST
     agent2 = Agent(
-        name="test-agent-2",
-        llm=script({"content": "ok"}),
+        "test-agent-2",
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(name="test-agent-2", llm=script({"content": "ok"})),
     )
     assert agent2.mode == ExecutionMode.REACTIVE
 
@@ -181,12 +184,10 @@ def test_agent_saves_to_session_dir():
             ),
         )
         agent = Agent(
-            name="session-agent",
+            "session-agent",
             system_prompt="Do some work.",
-            llm=llm,
-            hooks=HookRegistry(),
-            framework=fw,
             mode=ExecutionMode.REACTIVE,
+            config=AgentConfig(name="session-agent", llm=llm, hooks=HookRegistry(), framework=fw),
         )
         run = asyncio.run(agent.chat("save this run", session_id="run-save-001"))
         assert run.state == RunState.COMPLETED
@@ -204,12 +205,11 @@ def test_agent_budget_respected():
             return LLMResponse(content="thinking...", stop_reason="end_turn")
 
     agent = Agent(
-        name="budget-test",
+        "budget-test",
         system_prompt="Keep going.",
-        llm=InfiniteLoopLLM(),
-        hooks=HookRegistry(),
         budget=HardBudget(max_turns=2, max_seconds=30.0),
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(name="budget-test", llm=InfiniteLoopLLM(), hooks=HookRegistry()),
     )
     run = asyncio.run(agent.chat("test budget"))
     assert run.state in (RunState.COMPLETED, RunState.FAILED)
@@ -229,12 +229,11 @@ def test_agent_stream_yields_events():
         {"content": "All systems operational."},
     )
     agent = Agent(
-        name="stream-test",
+        "stream-test",
         system_prompt="Check systems.",
         tools=[probe],
-        llm=llm,
-        hooks=HookRegistry(),
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(name="stream-test", llm=llm, hooks=HookRegistry()),
     )
 
     events = []
@@ -262,12 +261,11 @@ def test_agent_stream_run_failed_event_on_budget_exhaustion():
             return LLMResponse(content="still thinking...", stop_reason="end_turn")
 
     agent = Agent(
-        name="budget-stream",
+        "budget-stream",
         system_prompt="Loop forever.",
-        llm=LoopingLLM(),
-        hooks=HookRegistry(),
         budget=HardBudget(max_turns=2, max_seconds=30.0),
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(name="budget-stream", llm=LoopingLLM(), hooks=HookRegistry()),
     )
 
     events = []
@@ -296,10 +294,9 @@ async def test_plan_first_failed_run_does_not_raise_attribute_error():
     )
 
     agent = Agent(
-        name="plan-fail",
+        "plan-fail",
         system_prompt="Parse my plan.",
-        llm=bad_plan_llm,
-        hooks=HookRegistry(),
+        config=AgentConfig(name="plan-fail", llm=bad_plan_llm, hooks=HookRegistry()),
     )
     assert agent.mode is ExecutionMode.PLAN_FIRST
 
@@ -320,4 +317,8 @@ def test_agent_name_with_child_separator_rejected():
     """Agent name containing '::' is rejected at construction — it would
     collide with the parent::child run_id derivation."""
     with pytest.raises(ValueError, match="::"):
-        Agent(name="bad::name", system_prompt="", llm=script({"content": "x"}))
+        Agent(
+            "bad::name",
+            system_prompt="",
+            config=AgentConfig(name="bad::name", llm=script({"content": "x"})),
+        )

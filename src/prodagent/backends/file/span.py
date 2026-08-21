@@ -31,7 +31,7 @@ class FileSpanExporter:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._f = self._path.open("a", encoding="utf-8")
 
-    def export(self, span: AgentSpan) -> None:
+    async def export(self, span: AgentSpan) -> None:
         with self._lock:
             if self._closed:
                 logger.error("FileSpanExporter write after shutdown for %s", self._path)
@@ -43,7 +43,7 @@ class FileSpanExporter:
             except OSError as exc:
                 logger.error("FileSpanExporter write failed for %s: %s", self._path, exc)
 
-    def shutdown(self) -> None:
+    async def shutdown(self) -> None:
         with self._lock:
             if self._closed:
                 return

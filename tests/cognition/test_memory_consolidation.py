@@ -224,10 +224,10 @@ def _fact_mem(*, entity_id: str, content: str, version: int = 1) -> dict:
     }
 
 
-def _seed_fact(store: MemoryManager, **kw) -> None:
+async def _seed_fact(store: MemoryManager, **kw) -> None:
     """Pre-seed a FACT node directly into the graph (bypasses the manager)."""
     props = _fact_mem(**kw)
-    store._facts.add_node(props["entity_id"], labels=["Fact"], properties=props)
+    await store._facts.add_node(props["entity_id"], labels=["Fact"], properties=props)
 
 
 @pytest.mark.asyncio
@@ -302,7 +302,7 @@ async def test_recall_runs_all_four_channels(tmp_path):
         tmp_path,
         constraints=["禁止ORM"],
     )
-    _seed_fact(store, entity_id="user_plan", content="套餐是基础版", version=2)
+    await _seed_fact(store, entity_id="user_plan", content="套餐是基础版", version=2)
     store._documents._memories_file.write_text(
         json.dumps([_soft_mem(id="p1", content="用户喜欢Python风格")])
     )
@@ -329,7 +329,7 @@ async def test_recall_priority_rule_before_semantic(tmp_path):
 @pytest.mark.asyncio
 async def test_recall_fact_carries_version_number(tmp_path):
     store = make_store(tmp_path)
-    _seed_fact(store, entity_id="pod:payment", content="payment pod v2.15", version=3)
+    await _seed_fact(store, entity_id="pod:payment", content="payment pod v2.15", version=3)
 
     result = await store.recall("anything")
     assert "[FACT:pod:payment v=3]" in result
@@ -437,7 +437,7 @@ async def test_classify_fact_upserted_by_entity_id(tmp_path):
     await store.classify(run=_reactive_run("payment pod is running v2.14" * 5), state="completed")
     store._classifier = MemoryClassifier(_FakeLLM(fact_json))
     await store.classify(run=_reactive_run("payment pod now v2.15" * 5), state="completed")
-    node = store._facts.get_node("pod:payment")
+    node = await store._facts.get_node("pod:payment")
     assert node is not None
     assert node["properties"]["version"] == 2
     assert node["properties"]["content"] == "payment pod now v2.15" * 5
@@ -452,7 +452,7 @@ async def test_fact_version_increments_on_repeated_upsert(tmp_path):
     store = _make_store_with_llm(tmp_path, _FakeLLM(fact_json))
     for content in ["VIP", "基础版", "尊享版"]:
         await store.classify(run=_reactive_run(content * 30), state="completed")
-    node = store._facts.get_node("user_plan")
+    node = await store._facts.get_node("user_plan")
     assert node is not None
     assert node["properties"]["version"] == 3
     assert node["properties"]["content"] == "尊享版" * 30

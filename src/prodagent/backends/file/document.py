@@ -12,14 +12,14 @@ if TYPE_CHECKING:
 
 from prodagent.backends._shared.document_write import build_stored_memory
 from prodagent.backends.file._locking import _exclusive
-from prodagent.cognition.memory.storage import (
+from prodagent.core.io import write_atomic_json
+from prodagent.core.time import now_timestamp
+from prodagent.ports.document import (
     MAX_SOFT_MEMORIES,
     MemoryRecord,
     MemoryType,
     StoredMemory,
 )
-from prodagent.core.io import write_atomic_json
-from prodagent.core.time import now_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -55,19 +55,19 @@ class FileDocumentStore:
     def _lock_file(self) -> Path:
         return self._dir / "memories_soft.lock"
 
-    def load_constraints(self) -> list[StoredMemory]:
+    async def load_constraints(self) -> list[StoredMemory]:
         """Filtered view over the soft-memory pool, so ``RuleChannel``
         force-recalls constraints only."""
-        return [m for m in self.load_memories() if m.memory_type is MemoryType.CONSTRAINT]
+        return [m for m in await self.load_memories() if m.memory_type is MemoryType.CONSTRAINT]
 
-    def load_memories(self) -> list[StoredMemory]:
+    async def load_memories(self) -> list[StoredMemory]:
         return [StoredMemory.from_dict(m) for m in _read_json(self._memories_file, default=[])]
 
-    def save_memories(self, data: list[StoredMemory]) -> None:
+    async def save_memories(self, data: list[StoredMemory]) -> None:
         with _exclusive(self._lock_file):
             _write_json(self._memories_file, [m.to_dict() for m in data[:MAX_SOFT_MEMORIES]])
 
-    def append_soft(self, record: MemoryRecord) -> None:
+    async def append_soft(self, record: MemoryRecord) -> None:
         stored = build_stored_memory(record)
         with _exclusive(self._lock_file):
             memories = [
@@ -76,7 +76,7 @@ class FileDocumentStore:
             memories.insert(0, stored)
             _write_json(self._memories_file, [m.to_dict() for m in memories[:MAX_SOFT_MEMORIES]])
 
-    def _mutate_mem(self, mem_id: str, fn: Callable[[StoredMemory], None]) -> None:
+    async def _mutate_mem(self, mem_id: str, fn: Callable[[StoredMemory], None]) -> None:
         with _exclusive(self._lock_file):
             memories = [
                 StoredMemory.from_dict(m) for m in _read_json(self._memories_file, default=[])
@@ -87,12 +87,12 @@ class FileDocumentStore:
                     _write_json(self._memories_file, [m.to_dict() for m in memories])
                     return
 
-    def mark_superseded(self, mem_id: str, superseded: bool) -> None:
-        self._mutate_mem(mem_id, lambda mem: setattr(mem, "superseded", superseded))
+    async def mark_superseded(self, mem_id: str, superseded: bool) -> None:
+        await self._mutate_mem(mem_id, lambda mem: setattr(mem, "superseded", superseded))
 
-    def touch_memory(self, mem_id: str) -> None:
+    async def touch_memory(self, mem_id: str) -> None:
         def _touch(mem: StoredMemory) -> None:
             mem.access_count += 1
             mem.last_access = now_timestamp()
 
-        self._mutate_mem(mem_id, _touch)
+        await self._mutate_mem(mem_id, _touch)

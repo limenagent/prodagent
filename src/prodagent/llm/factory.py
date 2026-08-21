@@ -10,17 +10,13 @@ from prodagent.llm.providers import anthropic_env, openai_compat_env, use_fake_l
 logger = logging.getLogger(__name__)
 
 
-def _configure_llm_logging() -> None:
-    for _noise in ("httpx", "httpcore", "openai._base_client", "anthropic"):
-        logging.getLogger(_noise).setLevel(logging.WARNING)
-
-
 def create_llm_client(
     config: LLMConfig | None = None,
     *,
     force_fake: bool = False,
 ) -> LLMClient:
-    _configure_llm_logging()
+    # A library does not touch global logging configuration — if httpx/openai
+    # chatter bothers you, quiet those loggers in your own logging setup.
 
     if force_fake or use_fake_llm():
         logger.info("LLM: FakeLLMAdapter (USE_FAKE_LLM or force_fake)")

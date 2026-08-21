@@ -5,8 +5,8 @@ import pytest
 from prodagent.cognition.context.budget import CompressionLevel, TokenCounter
 from prodagent.cognition.context.manager import ContextManager, format_state
 from prodagent.core.config import ContextConfig
-from prodagent.hooks.checkpoint import CheckPoint, InjectionPoint
 from prodagent.hooks.events import HookEvent
+from prodagent.hooks.gates import Gate, InjectionPoint
 from prodagent.hooks.registry import HookRegistry
 
 
@@ -189,7 +189,7 @@ class TestHookFiringOrder:
 
         hooks.register_injector(InjectionPoint.CONTEXT_INJECTOR, _injector_handler)
         hooks.register_event(HookEvent.MEMORY_RECALL, _recall_handler)
-        hooks.register_checker(CheckPoint.CONTEXT_BUILD, _build_checker, priority=50)
+        hooks.register_checker(Gate.CONTEXT_BUILD, _build_checker, priority=50)
         hooks.register_event(HookEvent.CONTEXT_BUILD, _build_observer)
 
         await cm.prepare(run, hooks=hooks)
@@ -396,7 +396,7 @@ class TestContextBuildPayload:
         async def _veto(**data):
             raise PromptInjectionDetected("test injection")
 
-        hooks.register_checker(CheckPoint.CONTEXT_BUILD, _veto, priority=50)
+        hooks.register_checker(Gate.CONTEXT_BUILD, _veto, priority=50)
 
         with pytest.raises(PromptInjectionDetected):
             await cm.prepare(run, hooks=hooks)

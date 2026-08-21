@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Any
 from prodagent.core.budget import HardBudget
 from prodagent.core.exceptions import PermissionDenied
 from prodagent.core.types import ExecutionMode, MessageList
-from prodagent.hooks.checkpoint import CheckPoint
 from prodagent.hooks.events import HookEvent
+from prodagent.hooks.gates import Gate
 from prodagent.mcp.registry import MCPRegistry
 from prodagent.runtime._tool_merge import merge_tools_by_name
 from prodagent.runtime.coordination.peer import assemble_peer_tools
@@ -56,7 +56,7 @@ class LeafExecutorFactory:
         if hooks is None:
             return
         result = await hooks.check_blocking(
-            CheckPoint.SESSION_START,
+            Gate.SESSION_START,
             run_id=ctx.run_id,
             task=ctx.task[:120],
             depth=ctx.depth,

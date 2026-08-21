@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent import Agent, ExecutionMode
+from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.core.state.run import PendingHandoff
-from prodagent.hooks.checkpoint import BlockingResult, CheckPoint
 from prodagent.hooks.events import HookEvent
+from prodagent.hooks.gates import BlockingResult, Gate
 from prodagent.hooks.registry import HookRegistry
 from prodagent.llm.fake import script
 from prodagent.runtime.coordination.messaging.contract import MessageContract
@@ -20,7 +20,12 @@ def hook_registry():
 
 
 def _reactive_agent(name: str, *, context: str = "", peers=None) -> Agent:
-    return Agent(name, system_prompt=context, mode=ExecutionMode.REACTIVE, peers=peers)
+    return Agent(
+        name,
+        system_prompt=context,
+        mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(name=name, peers=list(peers or [])),
+    )
 
 
 # ------------------------------------------------------- message_id lifecycle
@@ -87,7 +92,7 @@ async def test_gate_veto_stops_chain_and_settles_current_run(hook_registry):
     async def veto(**data):
         return BlockingResult(blocked=True, reason="relay looks injected")
 
-    hook_registry.register_checker(CheckPoint.AGENT_HANDOFF, veto)
+    hook_registry.register_checker(Gate.AGENT_HANDOFF, veto)
     peer_b = _reactive_agent("B", context="you are B")
     peer_b.config.llm = script({"content": "B done"})
     agent_a = _reactive_agent("A", context="you are A", peers=[peer_b])

@@ -9,8 +9,7 @@ peer 模式下 remediator 不共享父 LLM，``_build_peer_agent`` 复制
 
 from __future__ import annotations
 
-from prodagent import Agent, ExecutionMode, HardBudget
-from prodagent.llm.base import LLMClient
+from prodagent import Agent, AgentConfig, ExecutionMode, HardBudget, LLMClient
 
 from aiops.tools import (
     check_slo,
@@ -37,9 +36,12 @@ def log_analysis_agent() -> Agent:
             "报告 '无有效信号'。"
         ),
         tools=[tail_logs, get_pod_status],
-        description="只读日志专家。提取错误签名（OOMKill、panic、堆栈）。",
         mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_seconds=600),
+        config=AgentConfig(
+            name="log_analysis",
+            description="只读日志专家。提取错误签名（OOMKill、panic、堆栈）。",
+        ),
     )
 
 
@@ -53,9 +55,12 @@ def deploy_correlation_agent() -> Agent:
             "上一个好 SHA。如果不是: 报告 '无相关部署'。"
         ),
         tools=[get_recent_deploys, get_pr_diff],
-        description="只读部署专家。判断某次代码变更是否可能导致了故障。",
         mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_seconds=600),
+        config=AgentConfig(
+            name="deploy_correlation",
+            description="只读部署专家。判断某次代码变更是否可能导致了故障。",
+        ),
     )
 
 
@@ -68,9 +73,12 @@ def metric_anomaly_agent() -> Agent:
             " burn rate 和驱动的指标；如果一切正常，报告 '指标正常'。"
         ),
         tools=[query_metrics],
-        description="只读指标专家。量化 SLO burn rate 和异常信号。",
         mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_seconds=600),
+        config=AgentConfig(
+            name="metric_anomaly",
+            description="只读指标专家。量化 SLO burn rate 和异常信号。",
+        ),
     )
 
 
@@ -118,15 +126,18 @@ def remediator_agent(*, llm: LLMClient | None = None) -> Agent:
             check_slo,
             page_oncall,
         ],
-        llm=llm,
-        description=(
-            "修复专家。investigator 把根因明确的 IncidentReport 交给它 —— "
-            "handoff_to_remediator 结束 investigator 的 run，remediator 接"
-            "过 report 继续。根因为 'Unknown' 时，investigator 直接 "
-            "page_oncall，不 handoff。"
-        ),
         mode=ExecutionMode.PLAN_FIRST,
         budget=HardBudget(max_seconds=600),
+        config=AgentConfig(
+            name="remediator",
+            llm=llm,
+            description=(
+                "修复专家。investigator 把根因明确的 IncidentReport 交给它 —— "
+                "handoff_to_remediator 结束 investigator 的 run，remediator 接"
+                "过 report 继续。根因为 'Unknown' 时，investigator 直接 "
+                "page_oncall，不 handoff。"
+            ),
+        ),
     )
 
 

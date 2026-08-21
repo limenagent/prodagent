@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from prodagent import Agent, ExecutionMode
+from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.core.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.tooling import tool
@@ -35,8 +35,7 @@ async def test_plan_first_child_reports_completed_not_failed():
         "worker",
         system_prompt="do the work",
         tools=[collect, report],
-        llm=_plan_llm(),
-        description="A PLAN_FIRST worker",
+        config=AgentConfig(name="worker", llm=_plan_llm(), description="A PLAN_FIRST worker"),
     )
     assert child.mode is ExecutionMode.PLAN_FIRST
 

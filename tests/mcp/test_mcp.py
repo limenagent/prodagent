@@ -496,14 +496,12 @@ class TestEnvExpansionIntegration:
 
 class TestAgentMcpIntegration:
     def test_mcp_normalises_dict_configs(self, fake_llm: Any, hook_registry: Any) -> None:
-        from prodagent import Agent
+        from prodagent import Agent, AgentConfig
 
         cfg = MCPServerConfig(name="rca", transport="http", url="http://x/mcp")
         agent = Agent(
             name="t",
-            llm=fake_llm,
-            hooks=hook_registry,
-            mcp=[cfg],
+            config=AgentConfig(name="t", llm=fake_llm, hooks=hook_registry, mcp=[cfg]),
         )
         assert len(agent.mcp_configs) == 1
         assert isinstance(agent.mcp_configs[0], MCPServerConfig)
@@ -514,7 +512,7 @@ class TestAgentMcpIntegration:
             MCPServerConfig(transport="http", url="http://x")
 
     async def test_mcp_tools_injected_into_agent(self, fake_llm: Any, hook_registry: Any) -> None:
-        from prodagent import Agent
+        from prodagent import Agent, AgentConfig
         from prodagent.mcp.registry import MCPRegistry
 
         cfg = MCPServerConfig(name="mock", transport="http", url="http://x/mcp")
@@ -526,7 +524,11 @@ class TestAgentMcpIntegration:
             ),
         )
 
-        agent = Agent(name="t", system_prompt="g", llm=fake_llm, hooks=hook_registry, mcp=[cfg])
+        agent = Agent(
+            name="t",
+            system_prompt="g",
+            config=AgentConfig(name="t", llm=fake_llm, hooks=hook_registry, mcp=[cfg]),
+        )
 
         agent.mcp_registry = MCPRegistry([cfg])
         assert agent.mcp_registry is not None

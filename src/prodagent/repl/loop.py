@@ -34,6 +34,12 @@ async def _cmd_quit(agent: Agent, last_run: AgentRun | None) -> None:
 
 async def repl_loop(agent: Agent, *, run_id: str | None = None) -> None:
     """Multi-turn REPL: chat() with history when checkpointed, else stateless run() per turn."""
+    import os
+
+    # The REPL is an interactive terminal by definition — colour on unless
+    # the caller explicitly opted out.
+    os.environ.setdefault("PRODAGENT_CONSOLE", "1")
+
     from prodagent.repl import get_default_registry, read_resume_task
     from prodagent.repl.commands import CommandAborted
 

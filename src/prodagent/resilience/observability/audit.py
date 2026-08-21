@@ -29,13 +29,13 @@ def _new_span_id() -> str:
 class LogExporter:
     """Structured JSON to the Python logging system. Zero dependencies."""
 
-    def export(self, span: AgentSpan) -> None:
+    async def export(self, span: AgentSpan) -> None:
         if span.error:
             logger.error("AUDIT %s", span.to_log_line())
         else:
             logger.info("AUDIT %s", span.to_log_line())
 
-    def shutdown(self) -> None:
+    async def shutdown(self) -> None:
         pass
 
 
@@ -60,7 +60,7 @@ class AuditLogger:
             self._exporter = LogExporter()
         return self._exporter
 
-    def record(self, span: AgentSpan) -> None:
+    async def record(self, span: AgentSpan) -> None:
         if not self._force_log_unsampled and not span.sampled and not span.error:
             return
 
@@ -71,7 +71,7 @@ class AuditLogger:
             output=scrubber.scrub_any(span.output),
             llm_reasoning=scrubber.scrub_any(span.llm_reasoning),
         )
-        self._resolved_exporter().export(scrubbed)
+        await self._resolved_exporter().export(scrubbed)
 
     def span(
         self,
@@ -96,9 +96,9 @@ class AuditLogger:
             sampled=self._is_sampled(resolved_trace),
         )
 
-    def shutdown(self) -> None:
+    async def shutdown(self) -> None:
         if self._exporter is not None:
-            self._exporter.shutdown()
+            await self._exporter.shutdown()
 
     def _is_sampled(self, trace_id: str) -> bool:
         if self._sample_rate >= 1.0:

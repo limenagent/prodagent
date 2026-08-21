@@ -3,17 +3,20 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
-import anthropic
-
 from prodagent.core.exceptions import ToolCallParseError
 from prodagent.core.types import LLMResponse, MessageList, StopReason, ToolCall
 from prodagent.llm.base import ChunkCallback, LLMConfig, normalise_content
-from prodagent.resilience.transport.http_retry import with_http_retry
+from prodagent.resilience.transport.http_retry import DeliveryGuard, with_http_retry
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
 logger = logging.getLogger(__name__)
+
+_ANTHROPIC_IMPORT_ERROR = (
+    "anthropic package is required for AnthropicAdapter. "
+    "Install it with: pip install 'prodagent[anthropic]'"
+)
 
 
 class AnthropicAdapter:
@@ -27,6 +30,11 @@ class AnthropicAdapter:
         base_url: str | None = None,
     ) -> None:
         import os
+
+        try:
+            import anthropic
+        except ImportError as exc:  # pragma: no cover - exercised via missing-dep test
+            raise RuntimeError(_ANTHROPIC_IMPORT_ERROR) from exc
 
         actual_base_url = base_url or os.getenv("ANTHROPIC_BASE_URL")
         resolved_key = api_key or os.getenv("ANTHROPIC_API_KEY", "")
@@ -58,8 +66,23 @@ class AnthropicAdapter:
             "MessageList",
             self._normalise_messages(messages, cache_boundary_index=cfg.cache_boundary_index),
         )
+        guard = DeliveryGuard()
+        safe_chunk = on_chunk
+
+        if on_chunk is not None:
+            guard_owner = guard
+
+            async def _guarded_chunk(text: str) -> None:
+                guard_owner.mark()  # first delivery disqualifies transparent retries
+                await on_chunk(text)
+
+            safe_chunk = _guarded_chunk
+
         return await with_http_retry(
-            lambda: self._stream(normalised, system=system, tools=tools, cfg=cfg, on_chunk=on_chunk)
+            lambda: self._stream(
+                normalised, system=system, tools=tools, cfg=cfg, on_chunk=safe_chunk
+            ),
+            stream_guard=guard if on_chunk is not None else None,
         )
 
     @staticmethod

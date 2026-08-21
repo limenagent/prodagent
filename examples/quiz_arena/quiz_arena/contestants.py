@@ -19,11 +19,16 @@ from __future__ import annotations
 import os
 import re
 
-from prodagent import Agent
-from prodagent.core.config import FrameworkConfig
+from prodagent import (
+    Agent,
+    AgentConfig,
+    Board,
+    BoardWrite,
+    FakeLLMAdapter,
+    FrameworkConfig,
+    Trigger,
+)
 from prodagent.core.types import ExecutionMode, LLMResponse, StopReason
-from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.coordination.blackboard import Board, BoardWrite, Trigger
 
 _HINT_PATTERN = re.compile(r"\[提示：正确答案是\s*(.+?)\]")
 
@@ -80,9 +85,12 @@ def build_contestant_agent(name: str, *, specialty: str) -> Agent:
     return Agent(
         name,
         system_prompt=system_prompt,
-        llm=llm,
         mode=ExecutionMode.REACTIVE,
-        framework=FrameworkConfig.default(),
+        config=AgentConfig(
+            name=name,
+            llm=llm,
+            framework=FrameworkConfig.default(),
+        ),
     )
 
 

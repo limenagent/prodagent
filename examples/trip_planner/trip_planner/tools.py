@@ -19,7 +19,7 @@ from prodagent import SideEffectLevel, ToolMeta, tool
 # restaurant-booking 资源用 Tool 内自持的 asyncio.Lock 串行化;忙时返回
 # 结构化 resource_busy 反馈,由上层 LLM 决定让路还是稍后重试。
 _BOOKING_LOCK = asyncio.Lock()
-_BOOKING_LOCK_WAIT_S = 0.1  # 必须小于 estimated_latency_ms / 1000(外层还有工具超时)
+_BOOKING_LOCK_WAIT_S = 0.1  # 必须小于该工具 timeout_seconds（外层还有工具超时）
 
 
 async def _acquire_booking_lock() -> dict | None:
@@ -130,7 +130,7 @@ def _normalize_route(value: str) -> str:
         name="search_hotels",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=120,
+        timeout_seconds=120 / 1_000,
         domain="travel",
     )
 )
@@ -149,7 +149,7 @@ async def search_hotels(city: str, max_price_per_night: int = 30000) -> dict:
         name="get_weather",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=80,
+        timeout_seconds=80 / 1_000,
         domain="travel",
     )
 )
@@ -174,7 +174,7 @@ async def get_weather(city: str, dates: list[str]) -> dict:
         name="search_restaurants",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=100,
+        timeout_seconds=100 / 1_000,
         domain="travel",
     )
 )
@@ -196,7 +196,7 @@ async def search_restaurants(city: str, cuisine: str = "") -> dict:
         name="book_restaurant",
         is_readonly=False,
         side_effect_level=SideEffectLevel.MEDIUM,
-        estimated_latency_ms=200,
+        timeout_seconds=200 / 1_000,
         domain="travel",
         resource_id="restaurant-booking",
         enforced_idempotent=True,
@@ -233,7 +233,7 @@ async def book_restaurant(restaurant: str, date: str, party_size: int, idempoten
         name="search_flights",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=150,
+        timeout_seconds=150 / 1_000,
         domain="travel",
     )
 )
@@ -272,7 +272,7 @@ async def search_flights(origin: str, dest: str, date: str) -> dict:
         name="search_trains",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=120,
+        timeout_seconds=120 / 1_000,
         domain="travel",
     )
 )

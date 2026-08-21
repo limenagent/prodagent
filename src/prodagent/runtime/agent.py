@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import logging
 import uuid
 from dataclasses import replace as _dc_replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
-from prodagent.backends.factory import resolve_checkpoint, resolve_session_store
+from prodagent.bootstrap import resolve_checkpoint, resolve_session_store
 from prodagent.cognition.context.manager import ContextManager
 from prodagent.cognition.memory import MemoryProvider
 from prodagent.core.config import FrameworkConfig
@@ -22,9 +23,8 @@ from prodagent.core.state.run import CHILD_SEPARATOR
 from prodagent.core.state.session import ConversationSession
 from prodagent.core.types import ExecutionMode, MessageList, RunState
 from prodagent.guardrail.approval import ApprovalDecision, ApprovalProvider
-from prodagent.hooks.bundles.memory import MemoryHooks
-from prodagent.hooks.checkpoint import CheckPoint, InjectionPoint
 from prodagent.hooks.events import HookEvent
+from prodagent.hooks.gates import Gate, InjectionPoint
 from prodagent.hooks.registry import HookRegistry
 from prodagent.runtime._tool_merge import merge_tools_by_name
 from prodagent.runtime.config import AgentConfig
@@ -33,17 +33,14 @@ from prodagent.runtime.coordination.parent_runtime import ParentRuntime
 from prodagent.runtime.runner import collect_final_run, drive_stream
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Callable
+    from collections.abc import AsyncGenerator, Callable, Sequence
 
-    from prodagent.cognition.context.spill import ToolResultSpillStore
     from prodagent.core.budget import HardBudget
     from prodagent.core.events import AgentEvent
     from prodagent.core.state.run import AgentRun
     from prodagent.evaluation.skills.registry import SkillRegistry
-    from prodagent.llm.base import LLMClient
     from prodagent.mcp.config import MCPServerConfig
     from prodagent.ports import CheckpointStore, EventLog, SessionStore, Tool
-    from prodagent.runtime.coordination.messaging.contract import MessageContract
     from prodagent.runtime.plan.dag import Plan
     from prodagent.runtime.run_context import RunContext
     from prodagent.runtime.workflow import Workflow
@@ -66,100 +63,64 @@ def _make_injector(f: Callable[..., Any]) -> Callable[..., Any]:
     return _injector
 
 
+_CONFIG_FIELD_NAMES = frozenset(f.name for f in dataclasses.fields(AgentConfig))
+
+
 class Agent:
-    """Declarative agent with a single, flat constructor."""
+    """Declarative agent — hot params for the common path, AgentConfig for the rest.
+
+    The constructor surface is deliberately two-tier: the handful of
+    parameters almost every agent sets (``system_prompt`` / ``tools`` /
+    ``mode`` / ``budget`` / ``workflow``) stay keyword-friendly, while
+    everything else — LLM client, topology, storage, hooks, extensions —
+    is a field on :class:`AgentConfig` (``runtime/config.py``). Hot params
+    override the matching config fields when both are given.
+    """
 
     def __init__(
         self,
-        name: str,
+        name: str = "",
         *,
-        # Identity
-        system_prompt: str = "",
-        description: str = "",
-        # Capabilities
-        tools: list[Tool] | None = None,
-        tool_registry: ToolRegistry | None = None,
-        skills: SkillRegistry | None = None,
-        # LLM
-        llm: LLMClient | None = None,
-        # Mode
-        mode: ExecutionMode = ExecutionMode.PLAN_FIRST,
+        system_prompt: str | None = None,
+        tools: Sequence[Tool] | None = None,
+        mode: ExecutionMode | None = None,
+        budget: HardBudget | None = None,
         workflow: Workflow | None = None,
         allow_replan: bool = True,
-        # Limits
-        budget: HardBudget | None = None,
-        constraints: list[str] | None = None,
-        max_replans: int = 2,
-        # Topology: agents= delegates-and-returns, peers= hands-off-and-terminates.
-        # See the class docstring for the full agents= vs peers= distinction.
-        agents: list[Agent] | None = None,
-        peers: list[Agent] | None = None,
-        # Infrastructure
-        framework: FrameworkConfig | None = None,
-        hooks: HookRegistry | None = None,
-        mcp: list[MCPServerConfig] | None = None,
-        checkpoint: CheckpointStore | None = None,
-        event_log: EventLog | None = None,
-        session_store: SessionStore | None = None,
-        spill_store: ToolResultSpillStore | None = None,
-        output_contract: MessageContract | None = None,
-        approval: ApprovalProvider | None = None,
-        memory: MemoryProvider | None = None,
-        # Extensions & hook points
-        extensions: list[object] | None = None,
-        injectors: list[tuple[Any, Callable[..., Any]]] | None = None,
-        checkers: list[tuple[Any, Callable[..., Any]]] | None = None,
-        event_handlers: list[tuple[Any, Callable[..., Any]]] | None = None,
-        # Internal
-        initial_plan: Plan | None = None,
-        spawn_accumulator: SpawnAccumulator | None = None,
+        config: AgentConfig | None = None,
     ) -> None:
-        # Build AgentConfig, filtering None values to preserve dataclass defaults
-        cfg_kwargs: dict[str, Any] = {"name": name}
-        for key, val in (
-            ("llm", llm),
-            ("system_prompt", system_prompt),
-            ("description", description),
-            ("tool_registry", tool_registry),
-            ("skills", skills),
-            ("mode", mode),
-            ("budget", budget),
-            ("max_replans", max_replans),
-            ("framework", framework),
-            ("hooks", hooks),
-            ("checkpoint", checkpoint),
-            ("event_log", event_log),
-            ("session_store", session_store),
-            ("spill_store", spill_store),
-            ("output_contract", output_contract),
-            ("approval", approval),
-            ("memory", memory),
-            ("initial_plan", initial_plan),
-            ("spawn_accumulator", spawn_accumulator),
-        ):
-            if val is not None:
-                cfg_kwargs[key] = val
+        if config is not None:
+            if name and name != config.name:
+                raise ValueError(
+                    f"Agent(name={name!r}) conflicts with config.name={config.name!r} — "
+                    "pass the name once"
+                )
+            name = config.name
+        if not name:
+            raise ValueError("Agent requires a name — positional or via config.name")
+        cfg = config if config is not None else AgentConfig(name=name)
+        if system_prompt is not None:
+            cfg.system_prompt = system_prompt
         if tools is not None:
-            cfg_kwargs["tools"] = list(tools)
-        if constraints is not None:
-            cfg_kwargs["constraints"] = list(constraints)
-        if agents is not None:
-            cfg_kwargs["agents"] = list(agents)
-        if peers is not None:
-            cfg_kwargs["peers"] = list(peers)
-        if mcp is not None:
-            cfg_kwargs["mcp"] = list(mcp)
-        if extensions is not None:
-            cfg_kwargs["extensions"] = list(extensions)
-        if injectors is not None:
-            cfg_kwargs["injectors"] = list(injectors)
-        if checkers is not None:
-            cfg_kwargs["checkers"] = list(checkers)
-        if event_handlers is not None:
-            cfg_kwargs["event_handlers"] = list(event_handlers)
+            cfg.tools = list(tools)  # defensive copy — never alias caller lists
+        if mode is not None:
+            cfg.mode = mode
+        if budget is not None:
+            cfg.budget = budget
+        self.config: AgentConfig = cfg
+        self._bind_invariants(workflow=workflow, allow_replan=allow_replan)
 
-        self.config: AgentConfig = AgentConfig(**cfg_kwargs)
+    @classmethod
+    def _from_config(cls, config: AgentConfig) -> Agent:
+        """Private alternate constructor for forks: assemble the Agent around an
+        already-built config instead of re-threading 30 keyword arguments."""
+        self = cls.__new__(cls)
+        self.config = config
+        self._bind_invariants()
+        return self
 
+    def _bind_invariants(self, workflow: Workflow | None = None, allow_replan: bool = True) -> None:
+        """Constructor invariants, shared by both construction paths."""
         if CHILD_SEPARATOR in self.config.name:
             raise ValueError(
                 f"Agent name {self.config.name!r} contains {CHILD_SEPARATOR!r} — "
@@ -186,7 +147,7 @@ class Agent:
                 raise TypeError(f"workflow= expects a Workflow, got {type(workflow).__name__}")
             resolved_llm = self.config.llm
             if resolved_llm is None:
-                from prodagent.backends.factory import resolve_llm
+                from prodagent.bootstrap import resolve_llm
 
                 resolved_llm = resolve_llm(self.framework_config)
             workflow.bind(resolved_llm, self.config.hooks)
@@ -219,6 +180,12 @@ class Agent:
                 message, sid, mode
             )
 
+        # A consumer that abandons this stream mid-run leaves the turn RUNNING
+        # on disk — deliberately the same durable state a hard crash produces,
+        # because an abandoned run can be mid-tool-call and is NOT cleanly
+        # suspendable (a clean suspend goes through RunSuspendedEvent at a
+        # step boundary). Both load paths resume such a turn identically; see
+        # _load_suspended_turn.
         async for event in drive_stream(
             self,
             message,
@@ -267,10 +234,10 @@ class Agent:
             )
         await gate.submit_decision(request_id, ApprovalDecision(decision), approver_id=approver_id)
 
-    def _find_approval_gate(self) -> Any:
+    def _find_approval_gate(self) -> ApprovalProvider | None:
         for ext in self.config.extensions:
             if hasattr(ext, "approval_gate"):
-                return ext.approval_gate
+                return cast("ApprovalProvider", ext.approval_gate)
         if isinstance(self.config.approval, ApprovalProvider):
             return self.config.approval
         return None
@@ -283,6 +250,9 @@ class Agent:
         session = await store.load(session_id)
         if session is None:
             raise PlanAlreadyCompletedError(f"<unknown:{session_id}>")
+        # SUSPENDED is the graceful resumable state. RUNNING is tolerated for
+        # hard crashes (kill -9 leaves no chance to suspend); a graceful
+        # stream close suspends the turn instead (see chat_stream).
         if session.last_turn is None or session.last_turn.state not in (
             RunState.SUSPENDED,
             RunState.RUNNING,
@@ -322,7 +292,7 @@ class Agent:
 
         return session, alloc.run_id, alloc.mode, alloc.messages
 
-    def _ensure_checkpoint_resolved(self) -> Any:
+    def _ensure_checkpoint_resolved(self) -> CheckpointStore | None:
         if self.config.checkpoint is None:
             self.config.checkpoint = resolve_checkpoint(self.framework_config)
         return self.config.checkpoint
@@ -407,29 +377,29 @@ class Agent:
             return
         self._hooks_wired = True
 
-        for point, fn in self.config.injectors:
-            if not isinstance(point, InjectionPoint):
+        for inject_point, fn in self.config.injectors:
+            if not isinstance(inject_point, InjectionPoint):
                 raise TypeError(
                     f"injector point must be an InjectionPoint member, "
-                    f"got {type(point).__name__}: {point!r}"
+                    f"got {type(inject_point).__name__}: {inject_point!r}"
                 )
-            hooks.register_injector(point, _make_injector(fn))
+            hooks.register_injector(inject_point, _make_injector(fn))
 
-        for point, fn in self.config.checkers:
-            if not isinstance(point, CheckPoint):
+        for gate_point, fn in self.config.checkers:
+            if not isinstance(gate_point, Gate):
                 raise TypeError(
-                    f"checker point must be a CheckPoint member, "
-                    f"got {type(point).__name__}: {point!r}"
+                    f"checker point must be a Gate member, "
+                    f"got {type(gate_point).__name__}: {gate_point!r}"
                 )
-            hooks.register_checker(point, fn)
+            hooks.register_checker(gate_point, fn)
 
-        for event_name, fn in self.config.event_handlers:
-            if not isinstance(event_name, HookEvent):
+        for event, fn in self.config.event_handlers:
+            if not isinstance(event, HookEvent):
                 raise TypeError(
                     f"event handler event must be a HookEvent member, "
-                    f"got {type(event_name).__name__}: {event_name!r}"
+                    f"got {type(event).__name__}: {event!r}"
                 )
-            hooks.register_event(event_name, fn)
+            hooks.register_event(event, fn)
 
         for ext in self.config.extensions:
             hooks.attach_extension(ext)
@@ -442,21 +412,26 @@ class Agent:
                 return peer
         return None
 
-    def _build_fork_skeleton(self, runtime: ParentRuntime) -> Agent:
-        return Agent(
-            self.name,
-            tools=list(self.inline_tools),
-            system_prompt=self.system_prompt,
-            llm=runtime.llm,
-            hooks=runtime.hooks,
-            framework=runtime.framework_config,
-            constraints=list(runtime.constraints),
-            budget=runtime.budget,
-            mode=self.mode,
-            checkpoint=runtime.checkpoint,
-            event_log=runtime.event_log,
-            spawn_accumulator=runtime.accumulator,
-        )
+    def _fork(self, **overrides: Any) -> Agent:
+        """Derive a child agent by field-replacing this agent's config. Every
+        AgentConfig field propagates unless explicitly overridden, so a field
+        added later can never silently drop out of spawn/peer forks (the
+        hand-copied field list this replaces had exactly that failure mode)."""
+        forked = Agent._from_config(dataclasses.replace(self.config, **overrides))
+        forked._hooks_wired = self._hooks_wired
+        return forked
+
+    def _runtime_overrides(self, runtime: ParentRuntime) -> dict[str, Any]:
+        return {
+            "llm": runtime.llm,
+            "hooks": runtime.hooks,
+            "framework": runtime.framework_config,
+            "constraints": list(runtime.constraints),
+            "budget": runtime.budget,
+            "checkpoint": runtime.checkpoint,
+            "event_log": runtime.event_log,
+            "spawn_accumulator": runtime.accumulator,
+        }
 
     def fork_as_peer(
         self,
@@ -476,31 +451,28 @@ class Agent:
             event_log=event_log if event_log is not None else parent.config.event_log,
             accumulator=self.config.spawn_accumulator or SpawnAccumulator(),
         )
-        forked = self._build_fork_skeleton(runtime)
-        forked.config.extensions = list(parent.config.extensions)
-        forked.config.injectors = list(parent.config.injectors)
-        forked.config.checkers = list(parent.config.checkers)
-        forked.config.event_handlers = list(parent.config.event_handlers)
-        forked.config.mcp = list(parent.config.mcp)
+        # A peer runs under the *parent's* wiring, keeping its own peers.
+        forked = self._fork(
+            **self._runtime_overrides(runtime),
+            extensions=list(parent.config.extensions),
+            injectors=list(parent.config.injectors),
+            checkers=list(parent.config.checkers),
+            event_handlers=list(parent.config.event_handlers),
+            mcp=list(parent.config.mcp),
+            peers=list(self.config.peers),
+        )
         forked._hooks_wired = parent._hooks_wired
-        forked.config.peers = list(self.config.peers)
-        forked.config.description = self.config.description
         return forked
 
     def fork_as_spawn(self, runtime: ParentRuntime) -> Agent:
-        forked = self._build_fork_skeleton(runtime)
-        forked.config.extensions = list(self.config.extensions)
-        forked.config.injectors = list(self.config.injectors)
-        forked.config.checkers = list(self.config.checkers)
-        forked.config.event_handlers = list(self.config.event_handlers)
-        forked.config.mcp = list(self.config.mcp)
-        forked._hooks_wired = self._hooks_wired
-        if self.config.initial_plan is not None:
-            forked.config.initial_plan = self.config.initial_plan
-            forked.config.max_replans = self.config.max_replans
-        if self.config.description:
-            forked.config.description = self.config.description
-        return forked
+        return self._fork(
+            **self._runtime_overrides(runtime),
+            extensions=list(self.config.extensions),
+            injectors=list(self.config.injectors),
+            checkers=list(self.config.checkers),
+            event_handlers=list(self.config.event_handlers),
+            mcp=list(self.config.mcp),
+        )
 
     # -- Properties -------------------------------------------------------
 
@@ -517,7 +489,7 @@ class Agent:
         return self.config.mode
 
     @property
-    def initial_plan(self) -> Any:
+    def initial_plan(self) -> Plan | None:
         return self.config.initial_plan
 
     @property
@@ -525,22 +497,26 @@ class Agent:
         return self.config.max_replans
 
     @property
-    def skills(self) -> Any:
+    def skills(self) -> SkillRegistry | None:
         return self.config.skills
 
     @property
-    def checkpoint(self) -> Any:
+    def checkpoint(self) -> CheckpointStore | None:
         return self._ensure_checkpoint_resolved()
 
     @property
-    def mcp_configs(self) -> list[Any]:
+    def mcp_configs(self) -> list[MCPServerConfig]:
         return list(self.config.mcp)
 
     @property
-    def memory_manager(self) -> Any:
+    def memory_manager(self) -> MemoryProvider | None:
+        # lazy: keeps the memory bundle (and the kernel import chain) out of
+        # module-level imports — see tests/core/test_import_weight.py
+        from prodagent.hooks.bundles.memory import MemoryHooks
+
         for ext in self.config.extensions:
             if isinstance(ext, MemoryHooks):
-                return ext.memory_manager
+                return cast("MemoryProvider", ext.memory_manager)
         if isinstance(self.config.memory, MemoryProvider):
             return self.config.memory
         return None
@@ -560,7 +536,7 @@ class Agent:
         self.config.tools = list(tools)
 
     @property
-    def budget_config(self) -> Any:
+    def budget_config(self) -> HardBudget | None:
         return self.config.budget
 
     @property
@@ -576,7 +552,7 @@ class Agent:
         return list(self.config.constraints)
 
     @property
-    def tool_registry(self) -> Any:
+    def tool_registry(self) -> ToolRegistry | None:
         return self.config.tool_registry
 
     @property
@@ -584,13 +560,13 @@ class Agent:
         return self.config.description
 
     @property
-    def injectors(self) -> list[tuple[Any, Any]]:
+    def injectors(self) -> list[tuple[InjectionPoint, Callable[..., Any]]]:
         return list(self.config.injectors)
 
     @property
-    def checkers(self) -> list[tuple[Any, Any]]:
+    def checkers(self) -> list[tuple[Gate, Callable[..., Any]]]:
         return list(self.config.checkers)
 
     @property
-    def event_handlers(self) -> list[tuple[Any, Any]]:
+    def event_handlers(self) -> list[tuple[HookEvent, Callable[..., Any]]]:
         return list(self.config.event_handlers)

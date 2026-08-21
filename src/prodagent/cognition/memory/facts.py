@@ -15,28 +15,31 @@ __all__ = ["FactStore"]
 
 
 class FactStore:
+    """Async facade over :class:`~prodagent.ports.graph.GraphStore` — the graph
+    backend may be Neo4j across the network, so no method here blocks."""
+
     def __init__(self, facts: GraphStore) -> None:
         self._facts = facts
 
-    def get_node(self, node_id: str) -> dict[str, Any] | None:
-        return self._facts.get_node(node_id)
+    async def get_node(self, node_id: str) -> dict[str, Any] | None:
+        return await self._facts.get_node(node_id)
 
-    def add_node(
+    async def add_node(
         self,
         node_id: str,
         labels: list[str] | None = None,
         properties: dict[str, Any] | None = None,
     ) -> None:
-        self._facts.add_node(node_id, labels=labels, properties=properties)
+        await self._facts.add_node(node_id, labels=labels, properties=properties)
 
-    def list_nodes(self, label: str | None = None) -> list[dict[str, Any]]:
-        return self._facts.list_nodes(label=label)
+    async def list_nodes(self, label: str | None = None) -> list[dict[str, Any]]:
+        return await self._facts.list_nodes(label=label)
 
-    def write(self, record: MemoryRecord) -> None:
+    async def write(self, record: MemoryRecord) -> None:
         eid = record.entity_id or mem_id(record.content)
-        existing = self.get_node(eid)
+        existing = await self.get_node(eid)
         version = (existing["properties"].get("version", 0) + 1) if existing else 1
-        self.add_node(
+        await self.add_node(
             eid,
             labels=["Fact"],
             properties={
@@ -50,9 +53,9 @@ class FactStore:
             },
         )
 
-    def load_all(self) -> list[StoredMemory]:
+    async def load_all(self) -> list[StoredMemory]:
         out: list[StoredMemory] = []
-        for node in self.list_nodes(label="Fact"):
+        for node in await self.list_nodes(label="Fact"):
             p = node["properties"]
             out.append(
                 StoredMemory(

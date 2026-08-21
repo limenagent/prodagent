@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -13,10 +14,21 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _console_enabled(fw: FrameworkConfig | None) -> bool:
+    """Console output is opt-in: ``FrameworkConfig(console_observer=True)`` or
+    ``PRODAGENT_CONSOLE=1`` (the env check also covers the fw=None path)."""
+    if fw is not None and fw.console_observer:
+        return True
+    return os.getenv("PRODAGENT_CONSOLE", "").lower() in ("1", "true", "yes")
+
+
 class ConsoleDefaultBundle:
-    """User-facing terminal observer — always on."""
+    """Coloured terminal observer — opt-in. A library must stay silent on
+    stdout by default; the REPL and playground enable it explicitly."""
 
     def attach(self, agent: Agent, fw: FrameworkConfig | None, registry: HookRegistry) -> None:
+        if not _console_enabled(fw):
+            return
         from prodagent.hooks.observers.console import ConsoleObserverHooks
 
         ConsoleObserverHooks().attach(registry)

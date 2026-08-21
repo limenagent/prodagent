@@ -7,7 +7,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
-from prodagent.backends.factory import resolve_dead_letter
+from prodagent.bootstrap import resolve_dead_letter
 from prodagent.core.budget import HardBudget
 from prodagent.core.exceptions import BudgetExceeded
 from prodagent.runtime.coordination._stage import StageDriver
@@ -324,7 +324,7 @@ class AgentFloorMember:
     def _wire_floor_injector_once(self) -> None:
         if self._injector_wired:
             return
-        from prodagent.hooks.checkpoint import InjectionPoint
+        from prodagent.hooks.gates import InjectionPoint
 
         hooks = self._agent.hooks
         if hooks is None:
@@ -392,7 +392,7 @@ class EnsembleSpec:
     hooks: HookRegistry | None = None
     """Registry for the speech-admission gate. ``None`` (default) means the
     gate is dormant — mount it by passing the members' shared registry once
-    you register ``CheckPoint.AGENT_HANDOFF`` checkers."""
+    you register ``Gate.AGENT_HANDOFF`` checkers."""
 
     dead_letter: DeadLetterStore | None = None
     """Where rejected turns land. ``None`` (default) resolves the framework's

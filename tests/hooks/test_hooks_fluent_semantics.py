@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 import time
 
-from prodagent import Agent
-from prodagent.hooks.checkpoint import CheckPoint, InjectionPoint
+from prodagent import Agent, AgentConfig
 from prodagent.hooks.events import HookEvent
+from prodagent.hooks.gates import Gate, InjectionPoint
 from prodagent.hooks.observers.console import ConsoleObserverHooks
 from prodagent.hooks.registry import HookRegistry
 
@@ -23,16 +23,28 @@ def _has_console_observer(registry: HookRegistry) -> bool:
     )
 
 
-def test_extend_preserves_default_observers():
+def test_extend_preserves_default_observers(monkeypatch):
+    """User extensions compose with — not replace — the default bundles.
+
+    Console output is opt-in since the lightweight pass (PRODAGENT_CONSOLE=1):
+    a library stays silent on stdout by default, and enabling it must not be
+    wiped out by a user extension bundle either.
+    """
 
     class NoopBundle:
         def attach(self, hooks: HookRegistry) -> None:
-            hooks.register_checker(CheckPoint.TOOL_CALL, lambda **_: None)
+            hooks.register_checker(Gate.TOOL_CALL, lambda **_: None)
 
-    agent = Agent("t", extensions=[NoopBundle()])
+    agent = Agent("t", config=AgentConfig(name="t", extensions=[NoopBundle()]))
 
     resolved = agent.attach_default_hooks()
-    assert _has_console_observer(resolved)
+    assert not _has_console_observer(resolved)  # opt-in: silent by default
+
+    monkeypatch.setenv("PRODAGENT_CONSOLE", "1")
+    enabled = Agent("t", config=AgentConfig(name="t", extensions=[NoopBundle()]))
+
+    resolved_enabled = enabled.attach_default_hooks()
+    assert _has_console_observer(resolved_enabled)  # user bundle didn't wipe it
 
 
 async def test_injectors_run_concurrently_via_gather():
@@ -98,17 +110,17 @@ async def test_veto_on_first_stays_serial():
 
     async def first_checker_vetoes(**_):
         await asyncio.sleep(0.05)
-        from prodagent.hooks.checkpoint import BlockingResult
+        from prodagent.hooks.gates import BlockingResult
 
         return BlockingResult(blocked=True, reason="vetoed by first checker")
 
     async def second_checker_should_not_run(**_):
         ran_second.append(True)
 
-    hooks.register_checker(CheckPoint.TOOL_CALL, first_checker_vetoes, priority=100)
-    hooks.register_checker(CheckPoint.TOOL_CALL, second_checker_should_not_run, priority=90)
+    hooks.register_checker(Gate.TOOL_CALL, first_checker_vetoes, priority=100)
+    hooks.register_checker(Gate.TOOL_CALL, second_checker_should_not_run, priority=90)
 
-    result = await hooks.check_blocking(CheckPoint.TOOL_CALL, name="t")
+    result = await hooks.check_blocking(Gate.TOOL_CALL, name="t")
     assert result.blocked
     assert result.reason == "vetoed by first checker"
     assert not ran_second, "second checker must NOT run after a veto (serial short-circuit)"

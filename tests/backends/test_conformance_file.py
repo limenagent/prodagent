@@ -151,13 +151,13 @@ def test_file_graph_list_nodes_conformance(tmp_path):
 # ── span ──────────────────────────────────────────────────────────────────────
 
 
-def test_file_span_conformance(tmp_path):
-    run_span_conformance(_file_span(tmp_path))
+async def test_file_span_conformance(tmp_path):
+    await run_span_conformance(_file_span(tmp_path))
 
 
-def test_file_span_shutdown_idempotent_conformance(tmp_path):
-    run_span_shutdown_idempotent_conformance(_file_span(tmp_path))
+async def test_file_span_shutdown_idempotent_conformance(tmp_path):
+    await run_span_shutdown_idempotent_conformance(_file_span(tmp_path))
 
 
-def test_file_span_export_after_shutdown_conformance(tmp_path):
-    run_span_export_after_shutdown_conformance(_file_span(tmp_path))
+async def test_file_span_export_after_shutdown_conformance(tmp_path):
+    await run_span_export_after_shutdown_conformance(_file_span(tmp_path))

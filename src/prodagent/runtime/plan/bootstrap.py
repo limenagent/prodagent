@@ -11,8 +11,8 @@ from prodagent.core.exceptions import LLMError, SuspendPendingApproval
 from prodagent.core.state.run import AgentRun
 from prodagent.core.types import RunState
 from prodagent.hooks import fire as _fire
-from prodagent.hooks.checkpoint import CheckPoint
 from prodagent.hooks.events import HookEvent
+from prodagent.hooks.gates import Gate
 from prodagent.runtime.plan.dag import Plan
 
 if TYPE_CHECKING:
@@ -146,7 +146,7 @@ class PlanBootstrap:
             return plan
         try:
             veto = await self._hooks.check_blocking(
-                CheckPoint.PLAN_APPROVAL,
+                Gate.PLAN_APPROVAL,
                 plan_id=plan.plan_id,
                 version=plan.version,
                 agent=self._agent_name,

@@ -33,8 +33,8 @@ class MemoryHooks:
         return self._manager
 
     def attach(self, hooks: HookRegistry) -> None:
-        from prodagent.hooks.checkpoint import InjectionPoint
         from prodagent.hooks.events import HookEvent
+        from prodagent.hooks.gates import InjectionPoint
 
         attach = getattr(self._manager, "attach_hooks", None)
         if callable(attach):

@@ -60,9 +60,9 @@ class SpanObserverHooks:
             else:
                 hooks.register_event(event, self.on_instant)
 
-    def on_session_start(self, *, run_id: str = "", task: str = "", **_: Any) -> None:
+    async def on_session_start(self, *, run_id: str = "", task: str = "", **_: Any) -> None:
         span = self._audit.span(run_id, "session_start", {"task": task[:120]}, root=True)
-        self._audit.record(span)
+        await self._audit.record(span)
         self._run_traces[run_id] = span.trace_id
         logger.debug("AgentSpan root: trace_id=%s run_id=%s", span.trace_id[:8], run_id[:8])
 
@@ -73,7 +73,7 @@ class SpanObserverHooks:
         span = self._audit.span(run_id, "agent.run", {"task": task[:200]}, trace_id=trace_id)
         self._run_spans[run_id] = (span, time.time())
 
-    def on_loop_end(self, *, run_id: str = "", error: str | None = None, **_: Any) -> None:
+    async def on_loop_end(self, *, run_id: str = "", error: str | None = None, **_: Any) -> None:
         if not run_id:
             return
         entry = self._run_spans.pop(run_id, None)
@@ -82,7 +82,7 @@ class SpanObserverHooks:
         span, start = entry
         span.latency_ms = (time.time() - start) * 1000
         span.error = error
-        self._audit.record(span)
+        await self._audit.record(span)
 
     def on_tool_call(
         self,
@@ -99,7 +99,7 @@ class SpanObserverHooks:
         span = self._audit.span(run_id, name, params, trace_id=self._run_traces.get(run_id))
         self._pending[call_id] = (span, time.time())
 
-    def on_tool_result(
+    async def on_tool_result(
         self,
         *,
         call_id: str = "",
@@ -116,7 +116,7 @@ class SpanObserverHooks:
         span, start = entry
         span.output = result or {}
         span.latency_ms = elapsed_ms or (time.time() - start) * 1000
-        self._audit.record(span)
+        await self._audit.record(span)
         logger.debug(
             "AgentSpan: span_id=%s  action=%s  latency=%.1fms",
             span.span_id[:8],
@@ -124,20 +124,22 @@ class SpanObserverHooks:
             span.latency_ms,
         )
 
-    def on_agent_spawn(self, *, name: str = "", task: str = "", run_id: str = "", **_: Any) -> None:
+    async def on_agent_spawn(
+        self, *, name: str = "", task: str = "", run_id: str = "", **_: Any
+    ) -> None:
         span = self._audit.span(
             run_id, f"spawn:{name}", {"task": task[:120]}, trace_id=self._run_traces.get(run_id)
         )
-        self._audit.record(span)
+        await self._audit.record(span)
 
-    def on_instant(self, *, event_name: str = "", run_id: str = "", **data: Any) -> None:
+    async def on_instant(self, *, event_name: str = "", run_id: str = "", **data: Any) -> None:
         if not run_id:
             return
         payload = {k: v for k, v in data.items() if k != "event_name"}
         span = self._audit.span(run_id, event_name, payload, trace_id=self._run_traces.get(run_id))
         self._enrich_from_event(span, event_name, data)
         span.latency_ms = 0.0
-        self._audit.record(span)
+        await self._audit.record(span)
 
     def _enrich_from_event(self, span: AgentSpan, event_name: str, data: dict[str, Any]) -> None:
         if event_name == HookEvent.LLM_REQUEST:

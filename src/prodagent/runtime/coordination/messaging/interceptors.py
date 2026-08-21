@@ -16,7 +16,7 @@ from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
 from prodagent.core.exceptions import SECURITY_VETO_EXCEPTIONS
-from prodagent.hooks.checkpoint import CheckPoint
+from prodagent.hooks.gates import Gate
 from prodagent.runtime.coordination.messaging.envelope import (
     Crossing,
     CrossingKind,
@@ -162,11 +162,11 @@ class GateInterceptor:
         self._max_chars = max_chars
 
     async def intercept(self, crossing: Crossing[Any]) -> Crossing[Any]:
-        if self._hooks is None or not self._hooks.has_check_handlers(CheckPoint.AGENT_HANDOFF):
+        if self._hooks is None or not self._hooks.has_check_handlers(Gate.AGENT_HANDOFF):
             return crossing
         data = handoff_data_for(crossing, max_chars=self._max_chars)
         try:
-            blocked = await self._hooks.check_blocking(CheckPoint.AGENT_HANDOFF, handoff_data=data)
+            blocked = await self._hooks.check_blocking(Gate.AGENT_HANDOFF, handoff_data=data)
         except SECURITY_VETO_EXCEPTIONS as exc:
             raise CrossingRejected(
                 f"security policy rejected {crossing.kind.value} crossing: {exc}",

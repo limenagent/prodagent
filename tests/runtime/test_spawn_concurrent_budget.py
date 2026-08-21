@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from prodagent import Agent
+from prodagent import Agent, AgentConfig
 from prodagent.core.budget import HardBudget
 from prodagent.core.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
@@ -24,8 +24,7 @@ async def test_spawned_child_trips_on_spend_already_committed_by_a_sibling():
     child = Agent(
         "worker",
         system_prompt="do work",
-        llm=_plan_llm(),
-        description="A PLAN_FIRST worker",
+        config=AgentConfig(name="worker", llm=_plan_llm(), description="A PLAN_FIRST worker"),
     )
     pipeline = Spawn([child], llm=_plan_llm(), hooks=None, framework_config=None, ctx=ctx)
 
@@ -44,8 +43,7 @@ async def test_spawned_child_completes_when_sibling_spend_stays_under_ceiling():
     child = Agent(
         "worker",
         system_prompt="do work",
-        llm=_plan_llm(),
-        description="A PLAN_FIRST worker",
+        config=AgentConfig(name="worker", llm=_plan_llm(), description="A PLAN_FIRST worker"),
     )
     pipeline = Spawn([child], llm=_plan_llm(), hooks=None, framework_config=None, ctx=ctx)
 

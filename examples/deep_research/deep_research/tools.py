@@ -389,7 +389,7 @@ _FAKE_WEB: dict[str, str] = {
         name="web_fetch",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=50,
+        timeout_seconds=50 / 1_000,
         domain="research",
         max_result_chars=float("inf"),
     )
@@ -424,7 +424,7 @@ async def web_fetch(url: str) -> dict:
         name="synthesize_report",
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
-        estimated_latency_ms=100,
+        timeout_seconds=100 / 1_000,
         domain="research",
     )
 )

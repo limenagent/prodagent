@@ -3,6 +3,7 @@
 > 生产级 LLM agent 框架。大模型是概率的，生产要求确定性——这个框架把刹车、护栏、状态机做成一等公民。
 
 [![PyPI](https://img.shields.io/pypi/v/prodagent)](https://pypi.org/project/prodagent/)
+[![CI](https://github.com/limenagent/prodagent/actions/workflows/ci.yml/badge.svg)](https://github.com/limenagent/prodagent/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 [![Status](https://img.shields.io/badge/status-v1.0.0%20Stable-brightgreen)](https://github.com/limenagent/prodagent/releases)
@@ -13,7 +14,7 @@
 
 ## 为什么做这个框架
 
-让 Agent 跑起来，和让它在生产里活下去，是两件事。跑起来推到生产，模型会幻觉终止、崩了丢状态、新旧记忆打架、越权操作、成本飙升 ... 每个项目都踩同一批坑，prodagent 把这层做成框架一等公民，不是又一个 LangChain，只做"生产环境敢上线"的那一层。
+让 Agent 跑起来，和让它在生产里活下去，是两件事。从跑起来到推到生产，模型会幻觉终止、崩了丢状态、新旧记忆打架、越权操作、成本飙升 ... 每个项目都踩同一批坑，prodagent 把这层做成框架一等公民，不是又一个 LangChain，只做"生产环境敢上线"的那一层。
 
 下图是 Agent 的可视化事件流 —— 每个 Agent 生命周期事件（PLAN 的 DAG、STEP 状态、SUB-AGENT fan-out、TOOL CALL、BUDGET ...）都是一张可观测的卡片。
 
@@ -28,9 +29,9 @@
 - **可替换后端** —— 默认 file + memory 开箱即用，生产可换 Postgres / Neo4j / Qdrant / Redis。
 - **重试** —— fixed / exponential / jittered 三种 backoff 策略，按错误码统一分类决定是否重试、是否降级。
 - **熔断** —— 工具级（ CLOSED → OPEN → HALF_OPEN 自动探测恢复）。
-- **安全** —— 五层注入防护管道 + 写时拦截 + HITL 审批门禁。
+- **安全** —— 五层注入防护管道（机制内置）+ 写时拦截 + HITL 审批门禁。检测策略由应用注入（`InjectionPolicy`）：零配置 = 全放行，框架不内置任何正则库——什么算危险是你的威胁模型，不是框架的默认值。
 - **可观测** —— Span 追踪 + OTLP 导出 + 轨迹漂移检测。
-- **评估测试** —— 黄金评测集 + LLM Judge + CI 回归。
+- **评估测试** —— 黄金评测集 + LLM Judge
 
 <details>
 <summary>📂 源文件索引（点击展开）</summary>
@@ -42,7 +43,7 @@
 | 可替换后端 | `ports/`（15 个 Protocol 端口）、`backends/factory.py`、`backends/registry.py`、`backends/file/`、`backends/memory/`、`backends/postgres/`、`backends/neo4j/`、`backends/qdrant/`、`backends/redis/` |
 | 重试 | `resilience/reliability/retry.py`、`resilience/transport/http_retry.py`、`core/error_classifier.py`、`core/error_reason.py` |
 | 熔断 | `tooling/reliability/circuit_breaker.py` |
-| 安全 | `guardrail/injection/pipeline.py`、`guardrail/injection/trust_chain.py`、`guardrail/patterns.py`、`guardrail/approval/gate.py`、`guardrail/approval/formatter.py`、`hooks/bundles/security/` |
+| 安全 | `guardrail/injection/pipeline.py`、`guardrail/injection/policy.py`、`guardrail/injection/trust_chain.py`、`guardrail/approval/gate.py`、`guardrail/approval/formatter.py`、`hooks/bundles/security/` |
 | 可观测 | `core/observability.py`、`resilience/observability/otel_exporter.py`、`resilience/observability/drift.py`、`resilience/observability/audit.py`、`resilience/observability/scrubber.py`、`ports/span.py`、`hooks/bundles/observability.py` |
 | 评估测试 | `evaluation/evals/dataset.py`、`evaluation/evals/judge.py`、`evaluation/evals/runner.py`、`evaluation/testing/trace_assert.py`、`evaluation/testing/cassette.py` |
 
@@ -60,9 +61,6 @@
   | `Ensemble` 共享会话 | `SharedFloor` 追加式 transcript | `RoundRobin` 轮流 / `Moderated` 主持人选人 / `FreeForAll` 全员并发发言（辩论 / 头脑风暴 / 角色扮演） |
   | `Blackboard` 共享可变状态 | `Board` 版本化字段（乐观并发） | `Trigger` 字段变化触发，并行 fan-out / 抢锁先算（流水线式知识加工（上一步的输出是下一步的输入）      |
   | `WorkQueue` 任务池 | `SharedQueue` 租约队列 | worker 主动领活 · 租约超时回收                                                                       |
-
-- **统一通信底座（messaging）** —— 拓扑会繁殖，越界只有两个方向。五个原语的每一次 Agent 边界穿越都走同一个卡口：`Crossing` 信封（方向 × 类型 × 类型化载荷）+ 能力管道（固定卡位：去重 → 准入契约 → 裁剪/投影 → 安全门 → 审计）+ 死信边界。下行（`assembly_pipeline`）在源头组装、容器即白名单；上行（`admission_pipeline`）在进门处验收（契约校验 + 白名单改写 + 注入门）。消毒只是底座的能力之一——身份追踪、投射、观测、治理搭同一趟车；语义策略（注入规则 / LLM Judge）由用户注入卡位，框架只出机制不出策略。
-
  - **上下文三明治** —— state / memory / skills / history / reminder 五段式组装，每段独立可控、独立可压缩。
 - **五级压缩** —— NONE / TOOL_COMPRESS / HISTORY_SUMMARY / TOPIC_SUMMARY / EMERGENCY，按 token 占用比例自动触发，每级有明确的语义损失边界。
 - **工具系统** —— `@tool` 装饰器声明式注册，按副作用分层（LOW/MEDIUM/HIGH）；原生 MCP 协议接入外部工具。
@@ -83,7 +81,7 @@
 ### 进阶能力
 
 - **四通道长期记忆** —— 规则 / 实体 / 精确 / 语义并行 recall + ACT-R 激活衰减。
-- **三协议 Hook 总线** —— Event（通知）/ CheckPoint（阻塞）/ Injection（注入）协议层分离。
+- **三协议 Hook 总线** —— Event（通知）/ Gate（阻塞，首个 veto 即停）/ Injection（注入）协议层分离。
 - **自我进化闭环** —— 成功的 run 蒸馏成 Skill，下次按需加载。
 
 <details>
@@ -92,7 +90,7 @@
 | 能力 | 核心源文件（`src/prodagent/`） |
 |---|---|
 | 四通道长期记忆 | `cognition/memory/manager.py`、`cognition/memory/channels.py`、`cognition/memory/forgetting.py`、`cognition/memory/facts.py`、`cognition/memory/classification.py`、`cognition/memory/storage.py`、`cognition/memory/conflict.py`、`cognition/memory/embedder.py`、`cognition/memory/touch_worker.py`、`hooks/bundles/memory.py` |
-| 三协议 Hook 总线 | `hooks/registry.py`、`hooks/events.py`、`hooks/checkpoint.py`、`hooks/bundles/base.py`、`hooks/bundles/default_wiring.py`、`hooks/observers/console.py`、`hooks/observers/cache_monitor.py` |
+| 三协议 Hook 总线 | `hooks/registry.py`、`hooks/events.py`、`hooks/gates.py`、`hooks/bundles/base.py`、`hooks/bundles/default_wiring.py`、`hooks/observers/console.py`、`hooks/observers/cache_monitor.py` |
 | 自我进化闭环 | `evaluation/learning/skill_synthesizer.py`、`evaluation/learning/experience.py`、`evaluation/learning/storage.py`、`evaluation/skills/registry.py`、`evaluation/reflection/constitutional.py`、`hooks/bundles/learning.py` |
 
 </details>
@@ -142,8 +140,12 @@ LLM_MODEL=glm-5.2
 
 ```bash
 pip install prodagent
-# 生产后端驱动按需安装
-pip install "prodagent[postgres,redis,neo4j,qdrant]"
+# 核心依赖（anyio/httpx/pydantic/typing-extensions）
+# 按需加装：
+pip install "prodagent[openai]"        # OpenAI 及兼容端点
+pip install "prodagent[anthropic]"     # Anthropic
+pip install "prodagent[playground]"    # 本地可视化 playground
+pip install "prodagent[postgres,redis,neo4j,qdrant]"  # 生产后端驱动
 ```
 
 ### 调用框架 SDK
@@ -197,7 +199,7 @@ graph TD
 
 ### Hook 三协议总线
 
-HookRegistry 按协议层分流，三种协议语义不同：Event 纯通知不阻断，CheckPoint 阻塞决策首个 veto 即停，Injection 聚合注入器结果。
+HookRegistry 按协议层分流，三种协议语义不同：Event 纯通知不阻断，Gate 阻塞决策首个 veto 即停，Injection 聚合注入器结果。
 
 ```mermaid
 graph LR
@@ -213,7 +215,7 @@ graph LR
         LE[Learning]
     end
 
-    subgraph K[CheckPoint · 阻塞，首个 veto 即停]
+    subgraph K[Gate · 阻塞，首个 veto 即停]
         AP[Approval]
         SE[Security]
     end

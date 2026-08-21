@@ -156,6 +156,6 @@ def make_read(
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
         domain="fs:read",
-        estimated_latency_ms=1_000,
+        timeout_seconds=10.0,
     )
     return tool(_read, name="read", description=_READ_DESCRIPTION, meta=meta)

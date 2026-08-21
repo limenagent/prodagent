@@ -21,8 +21,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from prodagent import Agent, ExecutionMode, HardBudget
-from prodagent.core.config import FrameworkConfig
+from prodagent import Agent, AgentConfig, ExecutionMode, FrameworkConfig, HardBudget
 from prodagent.evaluation.skills.registry import SkillRegistry
 from prodagent.mcp.config import MCPServerConfig
 
@@ -101,10 +100,13 @@ def build_code_detective_agent(
         "code_detective",
         system_prompt=_SYSTEM_PROMPT,
         tools=[],
-        skills=skills,
-        llm=llm,
-        framework=framework_config,
-        mcp=[_code_detective_mcp_config()],
         mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_turns=20, max_cost_usd=0.80, max_seconds=300.0),
+        config=AgentConfig(
+            name="code_detective",
+            skills=skills,
+            llm=llm,
+            framework=framework_config,
+            mcp=[_code_detective_mcp_config()],
+        ),
     )

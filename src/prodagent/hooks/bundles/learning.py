@@ -97,7 +97,7 @@ class LearningHooks:
         # Best-effort: swallow exceptions.
         try:
             rec = ExperienceRecord.from_run(run)
-            self._store.record(rec)
+            await self._store.record(rec)
 
             if not self._should_patch(rec):
                 return

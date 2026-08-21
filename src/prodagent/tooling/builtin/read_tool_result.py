@@ -149,7 +149,7 @@ def make_read_tool_result(spill_store: ToolResultSpillStore) -> FunctionTool:
         is_readonly=True,
         side_effect_level=SideEffectLevel.LOW,
         domain="prodagent:spill",
-        estimated_latency_ms=1_000,
+        timeout_seconds=10.0,
         max_result_chars=math.inf,
     )
     return tool(

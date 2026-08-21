@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace as _dc_replace
 from typing import TYPE_CHECKING
 
-from prodagent import Agent, ExecutionMode
+from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
 from prodagent.core.config import FrameworkConfig
 from prodagent.core.types import LLMResponse
@@ -20,9 +20,12 @@ def _reactive_child(*, output_contract: MessageContract | None = None) -> Agent:
     return Agent(
         "responder",
         system_prompt="reply with status",
-        output_contract=output_contract,
-        description="Returns a status string",
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(
+            name="responder",
+            output_contract=output_contract,
+            description="Returns a status string",
+        ),
     )
 
 
@@ -81,9 +84,9 @@ async def test_strict_contract_violation_rejects_and_notifies_dlq(tmp_path: Path
             super().__init__(max_retries=3)
             self.calls: list[tuple[str, str]] = []
 
-        def on_failure(self, message_id: str, payload: dict, error: str) -> str:
+        async def on_failure(self, message_id: str, payload: dict, error: str) -> str:
             self.calls.append((message_id, error))
-            return super().on_failure(message_id, payload, error)
+            return await super().on_failure(message_id, payload, error)
 
     dlq = _SpyDLQ()
     child = _reactive_child(output_contract=contract)

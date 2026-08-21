@@ -25,12 +25,15 @@ import pytest
 from prodagent.core.budget import HardBudget
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.agent import Agent
+from prodagent.runtime.config import AgentConfig
 from prodagent.runtime.coordination.parent_runtime import ParentRuntime
 from prodagent.runtime.coordination.spawn import Spawn
 
 
 def _worker(name: str) -> Agent:
-    return Agent(name, system_prompt="do work", llm=FakeLLMAdapter(responses=[]))
+    return Agent(
+        name, system_prompt="do work", config=AgentConfig(name=name, llm=FakeLLMAdapter(responses=[]))
+    )
 
 
 @pytest.mark.asyncio

@@ -21,9 +21,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from prodagent import FakeLLMAdapter, LLMClient, LLMConfig
 from prodagent.core.types import LLMResponse, MessageList, ToolCall
-from prodagent.llm.base import LLMClient, LLMConfig
-from prodagent.llm.fake import FakeLLMAdapter
 
 from aiops.testing.routing_fake_llm import RoutingFakeLLM
 

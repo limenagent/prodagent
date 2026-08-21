@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent import Agent, ExecutionMode
+from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.hooks.events import HookEvent
 from prodagent.hooks.registry import HookRegistry
@@ -23,12 +23,15 @@ async def test_agent_run_fires_checkpoint_failed_once_across_both_save_sites(tmp
     hooks.register_event(HookEvent.CHECKPOINT_FAILED, lambda **kw: seen.append(kw))
 
     agent = Agent(
-        name="checkpoint-fail-agent",
+        "checkpoint-fail-agent",
         system_prompt="Say hi",
-        llm=script({"content": "hi"}),
-        hooks=hooks,
-        checkpoint=FileCheckpointStore(tmp_path / "checkpoints"),
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(
+            name="checkpoint-fail-agent",
+            llm=script({"content": "hi"}),
+            hooks=hooks,
+            checkpoint=FileCheckpointStore(tmp_path / "checkpoints"),
+        ),
     )
 
     run = await agent.chat("hello", session_id="run-CF-orch")
@@ -45,12 +48,15 @@ async def test_agent_run_never_fires_checkpoint_failed_when_healthy(tmp_path):
     hooks.register_event(HookEvent.CHECKPOINT_FAILED, lambda **kw: seen.append(kw))
 
     agent = Agent(
-        name="checkpoint-ok-agent",
+        "checkpoint-ok-agent",
         system_prompt="Say hi",
-        llm=script({"content": "hi"}),
-        hooks=hooks,
-        checkpoint=FileCheckpointStore(tmp_path / "checkpoints"),
         mode=ExecutionMode.REACTIVE,
+        config=AgentConfig(
+            name="checkpoint-ok-agent",
+            llm=script({"content": "hi"}),
+            hooks=hooks,
+            checkpoint=FileCheckpointStore(tmp_path / "checkpoints"),
+        ),
     )
 
     run = await agent.chat("hello", session_id="run-OK-orch")
