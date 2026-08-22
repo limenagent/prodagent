@@ -151,7 +151,7 @@ pip install "prodagent[postgres,redis,neo4j]"   # 生产后端（默认 file+mem
 
 ## 架构
 
-```
+```mermaid
 graph TD
     A["Agent()"] --> RL["RunLoop"]
     RL --> F["factory.prepare"]
