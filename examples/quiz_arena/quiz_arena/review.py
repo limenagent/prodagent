@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 
-from prodagent.runtime.coordination.work_queue import SharedQueue, WorkResult
+from prodagent.coordination.work_queue import SharedQueue, WorkResult
 
 
 def _is_valid(payload: dict) -> bool:

@@ -47,12 +47,6 @@ playground = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
 ]
-otel = [
-    "opentelemetry-api>=1.20.0",
-    "opentelemetry-sdk>=1.20.0",
-    "opentelemetry-exporter-otlp-proto-grpc>=1.20.0",
-    "opentelemetry-exporter-otlp-proto-http>=1.20.0",
-]
 yaml = ["pyyaml>=6.0"]
 docs = [
     "mkdocs-material>=9.5",
@@ -66,7 +60,6 @@ testing = [
 dev = [
     "prodagent[testing]",
     "prodagent[yaml]",
-    "prodagent[otel]",
     "prodagent[playground]",
     "prodagent[openai]",
     "prodagent[anthropic]",
@@ -76,7 +69,6 @@ dev = [
 all = [
     "prodagent[testing]",
     "prodagent[yaml]",
-    "prodagent[otel]",
     "prodagent[openai]",
     "prodagent[anthropic]",
     "prodagent[playground]",
@@ -90,9 +82,6 @@ postgres = [
 ]
 neo4j = [
     "neo4j>=5.0",
-]
-qdrant = [
-    "qdrant-client>=1.9",
 ]
 
 [project.urls]
@@ -124,18 +113,12 @@ ignore = ["E501", "B008"]
 [tool.ruff.lint.isort]
 known-first-party = ["prodagent"]
 
-# numpy stubs adopted PEP-695 `type` statements in 2.3+, which are syntax
-# errors under mypy's 3.11 checking target (numpy is a transitive dep of the
-# qdrant extra; nothing in src imports it directly).
-[tool.uv]
-constraint-dependencies = ["numpy<2.3"]
-
 [tool.mypy]
 python_version = "3.11"
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["redis.*", "neo4j.*", "qdrant_client.*", "psycopg.*", "psycopg_pool.*", "yaml", "dating_chat.*", "fastapi.*", "starlette.*", "opentelemetry.exporter.otlp.proto.http.trace_exporter"]
+module = ["redis.*", "neo4j.*", "psycopg.*", "psycopg_pool.*", "yaml", "dating_chat.*", "fastapi.*", "starlette.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

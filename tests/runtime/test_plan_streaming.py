@@ -16,7 +16,7 @@ from prodagent.core.events import (
 )
 from prodagent.core.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.plan.executor import PlanExecutor
+from prodagent.plan.executor import PlanExecutor
 
 _TERMINAL = (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)
 

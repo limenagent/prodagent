@@ -6,16 +6,16 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent.core.budget import HardBudget
-from prodagent.runtime.coordination.budget_ledger import SharedBudget
-from prodagent.runtime.coordination.ensemble import (
+from prodagent.coordination.budget_ledger import SharedBudget
+from prodagent.coordination.ensemble import (
     EnsembleCompletedEvent,
     EnsembleSpec,
     FloorTurnEvent,
     ensemble_stream,
 )
-from prodagent.runtime.coordination.floor import FloorTurn, SharedFloor
-from prodagent.runtime.coordination.termination import MaxRounds, TerminationPolicy
+from prodagent.coordination.floor import FloorTurn, SharedFloor
+from prodagent.coordination.termination import MaxRounds, TerminationPolicy
+from prodagent.core.budget import HardBudget
 
 
 class _EchoMember:
@@ -62,7 +62,7 @@ class _BusinessStopsAtTwoTurns:
     proves it fires before the (much looser) hard cap."""
 
     def should_stop(self, floor: SharedFloor, *, next_round: int):
-        from prodagent.runtime.coordination.termination import TerminationReason
+        from prodagent.coordination.termination import TerminationReason
 
         if len(floor.transcript) >= 2:
             return True, TerminationReason(reason="business_done", detail="reached 2 turns")

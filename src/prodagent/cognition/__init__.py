@@ -1,40 +1,28 @@
-"""Context window construction + cross-run memory."""
+"""Context window construction + cross-run memory — lazy surface."""
 
-from prodagent.cognition.context.budget import (
-    CompressionLevel,
-    ContextBudget,
-    TokenCounter,
-)
-from prodagent.cognition.context.compression import (
-    HistoryCompressor,
-    Summariser,
-)
-from prodagent.cognition.context.manager import ContextManager
-from prodagent.cognition.context.tool_results import reduce_on_append
-from prodagent.cognition.memory.classification import MemoryClassifier
-from prodagent.cognition.memory.manager import MemoryManager, build_memory_manager
-from prodagent.cognition.memory.storage import (
-    MemoryRecord,
-    MemoryType,
-    StoredMemory,
-)
-from prodagent.ports.document import DocumentStore
-from prodagent.ports.graph import GraphStore
+from __future__ import annotations
 
-__all__ = [
-    "ContextManager",
-    "CompressionLevel",
-    "TokenCounter",
-    "ContextBudget",
-    "HistoryCompressor",
-    "Summariser",
-    "reduce_on_append",
-    "DocumentStore",
-    "GraphStore",
-    "MemoryManager",
-    "MemoryRecord",
-    "StoredMemory",
-    "MemoryType",
-    "MemoryClassifier",
-    "build_memory_manager",
-]
+from prodagent.core.lazy import lazy_package
+
+_SYMBOL_SOURCES: dict[str, str] = {
+
+    "CompressionLevel": "prodagent.cognition.context.budget",
+    "ContextBudget": "prodagent.cognition.context.budget",
+    "TokenCounter": "prodagent.cognition.context.budget",
+    "HistoryCompressor": "prodagent.cognition.context.compression",
+    "Summariser": "prodagent.cognition.context.compression",
+    "ContextManager": "prodagent.cognition.context.manager",
+    "reduce_on_append": "prodagent.cognition.context.tool_results",
+    "MemoryClassifier": "prodagent.cognition.memory.classification",
+    "MemoryManager": "prodagent.cognition.memory.manager",
+    "build_memory_manager": "prodagent.cognition.memory.manager",
+    "MemoryRecord": "prodagent.cognition.memory.storage",
+    "MemoryType": "prodagent.cognition.memory.storage",
+    "StoredMemory": "prodagent.cognition.memory.storage",
+    "DocumentStore": "prodagent.ports.document",
+    "GraphStore": "prodagent.ports.graph",
+}
+
+__all__ = sorted(_SYMBOL_SOURCES)
+
+__getattr__, __dir__ = lazy_package(_SYMBOL_SOURCES)

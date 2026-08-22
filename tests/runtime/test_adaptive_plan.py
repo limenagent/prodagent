@@ -1,6 +1,6 @@
 import pytest
 
-from prodagent.runtime.plan.dag import Plan, PlanStep, StepStatus
+from prodagent.plan.dag import Plan, PlanStep, StepStatus
 
 
 @pytest.fixture

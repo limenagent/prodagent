@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from prodagent.llm.base import LLMConfig
+from prodagent.llm import LLMConfig
 from prodagent.llm.openai_adapter import OpenAIAdapter
 
 

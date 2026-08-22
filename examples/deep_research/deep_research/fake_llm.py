@@ -14,21 +14,17 @@ LLM 看结果决定下一步。
   turn 8:  end_turn                            —— 文本总结
 
 约在 turn 3-4,fetch 结果累积触发 TOOL_COMPRESS(工具结果被规则压缩);
-turn 4-5 触发 HISTORY_SUMMARY(早期对话被 LLM 总结)。fake LLM 下
-TOPIC_SUMMARY 不触发(``topic_summary_at=0.95`` 抬高,避免 aux call 共享队列)。
+turn 4-5 触发 HISTORY_SUMMARY(早期对话被 LLM 总结)。
 
-``_AuxAwareFakeLLM`` 包装 ``FakeLLMAdapter``:aux caller(summariser/classifier/
-conflict_policy)调 ``stream_text`` 时不传 ``tools``,据此返回 canned JSON,
-不碰主队列 —— 避免 HISTORY_SUMMARY 的 summariser 吃掉 scripted tool_call
-导致轨迹 desync(见 memory ``fakellm-aux-call-queue-sharing``)。
+aux caller(summariser/classifier)不再需要特殊处理:框架的
+``ContextManager`` 现在自带独立的 ``aux_llm``(offline 由
+``backends.factory.resolve_aux_llm`` 解析),aux call 根本不经过主 LLM,
+一个纯 FIFO 的 ``script()`` 队列就够,不会吃掉 scripted turn。
 """
 
 from __future__ import annotations
 
-from typing import Any
-
-from prodagent import FakeLLMAdapter, LLMClient, script
-from prodagent.core.types import LLMResponse, MessageList, StopReason
+from prodagent import LLMClient, script
 
 _URLS = {
     "gpt4o": "https://example.com/gpt4o-bench",
@@ -38,57 +34,10 @@ _URLS = {
     "tool_use": "https://example.com/tool-use-comparison",
 }
 
-# summariser / classifier / conflict_policy 期望的 JSON 返回。
-# summariser: {"focus": "...", "done": [...]}
-# classifier: {"memory_type": "episodic", "summary": "..."}
-# conflict_policy: {"action": "keep", "reason": "..."}
-# 返回一个通用结构,各 aux caller 解析失败时都会 fallback,不影响主轨迹。
-_AUX_JSON = '{"focus": "researching GPT-4o vs Claude 3.5", "done": ["fetched sources"]}'
-
-
-class _AuxAwareFakeLLM:
-    """FakeLLM 包装:aux call(tools=None)返回 canned JSON,不碰主队列。
-
-    主 agent 调 ``complete(tools=[...])`` 走底层 FakeLLMAdapter 的脚本队列;
-    aux caller(summariser 等)调 ``stream_text`` 不传 tools → ``tools=None``,
-    直接返回 canned JSON,避免 popleft 吃掉 scripted turn。
-    """
-
-    def __init__(self, inner: FakeLLMAdapter) -> None:
-        self._inner = inner
-
-    @property
-    def call_count(self) -> int:
-        return self._inner.call_count
-
-    async def complete(
-        self,
-        messages: MessageList,
-        *,
-        system: str | list[dict[str, Any]] = "",
-        tools: list[dict[str, Any]] | None = None,
-        config: Any = None,
-        on_chunk: Any = None,
-    ) -> LLMResponse:
-        if tools is None:
-            # aux call —— 返回 canned JSON,不碰主队列
-            if on_chunk is not None:
-                for word in _AUX_JSON.split():
-                    await on_chunk(word + " ")
-            return LLMResponse(
-                content=_AUX_JSON,
-                stop_reason=StopReason.END_TURN,
-                input_tokens=10,
-                output_tokens=10,
-            )
-        return await self._inner.complete(
-            messages, system=system, tools=tools, config=config, on_chunk=on_chunk
-        )
-
 
 def build_fake_llm() -> LLMClient:
-    """REACTIVE 线性探索:5 次 fetch + 综合 + 总结,aux call 不碰主队列。"""
-    inner = script(
+    """REACTIVE 线性探索:5 次 fetch + 综合 + 总结。"""
+    return script(
         # turn 1: 加载研究 runbook
         {"tool": "get_skill", "params": {"name": "deep-research"}},
 
@@ -140,4 +89,3 @@ def build_fake_llm() -> LLMClient:
             "结论:真实世界 repo 任务选 Claude 3.5,隔离函数任务两者都行。"
         ), "stop_reason": "end_turn"},
     )
-    return _AuxAwareFakeLLM(inner)  # type: ignore[return-value]

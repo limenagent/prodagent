@@ -1,6 +1,6 @@
-"""Compliance Audit FakeLLM —— 按 system prompt 路由到 per-agent 队列。
+"""Compliance Audit FakeLLM —— 路由机制用框架的 ``RoutingFakeLLM``。
 
-四类 LLM 调用共享一个 FakeLLM 实例，按 system prompt 内容分发:
+四类 LLM 调用共享一个 FakeLLM 实例，按 system prompt 锚点分发（首匹配生效）:
 
   - 主 agent ``compliance_audit``       → system 含 "合规审计编排 agent"
   - Planner.generate()（动态 Plan 生成） → system 含 "RESPOND WITH JSON ONLY"
@@ -23,10 +23,7 @@
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any
-
-from prodagent import LLMClient, LLMConfig
+from prodagent import LLMClient, RoutingFakeLLM
 from prodagent.core.types import LLMResponse, MessageList, ToolCall
 
 # ── flag_suspicious / enrich_entity 的 canned LLM 响应 ───────────────────────
@@ -158,85 +155,39 @@ def _last_user_of(messages: MessageList) -> str:
     )
 
 
-class ComplianceFakeLLM(LLMClient):
-    """按 system prompt 把 complete() 分发到 per-agent / per-phase 队列。"""
+def _route_main_agent(messages: MessageList) -> LLMResponse:
+    """REACTIVE 轨迹: spawn → 总结 → 追问 → replan。"""
+    last_non_assistant = next(
+        (m for m in reversed(messages) if m.get("role") != "assistant"),
+        None,
+    )
+    if last_non_assistant is not None and last_non_assistant.get("role") == "tool":
+        # 子 agent spawn 返回了 → 总结 SAR 结果
+        return _main_agent_summary()
 
-    def __init__(self) -> None:
-        self._call_count = 0
-        # flag 和 entity 的 LLM 响应队列（每次调用 pop 一个）
-        self._flag_q: list[LLMResponse] = []
-        self._entity_q: list[LLMResponse] = []
-        # replan 计数（第一次返回替换步骤，第二次返回空表示无法再 replan）
-        self._replan_calls = 0
+    # 无 tool result（首轮）或用户追问
+    if any(m.get("role") == "tool" for m in messages):
+        # 有历史 spawn 结果，但本轮是用户追问
+        user_msg = _last_user_of(messages)
+        return _followup_response(user_msg)
 
-    @property
-    def call_count(self) -> int:
-        return self._call_count
+    # 首轮: 触发 spawn
+    return _spawn_audit_workflow_call()
 
-    async def complete(
-        self,
-        messages: MessageList,
-        *,
-        system: str | list[dict[str, Any]] = "",
-        tools: list[dict[str, Any]] | None = None,
-        config: LLMConfig | None = None,
-        on_chunk: Any = None,
-    ) -> LLMResponse:
-        self._call_count += 1
-        sys_str = system if isinstance(system, str) else str(system)
 
-        # ── 主 agent: 合规审计编排 agent ──────────────────────────────────
-        if "合规审计编排 agent" in sys_str:
-            resp = self._route_main_agent(messages)
-        # ── Planner.generate(): 动态 Plan 生成 ───────────────────────────
-        elif "RESPOND WITH JSON ONLY" in sys_str:
-            resp = self._route_planner_generate()
-        # ── Planner.replan(): 增量重规划 ──────────────────────────────────
-        elif "incremental replanning" in sys_str:
-            resp = self._route_planner_replan()
-        # ── flag_suspicious 工具的 LLM 调用 ──────────────────────────────
-        elif "反洗钱分析师" in sys_str:
-            resp = self._route_flag()
-        # ── enrich_entity 工具的 LLM 调用（可能 crash）───────────────────
-        elif "实体关联分析师" in sys_str:
-            resp = self._route_entity()
-        else:
-            last_user = _last_user_of(messages)
-            resp = LLMResponse(
-                content=f"[fallback] {last_user}", stop_reason="end_turn",
-                input_tokens=50, output_tokens=10,
-            )
+def build_fake_llm() -> LLMClient:
+    """离线 demo 用: 主 agent + Planner + s2/s3 工具 LLM 调用全 scripted。"""
+    flag_q: list[LLMResponse] = []
+    entity_q: list[LLMResponse] = []
+    replan_calls = 0
 
-        if resp.content and on_chunk is not None:
-            for word in resp.content.split():
-                await on_chunk(word + " ")
-                await asyncio.sleep(0)
-        return resp
+    def _route_flag(_messages: MessageList) -> LLMResponse:
+        return flag_q.pop(0) if flag_q else _FLAG_RESPONSE
 
-    # ── per-phase 路由 ───────────────────────────────────────────────────────
+    def _route_entity(_messages: MessageList) -> LLMResponse:
+        return entity_q.pop(0) if entity_q else _ENTITY_RESPONSE
 
-    def _route_main_agent(self, messages: MessageList) -> LLMResponse:
-        """REACTIVE 轨迹: spawn → 总结 → 追问 → replan。"""
-        last_non_assistant = next(
-            (m for m in reversed(messages) if m.get("role") != "assistant"),
-            None,
-        )
-        if last_non_assistant is not None and last_non_assistant.get("role") == "tool":
-            # 子 agent spawn 返回了 → 总结 SAR 结果
-            return _main_agent_summary()
-
-        # 无 tool result（首轮）或用户追问
-        if any(m.get("role") == "tool" for m in messages):
-            # 有历史 spawn 结果，但本轮是用户追问
-            user_msg = _last_user_of(messages)
-            return _followup_response(user_msg)
-
-        # 首轮: 触发 spawn
-        return _spawn_audit_workflow_call()
-
-    @staticmethod
-    def _route_planner_generate() -> LLMResponse:
-        """Planner.generate() → 返回动态 Plan JSON。"""
+    def _route_planner_generate(_messages: MessageList) -> LLMResponse:
         return LLMResponse(
             content=_PLAN_JSON,
             stop_reason="end_turn",
@@ -244,10 +195,10 @@ class ComplianceFakeLLM(LLMClient):
             output_tokens=80,
         )
 
-    def _route_planner_replan(self) -> LLMResponse:
-        """Planner.replan() → 返回替换步骤 JSON。"""
-        self._replan_calls += 1
-        if self._replan_calls > 2:
+    def _route_planner_replan(_messages: MessageList) -> LLMResponse:
+        nonlocal replan_calls
+        replan_calls += 1
+        if replan_calls > 2:
             # 超过 max_replans，返回空步骤 → PlanExecutor 停止
             return LLMResponse(
                 content='{"steps": []}',
@@ -262,19 +213,13 @@ class ComplianceFakeLLM(LLMClient):
             output_tokens=60,
         )
 
-    def _route_flag(self) -> LLMResponse:
-        """flag_suspicious 的 LLM 调用。"""
-        if self._flag_q:
-            return self._flag_q.pop(0)
-        return _FLAG_RESPONSE
-
-    def _route_entity(self) -> LLMResponse:
-        """enrich_entity 的 LLM 调用。"""
-        if self._entity_q:
-            return self._entity_q.pop(0)
-        return _ENTITY_RESPONSE
-
-
-def build_fake_llm() -> LLMClient:
-    """离线 demo 用: 主 agent + Planner + s2/s3 工具 LLM 调用全 scripted。"""
-    return ComplianceFakeLLM()
+    return RoutingFakeLLM(
+        routes={
+            # 注册顺序即路由优先级（首匹配生效），镜像原来的 elif 链
+            "合规审计编排 agent": [_route_main_agent],
+            "RESPOND WITH JSON ONLY": [_route_planner_generate],
+            "incremental replanning": [_route_planner_replan],
+            "反洗钱分析师": [_route_flag],
+            "实体关联分析师": [_route_entity],
+        }
+    )

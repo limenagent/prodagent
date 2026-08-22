@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from prodagent import Agent, AgentConfig
-from prodagent.runtime.workflow import Workflow
+from prodagent.plan.workflow import Workflow
 
 
 @pytest.fixture
@@ -65,7 +65,7 @@ async def test_workflow_allow_replan_false_caps_max_replans(fake_llm, hook_regis
         config=AgentConfig(name="wf-agent", llm=fake_llm, hooks=hook_registry),
     )
 
-    assert agent.max_replans == 0
+    assert agent.config.max_replans == 0
 
     run = await agent.chat("anything")
     assert run.tool_failures >= 1
@@ -87,7 +87,7 @@ async def test_workflow_default_max_replans_is_two(fake_llm, hook_registry):
         config=AgentConfig(name="wf-agent", llm=fake_llm, hooks=hook_registry),
     )
 
-    assert agent.max_replans == 2
+    assert agent.config.max_replans == 2
 
 
 def test_workflow_compile_rejects_cycles():

@@ -15,10 +15,15 @@ def _child_that_fails_to_plan() -> Agent:
     llm = FakeLLMAdapter(
         responses=[LLMResponse(content="not valid json at all", stop_reason="end_turn")]
     )
+    from prodagent import ExecutionMode
+
     return Agent(
         "broken_planner",
         system_prompt="plan something",
-        config=AgentConfig(name="broken_planner", llm=llm, description="A child whose planner fails"),
+        mode=ExecutionMode.PLAN_FIRST,
+        config=AgentConfig(
+            name="broken_planner", llm=llm, description="A child whose planner fails"
+        ),
     )
 
 
@@ -39,8 +44,8 @@ def _isolated_fw(tmp_path: Path) -> FrameworkConfig:
 
 
 async def test_run_child_directly_returns_failed_on_none_run(tmp_path: Path) -> None:
-    from prodagent.runtime.coordination.parent_runtime import ParentRuntime
-    from prodagent.runtime.coordination.spawn import Spawn
+    from prodagent.coordination.parent_runtime import ParentRuntime
+    from prodagent.coordination.spawn import Spawn
 
     child = _child_that_fails_to_plan()
     llm = FakeLLMAdapter(responses=[LLMResponse(content="not json", stop_reason="end_turn")])
@@ -64,8 +69,8 @@ async def test_run_child_directly_returns_failed_on_none_run(tmp_path: Path) -> 
 
 
 async def test_run_child_returns_failed_when_executor_raises(tmp_path: Path) -> None:
-    from prodagent.runtime.coordination.parent_runtime import ParentRuntime
-    from prodagent.runtime.coordination.spawn import Spawn
+    from prodagent.coordination.parent_runtime import ParentRuntime
+    from prodagent.coordination.spawn import Spawn
 
     class _BoomLLM:
         async def complete(self, messages, *, system="", tools=None, config=None, on_chunk):

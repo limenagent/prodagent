@@ -70,10 +70,14 @@ def test_all_imports_declared_in_all():
         if _is_type_checking_if(stmt):
             continue
         for node in ast.walk(stmt):
+            # Machinery imports are exempt: core.lazy IS the lazy loader;
+            # ports.llm is the contract the llm package re-exports eagerly.
+            _MACHINERY = ("prodagent.core.lazy", "prodagent.ports.llm")
             if (
                 isinstance(node, ast.ImportFrom)
                 and node.module
                 and node.module.startswith("prodagent.")
+                and node.module not in _MACHINERY
             ):
                 for alias in node.names:
                     raise AssertionError(

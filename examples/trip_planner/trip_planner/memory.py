@@ -6,13 +6,10 @@ recall query = run.task,所以「拉面」「7 天」「预算 15000」等关键
 
 from __future__ import annotations
 
-import shutil
-from dataclasses import replace as _dc_replace
 from pathlib import Path
 
 from prodagent import FrameworkConfig, LLMClient, MemoryManager, build_memory_manager
-from prodagent.cognition.memory import MemoryClassifier, MemoryRecord, MemoryType
-from prodagent.cognition.memory.conflict import DefaultConflictPolicy
+from prodagent.cognition.memory import MemoryRecord, MemoryType
 
 _BASE = Path(__file__).parent
 MEMORY_DIR = _BASE / ".memory"
@@ -25,17 +22,11 @@ def build_memory(
     clean: bool = False,
 ) -> MemoryManager:
     """构造 MemoryManager + 预置用户偏好。"""
-    if clean and MEMORY_DIR.exists():
-        shutil.rmtree(MEMORY_DIR)
-    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-
-    fw = framework_config or FrameworkConfig.default()
-    fw = _dc_replace(fw, orchestration=_dc_replace(fw.orchestration, runs_dir=str(MEMORY_DIR)))
-
     return build_memory_manager(
-        framework_config=fw,
-        classifier=MemoryClassifier(aux_llm),
-        conflict_policy=DefaultConflictPolicy(llm_client=aux_llm),
+        framework_config=framework_config or FrameworkConfig.default(),
+        aux_llm=aux_llm,
+        memory_dir=MEMORY_DIR,
+        clean=clean,
     )
 
 

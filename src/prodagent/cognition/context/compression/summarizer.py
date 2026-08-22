@@ -5,12 +5,12 @@ from typing import TYPE_CHECKING
 
 from prodagent.cognition.context.budget import CompressionLevel
 from prodagent.core.types import StopReason
-from prodagent.llm.base import stream_text
+from prodagent.llm import stream_text
 
 if TYPE_CHECKING:
     from prodagent.core.config import ContextConfig
     from prodagent.core.types import MessageList
-    from prodagent.llm.base import LLMClient
+    from prodagent.llm import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class Summariser:
     async def _summarise_with_llm(
         self, llm: LLMClient, messages: MessageList, *, level: CompressionLevel
     ) -> str:
-        from prodagent.llm.base import LLMConfig
+        from prodagent.llm import LLMConfig
 
         cfg = self._cfg
         turns: list[str] = []

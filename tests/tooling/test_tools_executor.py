@@ -8,14 +8,13 @@ from prodagent.core.state import AgentRun
 from prodagent.core.types import ToolCall
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
-from prodagent.tooling.runner import ToolRunner
 
 
 def _dispatcher(*tools_list) -> ToolDispatcher:
     return ToolDispatcher({t.name: t for t in tools_list})
 
 
-async def _run_batch(runner: ToolRunner, run: AgentRun, calls: list[ToolCall]) -> list[dict]:
+async def _run_batch(runner: ToolDispatcher, run: AgentRun, calls: list[ToolCall]) -> list[dict]:
     results = []
     async for event in runner.run_batch(run, calls):
         if isinstance(event, ToolResultEvent):
@@ -36,7 +35,7 @@ async def test_parallel_readonly_all_returned():
 
     run = AgentRun(run_id="r1", task="test")
     calls = [ToolCall(name="read_a", params={}), ToolCall(name="read_b", params={})]
-    runner = ToolRunner(_dispatcher(read_a, read_b))
+    runner = _dispatcher(read_a, read_b)
 
     results = await _run_batch(runner, run, calls)
     assert len(results) == 2
@@ -66,7 +65,7 @@ async def test_serial_write_order_preserved():
 
     run = AgentRun(run_id="r2", task="test")
     calls = [ToolCall(name="write_x", params={}), ToolCall(name="write_y", params={})]
-    runner = ToolRunner(_dispatcher(write_x, write_y))
+    runner = _dispatcher(write_x, write_y)
 
     results = await _run_batch(runner, run, calls)
     assert len(results) == 2
@@ -85,7 +84,7 @@ async def test_high_tool_suspends_without_approval_bundle():
 
     run = AgentRun(run_id="r3", task="test")
     calls = [ToolCall(name="page_oncall", params={"team": "platform"})]
-    runner = ToolRunner(_dispatcher(page_oncall))
+    runner = _dispatcher(page_oncall)
 
     await _run_batch(runner, run, calls)
 
@@ -107,7 +106,7 @@ async def test_high_tool_suspends_leaves_no_tool_result():
 
     run = AgentRun(run_id="r4", task="test")
     calls = [ToolCall(name="critical_op", params={})]
-    runner = ToolRunner(_dispatcher(critical_op))
+    runner = _dispatcher(critical_op)
 
     yielded_results: list[dict] = []
     async for event in runner.run_batch(run, calls):
@@ -139,7 +138,7 @@ async def test_mixed_reads_and_writes():
         ToolCall(name="read_only", params={}),
         ToolCall(name="do_write", params={}),
     ]
-    runner = ToolRunner(_dispatcher(read_only, do_write))
+    runner = _dispatcher(read_only, do_write)
 
     results = await _run_batch(runner, run, calls)
     assert len(results) == 2
@@ -166,7 +165,7 @@ async def test_high_tool_does_not_drop_prior_readonly_results():
         ToolCall(name="safe_read", params={}),
         ToolCall(name="dangerous_write", params={}),
     ]
-    runner = ToolRunner(_dispatcher(safe_read, dangerous_write))
+    runner = _dispatcher(safe_read, dangerous_write)
 
     yielded_results: list[dict] = []
     async for event in runner.run_batch(run, calls):
@@ -202,7 +201,7 @@ async def test_high_tool_first_still_allows_later_readonly():
         ToolCall(name="dangerous_write", params={}),
         ToolCall(name="safe_read", params={}),
     ]
-    runner = ToolRunner(_dispatcher(safe_read, dangerous_write))
+    runner = _dispatcher(safe_read, dangerous_write)
 
     yielded_results: list[dict] = []
     async for event in runner.run_batch(run, calls):
@@ -237,10 +236,8 @@ async def test_readonly_concurrency_cap_enforced():
 
     run = AgentRun(run_id="rcap", task="test")
     calls = [ToolCall(name="probe", params={}) for _ in range(20)]
-    runner = ToolRunner(
-        _dispatcher(probe),
-        loop_config=LoopConfig(readonly_concurrency=4, repeat_threshold=100),
-    )
+    runner = _dispatcher(probe)
+    runner.configure_batch(loop_config=LoopConfig(readonly_concurrency=4, repeat_threshold=100))
 
     results = await _run_batch(runner, run, calls)
     assert len(results) == 20
@@ -271,10 +268,8 @@ async def test_readonly_concurrency_default_8_when_no_loop_config():
 
     run = AgentRun(run_id="rcap-default", task="test")
     calls = [ToolCall(name="probe2", params={}) for _ in range(20)]
-    runner = ToolRunner(
-        _dispatcher(probe2),
-        loop_config=LoopConfig(repeat_threshold=100),
-    )
+    runner = _dispatcher(probe2)
+    runner.configure_batch(loop_config=LoopConfig(repeat_threshold=100))
 
     await _run_batch(runner, run, calls)
     assert max_in_flight <= 8, f"default cap violated: max_in_flight={max_in_flight} > 8"
@@ -303,7 +298,7 @@ async def test_enforced_idempotent_injects_key_bound_to_call_site():
         ToolCall(name="refund_order", params={"order_id": "A1"}),
         ToolCall(name="refund_order", params={"order_id": "A2"}),
     ]
-    runner = ToolRunner(_dispatcher(refund_order))
+    runner = _dispatcher(refund_order)
 
     await _run_batch(runner, run, calls)
 
@@ -341,7 +336,7 @@ async def test_rollback_restore_rederives_same_idempotency_keys():
             ToolCall(name="refund_order", params={"order_id": "A1"}),
             ToolCall(name="refund_order", params={"order_id": "A2"}),
         ]
-        runner = ToolRunner(_dispatcher(refund_order))
+        runner = _dispatcher(refund_order)
         await _run_batch(runner, run, calls)
         return [c["idempotency_key"] for c in captured]
 
@@ -375,7 +370,7 @@ async def test_enforced_idempotent_does_not_overwrite_model_supplied_key():
 
     run = AgentRun(run_id="r-key", task="charge")
     calls = [ToolCall(name="charge_card", params={"idempotency_key": "client-supplied"})]
-    runner = ToolRunner(_dispatcher(charge_card))
+    runner = _dispatcher(charge_card)
 
     await _run_batch(runner, run, calls)
     assert captured == ["client-supplied"]
@@ -393,7 +388,7 @@ async def test_non_enforced_tool_gets_no_key():
 
     run = AgentRun(run_id="r-ping", task="ping")
     calls = [ToolCall(name="ping", params={})]
-    runner = ToolRunner(_dispatcher(ping))
+    runner = _dispatcher(ping)
 
     await _run_batch(runner, run, calls)
     assert captured == [{"idempotency_key": ""}]
@@ -440,7 +435,7 @@ async def test_skill_injection_deferred_after_all_tool_results():
         ToolCall(name="load_skill", params={"skill": "alpha"}),
         ToolCall(name="load_skill", params={"skill": "beta"}),
     ]
-    runner = ToolRunner(_dispatcher(load_skill))
+    runner = _dispatcher(load_skill)
 
     await _run_batch(runner, run, calls)
 

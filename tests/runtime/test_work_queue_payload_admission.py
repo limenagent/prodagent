@@ -7,11 +7,9 @@ from __future__ import annotations
 import pytest
 
 from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
-from prodagent.hooks.gates import BlockingResult, Gate
-from prodagent.hooks.registry import HookRegistry
-from prodagent.runtime.coordination.messaging.contract import MessageContract
-from prodagent.runtime.coordination.termination import MaxRounds, TerminationPolicy
-from prodagent.runtime.coordination.work_queue import (
+from prodagent.coordination.messaging.contract import MessageContract
+from prodagent.coordination.termination import MaxRounds, TerminationPolicy
+from prodagent.coordination.work_queue import (
     ItemCompletedEvent,
     ItemDeadLetteredEvent,
     ItemRequeuedEvent,
@@ -20,6 +18,8 @@ from prodagent.runtime.coordination.work_queue import (
     WorkResult,
     work_queue_stream,
 )
+from prodagent.hooks.gates import BlockingResult, Gate
+from prodagent.hooks.registry import HookRegistry
 
 
 class _ScriptedWorker:

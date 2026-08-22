@@ -1,14 +1,19 @@
-"""LLMClient port — structural interface every provider adapter satisfies."""
+"""LLMClient port — structural interface every provider adapter satisfies.
+
+Single home of :class:`LLMConfig` (``prodagent.llm`` re-exports both):
+config is part of the port's contract, so it lives with the protocol, not
+with any provider implementation.
+"""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from prodagent.core.types import LLMResponse, MessageList
-    from prodagent.llm.base import LLMConfig
 
 
 @runtime_checkable
@@ -24,3 +29,44 @@ class LLMClient(Protocol):
         config: LLMConfig | None = None,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
     ) -> LLMResponse: ...
+
+
+@dataclass
+class LLMConfig:
+    model: str = ""
+    temperature: float = 0.0
+    max_tokens: int = 8_192
+    timeout_seconds: float = 60.0
+    enable_prompt_caching: bool = True
+    cost_per_million_input: float = 0.0
+    cost_per_million_output: float = 0.0
+    cache_read_discount: float = 0.1
+    cache_write_premium: float = 1.25
+    cache_boundary_index: int | None = None
+
+    def __post_init__(self) -> None:
+        if not self.model:
+            from prodagent.llm.providers import detect_default_model
+
+            self.model = detect_default_model()
+        if self.cost_per_million_input == 0.0 and self.cost_per_million_output == 0.0:
+            # Rates left unset — fill from the convenience catalog so the cost
+            # axis of HardBudget is live by default. Explicit rates always win;
+            # unknown models price at zero (FakeLLM included).
+            from prodagent.llm.pricing import pricing_for_model
+
+            table = pricing_for_model(self.model)
+            if table is not None:
+                self.cost_per_million_input = table.input_rate_per_million
+                self.cost_per_million_output = table.output_rate_per_million
+
+    def cost_for_response(self, response: LLMResponse) -> float:
+        from prodagent.llm.pricing import PricingTable, token_cost_usd
+
+        pricing = PricingTable(
+            input_rate_per_million=self.cost_per_million_input,
+            output_rate_per_million=self.cost_per_million_output,
+            cache_read_discount=self.cache_read_discount,
+            cache_write_premium=self.cache_write_premium,
+        )
+        return token_cost_usd(response, pricing)

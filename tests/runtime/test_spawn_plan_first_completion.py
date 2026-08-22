@@ -35,12 +35,13 @@ async def test_plan_first_child_reports_completed_not_failed():
         "worker",
         system_prompt="do the work",
         tools=[collect, report],
+        mode=ExecutionMode.PLAN_FIRST,
         config=AgentConfig(name="worker", llm=_plan_llm(), description="A PLAN_FIRST worker"),
     )
     assert child.mode is ExecutionMode.PLAN_FIRST
 
-    from prodagent.runtime.coordination.parent_runtime import ParentRuntime
-    from prodagent.runtime.coordination.spawn import build_spawn_tools_for_agent
+    from prodagent.coordination.parent_runtime import ParentRuntime
+    from prodagent.coordination.spawn import build_spawn_tools_for_agent
 
     spawn = build_spawn_tools_for_agent([child], llm=_plan_llm(), context=ParentRuntime())
     result = await spawn.tool._fn(name="worker", task="collect and report")

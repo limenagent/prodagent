@@ -25,14 +25,13 @@ REACTIVE 模式，挂了一个她自己的只读工具 ``check_restaurant_review
 from __future__ import annotations
 
 import dataclasses
-import os
 from typing import TYPE_CHECKING
 
-from prodagent import Agent, AgentConfig, ContextConfig, FrameworkConfig
+from prodagent import Agent, AgentConfig, ContextConfig, FrameworkConfig, use_fake_llm
+from prodagent.coordination.ensemble import AgentFloorMember
+from prodagent.coordination.floor import SharedFloor
 from prodagent.core.types import ExecutionMode
 from prodagent.hooks.bundles.memory import MemoryHooks
-from prodagent.runtime.coordination.ensemble import AgentFloorMember
-from prodagent.runtime.coordination.floor import SharedFloor
 
 from dating_chat.fake_llm import MEI_SYSTEM_PROMPT, build_mei_fake_llm
 from dating_chat.memory import MEMORY_DIR, build_memory
@@ -64,7 +63,7 @@ def build_dating_chat_agent(
         memory_dir = (MEMORY_DIR / run_id) if run_id else None
         resolved_memory = build_memory(memory_dir=memory_dir)
 
-    use_fake = os.getenv("USE_FAKE_LLM", "").lower() in ("1", "true", "yes")
+    use_fake = use_fake_llm()
     llm = build_mei_fake_llm() if use_fake else None
 
     return Agent(

@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Install dev environment
+        run: uv sync --extra dev
+      - name: Ruff (lint + format)
+        run: |
+          uv run ruff check src/prodagent tests
+          uv run ruff format --check src/prodagent tests
+      - name: Mypy (strict)
+        run: uv run mypy src/prodagent
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dev environment
+        run: uv sync --extra dev --python ${{ matrix.python-version }}
+      # conftest.py forces USE_FAKE_LLM=1 — the whole suite runs offline,
+      # zero API keys, zero services. That is a feature; keep it true.
+      - name: Pytest (offline, FakeLLM)
+        run: uv run pytest tests/ -q
+
+  docs-refs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Install dev environment
+        run: uv sync --extra dev
+      - name: Docs code references resolve
+        run: uv run python scripts/check_docs_refs.py

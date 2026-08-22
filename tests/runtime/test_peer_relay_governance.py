@@ -6,12 +6,12 @@ from __future__ import annotations
 import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent.coordination.messaging.contract import MessageContract
 from prodagent.core.state.run import PendingHandoff
 from prodagent.hooks.events import HookEvent
 from prodagent.hooks.gates import BlockingResult, Gate
 from prodagent.hooks.registry import HookRegistry
 from prodagent.llm.fake import script
-from prodagent.runtime.coordination.messaging.contract import MessageContract
 
 
 @pytest.fixture
@@ -49,7 +49,6 @@ def test_legacy_checkpoint_without_message_id_loads_and_mints_later():
 
 
 async def test_handoff_tool_mints_message_id(hook_registry):
-    from prodagent.tooling.runner import ToolRunner  # noqa: F401 — behavior via chat below
 
     peer_b = _reactive_agent("B", context="you are B")
     peer_b.config.llm = script({"content": "B done"})

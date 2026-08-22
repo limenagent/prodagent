@@ -4,17 +4,17 @@ bounded."""
 
 from __future__ import annotations
 
-from prodagent.hooks.gates import BlockingResult, Gate
-from prodagent.hooks.registry import HookRegistry
-from prodagent.runtime.coordination.blackboard import (
+from prodagent.coordination.blackboard import (
     BlackboardSpec,
     BoardWrite,
     BoardWriteEvent,
     Trigger,
     blackboard_stream,
 )
-from prodagent.runtime.coordination.messaging.contract import MessageContract
-from prodagent.runtime.coordination.termination import MaxRounds, TerminationPolicy
+from prodagent.coordination.messaging.contract import MessageContract
+from prodagent.coordination.termination import MaxRounds, TerminationPolicy
+from prodagent.hooks.gates import BlockingResult, Gate
+from prodagent.hooks.registry import HookRegistry
 
 
 class _OnceMember:
@@ -155,7 +155,7 @@ async def test_oversized_free_text_value_truncated_at_admission():
 
 
 def test_render_value_bounds_non_strings():
-    from prodagent.runtime.coordination.blackboard import _render_value
+    from prodagent.coordination.blackboard import _render_value
 
     long_dict = {"k": "v" * 5000}
     rendered = _render_value(long_dict, 200)

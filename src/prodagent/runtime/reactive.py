@@ -9,8 +9,9 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from prodagent.core.budget import HardBudget
-from prodagent.core.config import LoopConfig
+from prodagent.coordination.accounting import check_spawn_budget
+from prodagent.core.budget import SAFETY_NET_BUDGET
+from prodagent.core.config import ContextConfig, LoopConfig
 from prodagent.core.error_classifier import classify_error
 from prodagent.core.error_reason import ErrorLayer
 from prodagent.core.events import (
@@ -27,26 +28,24 @@ from prodagent.core.types import (
     LLMResponse,
     Message,
     MessageList,
-    RunPhase,
     RunState,
     StopReason,
 )
 from prodagent.hooks import fire as _fire
 from prodagent.hooks import save_and_fire_checkpoint
 from prodagent.hooks.events import HookEvent
-from prodagent.llm.base import LLMConfig
-from prodagent.runtime.coordination.accounting import check_spawn_budget
-from prodagent.tooling.runner import ToolRunner
+from prodagent.llm import LLMConfig
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
     from prodagent.cognition.context.manager import ContextManager
     from prodagent.cognition.context.spill import ToolResultSpillStore
+    from prodagent.coordination.accounting import SpawnAccumulator
+    from prodagent.core.budget import HardBudget
     from prodagent.hooks.registry import HookRegistry
-    from prodagent.llm.base import LLMClient
+    from prodagent.llm import LLMClient
     from prodagent.ports import CheckpointStore
-    from prodagent.runtime.coordination.accounting import SpawnAccumulator
     from prodagent.tooling.dispatcher import ToolDispatcher
 
 logger = logging.getLogger(__name__)
@@ -74,7 +73,7 @@ class ReactiveLoop:
         self._llm = llm
         self._system = system_prompt
         self._tools_schema = tools_schema or []
-        self._budget = budget or HardBudget()
+        self._budget = budget or SAFETY_NET_BUDGET
         self._llm_config = LLMConfig()
         self._checkpoint_store = checkpoint_store
         self._context_manager = context_manager
@@ -86,16 +85,21 @@ class ReactiveLoop:
         resolved_spill_store = spill_store or (
             context_manager.spill_store if context_manager else None
         )
+        # The dispatcher needs the ContextConfig for spill truncation even
+        # when the ContextManager itself is off (spill without compression).
+        if context_manager is not None:
+            tool_context_config: ContextConfig | None = context_manager.config
+        else:
+            tool_context_config = ContextConfig() if resolved_spill_store else None
         cfg = loop_config or LoopConfig()
         self._progress = ProgressMonitor(
             stall_threshold=cfg.stall_threshold,
             repeat_threshold=cfg.repeat_threshold,
             window_size=cfg.fingerprint_window,
         )
-        self._runner = ToolRunner(
-            dispatcher,
+        dispatcher.configure_batch(
             loop_config=loop_config,
-            context_config=context_manager.config if context_manager else None,
+            context_config=tool_context_config,
             spill_store=resolved_spill_store,
             progress_monitor=self._progress,
         )
@@ -181,8 +185,7 @@ class ReactiveLoop:
             run.pending_tool_call = None
             self._dispatcher.set_pending_approval_id(run.pending_approval_id)
             run.pending_approval_id = None
-            run.phase = RunPhase.EXECUTE
-            async for batch_evt in self._runner.run_batch(run, [resumed_call]):
+            async for batch_evt in self._dispatcher.run_batch(run, [resumed_call]):
                 yield batch_evt
 
             self._check_budget(run)
@@ -192,28 +195,23 @@ class ReactiveLoop:
                 return
 
         while True:
-            run.phase = RunPhase.THINK
             response, token_events = await self._think(run)
             for evt in token_events:
                 yield evt
 
-            run.phase = RunPhase.DECIDE
             done = await self._decide(run, response)
             if done:
-                run.phase = RunPhase.DONE
                 yield RunCompletedEvent(run=run)
                 return
 
             self._check_budget(run)
 
-            run.phase = RunPhase.EXECUTE
-            async for batch_evt in self._runner.run_batch(run, response.tool_calls):
+            async for batch_evt in self._dispatcher.run_batch(run, response.tool_calls):
                 yield batch_evt
 
             self._check_budget(run)
 
             if run.pending_handoff is not None:
-                run.phase = RunPhase.DONE
                 yield RunCompletedEvent(run=run)
                 return
 
@@ -231,7 +229,6 @@ class ReactiveLoop:
         return response, token_events
 
     async def _pre_llm_checks(self, run: AgentRun) -> tuple[str, list[Message]]:
-        run.phase = RunPhase.PREPARE
         self._check_budget(run)
         self._progress.check(run)
 
@@ -277,7 +274,7 @@ class ReactiveLoop:
                 await _fire(hooks, HookEvent.THINK, text=text, run_id=run.run_id)
             token_events.append(ThinkTokenEvent(token=text, run_id=run.run_id))
 
-        # self._budget is always set (constructor: budget or HardBudget()).
+        # self._budget is always set (constructor: budget or SAFETY_NET_BUDGET).
         elapsed = run.elapsed_seconds()
         llm_timeout = max(0.1, self._budget.max_seconds - elapsed)
 

@@ -1,5 +1,5 @@
 """选手 —— 真·框架 Agent，用手写 ``BlackboardMember`` 适配（不是
-:class:`~prodagent.runtime.coordination.blackboard.AgentBlackboardMember`）。
+:class:`~prodagent.coordination.blackboard.AgentBlackboardMember`）。
 
 框架自带的 ``AgentBlackboardMember`` 把结果写成一段纯文本，够用但丢失了
 "谁答的、答的哪道题"这类结构化信息——它自己的 docstring 也明说了这是留给
@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 
 from prodagent import (
@@ -24,38 +23,48 @@ from prodagent import (
     AgentConfig,
     Board,
     BoardWrite,
-    FakeLLMAdapter,
     FrameworkConfig,
+    RoutingFakeLLM,
     Trigger,
+    use_fake_llm,
 )
-from prodagent.core.types import ExecutionMode, LLMResponse, StopReason
+from prodagent.core.types import ExecutionMode, LLMResponse, MessageList, StopReason
 
 _HINT_PATTERN = re.compile(r"\[提示：正确答案是\s*(.+?)\]")
 
 
-class _HintEchoLLM(FakeLLMAdapter):
-    """把私密提示当答案回声的离线适配器。
+def _hint_echo_llm() -> RoutingFakeLLM:
+    """把私密提示当答案回声的离线适配器 —— 常驻 callable，每次调用都现算。
 
     ``REACTIVE`` 模式每轮都会在 messages 末尾追加一条 ``[STATE]`` 的
-    user 消息（框架的 turn/state 记账，与本 demo 无关）。基类
-    ``FakeLLMAdapter`` 的兜底逻辑只回声"最后一条 user 消息"，会被这条
-    ``[STATE]`` 消息挡住，永远看不到真正带 ``[提示：...]`` 的那条。这里
-    改成倒序扫描全部消息、找第一条带私密提示的，绕开这个顺序依赖，不用
-    改动框架的 REACTIVE 循环。
+    user 消息（框架的 turn/state 记账，与本 demo 无关）。echo 兜底只回声
+    "最后一条 user 消息"，会被这条 ``[STATE]`` 消息挡住，永远看不到真正带
+    ``[提示：...]`` 的那条。这里倒序扫描全部消息、找第一条带私密提示的，
+    绕开这个顺序依赖，不用改动框架的 REACTIVE 循环。
     """
 
-    async def complete(self, messages, **kwargs):  # type: ignore[override]
+    def echo_hint(messages: MessageList) -> LLMResponse:
         for message in reversed(messages):
             content = message.get("content") or ""
             if _HINT_PATTERN.search(content):
-                self._call_count += 1
                 return LLMResponse(
                     content=content,
                     stop_reason=StopReason.END_TURN,
                     input_tokens=50,
                     output_tokens=10,
                 )
-        return await super().complete(messages, **kwargs)
+        last_user = next(
+            (m["content"] for m in reversed(messages) if m.get("role") == "user"),
+            "I have completed the task.",
+        )
+        return LLMResponse(
+            content=f"[FakeLLM] {last_user}",
+            stop_reason=StopReason.END_TURN,
+            input_tokens=50,
+            output_tokens=10,
+        )
+
+    return RoutingFakeLLM(default=[echo_hint])
 
 
 def extract_answer(raw_text: str) -> str:
@@ -72,7 +81,7 @@ def extract_answer(raw_text: str) -> str:
 
 
 def _use_fake_llm() -> bool:
-    return os.getenv("USE_FAKE_LLM", "").lower() in ("1", "true", "yes")
+    return use_fake_llm()
 
 
 def build_contestant_agent(name: str, *, specialty: str) -> Agent:
@@ -81,7 +90,7 @@ def build_contestant_agent(name: str, *, specialty: str) -> Agent:
         "听到题目后直接说出答案，不要解释、不要复述题目。"
         "如果完全不知道，就诚实地说“不知道”。"
     )
-    llm = _HintEchoLLM() if _use_fake_llm() else None
+    llm = _hint_echo_llm() if _use_fake_llm() else None
     return Agent(
         name,
         system_prompt=system_prompt,

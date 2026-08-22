@@ -15,11 +15,11 @@ from typing import Any
 import pytest
 
 from prodagent import Agent, AgentConfig
+from prodagent.coordination.parent_runtime import ParentRuntime
 from prodagent.core.config import FrameworkConfig
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.resilience.transport.http_retry import DeliveryGuard, with_http_retry
-from prodagent.runtime.coordination.parent_runtime import ParentRuntime
-from prodagent.runtime.workflow import Workflow
+from prodagent.llm.http_retry import DeliveryGuard, with_http_retry
+from prodagent.plan.workflow import Workflow
 
 
 def _agent(**kwargs: Any) -> Agent:
@@ -110,7 +110,7 @@ class TestStreamRetryNeverReplays:
                 raise ConnectionError("connection refused before any output")
             return "ok"
 
-        from prodagent.resilience.reliability.retry import RetryPolicy
+        from prodagent.tooling.retry import RetryPolicy
 
         result = await with_http_retry(
             flaky,

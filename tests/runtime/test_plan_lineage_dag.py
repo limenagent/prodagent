@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from prodagent.runtime.plan.dag import Plan, PlanStep, StepStatus
+from prodagent.plan.dag import Plan, PlanStep, StepStatus
 
 
 def _make_plan_with_steps() -> Plan:

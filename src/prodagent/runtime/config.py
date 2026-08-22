@@ -12,20 +12,20 @@ if TYPE_CHECKING:
 
     from prodagent.cognition.context.spill import ToolResultSpillStore
     from prodagent.cognition.memory.manager import MemoryProvider
+    from prodagent.coordination.accounting import SpawnAccumulator
+    from prodagent.coordination.messaging.contract import MessageContract
     from prodagent.core.budget import HardBudget
     from prodagent.core.config import FrameworkConfig
-    from prodagent.evaluation.skills.registry import SkillRegistry
-    from prodagent.guardrail.approval.gate import ApprovalProvider
+    from prodagent.hooks.approval.gate import ApprovalProvider
     from prodagent.hooks.events import HookEvent
     from prodagent.hooks.gates import Gate, InjectionPoint
     from prodagent.hooks.registry import HookRegistry
-    from prodagent.llm.base import LLMClient
+    from prodagent.llm import LLMClient
     from prodagent.mcp.config import MCPServerConfig
+    from prodagent.plan.dag import Plan
     from prodagent.ports import CheckpointStore, EventLog, SessionStore, Tool
     from prodagent.runtime.agent import Agent
-    from prodagent.runtime.coordination.accounting import SpawnAccumulator
-    from prodagent.runtime.coordination.messaging.contract import MessageContract
-    from prodagent.runtime.plan.dag import Plan
+    from prodagent.skills.registry import SkillRegistry
     from prodagent.tooling.registry import ToolRegistry
 
 
@@ -42,7 +42,7 @@ class AgentConfig:
     system_prompt: str = ""
     framework: FrameworkConfig | None = None
     hooks: HookRegistry | None = None
-    mode: ExecutionMode = ExecutionMode.PLAN_FIRST
+    mode: ExecutionMode = ExecutionMode.REACTIVE
     checkpoint: CheckpointStore | None = None
     event_log: EventLog | None = None
     session_store: SessionStore | None = None

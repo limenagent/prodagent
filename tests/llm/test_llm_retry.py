@@ -3,12 +3,12 @@ from __future__ import annotations
 import pytest
 
 from prodagent.core.error_reason import ErrorReason
-from prodagent.resilience.reliability.retry import Backoff, RetryPolicy
-from prodagent.resilience.transport.http_retry import (
+from prodagent.llm.http_retry import (
     CapacityError,
     _delay_for,
     with_http_retry,
 )
+from prodagent.tooling.retry import Backoff, RetryPolicy
 
 
 class _FakeHeaders(dict):
@@ -248,7 +248,7 @@ class TestWithLlmRetryRetryAfterHeader:
                 raise _FakeApiStatusError("rate limited", status_code=429, retry_after="0.001")
             return "ok"
 
-        import prodagent.resilience.transport.http_retry as retry_mod
+        import prodagent.llm.http_retry as retry_mod
 
         original_sleep = retry_mod.asyncio.sleep
 
@@ -340,7 +340,7 @@ class TestWithLlmRetryDefaultPolicy:
                 raise _FakeApiStatusError("503", status_code=503)
             return "ok"
 
-        import prodagent.resilience.transport.http_retry as retry_mod
+        import prodagent.llm.http_retry as retry_mod
 
         original_sleep = retry_mod.asyncio.sleep
 

@@ -22,7 +22,6 @@ DAG::
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from prodagent import (
@@ -30,11 +29,12 @@ from prodagent import (
     AgentConfig,
     FrameworkConfig,
     HardBudget,
-    LLMClient,
     MemoryManager,
-    script,
+    RoutingFakeLLM,
+    use_fake_llm,
 )
-from prodagent.evaluation.skills.registry import SkillRegistry
+from prodagent.backends.factory import resolve_aux_llm
+from prodagent.skills.registry import SkillRegistry
 from prodagent.hooks.bundles.memory import MemoryHooks
 
 from trip_planner.fake_llm import build_fake_llm
@@ -61,18 +61,6 @@ task 里,让 restaurant peer 知道订拉面店。
 """
 
 
-def _resolve_aux_llm(fw: FrameworkConfig) -> LLMClient:
-    """用于 memory classify/conflict 的辅助 LLM。fake 模式或无 key 走脚本。"""
-    use_fake = os.getenv("USE_FAKE_LLM", "").lower() in ("1", "true", "yes")
-    if use_fake or not any(
-        os.getenv(k) for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ZHIPU_API_KEY")
-    ):
-        return script({"content": "{}", "stop_reason": "end_turn"})
-    from prodagent.backends.factory import resolve_llm
-
-    return resolve_llm(fw)
-
-
 DEFAULT_TASK = "7 天日本旅行,预算 15000,喜欢拉面和漫画。"
 
 
@@ -87,17 +75,20 @@ def build_trip_planner_agent(
         memory: 预 seeded 的 MemoryManager(demo 用)。playground 不传。
         framework_config: 父 fw;不传时用 default。playground 注入带独立 namespace 的 fw。
     """
-    fw = framework_config or FrameworkConfig.default()
+    from prodagent.core.config import production
+
+    fw = framework_config or production()
     skills = SkillRegistry.from_dir(SKILLS_DIR)
-    resolved_memory = memory or build_memory(aux_llm=_resolve_aux_llm(fw), framework_config=fw, clean=True)
+    resolved_memory = memory or build_memory(
+        aux_llm=resolve_aux_llm(fw), framework_config=fw, clean=True
+    )
 
     itinerary = itinerary_peer_agent()
     restaurant = restaurant_peer_agent()
     transport = transport_peer_agent()
     wf = build_trip_workflow(itinerary, restaurant, transport)
 
-    use_fake = os.getenv("USE_FAKE_LLM", "").lower() in ("1", "true", "yes")
-    llm = build_fake_llm() if use_fake else None
+    llm: RoutingFakeLLM | None = build_fake_llm() if use_fake_llm() else None
 
     return Agent(
         "trip_planner",
@@ -109,7 +100,7 @@ def build_trip_planner_agent(
             name="trip_planner",
             skills=skills,
             llm=llm,
-            framework=framework_config,
+            framework=fw,
             agents=[itinerary, restaurant, transport],
             extensions=[MemoryHooks(resolved_memory)],
         ),

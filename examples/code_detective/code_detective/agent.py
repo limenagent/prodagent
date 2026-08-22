@@ -16,13 +16,12 @@ fixture repo(``code_detective/fixture/``):
 
 from __future__ import annotations
 
-import os
 import shutil
 import sys
 from pathlib import Path
 
-from prodagent import Agent, AgentConfig, ExecutionMode, FrameworkConfig, HardBudget
-from prodagent.evaluation.skills.registry import SkillRegistry
+from prodagent import Agent, AgentConfig, ExecutionMode, FrameworkConfig, HardBudget, use_fake_llm
+from prodagent.skills.registry import SkillRegistry
 from prodagent.mcp.config import MCPServerConfig
 
 from code_detective.fake_llm import build_fake_llm
@@ -81,6 +80,12 @@ def _reset_fixture() -> None:
 DEFAULT_TASK = "tests/test_user.py::test_login 失败,帮我修。"
 
 
+def _production_fw() -> FrameworkConfig:
+    from prodagent.core.config import production
+
+    return production(FrameworkConfig.default())
+
+
 def build_code_detective_agent(
     *,
     framework_config: FrameworkConfig | None = None,
@@ -92,7 +97,7 @@ def build_code_detective_agent(
     LearningHooks 的 synthesizer + aux LLM 也由框架从 fw lazy resolve。
     """
     skills = SkillRegistry.from_dir(SKILLS_DIR)
-    use_fake = os.getenv("USE_FAKE_LLM", "").lower() in ("1", "true", "yes")
+    use_fake = use_fake_llm()
     llm = build_fake_llm() if use_fake else None
     _reset_fixture()
 
@@ -106,7 +111,7 @@ def build_code_detective_agent(
             name="code_detective",
             skills=skills,
             llm=llm,
-            framework=framework_config,
+            framework=framework_config or _production_fw(),
             mcp=[_code_detective_mcp_config()],
         ),
     )

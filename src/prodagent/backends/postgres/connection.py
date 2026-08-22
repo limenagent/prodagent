@@ -8,6 +8,18 @@ from typing import Any
 __all__ = ["sync_pool_from_env", "async_pool_from_env", "dsn_from_env"]
 
 
+def _import_psycopg_pool() -> Any:
+    """Import ``psycopg_pool`` or fail with an actionable install hint."""
+    try:
+        import psycopg_pool
+    except ImportError as exc:
+        raise ImportError(
+            "Postgres backend requires psycopg_pool. "
+            "Install it with: pip install 'prodagent[postgres]'"
+        ) from exc
+    return psycopg_pool
+
+
 def dsn_from_env() -> str:
     """Build a libpq DSN from ``DATABASE_URL`` or ``PG*`` env vars."""
     url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
@@ -25,18 +37,18 @@ def dsn_from_env() -> str:
 def sync_pool_from_env(*, min_size: int = 1, max_size: int = 8) -> Any:
     """A synchronous ``ConnectionPool`` — for sync ports (dead_letter, span,
     document, graph)."""
-    from psycopg_pool import ConnectionPool
-
-    return ConnectionPool(dsn_from_env(), min_size=min_size, max_size=max_size, open=False)
+    psycopg_pool = _import_psycopg_pool()
+    return psycopg_pool.ConnectionPool(
+        dsn_from_env(), min_size=min_size, max_size=max_size, open=False
+    )
 
 
 def async_pool_from_env(*, min_size: int = 1, max_size: int = 8) -> Any:
     """An async ``AsyncConnectionPool`` — for async ports (checkpoint,
     event_log, cache, approval, lock).
     """
-    from psycopg_pool import AsyncConnectionPool
-
-    return AsyncConnectionPool(
+    psycopg_pool = _import_psycopg_pool()
+    return psycopg_pool.AsyncConnectionPool(
         conninfo=dsn_from_env(),
         min_size=min_size,
         max_size=max_size,

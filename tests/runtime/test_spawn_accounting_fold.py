@@ -3,14 +3,14 @@ from __future__ import annotations
 import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent.coordination.accounting import SpawnAccumulator, fold_spawn_accounting
+from prodagent.coordination.spawn import ChildResult
 from prodagent.core.budget import HardBudget
 from prodagent.core.state.run import AgentRun
 from prodagent.core.types import LLMResponse, ToolCall
 from prodagent.hooks.registry import HookRegistry
-from prodagent.llm.base import LLMConfig
+from prodagent.llm import LLMConfig
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.coordination.accounting import SpawnAccumulator, fold_spawn_accounting
-from prodagent.runtime.coordination.spawn import ChildResult
 
 
 def _reactive_agent(name: str, *, context: str = "") -> Agent:
@@ -153,7 +153,9 @@ async def test_spawned_child_run_has_parent_run_id(tmp_path, monkeypatch):
         lambda self, response: 0.0,
     )
 
-    fw = FrameworkConfig.default()
+    from prodagent.core.config import production
+
+    fw = production(FrameworkConfig.default())
     fw.orchestration.runs_dir = str(tmp_path / "runs")
 
     child = Agent("childA", system_prompt="does A", mode=ExecutionMode.REACTIVE)

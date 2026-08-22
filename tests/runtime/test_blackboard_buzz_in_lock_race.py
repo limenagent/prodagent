@@ -12,7 +12,7 @@ import asyncio
 
 import pytest
 
-from prodagent.runtime.coordination.blackboard import (
+from prodagent.coordination.blackboard import (
     BlackboardCompletedEvent,
     BlackboardSpec,
     Board,

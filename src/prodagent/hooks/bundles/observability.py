@@ -12,9 +12,9 @@ from prodagent.hooks.events import HookEvent
 if TYPE_CHECKING:
     from prodagent.core.config import FrameworkConfig
     from prodagent.core.observability import AgentSpan
+    from prodagent.hooks.audit import AuditLogger
     from prodagent.hooks.registry import HookRegistry
     from prodagent.ports.span import SpanExporter
-    from prodagent.resilience.observability.audit import AuditLogger
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class SpanObserverHooks:
         framework_config: FrameworkConfig | None = None,
     ) -> None:
         if audit is None:
-            from prodagent.resilience.observability.audit import AuditLogger
+            from prodagent.hooks.audit import AuditLogger
 
             if exporter is None and framework_config is not None:
                 from prodagent.backends.factory import resolve_span_exporter

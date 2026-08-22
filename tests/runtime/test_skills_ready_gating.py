@@ -11,10 +11,10 @@ import asyncio
 
 from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.core.config import FrameworkConfig
-from prodagent.evaluation.skills.registry import SkillRegistry
 from prodagent.hooks.events import HookEvent
 from prodagent.hooks.registry import HookRegistry
 from prodagent.llm.fake import script
+from prodagent.skills.registry import SkillRegistry
 
 
 def _run_one_turn(agent: Agent) -> None:

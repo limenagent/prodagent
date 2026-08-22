@@ -9,8 +9,8 @@ import pytest
 
 from prodagent.backends.file.event_log import FileEventLog
 from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
-from prodagent.runtime.coordination.termination import MaxRounds, TerminationPolicy
-from prodagent.runtime.coordination.work_queue import (
+from prodagent.coordination.termination import MaxRounds, TerminationPolicy
+from prodagent.coordination.work_queue import (
     ItemCompletedEvent,
     QueueDrainedEvent,
     SharedQueue,

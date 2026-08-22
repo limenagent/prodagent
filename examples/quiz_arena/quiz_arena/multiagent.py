@@ -17,21 +17,13 @@ from __future__ import annotations
 from typing import Any
 
 from prodagent import BudgetLedger, MaxRounds, TerminationPolicy, Trigger
-from prodagent.core.budget import HardBudget
-from prodagent.playground.multiagent import (
-    MultiAgentAdapter,
-    MultiAgentEvent,
-    ParticipantStatus,
-    PhaseCompleted,
-    PhaseStarted,
-)
-from prodagent.runtime.coordination.blackboard import (
+from prodagent.coordination.blackboard import (
     BlackboardCompletedEvent,
     BlackboardSpec,
     BoardWriteEvent,
     blackboard_stream,
 )
-from prodagent.runtime.coordination.work_queue import (
+from prodagent.coordination.work_queue import (
     ItemClaimedEvent,
     ItemCompletedEvent,
     ItemDeadLetteredEvent,
@@ -39,6 +31,14 @@ from prodagent.runtime.coordination.work_queue import (
     QueueDrainedEvent,
     WorkQueueSpec,
     work_queue_stream,
+)
+from prodagent.core.budget import HardBudget
+from prodagent.playground.multiagent import (
+    MultiAgentAdapter,
+    MultiAgentEvent,
+    ParticipantStatus,
+    PhaseCompleted,
+    PhaseStarted,
 )
 
 from quiz_arena.contestants import ContestantMember, build_contestant_agent

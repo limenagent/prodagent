@@ -6,9 +6,10 @@
 主动讨饭吃的一方）；小美以回答为主，除了第 1 轮的糗事和第 4 轮的揭穿这两个
 剧情必须的长句，其余轮次都简短作答，不刻意反问。
 
-自主对话是编排层（``orchestrator.py``）单进程从头跑到尾的一个后台 task，两人的
-Agent/LLMClient 实例全程只创建一次，所以可以放心用 ``FakeLLMAdapter`` 的纯 FIFO
-队列，不需要按内容关键词路由。
+两人的台词队列用框架的 ``RoutingFakeLLM`` 表达：各自锚定自己 system prompt 的
+人称开头（"你是小美" / "你是大牛"）路由。这天然防偷吃——aux caller（summariser
+等）带的是自己的 system prompt，匹配不到人称锚点，落到空 default 队列走 echo
+兜底，绝不会从台词队列头消费一条。
 
 叙事节拍：大牛先开口打招呼（不计入正式轮次，round 0），之后固定 4 轮，男方主动推进：
   0. 大牛主动打招呼，问小美在干嘛、最近怎么样。
@@ -36,7 +37,7 @@ Agent/LLMClient 实例全程只创建一次，所以可以放心用 ``FakeLLMAda
 
 from __future__ import annotations
 
-from prodagent import FakeLLMAdapter
+from prodagent import RoutingFakeLLM
 from prodagent.core.types import LLMResponse, StopReason, ToolCall
 
 MEI_LINES = [
@@ -131,11 +132,9 @@ NIU_SYSTEM_PROMPT = """\
 """
 
 
-def build_mei_fake_llm() -> FakeLLMAdapter:
+def build_mei_fake_llm() -> RoutingFakeLLM:
     """小美的台词队列。第 4 轮要消耗两条：先吐 check_restaurant_reviews 工具调用，
-    工具结果回填后再吐揭穿台词。末尾重复一条揭穿台词：ContextManager 的 summary 走
-    同一个 fake LLM 会从队列头消费一条，重复保证压缩吃掉后揭穿台词仍能说出。
-    """
+    工具结果回填后再吐揭穿台词。"""
     lines = [LLMResponse(content=line, stop_reason=StopReason.END_TURN) for line in MEI_LINES[:3]]
     lines.append(
         LLMResponse(
@@ -145,11 +144,10 @@ def build_mei_fake_llm() -> FakeLLMAdapter:
         )
     )
     lines.append(LLMResponse(content=MEI_LINES[3], stop_reason=StopReason.END_TURN))
-    lines.append(LLMResponse(content=MEI_LINES[3], stop_reason=StopReason.END_TURN))
-    return FakeLLMAdapter(responses=lines)
+    return RoutingFakeLLM(routes={"你是小美": lines})
 
 
-def build_niu_fake_llm() -> FakeLLMAdapter:
+def build_niu_fake_llm() -> RoutingFakeLLM:
     """大牛的台词队列。查餐厅那轮要消耗两条：先吐工具调用，工具结果回填后再吐最终文本。"""
     responses = [LLMResponse(content=line, stop_reason=StopReason.END_TURN) for line in NIU_LINES]
     responses.append(
@@ -161,7 +159,7 @@ def build_niu_fake_llm() -> FakeLLMAdapter:
     )
     responses.append(LLMResponse(content=NIU_SEARCH_RESULT_REPLY, stop_reason=StopReason.END_TURN))
     responses.append(LLMResponse(content=NIU_OBLIVIOUS, stop_reason=StopReason.END_TURN))
-    return FakeLLMAdapter(responses=responses)
+    return RoutingFakeLLM(routes={"你是大牛": responses})
 
 
 __all__ = [

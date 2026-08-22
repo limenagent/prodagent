@@ -11,7 +11,7 @@ _ensure_uv:
 
 playground: _ensure_uv
 	@export PATH="$$HOME/.local/bin:$$PATH"; \
-	uv sync --extra playground; \
+	uv sync --extra playground --extra openai --extra anthropic; \
 	if [ ! -f .env ]; then \
 		echo "First run — configuring LLM vendor (writing .env)"; \
 		$(MAKE) config; \
@@ -19,7 +19,7 @@ playground: _ensure_uv
 	echo "Starting prodagent playground — http://127.0.0.1:8766"; \
 	uv run prodagent --port 8766
 
-# Prod backends: spin up Postgres / Neo4j / Qdrant / Redis via docker compose,
+# Prod backends: spin up Postgres / Neo4j / Redis via docker compose,
 # then start the playground with PRODAGENT_BACKEND=prod. Default (make playground)
 # stays on file + memory — zero dependency.
 playground-prod: services-up _ensure_uv
@@ -28,29 +28,26 @@ playground-prod: services-up _ensure_uv
 		echo "First run — configuring LLM vendor (writing .env)"; \
 		$(MAKE) config; \
 	fi; \
-	uv sync --extra postgres --extra redis --extra neo4j --extra qdrant --all-packages; \
+	uv sync --extra playground --extra openai --extra anthropic --extra postgres --extra redis --extra neo4j --all-packages; \
 	echo "Starting prodagent playground (prod backends) — http://127.0.0.1:8766"; \
 	echo "  checkpoint/event/memory/span -> Postgres"; \
 	echo "  entity/fact graph            -> Neo4j"; \
-	echo "  cache/lock/idem/approval/DLQ -> Redis"; \
-	echo "  (vector store optional, qdrant by default)"; \
+	echo "  cache/lock/idem/DLQ          -> Redis"; \
 	PRODAGENT_BACKEND=prod \
 	DATABASE_URL="postgres://postgres:prodagent@localhost:5433/prodagent" \
 	REDIS_URL="redis://localhost:6390/0" \
 	NEO4J_URI="bolt://localhost:7687" \
 	NEO4J_USER="neo4j" \
 	NEO4J_PASSWORD="password" \
-	QDRANT_URL="http://localhost:6333" \
-	QDRANT_COLLECTION="prodagent" \
 	uv run prodagent --port 8766
 
-# Start the four backing services. Idempotent — docker compose up -d skips
+# Start the three backing services. Idempotent — docker compose up -d skips
 # containers that are already running. Requires docker.
 services-up:
 	@command -v docker >/dev/null 2>&1 || { echo "docker not found — install Docker Desktop first"; exit 1; }
 	@docker compose up -d
 	@echo "Waiting for services to be ready..."
-	@for svc in postgres redis neo4j qdrant; do \
+	@for svc in postgres redis neo4j; do \
 		i=0; \
 		until docker inspect --format='{{.State.Health.Status}}' prodagent-$$svc 2>/dev/null | grep -q healthy; do \
 			i=$$((i+1)); \
@@ -116,9 +113,3 @@ clean:
 		docker exec prodagent-neo4j cypher-shell -u neo4j -p password \
 			"MATCH (n) DETACH DELETE n;"; \
 	else echo "skip neo4j (container not running)"; fi
-	@if curl -s http://localhost:6333/collections >/dev/null 2>&1; then \
-		echo "DROP qdrant collections"; \
-		for c in $$(curl -s http://localhost:6333/collections | python3 -c "import sys,json; print(' '.join(c['name'] for c in json.load(sys.stdin)['result']['collections']))" 2>/dev/null); do \
-			curl -s -X DELETE http://localhost:6333/collections/$$c >/dev/null; \
-		done; \
-	else echo "skip qdrant (not reachable)"; fi

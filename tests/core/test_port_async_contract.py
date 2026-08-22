@@ -1,7 +1,7 @@
 """Architectural invariant: every store port is async.
 
-The 15 Protocol ports are the framework's contract surface. A sync method on
-a network-backed implementation (Redis, Neo4j, Qdrant, Postgres) would block
+The Protocol ports are the framework's contract surface. A sync method on
+a network-backed implementation (Redis, Neo4j, Postgres) would block
 the event loop from inside the agent's async runtime — this suite pins the
 convention so a new port (or a edit to an old one) cannot quietly regress it.
 """
@@ -24,7 +24,6 @@ from prodagent.ports import (
     SessionStore,
     SpanExporter,
     Tool,
-    VectorStore,
 )
 
 STORE_PORTS = [
@@ -41,7 +40,6 @@ STORE_PORTS = [
     SessionStore,
     SpanExporter,
     Tool,
-    VectorStore,
 ]
 
 
@@ -65,9 +63,9 @@ def test_every_store_port_method_is_async() -> None:
 
 
 def test_port_count_is_stable() -> None:
-    """Adding a 16th port (blueprint G0 will add Transport) is a deliberate act —
+    """Adding a 14th port (blueprint G0 will add Transport) is a deliberate act —
     update this count and the suite above in the same commit."""
-    assert len(STORE_PORTS) == 14, (
+    assert len(STORE_PORTS) == 13, (
         "store-port roster changed; update test_every_store_port_method_is_async "
         "and this count together"
     )

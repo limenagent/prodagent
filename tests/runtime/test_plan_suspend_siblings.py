@@ -10,7 +10,7 @@ from prodagent.backends.file.event_log import FileEventLog
 from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.core.types import LLMResponse, ToolOutcome, ToolResult
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.plan.executor import PlanExecutor
+from prodagent.plan.executor import PlanExecutor
 
 _TERMINAL = (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)
 
@@ -152,7 +152,7 @@ async def test_resume_after_approval_reexecutes_suspended_step(tmp_path):
 
     from prodagent import Agent, AgentConfig, ExecutionMode, SideEffectLevel, ToolMeta
     from prodagent.core.types import LLMResponse
-    from prodagent.guardrail.approval import ApprovalGate
+    from prodagent.hooks.approval import ApprovalGate
     from prodagent.hooks.bundles.security import ApprovalHooks
     from prodagent.hooks.registry import HookRegistry
     from prodagent.llm.fake import FakeLLMAdapter

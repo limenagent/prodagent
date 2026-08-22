@@ -6,12 +6,11 @@ import dataclasses
 import inspect
 import logging
 import uuid
-from dataclasses import replace as _dc_replace
 from typing import TYPE_CHECKING, Any, cast
 
-from prodagent.bootstrap import resolve_checkpoint, resolve_session_store
-from prodagent.cognition.context.manager import ContextManager
-from prodagent.cognition.memory import MemoryProvider
+from prodagent.coordination.accounting import SpawnAccumulator
+from prodagent.coordination.parent_runtime import ParentRuntime
+from prodagent.coordination.run_loop import collect_final_run, drive_stream
 from prodagent.core.config import FrameworkConfig
 from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.core.exceptions import (
@@ -22,29 +21,26 @@ from prodagent.core.exceptions import (
 from prodagent.core.state.run import CHILD_SEPARATOR
 from prodagent.core.state.session import ConversationSession
 from prodagent.core.types import ExecutionMode, MessageList, RunState
-from prodagent.guardrail.approval import ApprovalDecision, ApprovalProvider
 from prodagent.hooks.events import HookEvent
 from prodagent.hooks.gates import Gate, InjectionPoint
 from prodagent.hooks.registry import HookRegistry
 from prodagent.runtime._tool_merge import merge_tools_by_name
 from prodagent.runtime.config import AgentConfig
-from prodagent.runtime.coordination.accounting import SpawnAccumulator
-from prodagent.runtime.coordination.parent_runtime import ParentRuntime
-from prodagent.runtime.runner import collect_final_run, drive_stream
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Sequence
 
+    from prodagent.cognition.context.manager import ContextManager
+    from prodagent.cognition.memory import MemoryProvider
+    from prodagent.coordination.run_loop import RunContext
     from prodagent.core.budget import HardBudget
     from prodagent.core.events import AgentEvent
     from prodagent.core.state.run import AgentRun
-    from prodagent.evaluation.skills.registry import SkillRegistry
+    from prodagent.hooks.approval import ApprovalProvider
     from prodagent.mcp.config import MCPServerConfig
+    from prodagent.plan.workflow import Workflow
     from prodagent.ports import CheckpointStore, EventLog, SessionStore, Tool
-    from prodagent.runtime.plan.dag import Plan
-    from prodagent.runtime.run_context import RunContext
-    from prodagent.runtime.workflow import Workflow
-    from prodagent.tooling.registry import ToolRegistry
+    from prodagent.skills.registry import SkillRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -141,13 +137,13 @@ class Agent:
 
         # Resolve workflow eagerly
         if workflow is not None:
-            from prodagent.runtime.workflow import Workflow as _Workflow
+            from prodagent.plan.workflow import Workflow as _Workflow
 
             if not isinstance(workflow, _Workflow):
                 raise TypeError(f"workflow= expects a Workflow, got {type(workflow).__name__}")
             resolved_llm = self.config.llm
             if resolved_llm is None:
-                from prodagent.bootstrap import resolve_llm
+                from prodagent.backends.factory import resolve_llm
 
                 resolved_llm = resolve_llm(self.framework_config)
             workflow.bind(resolved_llm, self.config.hooks)
@@ -209,8 +205,7 @@ class Agent:
         if message is None and not resume:
             raise ValueError(
                 "chat() requires a message (or resume=True with an explicit session_id). "
-                "For an interactive prompt loop, use prodagent.repl.repl_loop(agent) or the "
-                "`prodagent` CLI instead."
+                "For the visual playground, run the `prodagent` CLI instead."
             )
         stream = self.chat_stream(message or "", session_id=session_id, resume=resume, mode=mode)
         return await collect_final_run(
@@ -226,6 +221,8 @@ class Agent:
         *,
         approver_id: str = "",
     ) -> None:
+        from prodagent.hooks.approval import ApprovalDecision
+
         gate = self._find_approval_gate()
         if gate is None:
             raise UnknownApprovalError(
@@ -235,6 +232,8 @@ class Agent:
         await gate.submit_decision(request_id, ApprovalDecision(decision), approver_id=approver_id)
 
     def _find_approval_gate(self) -> ApprovalProvider | None:
+        from prodagent.hooks.approval import ApprovalProvider
+
         for ext in self.config.extensions:
             if hasattr(ext, "approval_gate"):
                 return cast("ApprovalProvider", ext.approval_gate)
@@ -293,13 +292,21 @@ class Agent:
         return session, alloc.run_id, alloc.mode, alloc.messages
 
     def _ensure_checkpoint_resolved(self) -> CheckpointStore | None:
-        if self.config.checkpoint is None:
+        if self.config.checkpoint is None and self.framework_config.profile == "production":
+            from prodagent.backends.factory import resolve_checkpoint
+
             self.config.checkpoint = resolve_checkpoint(self.framework_config)
         return self.config.checkpoint
 
     def _ensure_session_store_resolved(self) -> SessionStore:
         if self._session_store is None:
-            self._session_store = resolve_session_store(self.framework_config)
+            from prodagent.backends.factory import in_memory_session_store, resolve_session_store
+
+            if self.framework_config.profile == "production":
+                self._session_store = resolve_session_store(self.framework_config)
+            else:
+                # Bare kernel: in-process sessions — nothing touches disk.
+                self._session_store = in_memory_session_store()
         return self._session_store
 
     # -- Prompt & context -------------------------------------------------
@@ -325,19 +332,21 @@ class Agent:
         fw: Any,
         ctx: RunContext,
     ) -> ContextManager:
+        from prodagent.cognition.context.manager import ContextManager
+
         constraints_reminder = (
             "\n".join(f"- {c}" for c in self.config.constraints) if self.config.constraints else ""
         )
+        from prodagent.backends.factory import resolve_aux_llm
+
         ctx_cfg = fw.context
-        summary_model = ctx_cfg.summary_model or fw.summary_model
-        if summary_model != ctx_cfg.summary_model:
-            ctx_cfg = _dc_replace(ctx_cfg, summary_model=summary_model)
         return ContextManager(
             config=ctx_cfg,
             system_prompt=system,
             constraint_reminder=constraints_reminder,
             llm=ctx.llm,
             spill_store=ctx.spill_store or self.config.spill_store,
+            aux_llm=resolve_aux_llm(fw),
         )
 
     # -- Tools ------------------------------------------------------------
@@ -361,7 +370,7 @@ class Agent:
         registry = HookRegistry()
         from prodagent.hooks.bundles.base import default_hook_bundles
 
-        for bundle in default_hook_bundles():
+        for bundle in default_hook_bundles(self.framework_config):
             try:
                 bundle.attach(self, self.framework_config, registry)
             except Exception as exc:  # noqa: BLE001
@@ -481,20 +490,8 @@ class Agent:
         return self.config.name
 
     @property
-    def system_prompt(self) -> str:
-        return self.config.system_prompt
-
-    @property
     def mode(self) -> ExecutionMode:
         return self.config.mode
-
-    @property
-    def initial_plan(self) -> Plan | None:
-        return self.config.initial_plan
-
-    @property
-    def max_replans(self) -> int:
-        return self.config.max_replans
 
     @property
     def skills(self) -> SkillRegistry | None:
@@ -512,6 +509,7 @@ class Agent:
     def memory_manager(self) -> MemoryProvider | None:
         # lazy: keeps the memory bundle (and the kernel import chain) out of
         # module-level imports — see tests/core/test_import_weight.py
+        from prodagent.cognition.memory import MemoryProvider
         from prodagent.hooks.bundles.memory import MemoryHooks
 
         for ext in self.config.extensions:
@@ -550,22 +548,6 @@ class Agent:
     @property
     def constraints(self) -> list[str]:
         return list(self.config.constraints)
-
-    @property
-    def tool_registry(self) -> ToolRegistry | None:
-        return self.config.tool_registry
-
-    @property
-    def description(self) -> str:
-        return self.config.description
-
-    @property
-    def injectors(self) -> list[tuple[InjectionPoint, Callable[..., Any]]]:
-        return list(self.config.injectors)
-
-    @property
-    def checkers(self) -> list[tuple[Gate, Callable[..., Any]]]:
-        return list(self.config.checkers)
 
     @property
     def event_handlers(self) -> list[tuple[HookEvent, Callable[..., Any]]]:

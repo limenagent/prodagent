@@ -24,6 +24,9 @@ class HardBudget:
     max_cost_usd: float = 1.0
 
 
+SAFETY_NET_BUDGET = HardBudget()
+
+
 def check_budget(
     run: AgentRun,
     budget: HardBudget,

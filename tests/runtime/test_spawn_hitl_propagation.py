@@ -15,11 +15,11 @@ import pytest
 from prodagent import Agent, AgentConfig, ExecutionMode, RunState, SideEffectLevel, ToolMeta
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.core.config import FrameworkConfig
-from prodagent.guardrail.approval import ApprovalDecision, ApprovalGate
+from prodagent.hooks.approval import ApprovalDecision, ApprovalGate
 from prodagent.hooks.bundles.security import ApprovalHooks
 from prodagent.hooks.registry import HookRegistry
 from prodagent.llm.fake import script
-from prodagent.runtime.workflow import Workflow
+from prodagent.plan.workflow import Workflow
 from prodagent.tooling import tool
 
 

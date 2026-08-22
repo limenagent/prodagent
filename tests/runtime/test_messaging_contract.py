@@ -4,7 +4,7 @@ HandoffInterceptor."""
 
 from __future__ import annotations
 
-from prodagent.runtime.coordination.messaging.contract import (
+from prodagent.coordination.messaging.contract import (
     DEFAULT_CHILD_CONTRACT,
     MessageContract,
 )

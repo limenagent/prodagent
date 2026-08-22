@@ -6,12 +6,12 @@ import logging
 from typing import TYPE_CHECKING
 
 from prodagent.cognition.memory.storage import EPISODIC_DEFAULT_TTL_DAYS, MemoryRecord, MemoryType
-from prodagent.llm.base import LLMConfig, stream_text
+from prodagent.llm import LLMConfig, stream_text
 from prodagent.llm.structured_output import extract_json_object
 
 if TYPE_CHECKING:
     from prodagent.core.state.run import AgentRun
-    from prodagent.llm.base import LLMClient
+    from prodagent.llm import LLMClient
 
 logger = logging.getLogger(__name__)
 

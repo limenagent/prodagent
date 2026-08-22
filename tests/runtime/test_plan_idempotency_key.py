@@ -15,8 +15,8 @@ import pytest
 
 from prodagent import SideEffectLevel, ToolMeta
 from prodagent.core.state.run import AgentRun
-from prodagent.runtime.plan.dag import Plan, PlanStep
-from prodagent.runtime.plan.step_runner import StepRunner
+from prodagent.plan.dag import Plan, PlanStep
+from prodagent.plan.step_runner import StepRunner
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 

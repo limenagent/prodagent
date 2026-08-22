@@ -1,25 +1,20 @@
-"""Built-in interceptors — gate wiring, deterministic handoff_data shapes,
+"""Built-in interceptors — deterministic handoff_data shapes, gate wiring,
 trim bounds, projection routing, audit emission."""
 
 from __future__ import annotations
 
 import pytest
 
-from prodagent.core.exceptions import SecurityViolation
-from prodagent.guardrail.injection.trust_chain import validate_handoff_security
-from prodagent.hooks.events import HookEvent
-from prodagent.hooks.gates import BlockingResult, Gate
-from prodagent.hooks.registry import HookRegistry
-from prodagent.runtime.coordination.floor import FloorTurn
-from prodagent.runtime.coordination.floor_projection import PublicTextOnly
-from prodagent.runtime.coordination.messaging.envelope import (
+from prodagent.coordination.floor import FloorTurn
+from prodagent.coordination.floor_projection import PublicTextOnly
+from prodagent.coordination.messaging.envelope import (
     Crossing,
     CrossingKind,
     CrossingRejected,
     Direction,
 )
-from prodagent.runtime.coordination.messaging.idempotency import IdempotentMessageHandler
-from prodagent.runtime.coordination.messaging.interceptors import (
+from prodagent.coordination.messaging.idempotency import IdempotentMessageHandler
+from prodagent.coordination.messaging.interceptors import (
     AuditInterceptor,
     DedupeInterceptor,
     GateInterceptor,
@@ -27,9 +22,11 @@ from prodagent.runtime.coordination.messaging.interceptors import (
     TrimInterceptor,
     handoff_data_for,
 )
-from prodagent.runtime.coordination.messaging.packet import HandoffPacket
-
-_ALL_ACTIONS = frozenset({"complete", "delegate", "speak", "write", "retry"})
+from prodagent.coordination.messaging.packet import HandoffPacket
+from prodagent.core.exceptions import SecurityViolation
+from prodagent.hooks.events import HookEvent
+from prodagent.hooks.gates import BlockingResult, Gate
+from prodagent.hooks.registry import HookRegistry
 
 
 def _crossing(kind, payload, **overrides):
@@ -48,7 +45,7 @@ def _crossing(kind, payload, **overrides):
 # -------------------------------------------------- deterministic gate shapes
 
 
-def test_handoff_data_shapes_satisfy_security_validator():
+def _handoff_shapes():
     shapes = [
         _crossing(
             CrossingKind.RESULT,
@@ -75,29 +72,26 @@ def test_handoff_data_shapes_satisfy_security_validator():
         ),
         _crossing(CrossingKind.ENQUEUE, _WorkItem(item_id="i-1", payload={"q": 1})),
     ]
-    for crossing in shapes:
-        data = handoff_data_for(crossing)
-        validate_handoff_security(data, allowed_actions=_ALL_ACTIONS)  # must not raise
+    return shapes
+
+
+def test_handoff_data_covers_every_crossing_kind():
+    kinds = {c.kind for c in _handoff_shapes()}
+    assert kinds == {
+        CrossingKind.RESULT,
+        CrossingKind.DISPATCH,
+        CrossingKind.HANDOFF,
+        CrossingKind.SPEECH,
+        CrossingKind.WRITE,
+        CrossingKind.TASK_RESULT,
+        CrossingKind.ENQUEUE,
+    }
 
 
 def test_handoff_data_bounded_by_max_chars():
     crossing = _crossing(CrossingKind.SPEECH, FloorTurn(speaker="a", round=0, text="x" * 500))
     data = handoff_data_for(crossing, max_chars=100)
     assert len(data["result_data"]["text"]) == 100
-
-
-def test_handoff_data_respects_app_action_vocabulary():
-    # An app whose vocabulary excludes "delegate" sees a dispatch crossing as
-    # a policy violation — the shapes use canonical actions, apps choose them.
-    crossing = _crossing(
-        CrossingKind.DISPATCH,
-        HandoffPacket(task_description="t"),
-        direction=Direction.DOWNSTREAM,
-    )
-    with pytest.raises(SecurityViolation):
-        validate_handoff_security(
-            handoff_data_for(crossing), allowed_actions=frozenset({"complete"})
-        )
 
 
 class _BoardWrite:

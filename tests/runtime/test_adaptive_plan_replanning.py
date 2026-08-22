@@ -1,6 +1,6 @@
 import pytest
 
-from prodagent.runtime.plan.dag import Plan, PlanStep, StepStatus
+from prodagent.plan.dag import Plan, PlanStep, StepStatus
 
 
 def _step(sid: str, depends_on: list[str] | None = None, **kw) -> PlanStep:

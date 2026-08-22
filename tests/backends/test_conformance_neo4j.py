@@ -21,7 +21,7 @@ import uuid
 
 import pytest
 
-from prodagent.backends.conformance import (
+from tests.backends.conformance import (
     run_graph_absent_node_neighbors_conformance,
     run_graph_delete_node_conformance,
     run_graph_edge_idempotent_conformance,

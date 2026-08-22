@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from prodagent.llm import LLMConfig
 from prodagent.llm.anthropic_adapter import AnthropicAdapter
-from prodagent.llm.base import LLMConfig
 
 
 @pytest.fixture

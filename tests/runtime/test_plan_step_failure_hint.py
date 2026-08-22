@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING
 import pytest
 
 from prodagent.core.state.run import AgentRun
-from prodagent.runtime.plan.dag import Plan, PlanStep
-from prodagent.runtime.plan.step_runner import StepFailed, StepRunner
+from prodagent.plan.dag import Plan, PlanStep
+from prodagent.plan.step_runner import StepFailed, StepRunner
 
 if TYPE_CHECKING:
     from prodagent.core.types import ToolCall

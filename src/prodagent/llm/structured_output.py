@@ -8,7 +8,7 @@ from pydantic import BaseModel, ValidationError
 
 if TYPE_CHECKING:
     from prodagent.core.types import LLMResponse, MessageList
-    from prodagent.llm.base import LLMClient, LLMConfig
+    from prodagent.llm import LLMClient, LLMConfig
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +122,7 @@ async def complete_structured(
 
     Each retry appends the validation error so the model can self-correct.
     """
-    from prodagent.llm.base import stream_text
+    from prodagent.llm import stream_text
 
     conversation: MessageList = list(messages)
     last_error: StructuredOutputError | None = None

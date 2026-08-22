@@ -1,4 +1,4 @@
-"""Trip Planner FakeLLM —— RoutingFakeLLM 按 system prompt 分发到 per-agent 队列。
+"""Trip Planner FakeLLM 脚本 —— 路由机制用框架的 ``RoutingFakeLLM``。
 
 父 agent + 3 个 peer 共享 LLM,但每个需要不同的响应。RoutingFakeLLM 嗅探
 system prompt 里的 ``# {name} Agent``,分发到该 agent 的 per-call 队列。
@@ -17,81 +17,8 @@ peer agent 的 REACTIVE 循环。
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any
-
-from prodagent import LLMClient, LLMConfig
-from prodagent.core.types import LLMResponse, MessageList, ToolCall
-
-
-class _AgentQueue:
-    """Per-agent 的 LLMResponse FIFO。"""
-
-    def __init__(self, responses: list[LLMResponse] | None = None) -> None:
-        self._responses = list(responses or [])
-
-    async def complete(
-        self, messages: MessageList, *, on_chunk: Any = None,
-    ) -> LLMResponse:
-        if self._responses:
-            resp = self._responses.pop(0)
-        else:
-            last_user = next(
-                (m["content"] for m in reversed(messages) if m.get("role") == "user"),
-                "(no user message)",
-            )
-            resp = LLMResponse(
-                content=f"[fallback] {last_user}", stop_reason="end_turn",
-                input_tokens=50, output_tokens=10,
-            )
-        if resp.content and on_chunk is not None:
-            for word in resp.content.split():
-                await on_chunk(word + " ")
-                await asyncio.sleep(0)
-        return resp
-
-
-class RoutingFakeLLM(LLMClient):
-    """按 system prompt 把 complete() 分发到 per-agent 队列。"""
-
-    def __init__(self) -> None:
-        self._queues: dict[str, _AgentQueue] = {}
-        self._default = _AgentQueue()
-        self._call_count = 0
-
-    @property
-    def call_count(self) -> int:
-        return self._call_count
-
-    def add(self, agent_name: str, responses: list[LLMResponse]) -> _AgentQueue:
-        q = _AgentQueue(responses)
-        self._queues[agent_name] = q
-        return q
-
-    def set_default(self, responses: list[LLMResponse]) -> _AgentQueue:
-        self._default = _AgentQueue(responses)
-        return self._default
-
-    def _resolve(self, system: str) -> _AgentQueue:
-        # system prompt 形如: "# itinerary Agent\n\n## Context\n..."
-        for name, q in self._queues.items():
-            if f"# {name} Agent" in system:
-                return q
-        return self._default
-
-    async def complete(
-        self,
-        messages: MessageList,
-        *,
-        system: str | list[dict[str, Any]] = "",
-        tools: list[dict[str, Any]] | None = None,
-        config: LLMConfig | None = None,
-        on_chunk: Any = None,
-    ) -> LLMResponse:
-        self._call_count += 1
-        sys_str = system if isinstance(system, str) else str(system)
-        q = self._resolve(sys_str)
-        return await q.complete(messages, on_chunk=on_chunk)
+from prodagent import RoutingFakeLLM
+from prodagent.core.types import LLMResponse, ToolCall
 
 
 # ── 各 peer 的 JSON 总结 ────────────────────────────────────────────────────

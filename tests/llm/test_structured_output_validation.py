@@ -4,7 +4,7 @@ import pytest
 from pydantic import BaseModel
 
 from prodagent.core.types import LLMResponse
-from prodagent.llm.base import LLMConfig
+from prodagent.llm import LLMConfig
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.llm.structured_output import (
     StructuredOutputError,

@@ -6,9 +6,9 @@ from prodagent import SideEffectLevel, ToolMeta
 from prodagent.core.error_reason import ErrorReason
 from prodagent.core.state import AgentRun
 from prodagent.core.types import ErrorSeverity, ToolCall, ToolError, ToolOutcome
-from prodagent.resilience.reliability.retry import Backoff, RetryPolicy
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher, _default_tool_retry_policy
+from prodagent.tooling.retry import Backoff, RetryPolicy
 
 
 def _yellow_result(message: str = "transient") -> ToolError:
@@ -29,17 +29,18 @@ def _red_result(message: str = "permanent") -> ToolError:
     )
 
 
-def test_default_tool_retry_policy_is_3_retries_fixed():
+def test_default_tool_retry_policy_is_one_attempt():
+    """Retries are opt-in: silently re-running a side-effecting tool is a
+    surprise, not resilience. Callers pass retry_policy= explicitly."""
     p = _default_tool_retry_policy()
-    assert p.max_attempts == 4
+    assert p.max_attempts == 1
     assert p.backoff is Backoff.FIXED
-    assert p.delay(1) == 1.0
-    assert p.delay(2) == 1.0
-    assert p.delay(3) == 1.0
 
 
 @pytest.mark.asyncio
-async def test_dispatch_with_retry_uses_default_policy(monkeypatch):
+async def test_dispatch_with_retry_default_does_not_retry(monkeypatch):
+    """Default policy: one attempt, no sleeps — a YELLOW error surfaces
+    immediately instead of being silently retried."""
     sleeps: list[float] = []
 
     async def _fake_sleep(d: float) -> None:
@@ -64,9 +65,9 @@ async def test_dispatch_with_retry_uses_default_policy(monkeypatch):
 
     result = await dispatcher.dispatch_with_retry(call, run)
 
-    assert attempts == 4, f"should try initial + 3 retries, got {attempts}"
-    assert sleeps == [1.0, 1.0, 1.0], f"expected 3 fixed-1s sleeps, got {sleeps}"
-    assert run.retry_count("flaky") == 3
+    assert attempts == 1
+    assert sleeps == []
+    assert run.retry_count("flaky") == 0
     assert result.error is not None
     assert result.error.error_severity is ErrorSeverity.YELLOW
 

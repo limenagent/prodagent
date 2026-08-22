@@ -27,8 +27,8 @@ class ContextConfig:
 
     topic_recent_msgs: int = 4
     history_recent_msgs: int = 6
-
-    spill_tool_results: bool = True
+    compression: bool = False
+    spill_tool_results: bool = False
     spill_preview_chars: int = 800
 
     inline_compress_min_chars: int = 1_500
@@ -85,8 +85,6 @@ class BackendConfig:
       dead_letter) → ``memory`` (single host) or ``redis`` (multi-replica).
     - Graph (nodes + edges, traversal) → ``neo4j``. Graphs belong in a graph
       database, period.
-    - Vector (embedding ANN) → ``memory`` (local dev) or ``qdrant``
-      (production). Vectors belong in a vector database.
 
     ``*_namespace`` isolate multiple agents (or test runs) sharing one
     instance — every key/row is prefixed.
@@ -103,12 +101,11 @@ class BackendConfig:
     # Ephemeral / in-flight — low-latency coordination state.
     cache: Literal["memory", "redis"] = "memory"
     lock: Literal["memory", "redis"] = "memory"
-    approval: Literal["memory", "redis"] = "memory"
+    approval: Literal["memory"] = "memory"
     dead_letter: Literal["memory", "redis"] = "memory"
 
     # Typed stores — each data type has its own dedicated engine.
     graph: Literal["file", "neo4j"] = "file"
-    vector: Literal["memory", "qdrant"] = "memory"
 
     # Connection + isolation.
     redis_namespace: str = "default"
@@ -116,21 +113,40 @@ class BackendConfig:
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"
     neo4j_password: str = "password"
-    qdrant_url: str = "http://localhost:6333"
-    qdrant_collection: str = "prodagent"
-    vector_dim: int = 1536
+
+
+def production(framework_config: FrameworkConfig | None = None) -> FrameworkConfig:
+    """One-switch production stack (the counterpart of the bare default).
+
+    Durability (checkpoint/session/event log on file backends), span export,
+    the HITL approval gate for HIGH side-effect tools, the LLM response
+    cache, and context compression + tool-result spill — everything the bare
+    kernel leaves out, restored in one call.
+    """
+    fw = framework_config or FrameworkConfig.from_env()
+    fw.profile = "production"
+    fw.context.compression = True
+    fw.context.spill_tool_results = True
+    return fw
 
 
 @dataclass
 class FrameworkConfig:
-    """One object to configure all framework-level behaviour."""
+    """One object to configure all framework-level behaviour.
+
+    ``profile`` keys every default-resolution site: ``"bare"`` (the default)
+    gives the naked kernel — ephemeral in-memory session, no checkpoint /
+    event log, no span export, no approval bundle, no LLM cache wrapper, no
+    context compression. ``"production"`` restores the full stack; call
+    :func:`prodagent.core.config.production` instead of setting it by hand.
+    """
 
     context: ContextConfig = field(default_factory=ContextConfig)
     loop: LoopConfig = field(default_factory=LoopConfig)
     orchestration: OrchestrationConfig = field(default_factory=OrchestrationConfig)
     backend: BackendConfig = field(default_factory=BackendConfig)
-    summary_model: str = ""
     console_observer: bool = False
+    profile: Literal["bare", "production"] = "bare"
 
     @classmethod
     def default(cls) -> FrameworkConfig:
@@ -141,7 +157,7 @@ class FrameworkConfig:
         """Build a config from env vars.
 
         ``PRODAGENT_BACKEND=prod`` flips every backend to its production
-        engine (Postgres / Redis / Neo4j / Qdrant); otherwise file + memory
+        engine (Postgres / Redis / Neo4j); otherwise file + memory
         (the zero-dependency default). Per-backend overrides via
         ``PRODAGENT_BACKEND_<KIND>`` when you want a mix.
         """
@@ -196,7 +212,6 @@ _BACKEND_KIND_FIELDS: tuple[str, ...] = (
     "approval",
     "dead_letter",
     "graph",
-    "vector",
 )
 
 _PROD_BACKEND_DEFAULTS: dict[str, str] = {
@@ -206,10 +221,8 @@ _PROD_BACKEND_DEFAULTS: dict[str, str] = {
     "span": "postgres",
     "cache": "redis",
     "lock": "redis",
-    "approval": "redis",
     "dead_letter": "redis",
     "graph": "neo4j",
-    "vector": "qdrant",
 }
 
 
@@ -225,5 +238,3 @@ def _apply_conn_env(backend: BackendConfig) -> None:
     backend.neo4j_uri = os.getenv("NEO4J_URI", backend.neo4j_uri)
     backend.neo4j_user = os.getenv("NEO4J_USER", backend.neo4j_user)
     backend.neo4j_password = os.getenv("NEO4J_PASSWORD", backend.neo4j_password)
-    backend.qdrant_url = os.getenv("QDRANT_URL", backend.qdrant_url)
-    backend.qdrant_collection = os.getenv("QDRANT_COLLECTION", backend.qdrant_collection)

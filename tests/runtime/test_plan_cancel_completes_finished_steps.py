@@ -10,7 +10,7 @@ from prodagent.backends.file.event_log import FileEventLog
 from prodagent.core.event_log import PlanEventType
 from prodagent.core.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.plan.executor import PlanExecutor
+from prodagent.plan.executor import PlanExecutor
 
 
 def _plan_llm(*plans: dict) -> FakeLLMAdapter:

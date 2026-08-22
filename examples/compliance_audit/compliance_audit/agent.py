@@ -18,9 +18,15 @@
 
 from __future__ import annotations
 
-import os
-
-from prodagent import Agent, AgentConfig, ExecutionMode, FrameworkConfig, HardBudget, LLMClient
+from prodagent import (
+    Agent,
+    AgentConfig,
+    ExecutionMode,
+    FrameworkConfig,
+    HardBudget,
+    LLMClient,
+    use_fake_llm,
+)
 
 from compliance_audit.fake_llm import build_fake_llm
 from compliance_audit.tools import (
@@ -72,6 +78,9 @@ def build_audit_workflow_agent(
     submit，改调只读的 ``draft_sar_for_review`` 草拟 SAR 转人工复核（复用已完成
     的分析步骤）。
     """
+    from prodagent.core.config import production
+
+    fw = framework_config or production()
     return Agent(
         "audit_workflow",
         system_prompt=_WORKFLOW_SYSTEM,
@@ -87,7 +96,7 @@ def build_audit_workflow_agent(
         config=AgentConfig(
             name="audit_workflow",
             llm=llm,
-            framework=framework_config,
+            framework=fw,
             max_replans=2,
         ),
     )
@@ -121,7 +130,7 @@ def build_compliance_audit_agent(
     → 子 agent 动态出 Plan → 执行 → submit_to_regulator 弹审批 → 人类决定
     → SAR 结果返回。主 agent 永远可交互。
     """
-    use_fake = os.getenv("USE_FAKE_LLM", "").lower() in ("1", "true", "yes")
+    use_fake = use_fake_llm()
     resolved_llm = llm or (build_fake_llm() if use_fake else None)
     if resolved_llm is None:
         from prodagent.backends.factory import resolve_llm
@@ -135,6 +144,8 @@ def build_compliance_audit_agent(
         framework_config=framework_config,
     )
 
+    from prodagent.core.config import production
+
     return Agent(
         "compliance_audit",
         system_prompt=_MAIN_SYSTEM,
@@ -144,7 +155,7 @@ def build_compliance_audit_agent(
         config=AgentConfig(
             name="compliance_audit",
             llm=resolved_llm,
-            framework=framework_config,
+            framework=framework_config or production(),
             agents=[audit_workflow],
         ),
     )

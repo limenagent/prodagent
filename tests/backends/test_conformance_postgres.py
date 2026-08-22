@@ -22,7 +22,11 @@ import uuid
 
 import pytest
 
-from prodagent.backends.conformance import (
+from prodagent.backends.postgres.checkpoint import PostgresCheckpointStore
+from prodagent.backends.postgres.document import PostgresDocumentStore
+from prodagent.backends.postgres.event_log import PostgresEventLog
+from prodagent.backends.postgres.span import PostgresSpanExporter
+from tests.backends.conformance import (
     run_checkpoint_conformance,
     run_checkpoint_fork_conformance,
     run_checkpoint_fork_refuses_existing_conformance,
@@ -38,10 +42,6 @@ from prodagent.backends.conformance import (
     run_span_export_after_shutdown_conformance,
     run_span_shutdown_idempotent_conformance,
 )
-from prodagent.backends.postgres.checkpoint import PostgresCheckpointStore
-from prodagent.backends.postgres.document import PostgresDocumentStore
-from prodagent.backends.postgres.event_log import PostgresEventLog
-from prodagent.backends.postgres.span import PostgresSpanExporter
 
 
 def _dsn() -> str:

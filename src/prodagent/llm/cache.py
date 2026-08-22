@@ -12,7 +12,7 @@ from prodagent.core.types import LLMResponse, stable_serialize
 
 if TYPE_CHECKING:
     from prodagent.core.types import MessageList
-    from prodagent.llm.base import ChunkCallback, LLMConfig
+    from prodagent.llm import ChunkCallback, LLMConfig
     from prodagent.ports.llm import LLMClient
 
 logger = logging.getLogger(__name__)

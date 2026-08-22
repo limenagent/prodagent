@@ -90,7 +90,6 @@ class StopReason(StrEnum):
     END_TURN = "end_turn"
     TOOL_USE = "tool_use"
     MAX_TOKENS = "max_tokens"
-    STOP_SEQUENCE = "stop_sequence"
     CONTENT_FILTER = "content_filter"
 
     @classmethod
@@ -171,14 +170,6 @@ class StepStatus(StrEnum):
     FAILED = "failed"
     OBSOLETE = "obsolete"
     SUSPENDED = "suspended"
-
-
-class RunPhase(StrEnum):
-    PREPARE = "prepare"
-    THINK = "think"
-    DECIDE = "decide"
-    EXECUTE = "execute"
-    DONE = "done"
 
 
 class Layer(StrEnum):

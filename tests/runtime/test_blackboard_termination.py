@@ -5,8 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent.core.budget import HardBudget
-from prodagent.runtime.coordination.blackboard import (
+from prodagent.coordination.blackboard import (
     BlackboardCompletedEvent,
     BlackboardSpec,
     Board,
@@ -15,8 +14,9 @@ from prodagent.runtime.coordination.blackboard import (
     Trigger,
     blackboard_stream,
 )
-from prodagent.runtime.coordination.budget_ledger import BudgetLedger
-from prodagent.runtime.coordination.termination import MaxRounds, TerminationPolicy
+from prodagent.coordination.budget_ledger import BudgetLedger
+from prodagent.coordination.termination import MaxRounds, TerminationPolicy
+from prodagent.core.budget import HardBudget
 
 
 class _CounterExpert:
@@ -106,11 +106,11 @@ async def test_budget_ledger_ceiling_stops_the_board():
 
 @pytest.mark.asyncio
 async def test_version_conflict_write_is_not_silently_swallowed():
-    from prodagent.runtime.coordination.blackboard import VersionConflict
+    from prodagent.coordination.blackboard import BoardVersionConflict
 
     board = Board()
     await board.write("k", "v1")
-    with pytest.raises(VersionConflict):
+    with pytest.raises(BoardVersionConflict):
         await board.write("k", "v2", expected_version=0)
     # Correct expected_version succeeds.
     new_version = await board.write("k", "v2", expected_version=1)

@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 
 from prodagent.core.exceptions import SuspendPendingApproval
-from prodagent.guardrail.approval import ApprovalDecision, ApprovalGate
+from prodagent.hooks.approval import ApprovalDecision, ApprovalGate
 from prodagent.hooks.bundles.security import ApprovalHooks
 from prodagent.hooks.events import HookEvent
 from prodagent.hooks.registry import HookRegistry

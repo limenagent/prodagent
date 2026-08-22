@@ -6,10 +6,10 @@ import pytest
 
 from prodagent.backends.file.span import FileSpanExporter
 from prodagent.core.types import LLMResponse
+from prodagent.hooks.audit import AuditLogger
 from prodagent.hooks.events import HookEvent
 from prodagent.hooks.registry import HookRegistry
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.resilience.observability.audit import AuditLogger
 from prodagent.runtime.reactive import ReactiveLoop
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher

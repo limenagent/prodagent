@@ -3,11 +3,11 @@ from __future__ import annotations
 import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent.coordination.parent_runtime import ParentRuntime
+from prodagent.coordination.peer import Peer, build_peer_tools_for_agent
 from prodagent.core.state.run import is_child_run_id
 from prodagent.core.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter, script
-from prodagent.runtime.coordination.parent_runtime import ParentRuntime
-from prodagent.runtime.coordination.peer import Peer, build_peer_tools_for_agent
 
 
 @pytest.fixture
@@ -88,7 +88,12 @@ async def test_peer_handoff_basic_plan_first(hook_registry):
     peer_b = _reactive_agent("B", context="you are B")
     peer_b.config.llm = script({"content": "B says: plan-first done!"})
 
-    agent_a = Agent("A", system_prompt="you are A", config=AgentConfig(name="A", peers=[peer_b]))
+    agent_a = Agent(
+        "A",
+        system_prompt="you are A",
+        mode=ExecutionMode.PLAN_FIRST,
+        config=AgentConfig(name="A", peers=[peer_b]),
+    )
     plan_json = (
         '{"steps": [{"id": "delegate", "action": "handoff_to_B", '
         '"params": {"task": "handle this"}, "depends_on": [], "is_terminal": true}]}'

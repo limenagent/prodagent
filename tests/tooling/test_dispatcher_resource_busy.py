@@ -163,7 +163,12 @@ async def test_yellow_non_busy_reason_still_retries(monkeypatch):
             "hint": "retry with backoff",
         }
 
-    dispatcher = ToolDispatcher({flaky_conn.name: flaky_conn})
+    from prodagent.tooling.retry import Backoff, RetryPolicy
+
+    dispatcher = ToolDispatcher(
+        {flaky_conn.name: flaky_conn},
+        retry_policy=RetryPolicy(max_attempts=4, base_delay=0.0, backoff=Backoff.FIXED),
+    )
     run = AgentRun(run_id="r-conn", task="t")
     await dispatcher.dispatch_with_retry(ToolCall(name="flaky_conn", params={}), run)
 

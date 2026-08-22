@@ -23,11 +23,13 @@ from prodagent.core.exceptions import PlanAlreadyCompletedError
 from prodagent.core.state.run import AgentRun
 from prodagent.core.types import RunState
 from prodagent.llm.fake import script
-from prodagent.runtime.workflow import Workflow
+from prodagent.plan.workflow import Workflow
 
 
 def _fw(tmp_path):
-    fw = FrameworkConfig.default()
+    from prodagent.core.config import production
+
+    fw = production(FrameworkConfig.default())
     fw.orchestration.runs_dir = str(tmp_path / "runs")
     fw.orchestration.sessions_dir = str(tmp_path / "sessions")
     return fw
@@ -190,7 +192,7 @@ def test_construction_asserts_initial_plan_requires_plan_first():
     is defence against a future API breaking that. This test confirms the
     expression itself catches the broken state.
     """
-    from prodagent.runtime.plan.dag import Plan
+    from prodagent.plan.dag import Plan
 
     agent = Agent(
         "bad",

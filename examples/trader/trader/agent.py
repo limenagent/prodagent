@@ -20,8 +20,6 @@
 
 from __future__ import annotations
 
-import os
-
 from prodagent import (
     Agent,
     AgentConfig,
@@ -31,6 +29,7 @@ from prodagent import (
     LLMClient,
     MemoryManager,
     script,
+    use_fake_llm,
 )
 from prodagent.hooks.bundles.memory import MemoryHooks
 
@@ -137,9 +136,11 @@ def build_trader_agent(
         run_id: playground HITL 工厂注入;trader 走 chat 路径自己管
             session_id,这里收下但不使用。
     """
-    fw = framework_config or FrameworkConfig.default()
+    from prodagent.core.config import production
+
+    fw = framework_config or production()
     resolved_memory = memory or _build_memory(fw)
-    use_fake = os.getenv("USE_FAKE_LLM", "").lower() in ("1", "true", "yes")
+    use_fake = use_fake_llm()
     llm = _script_negotiation_llm() if use_fake else None
 
     return Agent(

@@ -1,27 +1,23 @@
-from prodagent.cognition.context.budget import (
-    CompressionLevel,
-    ContextBudget,
-    Layer,
-    TokenCounter,
-)
-from prodagent.cognition.context.compression import (
-    HistoryCompressor,
-    Stage,
-    Summariser,
-)
-from prodagent.cognition.context.manager import ContextManager
-from prodagent.cognition.context.spill import ToolResultSpillStore
-from prodagent.cognition.context.tool_results import reduce_on_append
+"""Context window construction — lazy surface, kernel-friendly."""
 
-__all__ = [
-    "ContextManager",
-    "CompressionLevel",
-    "Layer",
-    "TokenCounter",
-    "ContextBudget",
-    "HistoryCompressor",
-    "Stage",
-    "Summariser",
-    "reduce_on_append",
-    "ToolResultSpillStore",
-]
+from __future__ import annotations
+
+from prodagent.core.lazy import lazy_package
+
+_SYMBOL_SOURCES: dict[str, str] = {
+
+    "CompressionLevel": "prodagent.cognition.context.budget",
+    "ContextBudget": "prodagent.cognition.context.budget",
+    "Layer": "prodagent.cognition.context.budget",
+    "TokenCounter": "prodagent.cognition.context.budget",
+    "HistoryCompressor": "prodagent.cognition.context.compression",
+    "Stage": "prodagent.cognition.context.compression",
+    "Summariser": "prodagent.cognition.context.compression",
+    "ContextManager": "prodagent.cognition.context.manager",
+    "ToolResultSpillStore": "prodagent.cognition.context.spill",
+    "reduce_on_append": "prodagent.cognition.context.tool_results",
+}
+
+__all__ = sorted(_SYMBOL_SOURCES)
+
+__getattr__, __dir__ = lazy_package(_SYMBOL_SOURCES)

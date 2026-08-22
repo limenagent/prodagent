@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from prodagent.runtime.coordination.messaging.envelope import (
+from prodagent.coordination.messaging.envelope import (
     Crossing,
     CrossingKind,
     CrossingRejected,

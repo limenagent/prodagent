@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from prodagent import ExecutionMode
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
 from prodagent.core.event_log import PlanEventType
@@ -92,17 +93,24 @@ async def test_plan_crash_recovery_resumes_from_last_checkpoint(tmp_path):
         calls.append("post_report")
         return {"report": f"{incident} resolved: pod restarted"}
 
+    def _production_fw():
+        from prodagent.core.config import FrameworkConfig, production
+
+        return production(FrameworkConfig.default())
+
     def _make_agent() -> Agent:
         return Agent(
             name="aiops",
             system_prompt="Remediate incidents.",
             tools=[collect_logs, restart_pod, check_health, post_report],
+            mode=ExecutionMode.PLAN_FIRST,
             config=AgentConfig(
                 name="aiops",
                 llm=_plan_llm(),
                 hooks=HookRegistry(),
                 checkpoint=checkpoints,
                 event_log=events,
+                framework=_production_fw(),
             ),
         )
 

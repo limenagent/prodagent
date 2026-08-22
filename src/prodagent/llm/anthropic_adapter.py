@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 from prodagent.core.exceptions import ToolCallParseError
 from prodagent.core.types import LLMResponse, MessageList, StopReason, ToolCall
-from prodagent.llm.base import ChunkCallback, LLMConfig, normalise_content
-from prodagent.resilience.transport.http_retry import DeliveryGuard, with_http_retry
+from prodagent.llm import ChunkCallback, LLMConfig, normalise_content
+from prodagent.llm.http_retry import DeliveryGuard, with_http_retry
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable

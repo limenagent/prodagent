@@ -1,260 +1,136 @@
 # prodagent
 
-> A production-grade LLM agent framework. The model is probabilistic; production demands determinism — this framework makes the brakes, guardrails, and state machine first-class citizens.
+> An industrial-grade LLM agent implementation you can actually **finish reading**. 25,000 lines, 13 packages, 1,182 offline tests — loop, budgets, recovery, HITL approval, multi-agent collaboration; every mechanism small enough to read in one sitting, complete enough to run in production.
 
 [![PyPI](https://img.shields.io/pypi/v/prodagent)](https://pypi.org/project/prodagent/)
 [![CI](https://github.com/limenagent/prodagent/actions/workflows/ci.yml/badge.svg)](https://github.com/limenagent/prodagent/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
-[![Status](https://img.shields.io/badge/status-v1.0.0%20Stable-brightgreen)](https://github.com/limenagent/prodagent/releases)
 
-**[中文文档](README.md)** · English
+[中文](README.md) · **English** · Companion to the GeekTime column (Chinese) [《生产级 Agent 排雷实战》](http://gk.link/a/12L6Q)
 
-This is the open-source framework accompanying the GeekTime column [*Production-Grade Agent Pitfall Field Guide*](http://gk.link/a/12L6Q). The column walks through the Why behind each architectural decision; this repo lands the How in code.
+## Why this codebase is worth your time
 
-## Why this framework
+The barrier to agent development isn't the demo — it's everything after it. Runaway loops, state lost to crashes, ungated side effects, exploding contexts: every team that ships to production hits this same batch of problems, yet the solutions are scattered across papers, issue threads, and hundreds of thousands of lines of industrial source.
 
-Getting an Agent to run, and keeping it alive in production, are two different things. Push it to production and the model hallucinates termination, crashes lose state, old and new memories clash, tools overstep, costs creep ... every project hits the same potholes. prodagent makes this layer a first-class framework citizen — not another LangChain, just the layer that makes an agent safe to run in production.
+This repo puts them in one place you can finish reading. But reading is just the start; the real value comes in three layers:
+
+**First, you can debug it live.** The whole framework runs offline: tests need no network, and every turn of the nine examples' model behavior is a reproducible script. You can set a breakpoint inside the `chat()` call chain, change a budget parameter and watch it halt, rip out the approval gate and see what happens — the deepest way to understand a mechanism is to debug it, not to memorize its conclusions.
+
+**Second, the production features go straight into your work.** This is a `pip install`-able library, not a teaching toy. Budgets, approval, crash recovery, context compression, multi-agent governance — each mechanism is an independent module; take whichever piece your project is missing.
+
+**Third, it's the dividing line between junior and senior.** Plenty of people can write an agent demo; few know what comes after the demo, why, and at what cost. That judgment normally only comes from production scars. Here it's compressed into 25,000 lines across thirteen packages, ordered from vocabulary to collaboration, with one design principle running throughout.
+
+By the end of this codebase and its docs, what you gain isn't familiarity with one framework — it's **the ability to design a production-grade agent framework of your own**.
+
+[→ Start your production-grade agent design: Part I, seven stations through the lifecycle of a single call](docs/tour/index.md)
 
 ![prodagent](docs/images/prodagent.png)
 
-## Core Capabilities
-
-### Production infrastructure
-
-- **Four-axis hard budget** — turns / seconds / tokens / cost_usd as four independent axes; any axis tripping triggers a hard stop, with sub-agent spend rolling up to the parent in real time.
-- **Crash recovery** — checkpoint + event log + optimistic versioning; a crashed process resumes from the breakpoint on restart, and IO failure doesn't block the business loop.
-- **Pluggable backends** — file + memory by default (single-host, zero-dependency); swap to Postgres / Neo4j / Qdrant / Redis in production. Swapping is a config change, not a code change.
-- **Retry** — fixed / exponential / jittered backoff, classified by error code to decide whether to retry or fall back.
-- **Circuit breaking** — tool-level (CLOSED → OPEN → HALF_OPEN auto-recovery).
-- **Security** — five-layer injection-defense pipeline (mechanism built in) + write-time interception + HITL approval gate. Detection policy is injected by the application (`InjectionPolicy`): zero-config passes everything through, and the framework ships no built-in pattern library — what counts as dangerous is your threat model, not the framework's default.
-- **Observability** — span tracing + OTLP export + trajectory drift detection.
-- **Eval & testing** — golden eval suite + LLM Judge; 1,400+ tests run fully offline (`make test`; CI matrix across three Python versions).
-
-<details>
-<summary>📂 Source file index (click to expand)</summary>
-
-| Capability | Core source files (`src/prodagent/`) |
-|---|---|
-| Four-axis hard budget | `core/budget.py`, `runtime/coordination/budget_ledger.py`, `runtime/coordination/accounting.py`, `resilience/cost/pricing.py` |
-| Crash recovery | `ports/checkpoint.py`, `backends/file/checkpoint.py`, `backends/postgres/checkpoint.py`, `backends/postgres/_versioned.py`, `core/event_log.py`, `ports/event_log.py`, `runtime/plan/event_log.py`, `core/state/run.py` |
-| Pluggable backends | `ports/` (15 Protocol ports), `backends/factory.py`, `backends/registry.py`, `backends/file/`, `backends/memory/`, `backends/postgres/`, `backends/neo4j/`, `backends/qdrant/`, `backends/redis/` |
-| Retry | `resilience/reliability/retry.py`, `resilience/transport/http_retry.py`, `core/error_classifier.py`, `core/error_reason.py` |
-| Circuit breaking | `tooling/reliability/circuit_breaker.py` |
-| Security | `guardrail/injection/pipeline.py`, `guardrail/injection/trust_chain.py`, `guardrail/injection/policy.py`, `guardrail/approval/gate.py`, `guardrail/approval/formatter.py`, `hooks/bundles/security/` |
-| Observability | `core/observability.py`, `resilience/observability/otel_exporter.py`, `resilience/observability/drift.py`, `resilience/observability/audit.py`, `resilience/observability/scrubber.py`, `ports/span.py`, `hooks/bundles/observability.py` |
-| Eval & testing | `evaluation/evals/dataset.py`, `evaluation/evals/judge.py`, `evaluation/evals/runner.py`, `evaluation/testing/trace_assert.py`, `evaluation/testing/cassette.py` |
-
-</details>
-
-### Orchestration
-
-- **Three execution modes** — `PLAN_FIRST` (LLM emits a dynamic PLAN DAG; auditable, HITL-reviewable, resumable from breakpoint) / `REACTIVE` (ReAct loop, step by step) / `Workflow` (hand-written static PLAN DAG).
-- **Inter-agent collaboration** — five primitives, each a combination of two orthogonal axes: shared state (store) × activation policy (who wakes up):
-
-  | Primitive | Shared state (write semantics) | Activation policy |
-  |---|---|---|
-  | `agents=` vertical delegation | parent–child result passing (tree) | parent pushes tasks to children |
-  | `peers=` horizontal handoff | HandoffPacket (chain) | predecessor hands over control |
-  | `Ensemble` shared session | `SharedFloor` append-only transcript | `RoundRobin` turn-taking / `Moderated` judge picks the next speaker / `FreeForAll` all members speak concurrently |
-  | `Blackboard` shared mutable state | `Board` versioned fields (optimistic concurrency) | `Trigger` on field change (`event` concurrent fan-out / `buzz_in` lock-first-then-compute) |
-  | `WorkQueue` task pool | `SharedQueue` lease-based queue | workers pull-claim work · lease-timeout requeue |
-
-  The intuition: `Ensemble` shares the **conversation** and schedules by **time** (an append-only transcript; whoever's turn it is speaks; `FreeForAll` records everyone); `Blackboard` shares the **conclusions** and schedules by **data** (fields are overwritten with versioning; a field change wakes the experts that care; `buzz_in` lets only the lock winner compute; no change anywhere means the board naturally converges). The former fits colliding viewpoints (debate / brainstorm / role-play); the latter fits pipeline-style knowledge processing (each step's output feeds the next).
-- **Unified messaging plane** — topologies multiply, boundary crossings don't. Every agent-boundary crossing in all five primitives flows through one checkpoint: a `Crossing` envelope (direction × kind × typed payload) + a capability pipeline (fixed slots: dedupe → admission contract → trim/projection → security gate → audit) + a dead-letter boundary. DOWNSTREAM (`assembly_pipeline`) assembles at the source — the container is the whitelist; UPSTREAM (`admission_pipeline`) admits at the destination (contract validation, whitelist rewrite, injection gate). Sanitization is just one capability of the plane — identity, projection, observability, and governance ride the same crossings; semantic policy (injection rules / LLM judges) is user-injected at open slots. The framework ships mechanics, apps ship policy.
-- **Context sandwich** — state / memory / skills / history / reminder assembled as a five-layer sandwich; each layer independently controllable and compressible.
-- **Five-level compression** — NONE / TOOL_COMPRESS / HISTORY_SUMMARY / TOPIC_SUMMARY / EMERGENCY, auto-triggered by token occupancy ratio, with each level having a clear semantic loss boundary.
-- **Tool system** — `@tool` decorator for declarative registration, tiered by side-effect level (LOW/MEDIUM/HIGH); native MCP protocol support for external tools.
-
-<details>
-<summary>📂 Source file index (click to expand)</summary>
-
-| Capability | Core source files (`src/prodagent/`) |
-|---|---|
-| Three execution modes | `runtime/agent.py`, `runtime/plan/planner.py`, `runtime/plan/dag.py`, `runtime/plan/executor.py`, `runtime/plan/step_runner.py`, `runtime/plan/bootstrap.py`, `runtime/reactive.py`, `runtime/workflow.py`, `runtime/runner.py` |
-| Inter-agent collaboration | `runtime/coordination/spawn.py`, `runtime/coordination/peer.py`, `runtime/coordination/ensemble.py`, `runtime/coordination/floor.py`, `runtime/coordination/floor_projection.py`, `runtime/coordination/blackboard.py`, `runtime/coordination/work_queue.py`, `runtime/coordination/activation.py`, `runtime/coordination/_stage.py`, `runtime/coordination/_store.py`, `runtime/coordination/budget_ledger.py`, `runtime/coordination/termination.py`, `runtime/coordination/messaging/` (envelope / contract / pipeline / interceptors / packet), `runtime/coordination/run_loop.py`, `runtime/coordination/parent_runtime.py` |
-| Context sandwich | `cognition/context/manager.py`, `cognition/context/budget.py`, `cognition/context/spill.py`, `cognition/context/tool_results.py` |
-| Five-level compression | `cognition/context/compression/pipeline.py`, `cognition/context/compression/summarizer.py`, `cognition/context/compression/formatting.py` |
-| Tool system | `tooling/decorator.py`, `tooling/base.py`, `tooling/registry.py`, `tooling/dispatcher.py`, `tooling/runner.py`, `tooling/search.py`, `tooling/skill_resolver.py`, `mcp/bridge.py`, `mcp/client.py`, `mcp/registry.py`, `mcp/config.py`, `mcp/transports/` |
-
-</details>
-
-### Advanced capabilities
-
-- **Four-channel long-term memory** — rule / entity / exact / semantic recall in parallel, with ACT-R activation decay.
-- **Tri-protocol hook bus** — Event (notify) / Gate (block) / Injection (inject) separated at the protocol layer.
-- **Self-evolving loop** — successful runs distill into Skills, loaded on demand next time.
-
-<details>
-<summary>📂 Source file index (click to expand)</summary>
-
-| Capability | Core source files (`src/prodagent/`) |
-|---|---|
-| Four-channel long-term memory | `cognition/memory/manager.py`, `cognition/memory/channels.py`, `cognition/memory/forgetting.py`, `cognition/memory/facts.py`, `cognition/memory/classification.py`, `cognition/memory/storage.py`, `cognition/memory/conflict.py`, `cognition/memory/embedder.py`, `cognition/memory/touch_worker.py`, `hooks/bundles/memory.py` |
-| Tri-protocol hook bus | `hooks/registry.py`, `hooks/events.py`, `hooks/gates.py`, `hooks/bundles/base.py`, `hooks/bundles/default_wiring.py`, `hooks/observers/console.py`, `hooks/observers/cache_monitor.py` |
-| Self-evolving loop | `evaluation/learning/skill_synthesizer.py`, `evaluation/learning/experience.py`, `evaluation/learning/storage.py`, `evaluation/skills/registry.py`, `evaluation/reflection/constitutional.py`, `hooks/bundles/learning.py` |
-
-</details>
-
 ## Quickstart
-
-### 1. Install uv
-
-uv manages Python and deps — no separate Python install needed.
-
-| OS | Command |
-|------|------|
-| Mac / Linux | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| Windows (PowerShell) | `powershell -c "irm https://astral.sh/uv/install.ps1 \| iex"` |
-
-### 2. Start the playground
-
-| OS | Command |
-|------|------|
-| Mac / Linux | `make playground` |
-| Windows (or no `make`) | `uv sync && uv run prodagent --port 8766` |
-
-Browser opens `http://127.0.0.1:8766` automatically.
-
-### 3. Configure LLM
-
-First run launches an interactive wizard with two choices:
-
-- **FakeLLM** — offline, no key needed, try all 10 examples immediately
-- **OpenAI-compatible endpoint** — provide `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`. Works with any vendor implementing the OpenAI Chat Completions protocol: DeepSeek, Qwen, Moonshot, Zhipu, Groq, Ollama, self-hosted gateways, etc.
-
-Or skip the wizard and write `.env` in the repo root directly:
-
-```
-USE_FAKE_LLM=1
-```
-
-```
-LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
-LLM_API_KEY=xxx
-LLM_MODEL=glm-5.2
-```
-
-Production backends: `make playground-prod` (auto-starts Postgres / Neo4j / Qdrant / Redis).
-
-### End-to-End Examples: 9 Scenarios, From Minimal Skeleton to Full-Stack Assembly
-
-| # | Example | Scenario | Core Capabilities                                                                                                                             |
-|---|---------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------|
-| 1 | [greeter](examples/greeter) | Minimal runnable agent | `@tool` + `Agent` + `mode="reactive"` trinity                                                                                                     |
-| 2 | [trader](examples/trader) | Bubble-tea order negotiation | Conversational multi-turn negotiation (propose → counter → adjust → place order) + memory-driven replan + HIGH-side-effect HITL approval gate |
-| 3 | [deep_research](examples/deep_research) | Multi-round exploratory research | REACTIVE exploration tree + five-level context compression + injection defense + memory dedup                                                 |
-| 4 | [compliance_audit](examples/compliance_audit) | Financial compliance audit + dynamic Plan + human approval gate | `PLAN_FIRST` LLM-dynamic DAG + human approval gate (Approve/Reject) + auto-replan + idempotent write tool            |
-| 5 | [code_detective](examples/code_detective) | Autonomous bug fixing | MCP stdio server bridging external tools + REACTIVE multi-round debugging                                                                     |
-| 6 | [trip_planner](examples/trip_planner) | Trip planning | `Workflow` DAG + 3-peer parallel fan-out + `MemoryManager` preference injection                                                               |
-| 7 | [aiops](examples/aiops) | Full-stack incident response | Multi-agent spawn + peer handoff + memory + learning + observability + approval                                                               |
-| 8 | [dating_chat](examples/dating_chat) | Agent blind date | `Ensemble` dual-agent shared floor + real framework Agent vs simple agent — memory & context contrast                  |
-| 9 | [quiz_arena](examples/quiz_arena) | Buzzer quiz contest | `WorkQueue` backstage question review (work stealing + lease timeout + dead-lettering) feeding a `Blackboard` live buzz-in round (`buzz_in` locks first then computes, asserted via real compute-call counts) |
-
-### Installation
-
-```bash
-pip install prodagent
-# Backend drivers for production, as needed:
-pip install "prodagent[postgres,redis,neo4j,qdrant]"
-```
-
-### Use the SDK
 
 ```python
 import asyncio
 
-from prodagent import Agent, ExecutionMode, HardBudget, tool
-
+from prodagent import Agent, ExecutionMode, tool
 
 @tool(name="search", readonly=True)
 async def search(query: str) -> str:
     return f"results for: {query}"
 
+agent = Agent("demo", system_prompt="Find answers.", tools=[search],
+              mode=ExecutionMode.REACTIVE)
 
-agent = Agent(
-    "demo",
-    system_prompt="Find answers.",
-    tools=[search],
-    mode=ExecutionMode.REACTIVE,
-    budget=HardBudget(max_turns=20, max_cost_usd=1.0, max_seconds=1800.0),
-)
-
-
-asyncio.run(agent.chat("What is the weather in Paris?"))
+asyncio.run(agent.chat("What's the weather in Paris?"))   # zero files
 ```
 
-### Debug in PyCharm
+Full production stack (durable recovery, span tracing, HITL gate on HIGH tools, LLM cache, context compression):
 
-1. Open this repo in PyCharm and pick the project `.venv` as the interpreter.
-2. Run → Edit Configurations → add a **Python** configuration: Script path `src/prodagent/playground/server.py`, Working directory = repo root.
-3. Environment variables, one of:
-   - Offline, zero deps: `USE_FAKE_LLM=1`
-   - Production backends: run `make services-up` first, then copy the `PRODAGENT_BACKEND=prod` / `DATABASE_URL` / `REDIS_URL` / `NEO4J_*` / `QDRANT_*` block from `make playground-prod`.
-4. Click **Debug** — set breakpoints anywhere under `src/prodagent`; PyCharm's debugger attaches automatically (no manual debugpy needed).
-5. Default port 8765: `http://127.0.0.1:8765`
+```python
+from prodagent.core.config import production
+
+agent = Agent("demo", ..., config=AgentConfig(name="demo", framework=production()))
+```
+
+Visual playground (runs all 9 examples offline):
+
+```bash
+make playground
+```
+
+<details>
+<summary>Install & model config</summary>
+
+```bash
+pip install prodagent
+# 4 core deps: anyio/httpx/pydantic/typing-extensions. Opt-ins:
+pip install "prodagent[openai,anthropic]"      # providers
+pip install "prodagent[playground]"             # visual UI
+pip install "prodagent[postgres,redis,neo4j]"   # prod backends (file+memory by default)
+```
+
+Model config, one of: `USE_FAKE_LLM=1` (offline); `LLM_BASE_URL` / `LLM_API_KEY` /
+`LLM_MODEL` for any OpenAI-compatible endpoint; `ANTHROPIC_API_KEY`.
+
+</details>
+
+**[→ Full docs: learning path · a call's lifecycle · topics · examples](https://limenagent.github.io/prodagent/)**
+
+## Capabilities
+
+| Capability | One line | Source |
+|---|---|---|
+| **Bare-kernel default** | `Agent()` touches zero files; `production()` restores the stack | `core/config.py` |
+| **Four-axis hard budget** | turns/seconds/tokens/cost, any breach halts; child spend rolls up | `core/budget.py`, `coordination/budget_ledger.py` |
+| **Crash recovery** | checkpoints + optimistic versions; resume after kill -9 | `ports/checkpoint.py`, `backends/file/` |
+| **HITL approval** | HIGH side-effect tools suspend for a human; rejection triggers incremental replan | `hooks/approval/` |
+| **Three execution modes** | REACTIVE / PLAN_FIRST (dynamic DAG) / Workflow (static DAG) | `runtime/`, `plan/` |
+| **Five collaboration primitives** | agents= delegation, peers= relay, Ensemble / Blackboard / WorkQueue | `coordination/` |
+| **Unified messaging plane** | every cross-agent crossing through one pipeline: dedupe→contract→gate→audit→dead letter | `coordination/messaging/` |
+| **Five-level compression** | graded sacrifice by token usage, each level with a defined semantic loss | `cognition/context/` |
+| **Four-channel memory** | rule/entity/exact/semantic parallel recall + conflict resolution + decay | `cognition/memory/` |
+| **Pluggable backends** | 14 Protocol ports; file+memory default, Postgres/Redis/Neo4j swappable | `ports/`, `backends/factory.py` |
+| **Skills loop** | successful runs distill into runbooks, loaded on demand | `skills/` |
+| **MCP bridge** | external tools over stdio/HTTP | `mcp/` |
 
 ## Architecture
 
-Agent is the assembly entry point. Three architectural decisions: execution mode is switchable, cross-cutting capabilities mount as pluggable Bundles, and backends are Protocol ports — replaceable.
-
-### Execution mode
-
 ```mermaid
 graph TD
-    A[Agent] --> M{mode}
-    M -->|mode='plan_first'| PF[PLAN_FIRST<br/>LLM emits dynamic DAG<br/>auditable · HITL · resumable]
-    M -->|mode='reactive'| RV[REACTIVE<br/>ReAct loop · step by step]
-    M -->|workflow=wf| WF[Workflow<br/>hand-written static DAG]
+    A["Agent()"] --> RL["RunLoop"]
+    RL --> F["factory.prepare"]
+    F --> R["ReactiveLoop<br/>think→decide→execute"]
+    F --> P["PlanExecutor<br/>DAG + resume"]
+    R --> D["ToolDispatcher<br/>readonly-parallel / write-serial"]
+    P --> D
+    R --> L["LLMClient port"]
+    P --> L
+    RL -->|spawn/peers/Ensemble/Board/Queue| M["Crossing messaging plane"]
+    subgraph optional armor
+        H["hooks: approval/observability"] --- CK["checkpoint/session"]
+        COG["compression/memory"]
+    end
+    R -.-> H
+    M -.-> H
 ```
 
-### Hook tri-protocol bus
+The package tree is the learning order: `core → ports → llm → tooling → runtime → plan → coordination → cognition → hooks → skills → backends → mcp → playground`.
 
-HookRegistry fans out by protocol. Three protocols have distinct semantics: Event is non-blocking notification, Gate blocks until first veto, Injection aggregates injector results.
+## Nine end-to-end examples
 
-```mermaid
-graph LR
-    H[HookRegistry]
-    H --> E
-    H --> K
-    H --> I
-    H -.playground built-in.- WP[WebPush]
+| # | Example | Scenario | Teaches |
+|---|---|---|---|
+| 1 | [greeter](examples/greeter) | minimal agent | `@tool` + `Agent` + REACTIVE |
+| 2 | [trader](examples/trader) | bubble-tea negotiation | multi-turn + memory constraints + HIGH approval |
+| 3 | [deep_research](examples/deep_research) | exploratory research | REACTIVE tree + five-level compression |
+| 4 | [compliance_audit](examples/compliance_audit) | financial audit | dynamic DAG + reject→incremental replan |
+| 5 | [code_detective](examples/code_detective) | autonomous bug fixing | MCP bridge + skills |
+| 6 | [trip_planner](examples/trip_planner) | trip planning | Workflow DAG + 3 parallel peers |
+| 7 | [aiops](examples/aiops) | incident response | spawn + peers + skills + approval, full stack |
+| 8 | [dating_chat](examples/dating_chat) | agent speed-dating | Ensemble shared floor + memory A/B |
+| 9 | [quiz_arena](examples/quiz_arena) | quiz show | WorkQueue (leases+dead letter) + Blackboard |
 
-    subgraph E[Event · notify, non-blocking]
-        C[Console]
-        S[Span]
-        LE[Learning]
-    end
-
-    subgraph K[Gate · block, first veto wins]
-        AP[Approval]
-        SE[Security]
-    end
-
-    subgraph I[Injection · inject, aggregate]
-        ME[Memory recall]
-        CTX[Context state]
-    end
-```
-
-### Backend ports
-
-15 Protocol ports, each independently replaceable. Default file + memory is single-host zero-dependency; production splits backends by data type — relational to Postgres, graph to Neo4j, vector to Qdrant, cache & coordination to Redis.
-
-```mermaid
-graph TD
-    A[Agent] --> RT[Runtime<br/>Workflow · AgentLoop<br/>PlanExecutor · Plan]
-    A --> P[Ports · 15 Protocol]
-    P --> R[Relational<br/>CheckpointStore · EventLog<br/>SessionStore · DocumentStore<br/>ExperienceStore]
-    P --> G[Graph<br/>GraphStore]
-    P --> V[Vector<br/>VectorStore]
-    P --> T[Cache & Coordination<br/>CacheStore · LockStore<br/>ApprovalStore · DeadLetterStore]
-    P --> X[Infrastructure<br/>LLMClient · Tool · SpanExporter]
-    R -.-> PG[(Postgres)]
-    G -.-> NEO[(Neo4j)]
-    V -.-> QD[(Qdrant)]
-    T -.-> RD[(Redis)]
-```
+All run offline (FakeLLM scripts precise to per-turn tool calls) — the same machinery behind 1,182 tests.
 
 ## License
 

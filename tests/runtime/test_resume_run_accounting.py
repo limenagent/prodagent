@@ -32,7 +32,15 @@ _PLAN = (
 )
 
 
-def _agent(session: str) -> Agent:
+def _production_fw(tmp_path):
+    from prodagent.core.config import FrameworkConfig, production
+
+    fw = production(FrameworkConfig.default())
+    fw.orchestration.runs_dir = str(tmp_path / "runs")
+    return fw
+
+
+def _agent(session: str, tmp_path) -> Agent:
     return Agent(
         "resume-accounting",
         tools=[low_step, high_step],
@@ -41,12 +49,13 @@ def _agent(session: str) -> Agent:
         config=AgentConfig(
             name="resume-accounting",
             llm=script({"content": _PLAN}, {"content": "done"}),
+            framework=_production_fw(tmp_path),
         ),
     )
 
 
 async def test_resumed_run_carries_full_history_and_turns(tmp_path):
-    agent = _agent("resume-accounting-1")
+    agent = _agent("resume-accounting-1", tmp_path)
     run = await agent.chat("do it", session_id="resume-accounting-1")
 
     assert run.state is RunState.SUSPENDED  # HIGH tool hit the approval gate

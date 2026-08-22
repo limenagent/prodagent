@@ -1,11 +1,10 @@
 """Run the port conformance suite against the ``redis`` backend.
 
 Redis is a KV + TTL engine — that is what it is good at. The ports run against
-it here are the ephemeral / in-flight ones: cache, lock,
-approval, dead_letter. Relational state (checkpoint, event_log, document,
-span) and typed state (graph, vector) do NOT belong in Redis — those live in
-``test_conformance_postgres`` / ``test_conformance_neo4j`` /
-``test_conformance_qdrant`` respectively.
+it here are the ephemeral / in-flight ones: cache, lock, dead_letter.
+Relational state (checkpoint, event_log, document, span) and typed state
+(graph) do NOT belong in Redis — those live in ``test_conformance_postgres``
+/ ``test_conformance_neo4j`` respectively.
 
 Requires a running Redis — set ``REDIS_URL`` or ``REDIS_HOST``/``REDIS_PORT``.
 The whole module is skipped if Redis is unreachable. Locally we run docker
@@ -22,11 +21,10 @@ import uuid
 
 import pytest
 
-from prodagent.backends.conformance import (
-    run_approval_conformance,
-    run_approval_decision_flow_conformance,
-    run_approval_decision_overwrite_conformance,
-    run_approval_idempotent_create_conformance,
+from prodagent.backends.redis.cache import RedisCache
+from prodagent.backends.redis.dead_letter import RedisDeadLetterQueue
+from prodagent.backends.redis.lock import RedisLockStore
+from tests.backends.conformance import (
     run_cache_conformance,
     run_cache_key_isolation_conformance,
     run_dead_letter_conformance,
@@ -37,10 +35,6 @@ from prodagent.backends.conformance import (
     run_lock_nonblocking_tryacquire_conformance,
     run_lock_release_idempotent_conformance,
 )
-from prodagent.backends.redis.approval import RedisApprovalStore
-from prodagent.backends.redis.cache import RedisCache
-from prodagent.backends.redis.dead_letter import RedisDeadLetterQueue
-from prodagent.backends.redis.lock import RedisLockStore
 
 
 def _redis_url() -> str:
@@ -119,31 +113,6 @@ async def test_redis_cache_conformance(async_client, clean_async):
 async def test_redis_cache_key_isolation_conformance(async_client, clean_async):
     await run_cache_key_isolation_conformance(
         lambda: RedisCache(async_client, namespace=clean_async)
-    )
-
-
-# ── approval (async) ──────────────────────────────────────────────────────────
-
-
-async def test_redis_approval_conformance(async_client, clean_async):
-    await run_approval_conformance(lambda: RedisApprovalStore(async_client, namespace=clean_async))
-
-
-async def test_redis_approval_idempotent_create_conformance(async_client, clean_async):
-    await run_approval_idempotent_create_conformance(
-        lambda: RedisApprovalStore(async_client, namespace=clean_async)
-    )
-
-
-async def test_redis_approval_decision_flow_conformance(async_client, clean_async):
-    await run_approval_decision_flow_conformance(
-        lambda: RedisApprovalStore(async_client, namespace=clean_async)
-    )
-
-
-async def test_redis_approval_decision_overwrite_conformance(async_client, clean_async):
-    await run_approval_decision_overwrite_conformance(
-        lambda: RedisApprovalStore(async_client, namespace=clean_async)
     )
 
 

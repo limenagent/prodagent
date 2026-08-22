@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import time
 
-from prodagent.runtime.coordination.messaging.idempotency import IdempotentMessageHandler
-from prodagent.runtime.coordination.messaging.packet import HandoffPacket
+from prodagent.coordination.messaging.idempotency import IdempotentMessageHandler
+from prodagent.coordination.messaging.packet import HandoffPacket
 
 # ---------------------------------------------------------------- packet
 

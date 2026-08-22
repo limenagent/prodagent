@@ -10,7 +10,6 @@ from prodagent.backends.memory.cache import InMemoryCache
 from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
 from prodagent.backends.memory.graph import InMemoryGraphStore
 from prodagent.backends.memory.lock import InProcessLockStore
-from prodagent.backends.memory.vector import InMemoryVectorStore
 
 __all__ = [
     "InMemoryApprovalStore",
@@ -18,5 +17,4 @@ __all__ = [
     "InMemoryDeadLetterQueue",
     "InMemoryGraphStore",
     "InProcessLockStore",
-    "InMemoryVectorStore",
 ]

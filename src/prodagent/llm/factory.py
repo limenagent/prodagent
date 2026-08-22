@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import replace
 
-from prodagent.llm.base import LLMClient, LLMConfig
+from prodagent.llm import LLMClient, LLMConfig
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.llm.providers import anthropic_env, openai_compat_env, use_fake_llm
 

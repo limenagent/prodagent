@@ -97,8 +97,8 @@ class TestSpawnExtras:
 
 class TestReactiveLoopSpawnAccumulators:
     async def test_loop_trips_on_sibling_spend_it_never_directly_incurred(self):
+        from prodagent.coordination.accounting import SpawnAccumulator
         from prodagent.core.events import RunFailedEvent
-        from prodagent.runtime.coordination.accounting import SpawnAccumulator
 
         budget = HardBudget(max_turns=50, max_tokens=1_000_000, max_seconds=600, max_cost_usd=0.9)
         sibling_spend = SpawnAccumulator(cost_usd=0.95, spawn_count=1)

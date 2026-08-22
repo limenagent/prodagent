@@ -23,7 +23,13 @@ class Neo4jGraphStore:
     """Directed property graph on Neo4j, queried via Cypher."""
 
     def __init__(self, uri: str, user: str, password: str) -> None:
-        from neo4j import GraphDatabase
+        try:
+            from neo4j import GraphDatabase
+        except ImportError as exc:
+            raise ImportError(
+                "Neo4j backend requires the neo4j package. "
+                "Install it with: pip install 'prodagent[neo4j]'"
+            ) from exc
 
         self._driver: Any = GraphDatabase.driver(uri, auth=(user, password))
         self._driver.verify_connectivity()

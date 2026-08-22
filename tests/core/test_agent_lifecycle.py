@@ -17,7 +17,9 @@ async def echo_tool(text: str) -> str:
 
 
 def _fw(tmpdir: str) -> FrameworkConfig:
-    base = FrameworkConfig.default()
+    from prodagent.core.config import production
+
+    base = production(FrameworkConfig.default())
     return _dc_replace(
         base,
         orchestration=_dc_replace(

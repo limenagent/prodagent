@@ -8,10 +8,10 @@ from __future__ import annotations
 import pytest
 
 from prodagent import Agent, AgentConfig
+from prodagent.coordination.parent_runtime import ParentRuntime
+from prodagent.coordination.spawn import build_spawn_tools_for_agent
 from prodagent.llm.fake import script
-from prodagent.runtime.coordination.parent_runtime import ParentRuntime
-from prodagent.runtime.coordination.spawn import build_spawn_tools_for_agent
-from prodagent.runtime.workflow import Workflow
+from prodagent.plan.workflow import Workflow
 from prodagent.tooling import tool
 
 
@@ -44,8 +44,8 @@ async def test_workflow_child_runs_preset_dag_via_spawn():
         config=AgentConfig(name="wf_worker", llm=llm, description="A workflow worker"),
     )
 
-    assert child.initial_plan is not None
-    assert child.max_replans == 0
+    assert child.config.initial_plan is not None
+    assert child.config.max_replans == 0
 
     spawn = build_spawn_tools_for_agent([child], llm=llm, context=ParentRuntime())
     result = await spawn.tool._fn(name="wf_worker", task="fetch and summarise")
@@ -80,7 +80,7 @@ async def test_workflow_child_forwarded_max_replans_is_zero():
         config=AgentConfig(name="wf_boom", llm=llm),
     )
 
-    assert child.max_replans == 0
+    assert child.config.max_replans == 0
 
     spawn = build_spawn_tools_for_agent([child], llm=llm, context=ParentRuntime())
     result = await spawn.tool._fn(name="wf_boom", task="trigger boom")

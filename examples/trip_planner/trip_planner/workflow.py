@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from prodagent.runtime.workflow import Workflow
+from prodagent.plan.workflow import Workflow
 
 if TYPE_CHECKING:
     from prodagent.runtime.agent import Agent

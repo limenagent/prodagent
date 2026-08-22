@@ -6,16 +6,16 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from prodagent.evaluation.learning.experience import ExperienceOutcome, ExperienceRecord
 from prodagent.hooks.events import HookEvent
+from prodagent.ports.experience import ExperienceOutcome, ExperienceRecord
 
 if TYPE_CHECKING:
     from prodagent.core.config import FrameworkConfig
     from prodagent.core.state.run import AgentRun
-    from prodagent.evaluation.learning.skill_synthesizer import SkillSynthesizer
-    from prodagent.evaluation.skills.registry import SkillContent, SkillRegistry
     from prodagent.hooks.registry import HookRegistry
     from prodagent.ports.experience import ExperienceStore
+    from prodagent.skills.registry import SkillContent, SkillRegistry
+    from prodagent.skills.skill_synthesizer import SkillSynthesizer
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class LearningHooks:
         # don't have to wire SkillSynthesizer(llm, registry) themselves.
         if synthesizer is None and framework_config is not None:
             from prodagent.backends.factory import resolve_llm
-            from prodagent.evaluation.learning.skill_synthesizer import SkillSynthesizer
+            from prodagent.skills.skill_synthesizer import SkillSynthesizer
 
             synthesizer = SkillSynthesizer(resolve_llm(framework_config), registry)
         if synthesizer is None:

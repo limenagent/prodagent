@@ -1,58 +1,39 @@
-"""Cross-run recall / classification / conflict resolution."""
+"""Cross-run recall / classification / conflict resolution — lazy surface."""
 
-from prodagent.cognition.memory.channels import (
-    DEFAULT_MERGE_ORDER,
-    EntityChannel,
-    ExactChannel,
-    RecallContext,
-    RecalledItem,
-    RuleChannel,
-    SemanticChannel,
-)
-from prodagent.cognition.memory.classification import MemoryClassifier, reasoning_texts
-from prodagent.cognition.memory.conflict import (
-    ConflictVerdict,
-    DefaultConflictPolicy,
-    EmbeddingCandidateFilter,
-    SupersedeAction,
-)
-from prodagent.cognition.memory.embedder import HashEmbedder, cosine
-from prodagent.cognition.memory.forgetting import RECALL_FLOOR, activation
-from prodagent.cognition.memory.manager import MemoryManager, MemoryProvider, build_memory_manager
-from prodagent.cognition.memory.storage import (
-    MemoryRecord,
-    MemoryType,
-    StoredMemory,
-)
-from prodagent.cognition.memory.touch_worker import TouchBackWorker
-from prodagent.ports.document import DocumentStore
-from prodagent.ports.graph import GraphStore
+from __future__ import annotations
 
-__all__ = [
-    "HashEmbedder",
-    "cosine",
-    "DocumentStore",
-    "GraphStore",
-    "MemoryRecord",
-    "StoredMemory",
-    "MemoryType",
-    "RecalledItem",
-    "RecallContext",
-    "RuleChannel",
-    "ExactChannel",
-    "SemanticChannel",
-    "EntityChannel",
-    "DEFAULT_MERGE_ORDER",
-    "MemoryClassifier",
-    "reasoning_texts",
-    "activation",
-    "RECALL_FLOOR",
-    "EmbeddingCandidateFilter",
-    "DefaultConflictPolicy",
-    "ConflictVerdict",
-    "SupersedeAction",
-    "TouchBackWorker",
-    "MemoryManager",
-    "MemoryProvider",
-    "build_memory_manager",
-]
+from prodagent.core.lazy import lazy_package
+
+_SYMBOL_SOURCES: dict[str, str] = {
+
+    "DEFAULT_MERGE_ORDER": "prodagent.cognition.memory.channels",
+    "EntityChannel": "prodagent.cognition.memory.channels",
+    "ExactChannel": "prodagent.cognition.memory.channels",
+    "RecallContext": "prodagent.cognition.memory.channels",
+    "RecalledItem": "prodagent.cognition.memory.channels",
+    "RuleChannel": "prodagent.cognition.memory.channels",
+    "SemanticChannel": "prodagent.cognition.memory.channels",
+    "MemoryClassifier": "prodagent.cognition.memory.classification",
+    "reasoning_texts": "prodagent.cognition.memory.classification",
+    "ConflictVerdict": "prodagent.cognition.memory.conflict",
+    "DefaultConflictPolicy": "prodagent.cognition.memory.conflict",
+    "EmbeddingCandidateFilter": "prodagent.cognition.memory.conflict",
+    "SupersedeAction": "prodagent.cognition.memory.conflict",
+    "HashEmbedder": "prodagent.cognition.memory.embedder",
+    "cosine": "prodagent.cognition.memory.embedder",
+    "RECALL_FLOOR": "prodagent.cognition.memory.forgetting",
+    "activation": "prodagent.cognition.memory.forgetting",
+    "MemoryManager": "prodagent.cognition.memory.manager",
+    "MemoryProvider": "prodagent.cognition.memory.manager",
+    "build_memory_manager": "prodagent.cognition.memory.manager",
+    "MemoryRecord": "prodagent.cognition.memory.storage",
+    "MemoryType": "prodagent.cognition.memory.storage",
+    "StoredMemory": "prodagent.cognition.memory.storage",
+    "TouchBackWorker": "prodagent.cognition.memory.touch_worker",
+    "DocumentStore": "prodagent.ports.document",
+    "GraphStore": "prodagent.ports.graph",
+}
+
+__all__ = sorted(_SYMBOL_SOURCES)
+
+__getattr__, __dir__ = lazy_package(_SYMBOL_SOURCES)

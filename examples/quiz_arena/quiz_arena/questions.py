@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from prodagent.runtime.coordination.work_queue import WorkItem
+from prodagent.coordination.work_queue import WorkItem
 
 QUESTION_BANK: list[dict[str, Any]] = [
     {

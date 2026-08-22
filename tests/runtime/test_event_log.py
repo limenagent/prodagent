@@ -10,7 +10,7 @@ from prodagent.core.event_log import (
     hybrid_restore,
 )
 from prodagent.core.state import AgentRun
-from prodagent.runtime.plan.event_log import apply_event
+from prodagent.plan.event_log import apply_event
 
 
 def _make(event_type: PlanEventType, plan_id: str = "p1", version: int = 1, **data) -> Event:

@@ -16,12 +16,12 @@ prodagent 能力：没有 ``Agent``、没有 ``ContextManager``、没有 ``Memor
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from prodagent import use_fake_llm
+from prodagent.coordination.floor import FloorTurn, SharedFloor
 from prodagent.core.types import MessageList, StopReason
-from prodagent.runtime.coordination.floor import FloorTurn, SharedFloor
 
 from dating_chat.fake_llm import NIU_SYSTEM_PROMPT, build_niu_fake_llm
 
@@ -97,7 +97,7 @@ async def niu_reply(
 
 def build_niu_llm() -> LLMClient:
     """大牛完全绕开框架，自己决定 fake/真实。"""
-    use_fake = os.getenv("USE_FAKE_LLM", "").lower() in ("1", "true", "yes")
+    use_fake = use_fake_llm()
     if use_fake:
         return build_niu_fake_llm()
     from prodagent.llm.factory import create_llm_client

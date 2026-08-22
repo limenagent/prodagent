@@ -33,11 +33,14 @@ from prodagent.hooks.events import HookEvent
 from prodagent.hooks.gates import Gate
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from prodagent.cognition.memory.classification import MemoryClassifier
     from prodagent.core.config import FrameworkConfig
     from prodagent.core.state.run import AgentRun
     from prodagent.ports.document import DocumentStore
     from prodagent.ports.graph import GraphStore
+    from prodagent.ports.llm import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -313,7 +316,41 @@ def build_memory_manager(
     candidate_filter: EmbeddingCandidateFilter | None = None,
     conflict_policy: DefaultConflictPolicy | None = None,
     budget: int = _DEFAULT_BUDGET,
+    aux_llm: LLMClient | None = None,
+    memory_dir: str | Path | None = None,
+    clean: bool = False,
 ) -> MemoryManager:
+    """Assemble a :class:`MemoryManager`.
+
+    Convenience kwargs absorb the wiring every app repeats: ``aux_llm`` fills
+    the classifier + conflict policy when they're not given; ``memory_dir``
+    routes framework-resolved file stores into a caller-owned directory
+    (and, with ``clean=True``, wipes it first) so demos start reproducible.
+    """
+    if memory_dir is not None:
+        import shutil
+        from dataclasses import replace as _dc_replace
+        from pathlib import Path as _Path
+
+        if clean:
+            shutil.rmtree(memory_dir, ignore_errors=True)
+        _Path(memory_dir).mkdir(parents=True, exist_ok=True)
+        if framework_config is None:
+            from prodagent.core.config import FrameworkConfig as _FW
+
+            framework_config = _FW.default()
+        framework_config = _dc_replace(
+            framework_config,
+            orchestration=_dc_replace(framework_config.orchestration, runs_dir=str(memory_dir)),
+        )
+    if aux_llm is not None:
+        if classifier is None:
+            from prodagent.cognition.memory.classification import MemoryClassifier
+
+            classifier = MemoryClassifier(aux_llm)
+        if conflict_policy is None:
+            conflict_policy = DefaultConflictPolicy(llm_client=aux_llm)
+
     resolved_documents = _resolve_documents(documents, framework_config)
     resolved_facts = _resolve_facts(facts, framework_config)
     resolved_classifier = _resolve_classifier(classifier, framework_config)

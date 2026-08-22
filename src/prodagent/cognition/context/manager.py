@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from prodagent.core.state.run import AgentRun
     from prodagent.core.types import Message, MessageList
     from prodagent.hooks.registry import HookRegistry
-    from prodagent.llm.base import LLMClient
+    from prodagent.llm import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,7 @@ class ContextManager:
         constraint_reminder: str = "",
         llm: LLMClient | None = None,
         spill_store: ToolResultSpillStore | None = None,
+        aux_llm: LLMClient | None = None,
     ) -> None:
         if config is None:
             config = ContextConfig()
@@ -93,6 +94,9 @@ class ContextManager:
         self._system = system_prompt
         self._reminder = constraint_reminder
         self._llm = llm
+        # Background summariser LLM: separate from the main client so aux
+        # calls never steal from (or pollute) a scripted trajectory.
+        self._aux_llm = aux_llm
         self._spill_store = spill_store
 
         self._counter = TokenCounter()
@@ -345,7 +349,7 @@ class ContextManager:
         ctx = StageContext(
             counter=self._counter,
             config=self._cfg,
-            summariser=Summariser(self._llm, self._cfg),
+            summariser=Summariser(self._aux_llm or self._llm, self._cfg),
         )
 
         result, level = await self._pipeline.run(run.messages, history_budget, ctx, ratio)

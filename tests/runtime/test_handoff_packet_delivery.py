@@ -5,15 +5,15 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent.coordination.parent_runtime import ParentRuntime
+from prodagent.coordination.spawn import build_spawn_tools_for_agent
 from prodagent.core.types import LLMResponse, SideEffectLevel, ToolMeta
 from prodagent.llm.fake import script
 from prodagent.ports.llm import LLMClient
-from prodagent.runtime.coordination.parent_runtime import ParentRuntime
-from prodagent.runtime.coordination.spawn import build_spawn_tools_for_agent
 from prodagent.tooling.base import FunctionTool
 
 if TYPE_CHECKING:
-    from prodagent.llm.base import LLMConfig
+    from prodagent.llm import LLMConfig
 
 
 def _meta(name: str) -> ToolMeta:

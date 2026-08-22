@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from prodagent.backends.conformance import (
+from prodagent.backends.memory import (
+    InMemoryApprovalStore,
+    InMemoryCache,
+    InMemoryDeadLetterQueue,
+    InMemoryGraphStore,
+    InProcessLockStore,
+)
+from tests.backends.conformance import (
     run_approval_conformance,
     run_approval_decision_flow_conformance,
     run_approval_decision_overwrite_conformance,
@@ -24,19 +31,6 @@ from prodagent.backends.conformance import (
     run_lock_mutual_exclusion_conformance,
     run_lock_nonblocking_tryacquire_conformance,
     run_lock_release_idempotent_conformance,
-    run_vector_delete_conformance,
-    run_vector_empty_search_conformance,
-    run_vector_filter_conformance,
-    run_vector_upsert_replaces_conformance,
-    run_vector_upsert_search_conformance,
-)
-from prodagent.backends.memory import (
-    InMemoryApprovalStore,
-    InMemoryCache,
-    InMemoryDeadLetterQueue,
-    InMemoryGraphStore,
-    InMemoryVectorStore,
-    InProcessLockStore,
 )
 
 
@@ -58,10 +52,6 @@ def _mem_dead_letter():
 
 def _mem_graph():
     return lambda: InMemoryGraphStore()
-
-
-def _mem_vector():
-    return lambda: InMemoryVectorStore()
 
 
 # ── cache ─────────────────────────────────────────────────────────────────────
@@ -161,26 +151,3 @@ def test_memory_graph_absent_node_neighbors_conformance():
 
 def test_memory_graph_list_nodes_conformance():
     run_graph_list_nodes_conformance(_mem_graph())
-
-
-# ── vector ────────────────────────────────────────────────────────────────────
-
-
-def test_memory_vector_upsert_search_conformance():
-    run_vector_upsert_search_conformance(_mem_vector())
-
-
-def test_memory_vector_upsert_replaces_conformance():
-    run_vector_upsert_replaces_conformance(_mem_vector())
-
-
-def test_memory_vector_filter_conformance():
-    run_vector_filter_conformance(_mem_vector())
-
-
-def test_memory_vector_delete_conformance():
-    run_vector_delete_conformance(_mem_vector())
-
-
-def test_memory_vector_empty_search_conformance():
-    run_vector_empty_search_conformance(_mem_vector())

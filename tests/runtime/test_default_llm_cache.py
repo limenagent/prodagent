@@ -5,7 +5,7 @@ import pytest
 from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.core.budget import HardBudget
 from prodagent.core.types import LLMResponse
-from prodagent.llm.base import LLMConfig, noop_chunk
+from prodagent.llm import LLMConfig, noop_chunk
 from prodagent.llm.cache import CachingLLMClient
 
 
@@ -28,31 +28,54 @@ def _make_messages(content: str = "hi") -> list[dict]:
 
 
 class TestDefaultCacheWiring:
-    def test_resolve_llm_wraps_with_caching_client(self):
-        from prodagent.runtime.run_context import _resolve_llm
+    def _agent(self, llm=None, *, profile: str = "bare") -> Agent:
+        from prodagent.core.config import FrameworkConfig
 
-        agent = Agent("t", system_prompt="x", config=AgentConfig(name="t", llm=_CountingLLM()))
-        llm = _resolve_llm(agent)
+        fw = FrameworkConfig.default()
+        fw.profile = profile  # type: ignore[assignment]
+        return Agent("t", system_prompt="x", config=AgentConfig(name="t", llm=llm, framework=fw))
+
+    def test_bare_profile_does_not_wrap_llm(self):
+        from prodagent.coordination.run_loop import _resolve_llm
+
+        plain = _CountingLLM()
+        llm = _resolve_llm(self._agent(plain))
+        assert llm is plain  # the naked kernel: no cache wrapper
+
+    def test_production_profile_wraps_with_caching_client(self):
+        from prodagent.coordination.run_loop import _resolve_llm
+
+        llm = _resolve_llm(self._agent(_CountingLLM(), profile="production"))
         assert isinstance(llm, CachingLLMClient)
 
     def test_user_supplied_caching_client_not_double_wrapped(self):
-        from prodagent.runtime.run_context import _resolve_llm
+        from prodagent.coordination.run_loop import _resolve_llm
 
         inner = _CountingLLM()
         user_cached = CachingLLMClient(inner, None)  # type: ignore[arg-type]
-        agent = Agent("t", system_prompt="x", config=AgentConfig(name="t", llm=user_cached))
+        agent = Agent(
+            "t",
+            system_prompt="x",
+            config=AgentConfig(name="t", llm=user_cached, framework=self._fw("production")),
+        )
         llm = _resolve_llm(agent)
         assert llm is user_cached
 
+    def _fw(self, profile: str):
+        from prodagent.core.config import FrameworkConfig
+
+        fw = FrameworkConfig.default()
+        fw.profile = profile  # type: ignore[assignment]
+        return fw
+
     def test_plain_llm_is_wrapped_not_misclassified_as_caching(self):
+        from prodagent.coordination.run_loop import _resolve_llm
         from prodagent.llm.cache import CachingLLM
-        from prodagent.runtime.run_context import _resolve_llm
 
         plain = _CountingLLM()
         assert not isinstance(plain, CachingLLM)
 
-        agent = Agent("t", system_prompt="x", config=AgentConfig(name="t", llm=plain))
-        llm = _resolve_llm(agent)
+        llm = _resolve_llm(self._agent(plain, profile="production"))
         assert isinstance(llm, CachingLLMClient)
         assert llm is not plain
 
@@ -62,9 +85,9 @@ class TestDefaultCacheWiring:
             "billing",
             system_prompt="x",
             mode=ExecutionMode.REACTIVE,
-            config=AgentConfig(name="billing", llm=llm),
+            config=AgentConfig(name="billing", llm=llm, framework=self._fw("production")),
         )
-        from prodagent.runtime.run_context import _resolve_llm
+        from prodagent.coordination.run_loop import _resolve_llm
 
         wrapped = _resolve_llm(agent)
         cfg = LLMConfig(model="m", temperature=0.0, max_tokens=100)
@@ -79,9 +102,13 @@ class TestDefaultCacheWiring:
 
     async def test_temperature_gt_zero_bypasses_default_cache(self):
         llm = _CountingLLM()
-        from prodagent.runtime.run_context import _resolve_llm
+        from prodagent.coordination.run_loop import _resolve_llm
 
-        agent = Agent("t", system_prompt="x", config=AgentConfig(name="t", llm=llm))
+        agent = Agent(
+            "t",
+            system_prompt="x",
+            config=AgentConfig(name="t", llm=llm, framework=self._fw("production")),
+        )
         wrapped = _resolve_llm(agent)
 
         cfg = LLMConfig(model="m", temperature=0.7, max_tokens=100)
@@ -99,12 +126,11 @@ class TestDefaultCacheWiring:
         reused across runs without leaking a resolved client back into
         declarative state.
         """
-        from prodagent.runtime.run_context import _resolve_llm
+        from prodagent.coordination.run_loop import _resolve_llm
 
         agent = Agent("t", system_prompt="x")
         assert agent.config.llm is None
-        resolved = _resolve_llm(agent)
-        assert isinstance(resolved, CachingLLMClient)
+        _resolve_llm(agent)
         assert agent.config.llm is None
 
         declared = _CountingLLM()
@@ -112,24 +138,34 @@ class TestDefaultCacheWiring:
         _resolve_llm(agent_with_llm)
         assert agent_with_llm.config.llm is declared
 
-    async def test_context_resolves_checkpoint_and_event_log_without_mutating_agent(self):
-        """RunContext.__aenter__ resolves checkpoint/event_log without writing
-        them back to the Agent — the Agent stays declarative across runs."""
-        from prodagent.core.config import FrameworkConfig
-        from prodagent.runtime.run_context import RunContext
+    async def test_context_resolves_stores_by_profile(self):
+        """Bare: checkpoint/event_log stay None. Production: both resolve.
+        Neither profile mutates the Agent — it stays declarative across runs."""
+        from prodagent.coordination.run_loop import RunContext
 
-        agent = Agent(
+        bare = Agent(
             "t",
             system_prompt="x",
-            config=AgentConfig(name="t", framework=FrameworkConfig.default()),
+            config=AgentConfig(name="t", framework=self._fw("bare")),
         )
-        assert agent.config.checkpoint is None
-        assert agent.config.event_log is None
-        async with RunContext(agent=agent, task="t", run_id="r1") as ctx:
+        assert bare.config.checkpoint is None
+        assert bare.config.event_log is None
+        async with RunContext(agent=bare, task="t", run_id="r1") as ctx:
+            assert ctx.checkpoint is None
+            assert ctx.event_log is None
+        assert bare.config.checkpoint is None
+        assert bare.config.event_log is None
+
+        prod = Agent(
+            "t",
+            system_prompt="x",
+            config=AgentConfig(name="t", framework=self._fw("production")),
+        )
+        async with RunContext(agent=prod, task="t", run_id="r2") as ctx:
             assert ctx.checkpoint is not None
             assert ctx.event_log is not None
-        assert agent.config.checkpoint is None
-        assert agent.config.event_log is None
+        assert prod.config.checkpoint is None
+        assert prod.config.event_log is None
 
 
 class TestCostSkipping:

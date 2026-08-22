@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, overload
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 if TYPE_CHECKING:
     from redis import Redis
@@ -21,6 +21,18 @@ class _TcpConn:
 
 def _url() -> str | None:
     return os.getenv("REDIS_URL") or None
+
+
+def _import_redis() -> Any:
+    """Import the ``redis`` package or fail with an actionable install hint."""
+    try:
+        import redis
+    except ImportError as exc:
+        raise ImportError(
+            "Redis backend requires the redis package. "
+            "Install it with: pip install 'prodagent[redis]'"
+        ) from exc
+    return redis
 
 
 def _tcp_conn() -> _TcpConn:
@@ -44,6 +56,7 @@ def redis_client_from_env(*, async_: bool = False) -> Redis | AsyncRedis:
     """
     url = _url()
     tcp = _tcp_conn()
+    _import_redis()
     if async_:
         from redis.asyncio import Redis as AsyncRedis
 

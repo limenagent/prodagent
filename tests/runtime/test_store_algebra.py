@@ -8,9 +8,9 @@ from __future__ import annotations
 import pytest
 
 from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
-from prodagent.runtime.coordination.blackboard import Board
-from prodagent.runtime.coordination.floor import FloorTurn, SharedFloor
-from prodagent.runtime.coordination.work_queue import SharedQueue, WorkItem
+from prodagent.coordination.blackboard import Board
+from prodagent.coordination.floor import FloorTurn, SharedFloor
+from prodagent.coordination.work_queue import SharedQueue, WorkItem
 
 
 class _NamedMember:

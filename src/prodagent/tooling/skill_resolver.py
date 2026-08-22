@@ -10,8 +10,8 @@ from prodagent.hooks.gates import Gate
 
 if TYPE_CHECKING:
     from prodagent.core.types import ToolMeta
-    from prodagent.evaluation.skills.registry import SkillRegistry
     from prodagent.hooks.registry import HookRegistry
+    from prodagent.skills.registry import SkillRegistry
 
 logger = logging.getLogger(__name__)
 

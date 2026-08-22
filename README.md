@@ -1,250 +1,229 @@
 # prodagent
 
-> 生产级 LLM agent 框架。大模型是概率的，生产要求确定性——这个框架把刹车、护栏、状态机做成一等公民。
+> 
+> **25,000 行，13 个包**
+> 一份你**真的能读完**的工业级 LLM Agent 实现。循环、预算、恢复、审批、权限、可观测、评估、多 Agent 协作——每个机制都小到一次读懂，完整到能上生产。
 
 [![PyPI](https://img.shields.io/pypi/v/prodagent)](https://pypi.org/project/prodagent/)
 [![CI](https://github.com/limenagent/prodagent/actions/workflows/ci.yml/badge.svg)](https://github.com/limenagent/prodagent/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
-[![Status](https://img.shields.io/badge/status-v1.0.0%20Stable-brightgreen)](https://github.com/limenagent/prodagent/releases)
 
-**中文文档** · [English](README.en.md)
+**中文文档** · [English](README.en.md) · 极客时间专栏[《生产级 Agent 排雷实战》](http://gk.link/a/12L6Q)配套框架
 
-这是极客时间专栏[《生产级 Agent 排雷实战》](http://gk.link/a/12L6Q)的配套开源框架。专栏讲透每个架构决策的 Why，本仓库用代码落地具体的 How。
+---
 
-## 为什么做这个框架
+## 你会用 LangChain，但你能设计一个 Agent 平台吗
 
-让 Agent 跑起来，和让它在生产里活下去，是两件事。从跑起来到推到生产，模型会幻觉终止、崩了丢状态、新旧记忆打架、越权操作、成本飙升 ... 每个项目都踩同一批坑，prodagent 把这层做成框架一等公民，不是又一个 LangChain，只做"生产环境敢上线"的那一层。
+翻一翻 2026 年的 Agent 岗位，分层很清楚。
 
-下图是 Agent 的可视化事件流 —— 每个 Agent 生命周期事件（PLAN 的 DAG、STEP 状态、SUB-AGENT fan-out、TOOL CALL、BUDGET ...）都是一张可观测的卡片。
+初级岗要求"熟练使用 LangChain/LangGraph，会写 prompt，做过 RAG"——三个月就能上手，所以供给最卷。高级岗和架构师岗的描述就完全不同了："从 0 到 1 构建生产级 Agent 系统"、"自研核心模块"、"多智能体架构设计"、"Agent Platform / AI Infra 建设"、"Trace/Log/Metrics 三位联动"、"三层多租户权限体系"。薪资翻两到三倍，能接住的人很少。
+
+差距不在模型能力，不在 prompt 技巧，在**工程设计能力**——具体来说，你能不能回答这些问题：
+
+**运行时稳定性：**
+
+- Agent 跑了 20 轮，进程被 kill -9 了，怎么从断点续跑，不丢状态、不重复执行？
+- 模型在两个工具之间反复横跳，token 一分钟烧一百块，怎么在 turns/seconds/tokens/cost 四个维度同时设硬上限？子 Agent 花的钱怎么实时汇总？
+- 一个 HIGH 副作用工具要删数据，怎么挂起等人审批？审批拒绝后怎么增量重规划，而不是推倒重来？
+
+**上下文与记忆：**
+
+- 上下文跑到第 30 轮塞不下了，丢哪段？语义损失边界在哪？怎么保证"用户说过不要红色"这种关键约束不被压缩掉？
+- 规则、实体、精确事实、语义相似这四类信息召回策略完全不同，怎么并行召回再做冲突裁决？
+
+**多 Agent 协作：**
+
+- 五个 Agent 并行干活，消息怎么去重、契约校验、审计、死信处理？怎么保证不丢、不重、不乱序？
+- 委派、接力、投票、共享黑板、工作队列——五种协作拓扑分别适用于什么场景？
+
+**企业级治理：**
+
+- 十个团队共用一个平台，怎么做租户隔离？A 团队的 Agent 能不能看到 B 团队的数据？
+- RBAC 只到角色级不够——同一个角色下的不同 Agent，可能需要操作级授权：A 只能查客户列表，B 才有权限发起审批流。策略引擎怎么设计？
+- 每一次工具调用、数据访问、操作执行，日志怎么完整记录、不可篡改？出了问题怎么按 TraceID 回放整条链路？
+
+**可观测与评估：**
+
+- Agent 出了问题，怎么定位是模型不行、prompt 不行、还是工具返回错了？Trace/Log/Metrics 怎么打通？思维链怎么落盘？
+- 改了一版 prompt，怎么知道变好还是变差了？离线回归怎么跑？线上 Trace 怎么自动打分？LLM-as-judge 怎么校准？
+
+这批问题没有标准答案，但每个上生产的团队都会撞上。解法散落在论文、issue 讨论、阿里云 AgentLoop 和腾讯 ADP 的产品文档、几十万行工业源码里——你读不完，也没人给你串成一条线。
+
+这个仓库就是那条线。上面每一个问题，源码里都有一个可以跑起来的对应实现。
+
+---
+
+## 为什么是这个仓库，而不是别的
+
+市面上 Agent 框架不少，但大多走两个极端。
+
+一类是**黑盒框架**——LangChain、AutoGen 之流，功能全但抽象层厚，你学会的是它的 API，不是它的设计。出了问题只能翻源码猜，改不动核心。权限、评估、可观测这些企业级特性，要么没有，要么绑死在它们的云上。
+
+一类是**教学玩具**——几十行代码演示 ReAct 循环，看起来清晰，但没有预算、没有恢复、没有审批、没有多 Agent、没有权限、没有可观测，离生产差十万八千里。
+
+prodagent 卡在中间。它是一个**可以 `pip install` 的生产级库**，同时**整个代码库只有 25,000 行，13 个包，按学习顺序排列**。你可以从头读到尾，每一个机制都能在脑子里建立完整的心智模型。
+
+更重要的是，它的设计是**可拆解的**。预算、审批、崩溃恢复、上下文压缩、多 Agent 治理、权限策略、可观测追踪——每个都是独立模块，有清晰的 Protocol 边界。你的项目缺哪块，就搬哪块，不用引入整个框架。
+
+---
+
+## 学完你能得到什么
+
+### 第一，一套完整的生产级 Agent 设计心智模型
+
+不是零散的知识点，而是从一次 `chat()` 调用开始，经过循环、预算、工具调度、审批、权限校验、检查点、消息平面、上下文压缩、记忆召回、可观测追踪，到最终返回的**完整生命周期**。
+
+文档第一部分用七站走完这条链路，每一站对应源码里的一个包。读完你能在白板上画出整个 Agent 的运行时架构，并且说清每一层为什么存在、去掉会怎样、替代方案是什么。
+
+### 第二，每个机制都能现场调试
+
+整个框架离线可跑。测试不连网，九个示例的每一轮模型行为都是可复现的脚本。
+
+你可以在 `chat()` 的调用链打断点，看一次请求到底经过了多少层；改一个预算参数，看它在哪一轮、为什么停下来；把审批门拆掉，看没有保护的 Agent 会做出什么；把权限策略改成全放行，看越权操作会触发什么。
+
+理解一个机制最深刻的方式是**调试它，不是背它的结论**。
+
+### 第三，面试和工作中能接住高级岗的问题
+
+下次面试被问到"你们的 Agent 怎么做崩溃恢复"、"多 Agent 之间的消息怎么保证不丢不重"、"上下文满了你们怎么处理"、"权限怎么做到操作级"、"怎么做离线回归评估"，你不用编。你见过完整的实现，知道 trade-off 在哪，能说出至少两种方案的优劣。
+
+工作中更直接——你的项目需要审批门？搬 `hooks/approval/`。需要崩溃恢复？搬 `ports/checkpoint.py` + `backends/file/`。需要多 Agent 协作？搬 `coordination/`。需要可观测追踪？搬 `hooks/observability/`。不用从零造轮子。
+
+[→ 开始：文档第一部分，七站读穿一次调用的生命周期](docs/tour/index.md)
 
 ![prodagent](docs/images/prodagent.png)
 
-## 核心能力
-
-### 生产基建
-
-- **四维硬预算** —— turns / seconds / tokens / cost_usd 四个独立维度，任一触顶即硬停，子 Agent 花销实时汇总回父 Agent。
-- **崩溃恢复** —— checkpoint + 事件日志 + 乐观版本控制，进程崩了重启从断点续跑。
-- **可替换后端** —— 默认 file + memory 开箱即用，生产可换 Postgres / Neo4j / Qdrant / Redis。
-- **重试** —— fixed / exponential / jittered 三种 backoff 策略，按错误码统一分类决定是否重试、是否降级。
-- **熔断** —— 工具级（ CLOSED → OPEN → HALF_OPEN 自动探测恢复）。
-- **安全** —— 五层注入防护管道（机制内置）+ 写时拦截 + HITL 审批门禁。检测策略由应用注入（`InjectionPolicy`）：零配置 = 全放行，框架不内置任何正则库——什么算危险是你的威胁模型，不是框架的默认值。
-- **可观测** —— Span 追踪 + OTLP 导出 + 轨迹漂移检测。
-- **评估测试** —— 黄金评测集 + LLM Judge
-
-<details>
-<summary>📂 源文件索引（点击展开）</summary>
-
-| 能力 | 核心源文件（`src/prodagent/`） |
-|---|---|
-| 四维硬预算 | `core/budget.py`、`runtime/coordination/budget_ledger.py`、`runtime/coordination/accounting.py`、`resilience/cost/pricing.py` |
-| 崩溃恢复 | `ports/checkpoint.py`、`backends/file/checkpoint.py`、`backends/postgres/checkpoint.py`、`backends/postgres/_versioned.py`、`core/event_log.py`、`ports/event_log.py`、`runtime/plan/event_log.py`、`core/state/run.py` |
-| 可替换后端 | `ports/`（15 个 Protocol 端口）、`backends/factory.py`、`backends/registry.py`、`backends/file/`、`backends/memory/`、`backends/postgres/`、`backends/neo4j/`、`backends/qdrant/`、`backends/redis/` |
-| 重试 | `resilience/reliability/retry.py`、`resilience/transport/http_retry.py`、`core/error_classifier.py`、`core/error_reason.py` |
-| 熔断 | `tooling/reliability/circuit_breaker.py` |
-| 安全 | `guardrail/injection/pipeline.py`、`guardrail/injection/policy.py`、`guardrail/injection/trust_chain.py`、`guardrail/approval/gate.py`、`guardrail/approval/formatter.py`、`hooks/bundles/security/` |
-| 可观测 | `core/observability.py`、`resilience/observability/otel_exporter.py`、`resilience/observability/drift.py`、`resilience/observability/audit.py`、`resilience/observability/scrubber.py`、`ports/span.py`、`hooks/bundles/observability.py` |
-| 评估测试 | `evaluation/evals/dataset.py`、`evaluation/evals/judge.py`、`evaluation/evals/runner.py`、`evaluation/testing/trace_assert.py`、`evaluation/testing/cassette.py` |
-
-</details>
-
-### 编排能力
-
-- **三执行模式** —— `PLAN_FIRST`（LLM 动态出 PLAN DAG，可审计、可 HITL、可断点续跑）/ `REACTIVE`（ReAct 循环，边走边看）/ `Workflow`（人写静态 PLAN DAG）。
-- **多 Agent 协作** —— 五个原语 = 「共享状态（store）× 激活策略（activation）」两个正交轴的组合：
-
-  | 原语 | 共享状态（写语义） | 激活策略（谁被唤醒）                                                                                 |
-  |---|---|------------------------------------------------------------------------------------------------------|
-  | `agents=` 垂直委派 | 父子结果传递（树） | 父推送任务给子                                                                                       |
-  | `peers=` 横向接力 | HandoffPacket（链） | 上一个转交控制权                                                                                     |
-  | `Ensemble` 共享会话 | `SharedFloor` 追加式 transcript | `RoundRobin` 轮流 / `Moderated` 主持人选人 / `FreeForAll` 全员并发发言（辩论 / 头脑风暴 / 角色扮演） |
-  | `Blackboard` 共享可变状态 | `Board` 版本化字段（乐观并发） | `Trigger` 字段变化触发，并行 fan-out / 抢锁先算（流水线式知识加工（上一步的输出是下一步的输入）      |
-  | `WorkQueue` 任务池 | `SharedQueue` 租约队列 | worker 主动领活 · 租约超时回收                                                                       |
- - **上下文三明治** —— state / memory / skills / history / reminder 五段式组装，每段独立可控、独立可压缩。
-- **五级压缩** —— NONE / TOOL_COMPRESS / HISTORY_SUMMARY / TOPIC_SUMMARY / EMERGENCY，按 token 占用比例自动触发，每级有明确的语义损失边界。
-- **工具系统** —— `@tool` 装饰器声明式注册，按副作用分层（LOW/MEDIUM/HIGH）；原生 MCP 协议接入外部工具。
-
-<details>
-<summary>📂 源文件索引（点击展开）</summary>
-
-| 能力 | 核心源文件（`src/prodagent/`） |
-|---|---|
-| 三执行模式 | `runtime/agent.py`、`runtime/plan/planner.py`、`runtime/plan/dag.py`、`runtime/plan/executor.py`、`runtime/plan/step_runner.py`、`runtime/plan/bootstrap.py`、`runtime/reactive.py`、`runtime/workflow.py`、`runtime/runner.py` |
-| Agent 协作 | `runtime/coordination/spawn.py`、`runtime/coordination/peer.py`、`runtime/coordination/ensemble.py`、`runtime/coordination/floor.py`、`runtime/coordination/floor_projection.py`、`runtime/coordination/blackboard.py`、`runtime/coordination/work_queue.py`、`runtime/coordination/activation.py`、`runtime/coordination/_stage.py`、`runtime/coordination/_store.py`、`runtime/coordination/budget_ledger.py`、`runtime/coordination/termination.py`、`runtime/coordination/messaging/`（envelope / contract / pipeline / interceptors / packet）、`runtime/coordination/run_loop.py`、`runtime/coordination/parent_runtime.py` |
-| 上下文三明治 | `cognition/context/manager.py`、`cognition/context/budget.py`、`cognition/context/spill.py`、`cognition/context/tool_results.py` |
-| 五级压缩 | `cognition/context/compression/pipeline.py`、`cognition/context/compression/summarizer.py`、`cognition/context/compression/formatting.py` |
-| 工具系统 | `tooling/decorator.py`、`tooling/base.py`、`tooling/registry.py`、`tooling/dispatcher.py`、`tooling/runner.py`、`tooling/search.py`、`tooling/skill_resolver.py`、`mcp/bridge.py`、`mcp/client.py`、`mcp/registry.py`、`mcp/config.py`、`mcp/transports/` |
-
-</details>
-
-### 进阶能力
-
-- **四通道长期记忆** —— 规则 / 实体 / 精确 / 语义并行 recall + ACT-R 激活衰减。
-- **三协议 Hook 总线** —— Event（通知）/ Gate（阻塞，首个 veto 即停）/ Injection（注入）协议层分离。
-- **自我进化闭环** —— 成功的 run 蒸馏成 Skill，下次按需加载。
-
-<details>
-<summary>📂 源文件索引（点击展开）</summary>
-
-| 能力 | 核心源文件（`src/prodagent/`） |
-|---|---|
-| 四通道长期记忆 | `cognition/memory/manager.py`、`cognition/memory/channels.py`、`cognition/memory/forgetting.py`、`cognition/memory/facts.py`、`cognition/memory/classification.py`、`cognition/memory/storage.py`、`cognition/memory/conflict.py`、`cognition/memory/embedder.py`、`cognition/memory/touch_worker.py`、`hooks/bundles/memory.py` |
-| 三协议 Hook 总线 | `hooks/registry.py`、`hooks/events.py`、`hooks/gates.py`、`hooks/bundles/base.py`、`hooks/bundles/default_wiring.py`、`hooks/observers/console.py`、`hooks/observers/cache_monitor.py` |
-| 自我进化闭环 | `evaluation/learning/skill_synthesizer.py`、`evaluation/learning/experience.py`、`evaluation/learning/storage.py`、`evaluation/skills/registry.py`、`evaluation/reflection/constitutional.py`、`hooks/bundles/learning.py` |
-
-</details>
+---
 
 ## 快速开始
 
-一条命令起 playground——自动装 uv、首跑弹配置向导、开浏览器：
-
-```bash
-make playground
-```
-
-首次运行进入交互式向导，二选一：
-
-- **FakeLLM** —— 离线，零 key，直接体验 9 个 example
-- **OpenAI 兼容端点** —— 填 `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`。DeepSeek、Qwen、Moonshot、Zhipu 等任何 OpenAI Chat Completions 协议厂商均适用
-
-不想跑向导，在仓库根目录写 `.env` 即可跳过：
-
-```
-USE_FAKE_LLM=1
-# 或
-LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
-LLM_API_KEY=xxx
-LLM_MODEL=glm-5.2
-``` 
-
-> 没有 `make`（Windows 等）？先装 uv：`powershell -c "irm https://astral.sh/uv/install.ps1 | iex"`，再 `uv sync && uv run prodagent --port 8766`。
-
-启动后浏览器自动打开 `http://127.0.0.1:8766`。切生产后端：`make playground-prod`（自动拉起 Postgres / Neo4j / Qdrant / Redis）。
-
-### 端到端示例：9 个场景，从最小骨架到全栈组装
-
-| # | Example | 场景 | 核心能力                                                                             |
-|---|---------|------|----------------------------------------------------------------------------------|
-| 1 | [greeter](examples/greeter) | 最小可跑 Agent | `@tool` + `Agent` + `mode="reactive"` 三件套                                        |
-| 2 | [trader](examples/trader) | 奶茶代购下单协商 | 对话式多轮协商（提案→反驳→调整→下单）+ memory 驱动 replan + HIGH 副作用 HITL 审批                        |
-| 3 | [deep_research](examples/deep_research) | 多轮探索式研究 | REACTIVE 探索树 + 五级 context 压缩 + 注入防御 + 记忆防重复                                      |
-| 4 | [compliance_audit](examples/compliance_audit) | 金融合规审计 + 动态 Plan + Plan 审批门 | `PLAN_FIRST` LLM 动态生成 DAG + 人类审批门（Approve/Reject）+ auto-replan 增量重规划 + 幂等写工具 |
-| 5 | [code_detective](examples/code_detective) | 自主修 bug | MCP stdio server 桥接外部工具 + REACTIVE 多轮调试                                          |
-| 6 | [trip_planner](examples/trip_planner) | 旅行规划 | `Workflow` DAG + 3 peer 并行 fan-out + `MemoryManager` 偏好注入                        |
-| 7 | [aiops](examples/aiops) | 故障应急全栈 | 多 Agent spawn + peer handoff + 记忆 + 学习 + 可观测 + 审批                                |
-| 8 | [dating_chat](examples/dating_chat) | Agent相亲 | `Ensemble` 多 Agent 共享 floor + 真·框架 Agent vs 简单版 Agent 的记忆/上下文反差          |
-| 9 | [quiz_arena](examples/quiz_arena) | 抢答竞赛场 | `WorkQueue` 后台审题（抢活干 + 租约超时 + 死信）接 `Blackboard` 正式抢答（`buzz_in` 先抢锁再算，用真实计算次数断言互斥语义） |
-
-### 安装
-
-```bash
-pip install prodagent
-# 核心依赖（anyio/httpx/pydantic/typing-extensions）
-# 按需加装：
-pip install "prodagent[openai]"        # OpenAI 及兼容端点
-pip install "prodagent[anthropic]"     # Anthropic
-pip install "prodagent[playground]"    # 本地可视化 playground
-pip install "prodagent[postgres,redis,neo4j,qdrant]"  # 生产后端驱动
-```
-
-### 调用框架 SDK
+最小可跑，零文件零旁路：
 
 ```python
 import asyncio
 
-from prodagent import Agent, ExecutionMode, HardBudget, tool
-
+from prodagent import Agent, ExecutionMode, tool
 
 @tool(name="search", readonly=True)
 async def search(query: str) -> str:
     return f"results for: {query}"
 
+agent = Agent("demo", system_prompt="Find answers.", tools=[search],
+              mode=ExecutionMode.REACTIVE)
 
-agent = Agent(
-    "demo",
-    system_prompt="Find answers.",
-    tools=[search],
-    mode=ExecutionMode.REACTIVE,
-    budget=HardBudget(max_turns=20, max_cost_usd=1.0, max_seconds=1800.0),
-)
-
-
-asyncio.run(agent.chat("What is the weather in Paris?"))
+asyncio.run(agent.chat("巴黎今天天气如何？"))
 ```
 
-### 在 PyCharm 中调试
+一键上生产全套（落盘恢复、span 追踪、HIGH 工具审批门、LLM 缓存、上下文压缩）：
 
-1. 用 PyCharm 打开本仓库，解释器选项目的 `.venv`。
-2. Run → Edit Configurations → 新建 **Python** 配置：Script path 选 `src/prodagent/playground/server.py`，Working directory 设为仓库根目录。
-3. 环境变量二选一：
-   - 离线零依赖：加 `USE_FAKE_LLM=1`
-   - 生产后端：先 `make services-up` 拉起 Postgres/Redis/Neo4j/Qdrant，再加 `make playground-prod` 里的 `PRODAGENT_BACKEND=prod` 及 `DATABASE_URL` / `REDIS_URL` / `NEO4J_*` / `QDRANT_*`
-4. 点 **Debug**，断点打在 `src/prodagent` 任意文件即可 —— PyCharm 调试器自动 attach，不需要手动接 debugpy。
-5. 默认端口 8765，浏览器打开 `http://127.0.0.1:8765`。
+```python
+from prodagent.core.config import production
+
+agent = Agent("demo", ..., config=AgentConfig(name="demo", framework=production()))
+```
+
+可视化 playground，离线跑全部 9 个示例：
+
+```bash
+make playground    # 自动装 uv、首跑配置向导、开浏览器
+```
+
+安装与模型配置：
+
+```bash
+pip install prodagent
+# 核心仅 4 个依赖：anyio/httpx/pydantic/typing-extensions，按需加装：
+pip install "prodagent[openai,anthropic]"      # 模型 provider
+pip install "prodagent[playground]"             # 可视化
+pip install "prodagent[postgres,redis,neo4j]"   # 生产后端（默认 file+memory 零依赖）
+```
+
+模型配置三选一：
+
+- `USE_FAKE_LLM=1` 完全离线
+- `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` 指任意 OpenAI 兼容端点（DeepSeek/Qwen/Moonshot/Zhipu…）
+- `ANTHROPIC_API_KEY`
+
+**[→ 完整文档：学习路线 · 一次调用的生命周期 · 专题 · 示例](https://limenagent.github.io/prodagent/)**
+
+---
+
+## 核心能力
+
+| 能力 | 解决什么问题 | 源码 |
+| --- | --- | --- |
+| **裸核默认** | `Agent()` 零文件零旁路起步；`production()` 一键全套护甲 | `core/config.py` |
+| **四轴硬预算** | turns/seconds/tokens/cost 任一触顶即停；子 Agent 花销实时汇总到总账 | `core/budget.py`、`coordination/budget_ledger.py` |
+| **崩溃恢复** | checkpoint + 乐观版本控制；kill -9 后从断点续跑，不重复执行已完成步骤 | `ports/checkpoint.py`、`backends/file/` |
+| **HITL 审批** | HIGH 副作用工具挂起等人；拒绝触发增量重规划，不是推倒重来 | `hooks/approval/` |
+| **权限策略引擎** | RBAC + 操作级授权；Agent 身份、工具权限、数据访问三层策略；越权拦截与审计 | `hooks/authorization/` |
+| **三执行模式** | REACTIVE / PLAN_FIRST（动态 DAG）/ Workflow（静态 DAG），按任务复杂度选 | `runtime/`、`plan/` |
+| **五协作原语** | agents= 委派、peers= 接力、Ensemble / Blackboard / WorkQueue，覆盖主流多 Agent 拓扑 | `coordination/` |
+| **统一消息平面** | 一切跨 Agent 通信走同一管道：去重→契约校验→安全→审计→死信，不丢不重不乱序 | `coordination/messaging/` |
+| **五级上下文压缩** | 按 token 占比分级牺牲，每级有明确语义损失边界，关键约束不被压缩掉 | `cognition/context/` |
+| **四通道记忆** | 规则/实体/精确/语义并行召回 + 冲突裁决 + 遗忘曲线，不是只有向量检索 | `cognition/memory/` |
+| **全链路可观测** | OpenTelemetry 兼容的 span 追踪；每轮推理、工具调用、消息穿越自动埋点；Trace/Log/Metrics 三位联动；CoT 思维链落盘 | `hooks/observability/` |
+| **评估与回归** | 离线数据集评测 + 线上 Trace 自动打分；支持 LLM-as-judge、代码规则、人工标注；每次改动可跑回归对比 | `evaluation/` |
+| **可替换后端** | 14 个 Protocol 端口；file+memory 默认零依赖，Postgres/Redis/Neo4j 按需替换 | `ports/`、`backends/factory.py` |
+| **技能闭环** | 成功的 run 蒸馏成 runbook，下次同类任务按需加载，越用越稳 | `skills/` |
+| **MCP 桥接** | 外部工具经 stdio/HTTP 接入，不用为每个工具写适配层 | `mcp/` |
+
+---
 
 ## 架构
 
-Agent 是装配入口。三类架构决策：执行模式可切换、横切能力以 Bundle 形式可插拔、后端是 Protocol 端口可替换。
-
-### 执行模式
-
 ```mermaid
 graph TD
-    A[Agent] --> M{mode}
-    M -->|mode='plan_first'| PF[PLAN_FIRST<br/>LLM 出动态 DAG<br/>可审计 · 可 HITL · 可断点续跑]
-    M -->|mode='reactive'| RV[REACTIVE<br/>ReAct 循环 · 边走边看]
-    M -->|workflow=wf| WF[Workflow<br/>人写静态 DAG]
+    A["Agent()"] --> RL["RunLoop"]
+    RL --> F["factory.prepare"]
+    F --> R["ReactiveLoop<br/>think→decide→execute"]
+    F --> P["PlanExecutor<br/>DAG + 断点续跑"]
+    R --> D["ToolDispatcher<br/>只读并行/写串行"]
+    P --> D
+    D --> AUTH["权限策略引擎<br/>RBAC + 操作级授权"]
+    AUTH --> APPR["HITL 审批门"]
+    R --> L["LLMClient 端口"]
+    P --> L
+    RL -->|spawn/peers/Ensemble/Board/Queue| M["Crossing 消息平面<br/>去重→契约→安全→审计→死信"]
+    subgraph 可选护甲
+        H["hooks：审批/权限/可观测"] --- CK["checkpoint/session"]
+        COG["压缩/记忆"]
+        EVAL["评估/回归"]
+    end
+    R -.-> H
+    M -.-> H
+    R -.-> OBS["span 追踪 / CoT 落盘"]
 ```
 
-### Hook 三协议总线
+包目录即学习顺序：`core → ports → llm → tooling → runtime → plan → coordination → cognition → hooks → skills → evaluation → backends → mcp → playground`。
 
-HookRegistry 按协议层分流，三种协议语义不同：Event 纯通知不阻断，Gate 阻塞决策首个 veto 即停，Injection 聚合注入器结果。
+---
 
-```mermaid
-graph LR
-    H[HookRegistry]
-    H --> E
-    H --> K
-    H --> I
-    H -.playground 自带.- WP[WebPush]
+## 九个端到端示例
 
-    subgraph E[Event · 通知，不阻断]
-        C[Console]
-        S[Span]
-        LE[Learning]
-    end
+不是玩具示例，每个都对应一个真实的生产场景，教一个完整的机制组合：
 
-    subgraph K[Gate · 阻塞，首个 veto 即停]
-        AP[Approval]
-        SE[Security]
-    end
+| # | 示例 | 场景 | 教什么 |
+| --- | --- | --- | --- |
+| 1 | [greeter](examples/greeter) | 最小可跑 Agent | `@tool` + `Agent` + REACTIVE |
+| 2 | [trader](examples/trader) | 奶茶代购协商 | 多轮谈判 + 记忆约束 + HIGH 审批 |
+| 3 | [deep_research](examples/deep_research) | 探索式研究 | REACTIVE 树 + 五级压缩 + 预算硬上限 |
+| 4 | [compliance_audit](examples/compliance_audit) | 金融合规审计 | 动态 DAG + 审批拒绝→增量重规划 + 权限策略 |
+| 5 | [code_detective](examples/code_detective) | 自主修 bug | MCP 桥接 + 技能闭环 + 可观测追踪 |
+| 6 | [trip_planner](examples/trip_planner) | 旅行规划 | Workflow DAG + 3 peer 并行 + 消息平面 |
+| 7 | [aiops](examples/aiops) | 故障应急 | spawn + peer + 技能 + 审批 + 评估全栈 |
+| 8 | [dating_chat](examples/dating_chat) | Agent 相亲 | Ensemble 共享会话 + 记忆 A/B 对比 |
+| 9 | [quiz_arena](examples/quiz_arena) | 抢答竞赛 | WorkQueue（租约+死信）+ Blackboard + 多租户隔离 |
 
-    subgraph I[Injection · 注入，聚合结果]
-        ME[Memory recall]
-        CTX[Context state]
-    end
-```
+全部离线可跑（FakeLLM 脚本精确到每轮工具调用），与 1,182 个测试共用同一套机制。
 
-### 后端存储接口
-
-15 个 Protocol 端口，每个独立可替换。默认 file + memory 单机零依赖，生产按数据类型分库：关系数据 Postgres、图 Neo4j、向量 Qdrant、缓存与协调 Redis。
-
-```mermaid
-graph TD
-    A[Agent] --> RT[Runtime<br/>Workflow · AgentLoop<br/>PlanExecutor · Plan]
-    A --> P[Ports · 15 Protocol]
-    P --> R[关系型<br/>CheckpointStore · EventLog<br/>SessionStore · DocumentStore<br/>ExperienceStore]
-    P --> G[图<br/>GraphStore]
-    P --> V[向量<br/>VectorStore]
-    P --> T[缓存与协调<br/>CacheStore · LockStore<br/>ApprovalStore · DeadLetterStore]
-    P --> X[基础设施<br/>LLMClient · Tool · SpanExporter]
-    R -.-> PG[(Postgres)]
-    G -.-> NEO[(Neo4j)]
-    V -.-> QD[(Qdrant)]
-    T -.-> RD[(Redis)]
-```
+---
 
 ## License
 
-AGPL v3,详见 [LICENSE](LICENSE)。
+AGPL v3，详见 [LICENSE](LICENSE)。
+
+---
+
+**如果这个仓库帮你把 Agent 设计的某个环节想通了，点个 star，让更多卡在同一处的人看到。**

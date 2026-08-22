@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING, Any
 from prodagent.cognition.memory.channels import top_k_by_cosine
 from prodagent.cognition.memory.storage import MemoryRecord, StoredMemory, mem_id
 from prodagent.core.time import now_timestamp
-from prodagent.llm.base import LLMConfig, stream_text
+from prodagent.llm import LLMConfig, stream_text
 from prodagent.llm.structured_output import extract_json_object
 
 if TYPE_CHECKING:
     from prodagent.cognition.memory.embedder import HashEmbedder
-    from prodagent.llm.base import LLMClient
+    from prodagent.llm import LLMClient
     from prodagent.ports.document import DocumentStore
 
 logger = logging.getLogger(__name__)

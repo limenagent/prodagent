@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from prodagent import MemoryManager, build_memory_manager
+from prodagent.backends.file.document import FileDocumentStore
 from prodagent.backends.memory.graph import InMemoryGraphStore
 from prodagent.cognition.memory.storage import MemoryRecord, MemoryType
 
@@ -18,16 +18,11 @@ NIU_MATCHMAKER_HINT = "介绍人提前说过：大牛这人大大咧咧，做事
 
 def build_memory(*, clean: bool = False, memory_dir: Path | None = None) -> MemoryManager:
     """构造持久化 MemoryManager —— documents 落盘，facts 常驻内存，不挂分类器。"""
-    target_dir = memory_dir or MEMORY_DIR
-    if clean and target_dir.exists():
-        shutil.rmtree(target_dir)
-    target_dir.mkdir(parents=True, exist_ok=True)
-
-    from prodagent.backends.file.document import FileDocumentStore
-
     return build_memory_manager(
-        documents=FileDocumentStore(target_dir),
+        documents=FileDocumentStore(memory_dir or MEMORY_DIR),
         facts=InMemoryGraphStore(),
+        memory_dir=memory_dir or MEMORY_DIR,
+        clean=clean,
     )
 
 

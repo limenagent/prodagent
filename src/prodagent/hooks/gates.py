@@ -24,18 +24,18 @@ class FailurePolicy(StrEnum):
 
 
 class Gate(StrEnum):
-    TOOL_CALL = "checkpoint.tool_call"
-    PLAN_APPROVAL = "checkpoint.plan_approval"
+    TOOL_CALL = "gate.tool_call"
+    PLAN_APPROVAL = "gate.plan_approval"
 
     # L1-L5 security pipeline gates
-    SESSION_START = "checkpoint.session_start"
-    CONTEXT_BUILD = "checkpoint.context_build"
-    TOOL_RESULT = "checkpoint.tool_result"
-    RUN_COMPLETE = "checkpoint.run_complete"
+    SESSION_START = "gate.session_start"
+    CONTEXT_BUILD = "gate.context_build"
+    TOOL_RESULT = "gate.tool_result"
+    RUN_COMPLETE = "gate.run_complete"
 
-    APPROVAL_REQUEST = "checkpoint.approval_request"
-    AGENT_HANDOFF = "checkpoint.agent_handoff"
-    DOCUMENT_ADD = "checkpoint.document_add"
+    APPROVAL_REQUEST = "gate.approval_request"
+    AGENT_HANDOFF = "gate.agent_handoff"
+    DOCUMENT_ADD = "gate.document_add"
 
 
 class InjectionPoint(StrEnum):

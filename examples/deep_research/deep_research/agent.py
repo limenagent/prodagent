@@ -15,11 +15,10 @@
 from __future__ import annotations
 
 import dataclasses
-import os
 from pathlib import Path
 
-from prodagent import Agent, AgentConfig, ContextConfig, ExecutionMode, FrameworkConfig, HardBudget
-from prodagent.evaluation.skills.registry import SkillRegistry
+from prodagent import Agent, AgentConfig, ContextConfig, ExecutionMode, FrameworkConfig, HardBudget, use_fake_llm
+from prodagent.skills.registry import SkillRegistry
 
 from deep_research.fake_llm import build_fake_llm
 from deep_research.tools import synthesize_report, web_fetch
@@ -98,13 +97,14 @@ def build_deep_research_agent(
             但 demo 必须用调小的 context 配置才能触发压缩 —— 这里 override context,
             保留传入 fw 的 backend(namespace 隔离 + 连接池复用)。
     """
-    demo_ctx = _build_framework_config().context
+    demo_fw = _build_framework_config()
+    demo_fw.profile = "production"  # this example demos the compression stack
     if framework_config is not None:
-        fw = dataclasses.replace(framework_config, context=demo_ctx)
+        fw = dataclasses.replace(framework_config, context=demo_fw.context)
     else:
-        fw = _build_framework_config()
+        fw = demo_fw
     skills = SkillRegistry.from_dir(SKILLS_DIR)
-    use_fake = os.getenv("USE_FAKE_LLM", "").lower() in ("1", "true", "yes")
+    use_fake = use_fake_llm()
     llm = build_fake_llm() if use_fake else None
 
     return Agent(

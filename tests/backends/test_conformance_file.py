@@ -2,12 +2,19 @@
 
 File backends hold relational / durable state (checkpoint, event_log, document,
 span) on a single host. Graph and vector data do not belong here — those have
-their own dedicated engines (Neo4j, Qdrant) and their own conformance files.
+their own dedicated engines (Neo4j) and their own conformance files.
 """
 
 from __future__ import annotations
 
-from prodagent.backends.conformance import (
+from prodagent.backends.file import (
+    FileCheckpointStore,
+    FileDocumentStore,
+    FileEventLog,
+    FileGraphStore,
+    FileSpanExporter,
+)
+from tests.backends.conformance import (
     run_checkpoint_conformance,
     run_checkpoint_fork_conformance,
     run_checkpoint_fork_refuses_existing_conformance,
@@ -30,13 +37,6 @@ from prodagent.backends.conformance import (
     run_span_conformance,
     run_span_export_after_shutdown_conformance,
     run_span_shutdown_idempotent_conformance,
-)
-from prodagent.backends.file import (
-    FileCheckpointStore,
-    FileDocumentStore,
-    FileEventLog,
-    FileGraphStore,
-    FileSpanExporter,
 )
 
 

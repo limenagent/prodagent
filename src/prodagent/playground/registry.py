@@ -124,9 +124,11 @@ def _append_suffix(path: str, suffix: str) -> str:
 
 
 def _framework_config_for(name: str) -> FrameworkConfig:
-    from prodagent.core.config import FrameworkConfig
+    from prodagent.core.config import FrameworkConfig, production
 
-    fw = FrameworkConfig.from_env()
+    # The playground is the production cockpit: durability for stateless
+    # resume, spans for the event cards, the HITL gate for approval UX.
+    fw = production(FrameworkConfig.from_env())
     suffix = f"-playground-{name}"
     base_pg = fw.backend.postgres_namespace
     fw.backend.postgres_namespace = f"{base_pg}{suffix}" if base_pg else f"playground-{name}"
@@ -419,7 +421,7 @@ class RunRegistry:
         return summaries
 
     async def _resolve_suspended_peer(self, spec: ExampleSpec, root: AgentRun) -> str | None:
-        from prodagent.runtime.coordination.peer import resolve_suspended_peer_run_id
+        from prodagent.coordination.peer import resolve_suspended_peer_run_id
 
         store = self.checkpoint_for(spec.name)
         return await resolve_suspended_peer_run_id(store, root.pending_handoff)

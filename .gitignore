@@ -3,6 +3,14 @@
 .env.*
 !.env.example
 
+# --- Internal strategy docs (author-only; pricing & competitive plays —
+# never publish. The public docs site lives in docs/ alongside these.) ---
+docs/platform-blueprint.md
+docs/platform-inspirations.md
+docs/platform-landscape-survey.md
+docs/product-strategy.md
+docs/internal/
+
 # --- Runtime state (created by runs — never check in) ---
 .prodagent/
 examples/*/.prodagent/
@@ -11,6 +19,7 @@ src/prodagent/.prodagent/
 examples/*/traces/
 examples/*/.sessions/
 examples/*/.experiences/
+examples/*/evals/_reports/
 
 # --- Auto-synthesised skills (generated at runtime) ---
 examples/**/skills/*
@@ -18,6 +27,7 @@ examples/**/fixture/auth.py
 
 # --- Python ---
 __pycache__/
+site/
 *.py[cod]
 *$py.class
 *.so

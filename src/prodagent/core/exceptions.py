@@ -30,10 +30,6 @@ class ToolBlockedError(AgentError):
     """Tool returned BLOCKED — HITL approval was denied."""
 
 
-class ContractViolationError(AgentError):
-    """Handoff result does not conform to the declared contract."""
-
-
 class PermissionDenied(AgentError):
     """Tool call not permitted for this agent or session."""
 

@@ -17,8 +17,13 @@ class HookBundle(Protocol):
     def attach(self, agent: Agent, fw: FrameworkConfig | None, registry: HookRegistry) -> None: ...
 
 
-def default_hook_bundles() -> list[HookBundle]:
-    """Ordered list of bundles that ``attach_default_hooks`` wires."""
+def default_hook_bundles(fw: FrameworkConfig | None = None) -> list[HookBundle]:
+    """Ordered list of bundles that ``attach_default_hooks`` wires.
+
+    The bare profile stays silent: console is opt-in via env/flag, learning
+    only attaches when ``skills=`` is set — no observer, no span export, no
+    approval gate. The production profile restores the full stack.
+    """
     from prodagent.hooks.bundles.default_wiring import (
         ApprovalDefaultBundle,
         CacheMonitorDefaultBundle,
@@ -27,6 +32,8 @@ def default_hook_bundles() -> list[HookBundle]:
         SpanDefaultBundle,
     )
 
+    if fw is None or fw.profile == "bare":
+        return [ConsoleDefaultBundle(), LearningDefaultBundle()]
     return [
         ConsoleDefaultBundle(),
         CacheMonitorDefaultBundle(),

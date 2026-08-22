@@ -11,7 +11,7 @@ from prodagent.core.event_log import Event, PlanEventType
 from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.core.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.plan.executor import PlanExecutor
+from prodagent.plan.executor import PlanExecutor
 
 _TERMINAL = (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)
 
@@ -227,7 +227,7 @@ async def test_retry_same_run_id_after_plan_failure_does_not_conflict(tmp_path):
 async def test_complete_step_aborts_when_step_obsoleted_mid_flight(tmp_path):
     from prodagent.core.state import AgentRun
     from prodagent.core.types import RunState, ToolCall
-    from prodagent.runtime.plan.dag import Plan, PlanStep, StepStatus
+    from prodagent.plan.dag import Plan, PlanStep, StepStatus
 
     events, checkpoints = _stores(tmp_path)
     planner = PlanExecutor(
@@ -272,8 +272,8 @@ async def test_complete_step_aborts_when_step_obsoleted_mid_flight(tmp_path):
 
 @pytest.mark.asyncio
 async def test_cold_start_replan_marks_replaced_step_obsolete(tmp_path):
-    from prodagent.runtime.plan.dag import Plan, StepStatus
-    from prodagent.runtime.plan.event_log import apply_event
+    from prodagent.plan.dag import Plan, StepStatus
+    from prodagent.plan.event_log import apply_event
 
     events, checkpoints = _stores(tmp_path)
 

@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
-from prodagent import Agent, AgentConfig, ExecutionMode, FrameworkConfig, HardBudget, LLMClient
-from prodagent.evaluation.skills.registry import SkillRegistry
+from prodagent import (
+    Agent,
+    AgentConfig,
+    ExecutionMode,
+    FrameworkConfig,
+    HardBudget,
+    LLMClient,
+    use_fake_llm,
+)
+from prodagent.skills.registry import SkillRegistry
 
 from aiops.child_agents import (
     diagnostic_child_agents,
@@ -60,6 +67,12 @@ peer 接过 report 继续：open_incident、执行修复、验证、写 postmort
 DEFAULT_TASK = "支付服务有告警。"
 
 
+def _production_fw() -> FrameworkConfig:
+    from prodagent.core.config import production
+
+    return production(FrameworkConfig.default())
+
+
 def build_aiops_agent(
     *,
     llm: LLMClient | None = None,
@@ -68,7 +81,7 @@ def build_aiops_agent(
     """fake 模式用脚本化的 RoutingFakeLLM（确定的 OOM 故障轨迹）；
     否则不传 llm —— 框架从 env lazy resolve 真 LLM。evals 显式传 llm。
     """
-    use_fake = os.getenv("USE_FAKE_LLM", "").lower() in ("1", "true", "yes")
+    use_fake = use_fake_llm()
     resolved_llm = llm or (oom_happy_path_script() if use_fake else None)
     return Agent(
         "investigate",
@@ -81,7 +94,7 @@ def build_aiops_agent(
             tool_registry=build_aiops_tool_registry(),
             skills=SkillRegistry.from_dir(SKILLS_DIR),
             llm=resolved_llm,
-            framework=framework_config,
+            framework=framework_config or _production_fw(),
             agents=diagnostic_child_agents(),
             peers=[remediator_agent(llm=resolved_llm)],
         ),

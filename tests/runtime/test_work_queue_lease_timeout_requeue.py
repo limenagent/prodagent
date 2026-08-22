@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent.runtime.coordination.termination import MaxRounds, TerminationPolicy
-from prodagent.runtime.coordination.work_queue import (
+from prodagent.coordination.termination import MaxRounds, TerminationPolicy
+from prodagent.coordination.work_queue import (
     ItemCompletedEvent,
     ItemRequeuedEvent,
     QueueDrainedEvent,

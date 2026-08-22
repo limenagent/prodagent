@@ -4,18 +4,18 @@ floor survives."""
 
 from __future__ import annotations
 
-from prodagent.core.budget import HardBudget
-from prodagent.hooks.gates import BlockingResult, Gate
-from prodagent.hooks.registry import HookRegistry
-from prodagent.runtime.coordination.budget_ledger import SharedBudget
-from prodagent.runtime.coordination.ensemble import (
+from prodagent.coordination.budget_ledger import SharedBudget
+from prodagent.coordination.ensemble import (
     AgentFloorMember,
     EnsembleSpec,
     FloorTurnEvent,
     ensemble_stream,
 )
-from prodagent.runtime.coordination.floor import FloorTurn
-from prodagent.runtime.coordination.termination import MaxRounds, TerminationPolicy
+from prodagent.coordination.floor import FloorTurn
+from prodagent.coordination.termination import MaxRounds, TerminationPolicy
+from prodagent.core.budget import HardBudget
+from prodagent.hooks.gates import BlockingResult, Gate
+from prodagent.hooks.registry import HookRegistry
 
 
 class _ScriptedMember:
@@ -152,8 +152,8 @@ async def test_default_ensemble_without_hooks_unchanged():
 
 
 def test_agent_floor_member_still_satisfies_protocol():
+    from prodagent.coordination.floor import FloorMember as Protocol
     from prodagent.runtime.agent import Agent
-    from prodagent.runtime.coordination.floor import FloorMember as Protocol
 
     member = AgentFloorMember(Agent("m", system_prompt="s"), session_id="s1")
     assert isinstance(member, Protocol)

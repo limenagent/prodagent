@@ -71,7 +71,7 @@ def test_agent_constraints_in_system_prompt():
     captured_systems: list[str] = []
 
     from prodagent.core.types import LLMResponse
-    from prodagent.llm.base import LLMClient
+    from prodagent.llm import LLMClient
 
     class CaptureLLM(LLMClient):
         async def complete(self, messages, *, system="", tools=None, config=None, on_chunk):
@@ -99,7 +99,7 @@ def test_agent_context_in_system_prompt():
     captured_systems: list[str] = []
 
     from prodagent.core.types import LLMResponse
-    from prodagent.llm.base import LLMClient
+    from prodagent.llm import LLMClient
 
     class CaptureLLM(LLMClient):
         async def complete(self, messages, *, system="", tools=None, config=None, on_chunk):
@@ -128,11 +128,11 @@ def test_fluent_api_inject():
             injectors=[(InjectionPoint.CONTEXT_INJECTOR, lambda q: f"Context: {q}")],
         ),
     )
-    assert len(agent.injectors) == 1
+    assert len(agent.config.injectors) == 1
 
 
 def test_extend_human_approval_registers_checker():
-    from prodagent.guardrail.approval import ApprovalGate
+    from prodagent.hooks.approval import ApprovalGate
     from prodagent.hooks.bundles.security import ApprovalHooks
     from prodagent.hooks.gates import Gate
     from prodagent.hooks.registry import HookRegistry
@@ -175,8 +175,10 @@ def test_agent_saves_to_session_dir():
     llm = script({"content": "saved run complete"})
 
     with tempfile.TemporaryDirectory() as tmpdir:
+        from prodagent.core.config import production
+
         fw = _dc_replace(
-            FrameworkConfig.default(),
+            production(FrameworkConfig.default()),
             orchestration=_dc_replace(
                 FrameworkConfig.default().orchestration,
                 runs_dir=str(Path(tmpdir) / "checkpoints"),
@@ -198,7 +200,7 @@ def test_agent_saves_to_session_dir():
 
 def test_agent_budget_respected():
     from prodagent.core.types import LLMResponse
-    from prodagent.llm.base import LLMClient
+    from prodagent.llm import LLMClient
 
     class InfiniteLoopLLM(LLMClient):
         async def complete(self, messages, *, system="", tools=None, config=None, on_chunk):
@@ -254,7 +256,7 @@ def test_agent_stream_yields_events():
 def test_agent_stream_run_failed_event_on_budget_exhaustion():
     from prodagent.core.events import RunFailedEvent
     from prodagent.core.types import LLMResponse
-    from prodagent.llm.base import LLMClient
+    from prodagent.llm import LLMClient
 
     class LoopingLLM(LLMClient):
         async def complete(self, messages, *, system="", tools=None, config=None, on_chunk):
@@ -296,6 +298,7 @@ async def test_plan_first_failed_run_does_not_raise_attribute_error():
     agent = Agent(
         "plan-fail",
         system_prompt="Parse my plan.",
+        mode=ExecutionMode.PLAN_FIRST,
         config=AgentConfig(name="plan-fail", llm=bad_plan_llm, hooks=HookRegistry()),
     )
     assert agent.mode is ExecutionMode.PLAN_FIRST

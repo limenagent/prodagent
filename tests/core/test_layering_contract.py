@@ -1,11 +1,16 @@
 """Layering contract — pin the dependency direction in CI.
 
-AST-scans **module-level** imports across ``src/prodagent``:
+AST-scans imports across ``src/prodagent``:
 
-- imports inside function bodies are allowed — lazy resolution is the
-  composition root's (``prodagent.bootstrap``) legitimate form;
+- **module-level** imports follow the package rules below — in particular,
+  ``prodagent.backends`` never appears at module level outside ``backends``;
 - ``if TYPE_CHECKING`` blocks are allowed — type coupling carries no
-  runtime dependency.
+  runtime dependency;
+- function-body imports are allowed for lazy resolution — including
+  ``prodagent.backends.factory``, the single resolution surface for default
+  stores. The rule that matters is module-level: nothing outside
+  ``backends`` may import ``prodagent.backends`` at module level, so the
+  kernel import chain can never drag a backend in.
 
 Rules (new packages/files are governed automatically):
 
@@ -18,9 +23,6 @@ Rules (new packages/files are governed automatically):
 - every other package (runtime / tooling / hooks / guardrail / llm /
   resilience / cognition / evaluation / mcp) must not import
   backends / playground / repl;
-- ``prodagent.bootstrap`` is the single composition root allowed to
-  import backends.
-
 Any violation fails the test with a file:line list. Changing the layering
 means changing this test too — same discipline as
 ``test_port_async_contract``.
@@ -35,15 +37,55 @@ SRC = Path(__file__).resolve().parents[2] / "src" / "prodagent"
 
 # source package -> forbidden target package prefixes
 FORBIDDEN: dict[str, frozenset[str]] = {
-    "core": frozenset({"runtime", "tooling", "hooks", "guardrail", "llm",
-                       "resilience", "cognition", "evaluation", "mcp",
-                       "backends", "playground", "repl", "bootstrap"}),
-    "ports": frozenset({"runtime", "tooling", "hooks", "guardrail", "llm",
-                        "resilience", "cognition", "evaluation", "mcp",
-                        "backends", "playground", "repl", "bootstrap"}),
-    "backends": frozenset({"runtime", "tooling", "hooks", "guardrail", "llm",
-                           "resilience", "cognition", "evaluation", "mcp",
-                           "playground", "repl"}),
+    "core": frozenset(
+        {
+            "runtime",
+            "tooling",
+            "hooks",
+            "guardrail",
+            "llm",
+            "resilience",
+            "cognition",
+            "evaluation",
+            "mcp",
+            "backends",
+            "playground",
+            "repl",
+            "bootstrap",
+        }
+    ),
+    "ports": frozenset(
+        {
+            "runtime",
+            "tooling",
+            "hooks",
+            "guardrail",
+            "llm",
+            "resilience",
+            "cognition",
+            "evaluation",
+            "mcp",
+            "backends",
+            "playground",
+            "repl",
+            "bootstrap",
+        }
+    ),
+    "backends": frozenset(
+        {
+            "runtime",
+            "tooling",
+            "hooks",
+            "guardrail",
+            "llm",
+            "resilience",
+            "cognition",
+            "evaluation",
+            "mcp",
+            "playground",
+            "repl",
+        }
+    ),
     "runtime": frozenset({"backends", "playground", "repl"}),
     "tooling": frozenset({"backends", "playground", "repl"}),
     "hooks": frozenset({"backends", "playground", "repl"}),
@@ -58,19 +100,17 @@ FORBIDDEN: dict[str, frozenset[str]] = {
     "recipes": frozenset({"backends", "playground", "repl"}),
 }
 
-# composition-root exemption: the entry point and bootstrap may touch everything
-EXEMPT_MODULES = frozenset({"__main__.py", "bootstrap.py"})
+# entry-point exemption
+EXEMPT_MODULES = frozenset({"__main__.py"})
 
-TOP_LEVEL_PACKAGES = frozenset(FORBIDDEN) | {"bootstrap", "playground", "repl", "recipes"}
-
+TOP_LEVEL_PACKAGES = frozenset(FORBIDDEN)
 
 def _source_pkg(path: Path) -> str | None:
     rel = path.relative_to(SRC)
     parts = rel.parts
-    if len(parts) == 1:  # top-level single-file modules (__init__/__main__/bootstrap…)
+    if len(parts) == 1:  # top-level single-file modules (__init__/__main__)
         return None
     return parts[0]
-
 
 def _top_level_imports(tree: ast.Module) -> list[tuple[int, str]]:
     """Collect module-scope prodagent.* imports (nested scopes don't count)."""
@@ -87,6 +127,19 @@ def _top_level_imports(tree: ast.Module) -> list[tuple[int, str]]:
         # If / Try / function / class bodies hold lazy or guarded imports: allowed
     return found
 
+def _all_imports(tree: ast.Module) -> list[tuple[int, str]]:
+    """Collect prodagent.* imports at ANY scope (module + nested bodies)."""
+    found: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "prodagent" or alias.name.startswith("prodagent."):
+                    found.append((node.lineno, alias.name))
+        elif isinstance(node, ast.ImportFrom):
+            mod = node.module or ""
+            if mod == "prodagent" or mod.startswith("prodagent."):
+                found.append((node.lineno, mod))
+    return found
 
 def _target_roots(imported: str) -> set[str]:
     """`prodagent.X.Y` -> {X}; bare `prodagent` -> {} (lazy root form)."""
@@ -99,7 +152,6 @@ def _target_roots(imported: str) -> set[str]:
         return set()
     root = parts[1]
     return {root} if root in TOP_LEVEL_PACKAGES else set()
-
 
 def test_layering_contract() -> None:
     violations: list[str] = []
@@ -117,3 +169,4 @@ def test_layering_contract() -> None:
                     rel = path.relative_to(SRC.parent.parent)
                     violations.append(f"{rel}:{lineno}  {src_pkg} -> {target}")
     assert not violations, "Layering violations (module-level imports):\n" + "\n".join(violations)
+

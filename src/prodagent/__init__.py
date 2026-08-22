@@ -1,62 +1,20 @@
-"""prodagent — production-grade LLM agent framework."""
+"""prodagent — production-grade LLM agent framework.
+
+The bare kernel: loop + tools + LLM port + event stream, zero disk.
+``production()`` (prodagent.core.config) restores the full stack.
+"""
 
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _version
-from typing import Any
+
+from prodagent.core.lazy import lazy_package
 
 try:
     __version__ = _version("prodagent")
 except PackageNotFoundError:
     __version__ = "0.0.0-dev"
-
-__all__ = [
-    "__version__",
-    "Agent",
-    "AgentConfig",
-    "tool",
-    "HardBudget",
-    "ExecutionMode",
-    "RunState",
-    "RunPhase",
-    "ToolMeta",
-    "SideEffectLevel",
-    "ToolError",
-    "ToolResult",
-    "ErrorReason",
-    "ErrorLayer",
-    "ClassifiedError",
-    "classify_error",
-    "BudgetExceeded",
-    "PromptInjectionDetected",
-    "SensitiveContentDetected",
-    "SecurityViolation",
-    "VersionConflict",
-    "CorruptedCheckpointError",
-    # Assembly & infrastructure
-    "FrameworkConfig",
-    "ContextConfig",
-    "LLMClient",
-    "LLMConfig",
-    "FakeLLMAdapter",
-    "script",
-    # Collaboration primitives
-    "Ensemble",
-    "WorkQueue",
-    "Board",
-    "BoardWrite",
-    "Trigger",
-    "RoundRobin",
-    "Moderated",
-    "FreeForAll",
-    "TerminationPolicy",
-    "MaxRounds",
-    "BudgetLedger",
-    # Memory
-    "MemoryManager",
-    "build_memory_manager",
-]
 
 _SYMBOL_SOURCES: dict[str, str] = {
     "Agent": "prodagent.runtime.agent",
@@ -70,7 +28,6 @@ _SYMBOL_SOURCES: dict[str, str] = {
     "VersionConflict": "prodagent.core.exceptions",
     "ExecutionMode": "prodagent.core.types",
     "RunState": "prodagent.core.types",
-    "RunPhase": "prodagent.core.types",
     "SideEffectLevel": "prodagent.core.types",
     "ToolError": "prodagent.core.types",
     "ToolMeta": "prodagent.core.types",
@@ -82,40 +39,27 @@ _SYMBOL_SOURCES: dict[str, str] = {
     "tool": "prodagent.tooling.decorator",
     "FrameworkConfig": "prodagent.core.config",
     "ContextConfig": "prodagent.core.config",
-    "LLMClient": "prodagent.llm.base",
-    "LLMConfig": "prodagent.llm.base",
+    "LLMClient": "prodagent.llm",
+    "LLMConfig": "prodagent.llm",
     "FakeLLMAdapter": "prodagent.llm.fake",
+    "RoutingFakeLLM": "prodagent.llm.fake",
     "script": "prodagent.llm.fake",
-    "Ensemble": "prodagent.runtime.coordination.ensemble",
-    "RoundRobin": "prodagent.runtime.coordination.ensemble",
-    "Moderated": "prodagent.runtime.coordination.ensemble",
-    "FreeForAll": "prodagent.runtime.coordination.ensemble",
-    "WorkQueue": "prodagent.runtime.coordination.work_queue",
-    "Board": "prodagent.runtime.coordination.blackboard",
-    "BoardWrite": "prodagent.runtime.coordination.blackboard",
-    "Trigger": "prodagent.runtime.coordination.blackboard",
-    "TerminationPolicy": "prodagent.runtime.coordination.termination",
-    "MaxRounds": "prodagent.runtime.coordination.termination",
-    "BudgetLedger": "prodagent.runtime.coordination.budget_ledger",
+    "use_fake_llm": "prodagent.llm.providers",
+    "Ensemble": "prodagent.coordination.ensemble",
+    "RoundRobin": "prodagent.coordination.ensemble",
+    "Moderated": "prodagent.coordination.ensemble",
+    "FreeForAll": "prodagent.coordination.ensemble",
+    "WorkQueue": "prodagent.coordination.work_queue",
+    "Board": "prodagent.coordination.blackboard",
+    "BoardWrite": "prodagent.coordination.blackboard",
+    "Trigger": "prodagent.coordination.blackboard",
+    "TerminationPolicy": "prodagent.coordination.termination",
+    "MaxRounds": "prodagent.coordination.termination",
+    "BudgetLedger": "prodagent.coordination.budget_ledger",
     "MemoryManager": "prodagent.cognition.memory",
     "build_memory_manager": "prodagent.cognition.memory",
 }
 
+__all__ = ["__version__", *sorted(_SYMBOL_SOURCES)]
 
-def __getattr__(name: str) -> Any:
-    source = _SYMBOL_SOURCES.get(name)
-    if source is None:
-        raise AttributeError(f"module 'prodagent' has no attribute {name!r}")
-    import importlib
-
-    module = importlib.import_module(source)
-    try:
-        value = getattr(module, name)
-    except AttributeError:
-        raise AttributeError(f"module {source!r} has no attribute {name!r}") from None
-    globals()[name] = value
-    return value
-
-
-def __dir__() -> list[str]:
-    return sorted(set(__all__) | {"__version__"})
+__getattr__, __dir__ = lazy_package(_SYMBOL_SOURCES)

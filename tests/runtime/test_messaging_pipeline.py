@@ -5,22 +5,22 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent.core.exceptions import SecurityViolation
-from prodagent.runtime.coordination.messaging.contract import MessageContract
-from prodagent.runtime.coordination.messaging.envelope import (
+from prodagent.coordination.messaging.contract import MessageContract
+from prodagent.coordination.messaging.envelope import (
     Crossing,
     CrossingKind,
     CrossingRejected,
     Direction,
     DuplicateCrossing,
 )
-from prodagent.runtime.coordination.messaging.idempotency import IdempotentMessageHandler
-from prodagent.runtime.coordination.messaging.pipeline import (
+from prodagent.coordination.messaging.idempotency import IdempotentMessageHandler
+from prodagent.coordination.messaging.pipeline import (
     Pipeline,
     Slot,
     admission_pipeline,
     assembly_pipeline,
 )
+from prodagent.core.exceptions import SecurityViolation
 
 
 class _RecordingDeadLetter:
@@ -142,7 +142,7 @@ async def test_duplicate_short_circuits_remaining_slots_and_skips_dead_letter():
 
 async def test_dedupe_via_handler_suppresses_second_crossing():
     handler = IdempotentMessageHandler(ttl_seconds=60.0)
-    from prodagent.runtime.coordination.messaging.interceptors import DedupeInterceptor
+    from prodagent.coordination.messaging.interceptors import DedupeInterceptor
 
     pipeline = Pipeline().add(Slot.DEDUPE, DedupeInterceptor(handler))
     first = await pipeline.process(_crossing(message_id="real-1"))

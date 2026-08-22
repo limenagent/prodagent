@@ -18,13 +18,55 @@ from prodagent.ports import (
     LockStore,
     SessionStore,
     SpanExporter,
-    VectorStore,
 )
 
 if TYPE_CHECKING:
     from prodagent.core.config import FrameworkConfig
-    from prodagent.llm.base import LLMConfig
+    from prodagent.llm import LLMConfig
     from prodagent.ports.llm import LLMClient
+
+def resolve_aux_llm(
+    framework_config: FrameworkConfig | None = None,
+    *,
+    offline_content: str = "{}",
+) -> LLMClient:
+    """Aux LLM for background helpers (memory classify/conflict, skill synthesis).
+
+    Same provider resolution as the main LLM, but offline/no-key setups get a
+    scripted single-response adapter instead of the echo fake — the default
+    ``{}`` is the no-op answer for classify/conflict JSON prompts.
+    """
+    from prodagent.llm.fake import script
+    from prodagent.llm.providers import anthropic_env, openai_compat_env, use_fake_llm
+
+    if use_fake_llm() or (not openai_compat_env() and not anthropic_env()):
+        return script({"content": offline_content})
+    return resolve_llm(framework_config)
+
+
+def in_process_lock_store() -> LockStore:
+    """In-process default for primitives that need a lock (single-winner)."""
+
+    from prodagent.backends.memory.lock import InProcessLockStore
+
+    return InProcessLockStore()
+
+
+def in_memory_dead_letter_queue() -> DeadLetterStore:
+    """In-memory default dead-letter mailbox for local development."""
+
+    from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
+
+    return InMemoryDeadLetterQueue()
+
+
+def in_memory_session_store() -> SessionStore:
+    """In-process session store — the bare profile's default (no disk)."""
+
+    from prodagent.backends.memory.session_store import InMemorySessionStore
+
+    return InMemorySessionStore()
+
 
 __all__ = [
     "resolve_llm",
@@ -38,8 +80,11 @@ __all__ = [
     "resolve_span_exporter",
     "resolve_document",
     "resolve_graph",
-    "resolve_vector",
     "resolve_experience",
+    "resolve_aux_llm",
+    "in_process_lock_store",
+    "in_memory_dead_letter_queue",
+    "in_memory_session_store",
 ]
 
 
@@ -121,11 +166,6 @@ _BACKENDS: dict[str, dict[str, Spec]] = {
     },
     "approval": {
         "memory": ("prodagent.backends.memory.approval:InMemoryApprovalStore", [], {}),
-        "redis": (
-            "prodagent.backends.redis.approval:RedisApprovalStore",
-            [_r("redis_async_client")],
-            {"namespace": _b("redis_namespace")},
-        ),
     },
     "lock": {
         "memory": ("prodagent.backends.memory.lock:InProcessLockStore", [], {}),
@@ -155,21 +195,9 @@ _BACKENDS: dict[str, dict[str, Spec]] = {
             {"uri": _b("neo4j_uri"), "user": _b("neo4j_user"), "password": _b("neo4j_password")},
         ),
     },
-    "vector": {
-        "memory": ("prodagent.backends.memory.vector:InMemoryVectorStore", [], {}),
-        "qdrant": (
-            "prodagent.backends.qdrant.vector:QdrantVectorStore",
-            [],
-            {
-                "url": _b("qdrant_url"),
-                "collection": _b("qdrant_collection"),
-                "dim": _b("vector_dim"),
-            },
-        ),
-    },
     "experience": {
         "file": (
-            "prodagent.evaluation.learning.storage:FileExperienceStore",
+            "prodagent.backends.file.experience:FileExperienceStore",
             [_o("experience_path")],
             {},
         ),
@@ -239,10 +267,6 @@ def resolve_dead_letter(framework_config: FrameworkConfig | None = None) -> Dead
 
 def resolve_graph(framework_config: FrameworkConfig | None = None) -> GraphStore:
     return cast("GraphStore", _resolve("graph", framework_config, expect=GraphStore))
-
-
-def resolve_vector(framework_config: FrameworkConfig | None = None) -> VectorStore:
-    return cast("VectorStore", _resolve("vector", framework_config, expect=VectorStore))
 
 
 def resolve_experience(framework_config: FrameworkConfig | None = None) -> ExperienceStore:

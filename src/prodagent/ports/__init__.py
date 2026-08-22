@@ -18,7 +18,6 @@ from prodagent.ports.lock import LockStore, LockToken
 from prodagent.ports.session import SessionStore
 from prodagent.ports.span import SpanExporter
 from prodagent.ports.tool import Tool
-from prodagent.ports.vector import VectorHit, VectorStore
 
 __all__ = [
     "ApprovalStore",
@@ -36,6 +35,4 @@ __all__ = [
     "SessionStore",
     "SpanExporter",
     "Tool",
-    "VectorHit",
-    "VectorStore",
 ]

@@ -12,7 +12,6 @@ from prodagent.core.error_classifier import ClassifiedError
 from prodagent.core.types import (
     LLMResponse,
     MessageList,
-    RunPhase,
     RunState,
     ToolCall,
 )
@@ -140,7 +139,6 @@ class AgentRun(Generic[_RunT]):
     run_id: str
     task: str
     state: RunState = RunState.RUNNING
-    phase: RunPhase = RunPhase.PREPARE
 
     metrics: RunMetrics = field(default_factory=RunMetrics)
     start_time: float = field(default_factory=time.time)
@@ -246,7 +244,6 @@ class AgentRun(Generic[_RunT]):
             "run_id": self.run_id,
             "task": self.task,
             "state": self.state.value,
-            "phase": self.phase.value,
             "messages": list(self.messages),
             "tool_history": [_toolcall_to_dict(c) for c in self.tool_history],
             "final_output": self.final_output,
@@ -282,7 +279,6 @@ class AgentRun(Generic[_RunT]):
             run_id=d["run_id"],
             task=d["task"],
             state=RunState(d.get("state", RunState.RUNNING.value)),
-            phase=RunPhase(d.get("phase", RunPhase.PREPARE.value)),
             messages=list(d.get("messages", [])),
             tool_history=[_toolcall_from_dict(c) for c in d.get("tool_history", [])],
             final_output=d.get("final_output"),

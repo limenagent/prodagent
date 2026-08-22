@@ -7,12 +7,12 @@ from typing import TYPE_CHECKING, Any
 
 from prodagent.core.exceptions import SuspendPendingApproval
 from prodagent.core.types import ToolCall
-from prodagent.guardrail.approval import ApprovalDecision
+from prodagent.hooks.approval import ApprovalDecision
 from prodagent.hooks.events import HookEvent
 from prodagent.hooks.gates import BlockingResult, Gate
 
 if TYPE_CHECKING:
-    from prodagent.guardrail.approval import ApprovalGate
+    from prodagent.hooks.approval import ApprovalGate
     from prodagent.hooks.registry import HookRegistry
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ class ApprovalHooks:
         gate: ApprovalGate | None = None,
     ) -> None:
         if gate is None:
-            from prodagent.guardrail.approval.gate import ApprovalGate
+            from prodagent.hooks.approval.gate import ApprovalGate
 
             gate = ApprovalGate()
         self._gate = gate
