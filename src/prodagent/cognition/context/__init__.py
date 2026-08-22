@@ -5,7 +5,6 @@ from __future__ import annotations
 from prodagent.core.lazy import lazy_package
 
 _SYMBOL_SOURCES: dict[str, str] = {
-
     "CompressionLevel": "prodagent.cognition.context.budget",
     "ContextBudget": "prodagent.cognition.context.budget",
     "Layer": "prodagent.cognition.context.budget",

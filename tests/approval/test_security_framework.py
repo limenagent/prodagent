@@ -31,5 +31,3 @@ class TestContextAwareApprovalFormatter:
         call = ToolCall(name="delete_records", params={"ids": [1, 2, 3]})
         msg = fmt.format(call, affected_count=3, environment="production")
         assert "PRODUCTION" in msg or "WARNING" in msg
-
-

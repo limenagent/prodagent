@@ -246,7 +246,6 @@ class ToolDispatcher:
             return outcome
         return ToolResult.from_raw(outcome, tool=call.name)
 
-
     def configure_batch(
         self,
         *,

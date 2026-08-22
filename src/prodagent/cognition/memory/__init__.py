@@ -5,7 +5,6 @@ from __future__ import annotations
 from prodagent.core.lazy import lazy_package
 
 _SYMBOL_SOURCES: dict[str, str] = {
-
     "DEFAULT_MERGE_ORDER": "prodagent.cognition.memory.channels",
     "EntityChannel": "prodagent.cognition.memory.channels",
     "ExactChannel": "prodagent.cognition.memory.channels",

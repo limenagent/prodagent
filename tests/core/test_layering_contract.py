@@ -105,12 +105,14 @@ EXEMPT_MODULES = frozenset({"__main__.py"})
 
 TOP_LEVEL_PACKAGES = frozenset(FORBIDDEN)
 
+
 def _source_pkg(path: Path) -> str | None:
     rel = path.relative_to(SRC)
     parts = rel.parts
     if len(parts) == 1:  # top-level single-file modules (__init__/__main__)
         return None
     return parts[0]
+
 
 def _top_level_imports(tree: ast.Module) -> list[tuple[int, str]]:
     """Collect module-scope prodagent.* imports (nested scopes don't count)."""
@@ -127,6 +129,7 @@ def _top_level_imports(tree: ast.Module) -> list[tuple[int, str]]:
         # If / Try / function / class bodies hold lazy or guarded imports: allowed
     return found
 
+
 def _all_imports(tree: ast.Module) -> list[tuple[int, str]]:
     """Collect prodagent.* imports at ANY scope (module + nested bodies)."""
     found: list[tuple[int, str]] = []
@@ -141,6 +144,7 @@ def _all_imports(tree: ast.Module) -> list[tuple[int, str]]:
                 found.append((node.lineno, mod))
     return found
 
+
 def _target_roots(imported: str) -> set[str]:
     """`prodagent.X.Y` -> {X}; bare `prodagent` -> {} (lazy root form)."""
     parts = imported.split(".")
@@ -152,6 +156,7 @@ def _target_roots(imported: str) -> set[str]:
         return set()
     root = parts[1]
     return {root} if root in TOP_LEVEL_PACKAGES else set()
+
 
 def test_layering_contract() -> None:
     violations: list[str] = []
@@ -169,4 +174,3 @@ def test_layering_contract() -> None:
                     rel = path.relative_to(SRC.parent.parent)
                     violations.append(f"{rel}:{lineno}  {src_pkg} -> {target}")
     assert not violations, "Layering violations (module-level imports):\n" + "\n".join(violations)
-

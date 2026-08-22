@@ -44,7 +44,7 @@ KERNEL_EXPECTED = frozenset(
     {
         "prodagent",
         "prodagent.core",
-    "prodagent.core.lazy",
+        "prodagent.core.lazy",
         "prodagent.core.budget",
         "prodagent.core.config",
         "prodagent.core.error_classifier",

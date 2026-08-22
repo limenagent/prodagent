@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from prodagent.llm import LLMConfig
     from prodagent.ports.llm import LLMClient
 
+
 def resolve_aux_llm(
     framework_config: FrameworkConfig | None = None,
     *,

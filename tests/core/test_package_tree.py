@@ -14,18 +14,18 @@ SRC = Path(__file__).resolve().parents[2] / "src" / "prodagent"
 
 # learning order — the order a reader meets them
 BOOK_TOC = [
-    "core",        # vocabulary: types, state, budget, errors, config
-    "ports",       # the contracts
-    "llm",         # providers, fake, cache, pricing
-    "tooling",     # @tool, dispatch, registry + breaker, skills loader
-    "runtime",     # the Agent and the REACTIVE leaf loop
-    "plan",        # PLAN_FIRST: DAG, planner, executor, workflow
-    "coordination",# multi-agent: spawn/peers/ensemble/blackboard/work_queue + messaging plane
-    "cognition",   # context compression + long-term memory
-    "hooks",       # the tri-protocol bus, bundles, approval, spans, console
-    "skills",      # runbook registry + the learning loop
-    "backends",    # port implementations + the resolution factory
-    "mcp",         # external tool bridging
+    "core",  # vocabulary: types, state, budget, errors, config
+    "ports",  # the contracts
+    "llm",  # providers, fake, cache, pricing
+    "tooling",  # @tool, dispatch, registry + breaker, skills loader
+    "runtime",  # the Agent and the REACTIVE leaf loop
+    "plan",  # PLAN_FIRST: DAG, planner, executor, workflow
+    "coordination",  # multi-agent: spawn/peers/ensemble/blackboard/work_queue + messaging plane
+    "cognition",  # context compression + long-term memory
+    "hooks",  # the tri-protocol bus, bundles, approval, spans, console
+    "skills",  # runbook registry + the learning loop
+    "backends",  # port implementations + the resolution factory
+    "mcp",  # external tool bridging
     "playground",  # the visual cockpit (app-tier)
 ]
 

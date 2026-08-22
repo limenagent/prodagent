@@ -1,7 +1,7 @@
 # prodagent
 
 > 
-> **25,000 行，13 个包**
+> **25,000 行，13 个包，1,182 个离线测试。**
 > 一份你**真的能读完**的工业级 LLM Agent 实现。循环、预算、恢复、审批、权限、可观测、评估、多 Agent 协作——每个机制都小到一次读懂，完整到能上生产。
 
 [![PyPI](https://img.shields.io/pypi/v/prodagent)](https://pypi.org/project/prodagent/)
@@ -13,44 +13,28 @@
 
 ---
 
-## 你会用 LangChain，但你能设计一个 Agent 平台吗
+## 你会用 LangChain，但你能设计一个 Agent 系统吗
 
 翻一翻 2026 年的 Agent 岗位，分层很清楚。
 
-初级岗要求"熟练使用 LangChain/LangGraph，会写 prompt，做过 RAG"——三个月就能上手，所以供给最卷。高级岗和架构师岗的描述就完全不同了："从 0 到 1 构建生产级 Agent 系统"、"自研核心模块"、"多智能体架构设计"、"Agent Platform / AI Infra 建设"、"Trace/Log/Metrics 三位联动"、"三层多租户权限体系"。薪资翻两到三倍，能接住的人很少。
+初级岗要求"熟练使用 LangChain/LangGraph，会写 prompt，做过 RAG"——三个月就能上手，所以供给最卷。高级岗和架构师岗的描述就完全不同了："从 0 到 1 构建生产级 Agent 系统"、"深度定制或自研核心模块"、"多智能体架构设计"、"Agent Platform / AI Infra 建设"。薪资翻两到三倍，能接住的人很少。
 
-差距不在模型能力，不在 prompt 技巧，在**工程设计能力**——具体来说，你能不能回答这些问题：
+这些 title 背后，是一套完整的 Agent 系统设计能力。面试的时候，没人会问你"LangChain 的 AgentExecutor 怎么初始化"，他们问的是：
 
-**运行时稳定性：**
+- **Agent 循环与运行时基础**：一个 while True 调模型的循环，上生产之前要加多少层护甲？turns/seconds/tokens/cost 四轴硬预算怎么同时生效，任一触顶即停？子 Agent 花的钱怎么实时汇总到总账？Agent 死循环怎么检测——重复动作比对、cycle detector、还是硬步数上限？长任务跑到一半进程被 kill -9，怎么从断点续跑，不丢状态也不重复执行？checkpoint 怎么做版本控制，并发写入冲突怎么解？
+- **RAG 与检索**：你们的 RAG 怎么做的？Agentic RAG 和普通 RAG 有什么本质区别？检索质量怎么保证——切分策略、混合检索、重排序各怎么选？RAG 还是会幻觉，你怎么控？
+- **记忆系统**：Agent 的记忆怎么设计？短期、长期、任务、知识这四类记忆怎么分工？长期记忆存什么、怎么召回、冲突怎么裁决？上下文窗口满了和记忆不够，是同一个问题吗？
+- **推理与规划**：ReAct、Plan-and-Execute、Reflection 三种范式怎么选？复杂任务怎么拆解？动态 DAG 和静态 Workflow 各自适用于什么场景？规划走不通了，是推倒重来还是增量重规划？
+- **工具调用可靠性**：工具幻觉——模型调用不存在的工具、参数传错 schema——怎么防？工具调用前怎么做校验？工具库大了，是静态注册还是动态语义检索？工具调用失败了怎么容错，重试还是换路径？
+- **多 Agent 协作**：什么时候该拆多 Agent，什么时候单 Agent 加好上下文管理就够了？委派、接力、投票、共享黑板、工作队列——五种拓扑怎么选？Agent 间通信怎么保证不丢不重不乱序？多个 Agent 互相甩锅进入死循环，怎么兜底？
+- **评估与持续迭代**：怎么量化 Agent 做得好不好？改了一版 prompt，怎么知道变好还是变差？离线评测和线上 Trace 自动打分怎么打通？LLM-as-judge 怎么校准才不偏？评测集被污染了怎么发现？
+- **企业级落地**：成本怎么控——模型分级路由、语义缓存、prompt 压缩？权限怎么做——RBAC 到角色级够不够，工具和数据的操作级授权怎么设计？可观测性怎么搭——Trace/Log/Metrics 怎么打通，思维链怎么落盘才能事后回放？
 
-- Agent 跑了 20 轮，进程被 kill -9 了，怎么从断点续跑，不丢状态、不重复执行？
-- 模型在两个工具之间反复横跳，token 一分钟烧一百块，怎么在 turns/seconds/tokens/cost 四个维度同时设硬上限？子 Agent 花的钱怎么实时汇总？
-- 一个 HIGH 副作用工具要删数据，怎么挂起等人审批？审批拒绝后怎么增量重规划，而不是推倒重来？
+这些问题，论文给不了答案，API 文档也给不了 —— 它们问的不是 "怎么做"，而是 "为什么这么做、换一种行不行"。这种工程判断力只能从完整的实现里磨出来，一层一层看懂取舍。
 
-**上下文与记忆：**
+解法其实到处都有 ——issue 讨论里有一条，云厂商的产品文档里有一条，某个开源框架的源码里藏着一条。但太散了，你得自己翻几十万行、自己拼、自己串成一条线。
 
-- 上下文跑到第 30 轮塞不下了，丢哪段？语义损失边界在哪？怎么保证"用户说过不要红色"这种关键约束不被压缩掉？
-- 规则、实体、精确事实、语义相似这四类信息召回策略完全不同，怎么并行召回再做冲突裁决？
-
-**多 Agent 协作：**
-
-- 五个 Agent 并行干活，消息怎么去重、契约校验、审计、死信处理？怎么保证不丢、不重、不乱序？
-- 委派、接力、投票、共享黑板、工作队列——五种协作拓扑分别适用于什么场景？
-
-**企业级治理：**
-
-- 十个团队共用一个平台，怎么做租户隔离？A 团队的 Agent 能不能看到 B 团队的数据？
-- RBAC 只到角色级不够——同一个角色下的不同 Agent，可能需要操作级授权：A 只能查客户列表，B 才有权限发起审批流。策略引擎怎么设计？
-- 每一次工具调用、数据访问、操作执行，日志怎么完整记录、不可篡改？出了问题怎么按 TraceID 回放整条链路？
-
-**可观测与评估：**
-
-- Agent 出了问题，怎么定位是模型不行、prompt 不行、还是工具返回错了？Trace/Log/Metrics 怎么打通？思维链怎么落盘？
-- 改了一版 prompt，怎么知道变好还是变差了？离线回归怎么跑？线上 Trace 怎么自动打分？LLM-as-judge 怎么校准？
-
-这批问题没有标准答案，但每个上生产的团队都会撞上。解法散落在论文、issue 讨论、阿里云 AgentLoop 和腾讯 ADP 的产品文档、几十万行工业源码里——你读不完，也没人给你串成一条线。
-
-这个仓库就是那条线。上面每一个问题，源码里都有一个可以跑起来的对应实现。
+这个仓库已经帮你串好了。
 
 ---
 
@@ -62,7 +46,7 @@
 
 一类是**教学玩具**——几十行代码演示 ReAct 循环，看起来清晰，但没有预算、没有恢复、没有审批、没有多 Agent、没有权限、没有可观测，离生产差十万八千里。
 
-prodagent 卡在中间。它是一个**可以 `pip install` 的生产级库**，同时**整个代码库只有 25,000 行，13 个包，按学习顺序排列**。你可以从头读到尾，每一个机制都能在脑子里建立完整的心智模型。
+prodagent 卡在中间。它是一个**可以 `pip install` 的生产级库**，同时**整个代码base 只有 25,000 行，13 个包，按学习顺序排列**。你可以从头读到尾，每一个机制都能在脑子里建立完整的心智模型。
 
 更重要的是，它的设计是**可拆解的**。预算、审批、崩溃恢复、上下文压缩、多 Agent 治理、权限策略、可观测追踪——每个都是独立模块，有清晰的 Protocol 边界。你的项目缺哪块，就搬哪块，不用引入整个框架。
 
@@ -84,13 +68,7 @@ prodagent 卡在中间。它是一个**可以 `pip install` 的生产级库**，
 
 理解一个机制最深刻的方式是**调试它，不是背它的结论**。
 
-### 第三，面试和工作中能接住高级岗的问题
-
-下次面试被问到"你们的 Agent 怎么做崩溃恢复"、"多 Agent 之间的消息怎么保证不丢不重"、"上下文满了你们怎么处理"、"权限怎么做到操作级"、"怎么做离线回归评估"，你不用编。你见过完整的实现，知道 trade-off 在哪，能说出至少两种方案的优劣。
-
-工作中更直接——你的项目需要审批门？搬 `hooks/approval/`。需要崩溃恢复？搬 `ports/checkpoint.py` + `backends/file/`。需要多 Agent 协作？搬 `coordination/`。需要可观测追踪？搬 `hooks/observability/`。不用从零造轮子。
-
-[→ 开始：文档第一部分，七站读穿一次调用的生命周期](docs/tour/index.md)
+[→ 开始：文档第一部分，七站读穿一次调用的生命周期](https://limenagent.github.io/prodagent/tour/)
 
 ![prodagent](docs/images/prodagent.png)
 
@@ -100,7 +78,7 @@ prodagent 卡在中间。它是一个**可以 `pip install` 的生产级库**，
 
 最小可跑，零文件零旁路：
 
-```python
+```
 import asyncio
 
 from prodagent import Agent, ExecutionMode, tool
@@ -115,9 +93,9 @@ agent = Agent("demo", system_prompt="Find answers.", tools=[search],
 asyncio.run(agent.chat("巴黎今天天气如何？"))
 ```
 
-一键上生产全套（落盘恢复、span 追踪、HIGH 工具审批门、LLM 缓存、上下文压缩）：
+一键上生产全套（落盘恢复、span 追踪、HIGH 工具审批门、权限策略、LLM 缓存、上下文压缩）：
 
-```python
+```
 from prodagent.core.config import production
 
 agent = Agent("demo", ..., config=AgentConfig(name="demo", framework=production()))
@@ -125,13 +103,13 @@ agent = Agent("demo", ..., config=AgentConfig(name="demo", framework=production(
 
 可视化 playground，离线跑全部 9 个示例：
 
-```bash
+```
 make playground    # 自动装 uv、首跑配置向导、开浏览器
 ```
 
-安装与模型配置：
+安装与模型配置
 
-```bash
+```
 pip install prodagent
 # 核心仅 4 个依赖：anyio/httpx/pydantic/typing-extensions，按需加装：
 pip install "prodagent[openai,anthropic]"      # 模型 provider
@@ -173,7 +151,7 @@ pip install "prodagent[postgres,redis,neo4j]"   # 生产后端（默认 file+mem
 
 ## 架构
 
-```mermaid
+```
 graph TD
     A["Agent()"] --> RL["RunLoop"]
     RL --> F["factory.prepare"]

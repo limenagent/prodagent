@@ -75,7 +75,6 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
-
 @dataclass(frozen=True, slots=True)
 class BoardSlot:
     value: Any
