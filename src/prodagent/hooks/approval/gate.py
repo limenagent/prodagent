@@ -8,7 +8,7 @@ import weakref
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from prodagent.core.types import ToolCall
+    from prodagent.kernel.types import ToolCall
 
 from prodagent.core.exceptions import SuspendPendingApproval
 from prodagent.hooks.approval.formatter import ContextAwareApprovalFormatter

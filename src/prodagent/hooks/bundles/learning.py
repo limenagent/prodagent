@@ -6,13 +6,13 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from prodagent.hooks.events import HookEvent
+from prodagent.kernel.bus import HookEvent
 from prodagent.ports.experience import ExperienceOutcome, ExperienceRecord
 
 if TYPE_CHECKING:
     from prodagent.core.config import FrameworkConfig
-    from prodagent.core.state.run import AgentRun
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.bus import HookRegistry
     from prodagent.ports.experience import ExperienceStore
     from prodagent.skills.registry import SkillContent, SkillRegistry
     from prodagent.skills.skill_synthesizer import SkillSynthesizer
@@ -85,7 +85,7 @@ class LearningHooks:
     async def _on_session_end(self, *, run: AgentRun | None = None, **_: Any) -> None:
         if run is None:
             return
-        from prodagent.core.state.run import is_child_subordinate
+        from prodagent.kernel.state import is_child_subordinate
 
         if is_child_subordinate(run):
             return

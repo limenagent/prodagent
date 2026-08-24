@@ -20,7 +20,7 @@ lifecycle *around* the loop:
   emitting a reasonless terminal event.
 
 What is also identical — for the two primitives whose units of work run through
-a :class:`~prodagent.coordination.budget_ledger.BudgetLedger` — is the
+a :class:`~prodagent.kernel.budget.BudgetLedger` — is the
 *envelope* around each unit: reserve a turn → run the act → commit the actual
 cost (or release the reservation if the act crashed before spending anything).
 That envelope lives in :meth:`_run_enveloped`; only the act itself differs per
@@ -83,7 +83,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
 
     from prodagent.coordination.activation import Activation
-    from prodagent.coordination.budget_ledger import BudgetLedger
+    from prodagent.kernel.budget import BudgetLedger
     from prodagent.ports.lock import LockStore, LockToken
 
 logger = logging.getLogger(__name__)

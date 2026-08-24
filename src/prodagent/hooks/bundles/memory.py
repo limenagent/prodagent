@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.bus import HookRegistry
 
 
 def _wrap_recall(recall: Callable[..., Any]) -> Callable[..., Any]:
@@ -34,8 +34,8 @@ class MemoryHooks:
 
     def attach(self, hooks: HookRegistry) -> None:
         from prodagent.cognition.memory import MemoryProvider
-        from prodagent.hooks.events import HookEvent
-        from prodagent.hooks.gates import InjectionPoint
+        from prodagent.kernel.bus import HookEvent
+        from prodagent.kernel.bus import InjectionPoint
 
         hooks.provide(MemoryProvider, self._manager)
 

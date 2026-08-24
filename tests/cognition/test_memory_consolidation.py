@@ -17,8 +17,8 @@ from prodagent.cognition.memory.storage import (
     MemoryType,
     StoredMemory,
 )
-from prodagent.core.state.run import AgentRun
-from prodagent.core.types import RunState
+from prodagent.kernel.state import AgentRun
+from prodagent.kernel.types import RunState
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -731,8 +731,8 @@ class TestActivation:
 
 @pytest.mark.asyncio
 async def test_classify_plan_first_run_uses_messages(tmp_path):
-    from prodagent.core.state.run import AgentRun
-    from prodagent.core.types import RunState
+    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.types import RunState
 
     captured: list[str] = []
 

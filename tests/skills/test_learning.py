@@ -12,8 +12,8 @@ if TYPE_CHECKING:
 
 from prodagent import RunState
 from prodagent.backends.file.experience import FileExperienceStore
-from prodagent.core.state import AgentRun
-from prodagent.core.types import LLMResponse, MessageList, ToolCall
+from prodagent.kernel.state import AgentRun
+from prodagent.kernel.types import LLMResponse, MessageList, ToolCall
 from prodagent.hooks.bundles.learning import LearningHooks
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.ports.experience import ExperienceRecord
@@ -522,7 +522,7 @@ async def test_synthesizer_merges_similar_skill():
 
 
 async def test_improvement_cycle_attaches_to_session_end(tmp_path: Path):
-    from prodagent.hooks.registry import HookEvent, HookRegistry
+    from prodagent.kernel.bus import HookEvent, HookRegistry
 
     store = FileExperienceStore(path=tmp_path / "exp.jsonl")
     registry = SkillRegistry()
@@ -596,7 +596,7 @@ async def test_loop_patches_all_when_watch_tags_empty(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_flush_awaits_pending_background_tasks(tmp_path: Path):
-    from prodagent.hooks.registry import HookEvent, HookRegistry
+    from prodagent.kernel.bus import HookEvent, HookRegistry
 
     store = FileExperienceStore(path=tmp_path / "exp.jsonl")
     registry = SkillRegistry()
@@ -631,7 +631,7 @@ async def test_flush_noop_when_no_pending_tasks(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_flush_times_out_and_cancels_slow_task(tmp_path: Path):
-    from prodagent.hooks.registry import HookEvent, HookRegistry
+    from prodagent.kernel.bus import HookEvent, HookRegistry
 
     store = FileExperienceStore(path=tmp_path / "exp.jsonl")
     registry = SkillRegistry()

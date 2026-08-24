@@ -197,7 +197,7 @@ def test_function_tool_schema_name_matches():
 def test_tool_error_from_reason_defaults_severity_from_reason_table():
     from prodagent import ToolError
     from prodagent.core.error_reason import ErrorReason
-    from prodagent.core.types import ErrorSeverity
+    from prodagent.kernel.types import ErrorSeverity
 
     err = ToolError.from_reason(
         ErrorReason.FORMAT_ERROR, code="order_not_found", message="no such order", hint="retry"
@@ -211,7 +211,7 @@ def test_tool_error_from_reason_defaults_severity_from_reason_table():
 def test_tool_error_from_reason_honours_explicit_severity_override():
     from prodagent import ToolError
     from prodagent.core.error_reason import ErrorReason
-    from prodagent.core.types import ErrorSeverity
+    from prodagent.kernel.types import ErrorSeverity
 
     err = ToolError.from_reason(
         ErrorReason.RATE_LIMITED, code="rate_limited", message="429", severity=ErrorSeverity.YELLOW
@@ -222,7 +222,7 @@ def test_tool_error_from_reason_honours_explicit_severity_override():
 def test_tool_result_from_raw_lifts_tool_error():
     from prodagent import ToolError, ToolResult
     from prodagent.core.error_reason import ErrorReason
-    from prodagent.core.types import ToolOutcome
+    from prodagent.kernel.types import ToolOutcome
 
     err = ToolError.from_reason(ErrorReason.UNKNOWN, code="boom", message="failed")
     tr = ToolResult.from_raw(err, tool="t")
@@ -233,7 +233,7 @@ def test_tool_result_from_raw_lifts_tool_error():
 
 def test_tool_result_from_raw_ignores_business_reason_key_without_error_flag():
     from prodagent import ToolResult
-    from prodagent.core.types import ToolOutcome
+    from prodagent.kernel.types import ToolOutcome
 
     raw = {"service": "payment-service", "rolled_back_to": "f8c01d4", "reason": "audit note"}
     tr = ToolResult.from_raw(raw, tool="rollback")
@@ -244,7 +244,7 @@ def test_tool_result_from_raw_ignores_business_reason_key_without_error_flag():
 def test_tool_result_from_raw_falls_back_to_unknown_on_invalid_reason_value():
     from prodagent import ToolResult
     from prodagent.core.error_reason import ErrorReason
-    from prodagent.core.types import ToolOutcome
+    from prodagent.kernel.types import ToolOutcome
 
     raw = {"error": True, "reason": "not a real reason", "code": "boom"}
     tr = ToolResult.from_raw(raw, tool="t")
@@ -260,7 +260,7 @@ def test_tool_result_from_raw_uses_string_error_as_message():
     discarding it for the generic ``"invalid ErrorReason: ''"`` fallback."""
     from prodagent import ToolResult
     from prodagent.core.error_reason import ErrorReason
-    from prodagent.core.types import ToolOutcome
+    from prodagent.kernel.types import ToolOutcome
 
     raw = {"placed": False, "error": "proposal PROP-0001 not found"}
     tr = ToolResult.from_raw(raw, tool="place_order")
@@ -273,7 +273,7 @@ def test_tool_result_from_raw_uses_string_error_as_message():
 def test_tool_result_from_raw_round_trips_tool_error_as_dict_wire_format():
     from prodagent import ToolError, ToolResult
     from prodagent.core.error_reason import ErrorReason
-    from prodagent.core.types import ToolOutcome
+    from prodagent.kernel.types import ToolOutcome
 
     wire = ToolError.from_reason(ErrorReason.CONNECTION, code="mcp_transport_error").as_dict()
     tr = ToolResult.from_raw(wire, tool="t")
@@ -288,7 +288,7 @@ def test_tool_returning_tool_error_propagates_through_dispatcher():
 
     from prodagent import ToolError, ToolResult, tool
     from prodagent.core.error_reason import ErrorReason
-    from prodagent.core.types import ToolOutcome
+    from prodagent.kernel.types import ToolOutcome
     from prodagent.tooling.dispatcher import ToolDispatcher
 
     @tool(name="fail_permanently")
@@ -298,7 +298,7 @@ def test_tool_returning_tool_error_propagates_through_dispatcher():
         )
 
     disp = ToolDispatcher({"fail_permanently": fail_permanently}, agent_id="t")
-    from prodagent.core.types import ToolCall
+    from prodagent.kernel.types import ToolCall
 
     raw = asyncio.run(disp.dispatch(ToolCall(name="fail_permanently", params={})))
     tr = ToolResult.from_raw(raw, tool="fail_permanently")
@@ -310,7 +310,7 @@ def test_tool_result_from_raw_normalizes_resource_busy_to_retry():
     severity is derived from the reason, mirroring ToolError.from_reason."""
     from prodagent import ToolResult
     from prodagent.core.error_reason import ErrorReason
-    from prodagent.core.types import ErrorSeverity, ToolOutcome
+    from prodagent.kernel.types import ErrorSeverity, ToolOutcome
 
     raw = {
         "error": True,
@@ -329,7 +329,7 @@ def test_tool_result_from_raw_normalizes_resource_busy_to_retry():
 
 def test_tool_result_from_raw_explicit_severity_wins_over_reason_default():
     from prodagent import ToolResult
-    from prodagent.core.types import ToolOutcome
+    from prodagent.kernel.types import ToolOutcome
 
     raw = {
         "error": True,
@@ -344,7 +344,7 @@ def test_tool_result_from_raw_explicit_severity_wins_over_reason_default():
 def test_tool_result_from_raw_reason_derived_severity_for_retryable_reason():
     from prodagent import ToolResult
     from prodagent.core.error_reason import ErrorReason
-    from prodagent.core.types import ErrorSeverity, ToolOutcome
+    from prodagent.kernel.types import ErrorSeverity, ToolOutcome
 
     raw = {"error": True, "reason": "connection", "message": "conn refused"}
     tr = ToolResult.from_raw(raw, tool="t")

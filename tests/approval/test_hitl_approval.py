@@ -6,7 +6,7 @@ from prodagent import Agent, AgentConfig, ExecutionMode, RunState, SideEffectLev
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.hooks.approval import ApprovalDecision, ApprovalGate
 from prodagent.hooks.bundles.security import ApprovalHooks
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.bus import HookRegistry
 from prodagent.llm.fake import script
 from prodagent.tooling import tool
 
@@ -121,8 +121,8 @@ def test_gate_suspends_under_fail_open_policy():
     import pytest
 
     from prodagent.core.exceptions import SuspendPendingApproval
-    from prodagent.hooks.gates import Gate
-    from prodagent.hooks.registry import FailurePolicy
+    from prodagent.kernel.bus import Gate
+    from prodagent.kernel.bus import FailurePolicy
 
     gate = ApprovalGate()
     hitl = ApprovalHooks(gate=gate)
@@ -159,8 +159,8 @@ def test_resume_then_new_high_call_does_not_reuse_stale_approval_id(tmp_path):
     """
     import logging
 
-    from prodagent.core.types import ToolCall
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.types import ToolCall
+    from prodagent.kernel.bus import HookRegistry
     from prodagent.tooling.dispatcher import ToolDispatcher
 
     gate = ApprovalGate()

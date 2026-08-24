@@ -10,9 +10,9 @@ from __future__ import annotations
 import pytest
 
 from prodagent.backends.file.session_store import FileSessionStore
-from prodagent.core.state.run import AgentRun
+from prodagent.kernel.state import AgentRun
 from prodagent.core.state.session import ConversationSession
-from prodagent.core.types import ExecutionMode, RunState
+from prodagent.kernel.types import ExecutionMode, RunState
 
 
 def _completed_run(run_id: str, messages=None, final_output: str = "ok") -> AgentRun:

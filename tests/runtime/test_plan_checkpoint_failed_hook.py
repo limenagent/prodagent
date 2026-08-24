@@ -6,9 +6,9 @@ import pytest
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
-from prodagent.core.types import LLMResponse
-from prodagent.hooks.events import HookEvent
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.types import LLMResponse
+from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.bus import HookRegistry
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.plan.executor import PlanExecutor
 
@@ -55,7 +55,7 @@ async def test_plan_checkpoint_failure_fires_once_via_hooks(tmp_path, monkeypatc
     )
 
     final_run = None
-    from prodagent.core.events import RunCompletedEvent
+    from prodagent.kernel.events import RunCompletedEvent
 
     async for event in planner.stream("do the thing", run_id="R1"):
         if isinstance(event, RunCompletedEvent):

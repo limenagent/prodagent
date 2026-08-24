@@ -130,7 +130,7 @@ class MCPClient:
 
         if result.get("isError"):
             from prodagent.core.error_reason import ErrorReason
-            from prodagent.core.types import ToolError
+            from prodagent.kernel.types import ToolError
 
             logger.warning("MCP tool %r returned isError=true: %s", name, text[:200])
             return ToolError.from_reason(

@@ -11,7 +11,7 @@ from prodagent.ports.llm import LLMClient as LLMClient  # noqa: TC001
 from prodagent.ports.llm import LLMConfig as LLMConfig  # noqa: TC001
 
 if TYPE_CHECKING:
-    from prodagent.core.types import LLMResponse, MessageList
+    from prodagent.kernel.types import LLMResponse, MessageList
 
 ChunkCallback = Callable[[str], Awaitable[None]]
 

@@ -45,7 +45,7 @@ llm = script(
 
 - **`CachingLLMClient`（`llm/cache.py:75`）**——包在真客户端外的提示缓存。
   命中返回 `from_cache=True` 的响应，循环记账时跳过计费。仅在
-  production 形态下由 `RunContext` 装配（`coordination/run_loop.py` 的
+  production 形态下由 `RunContext` 装配（`runtime/runner.py` 经
   `_resolve_llm`）：裸核不做任何静默优化。
 - **`llm/pricing.py`**——`LLMConfig.__post_init__` 里，模型价格表查得到
   就自动填入 `cost_per_million_*`。效果：`HardBudget` 的 cost 轴

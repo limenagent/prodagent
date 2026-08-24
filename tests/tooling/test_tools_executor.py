@@ -3,9 +3,9 @@ from __future__ import annotations
 import pytest
 
 from prodagent import RunState, SideEffectLevel, ToolMeta
-from prodagent.core.events import ToolResultEvent
-from prodagent.core.state import AgentRun
-from prodagent.core.types import ToolCall
+from prodagent.kernel.events import ToolResultEvent
+from prodagent.kernel.state import AgentRun
+from prodagent.kernel.types import ToolCall
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -424,7 +424,7 @@ async def test_skill_injection_deferred_after_all_tool_results():
     The LLM API requires sibling tool results to be consecutive after the
     assistant tool_calls message → HTTP 400. Injections must be deferred to
     the end of the batch."""
-    from prodagent.core.types import SKILL_INJECTION_KEY
+    from prodagent.kernel.types import SKILL_INJECTION_KEY
 
     @tool(name="load_skill", readonly=True)
     async def load_skill(skill: str) -> dict:

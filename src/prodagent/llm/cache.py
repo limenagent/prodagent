@@ -8,10 +8,10 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from prodagent.core.types import LLMResponse, stable_serialize
+from prodagent.kernel.types import LLMResponse, stable_serialize
 
 if TYPE_CHECKING:
-    from prodagent.core.types import MessageList
+    from prodagent.kernel.types import MessageList
     from prodagent.llm import ChunkCallback, LLMConfig
     from prodagent.ports.llm import LLMClient
 

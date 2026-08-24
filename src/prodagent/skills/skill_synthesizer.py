@@ -17,7 +17,7 @@ from prodagent.ports.experience import (
 from prodagent.skills.registry import SkillCard, SkillContent, SkillRegistry
 
 if TYPE_CHECKING:
-    from prodagent.core.types import MessageList
+    from prodagent.kernel.types import MessageList
 
 logger = logging.getLogger(__name__)
 

@@ -5,7 +5,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from prodagent.core.exceptions import ToolCallParseError
-from prodagent.core.types import LLMResponse, MessageList, StopReason, ToolCall
+from prodagent.kernel.types import LLMResponse, MessageList, StopReason, ToolCall
 from prodagent.llm import LLMConfig, normalise_content
 from prodagent.llm.http_retry import DeliveryGuard, with_http_retry
 

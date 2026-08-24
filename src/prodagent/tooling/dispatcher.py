@@ -10,9 +10,9 @@ from typing import TYPE_CHECKING, Any
 from prodagent.core.config import ContextConfig, LoopConfig
 from prodagent.core.error_classifier import classify_error
 from prodagent.core.error_reason import ErrorLayer, ErrorReason
-from prodagent.core.events import ToolCallStartEvent, ToolResultEvent
+from prodagent.kernel.events import ToolCallStartEvent, ToolResultEvent
 from prodagent.core.exceptions import SECURITY_VETO_EXCEPTIONS
-from prodagent.core.types import (
+from prodagent.kernel.types import (
     GET_SKILL_TOOL_NAME,
     SKILL_INJECTION_KEY,
     ErrorSeverity,
@@ -25,8 +25,8 @@ from prodagent.core.types import (
     ToolOutcome,
     ToolResult,
 )
-from prodagent.hooks.events import HookEvent
-from prodagent.hooks.gates import Gate
+from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.bus import Gate
 from prodagent.core.retry import Backoff, RetryPolicy
 from prodagent.tooling.skill_resolver import SkillResolver
 
@@ -48,10 +48,10 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
 
     from prodagent.cognition.context.spill import ToolResultSpillStore
-    from prodagent.core.events import AgentEvent
+    from prodagent.kernel.events import AgentEvent
     from prodagent.core.progress import ProgressMonitor
-    from prodagent.core.state.run import AgentRun
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.bus import HookRegistry
     from prodagent.skills.registry import SkillRegistry
     from prodagent.tooling.base import FunctionTool
     from prodagent.tooling.registry import ToolRegistry
@@ -213,7 +213,7 @@ class ToolDispatcher:
             return False
         import uuid
 
-        from prodagent.core.state.run import PendingHandoff
+        from prodagent.kernel.state import PendingHandoff
 
         h = result.handoff or {}
         peer = h.get("peer", "")

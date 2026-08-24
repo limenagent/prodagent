@@ -7,11 +7,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from prodagent.coordination.run_loop import RunContext
+    from prodagent.runtime.runner import RunContext
     from prodagent.kernel.budget import BudgetLedger, HardBudget
     from prodagent.kernel.types import ToolCall
     from prodagent.core.config import FrameworkConfig
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.bus import HookRegistry
     from prodagent.llm import LLMClient
     from prodagent.ports import CheckpointStore, EventLog
     from prodagent.runtime.agent import Agent
@@ -64,7 +64,7 @@ class SpawnAccumulator:
 class ParentRuntime:
     """Parent execution context threaded into every forked Agent.
 
-    Built from :class:`~prodagent.coordination.run_loop.RunContext` when a hop
+    Built from :class:`~prodagent.runtime.runner.RunContext` when a hop
     spawns (``agents=``) or hands off (``peers=``). Deliberately overlaps ~4
     fields with ``RunContext`` — the subset a forked agent needs (budget, llm,
     checkpoint, event log, depth), not per-hop state (task, run_id, agent

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from prodagent.core.state.run import AgentRun
-from prodagent.core.types import RunState
+from prodagent.kernel.state import AgentRun
+from prodagent.kernel.types import RunState
 from prodagent.plan.dag import Plan, PlanStep, StepStatus
 from prodagent.plan.executor import PlanExecutor
 from prodagent.plan.finalize import finalize_run

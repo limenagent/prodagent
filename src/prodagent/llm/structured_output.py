@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from pydantic import BaseModel, ValidationError
 
 if TYPE_CHECKING:
-    from prodagent.core.types import LLMResponse, MessageList
+    from prodagent.kernel.types import LLMResponse, MessageList
     from prodagent.llm import LLMClient, LLMConfig
 
 logger = logging.getLogger(__name__)

@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 from prodagent import use_fake_llm
 from prodagent.coordination.floor import FloorTurn, SharedFloor
-from prodagent.core.types import MessageList, StopReason
+from prodagent.kernel.types import MessageList, StopReason
 
 from dating_chat.fake_llm import NIU_SYSTEM_PROMPT, build_niu_fake_llm
 
@@ -171,7 +171,7 @@ class NiuFloorMember:
         self.last_tool_result_full = log.tool_result_full
 
         tool_call_names = [c.split("(", 1)[0] for c in log.tool_calls]
-        from prodagent.core.types import ToolCall
+        from prodagent.kernel.types import ToolCall
 
         tool_calls = [ToolCall(name=n, params={}) for n in tool_call_names]
 

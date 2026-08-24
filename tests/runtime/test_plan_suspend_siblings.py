@@ -7,8 +7,8 @@ import pytest
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
-from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
-from prodagent.core.types import LLMResponse, ToolOutcome, ToolResult
+from prodagent.kernel.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
+from prodagent.kernel.types import LLMResponse, ToolOutcome, ToolResult
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.plan.executor import PlanExecutor
 
@@ -151,10 +151,10 @@ async def test_resume_after_approval_reexecutes_suspended_step(tmp_path):
     import json
 
     from prodagent import Agent, AgentConfig, ExecutionMode, SideEffectLevel, ToolMeta
-    from prodagent.core.types import LLMResponse
+    from prodagent.kernel.types import LLMResponse
     from prodagent.hooks.approval import ApprovalGate
     from prodagent.hooks.bundles.security import ApprovalHooks
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.bus import HookRegistry
     from prodagent.llm.fake import FakeLLMAdapter
     from prodagent.tooling import tool
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from prodagent.core.types import ToolMeta
+from prodagent.kernel.types import ToolMeta
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.search import (
     ToolDescriptionIndex,

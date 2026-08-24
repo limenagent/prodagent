@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from prodagent.coordination._store import SharedStore
 
 if TYPE_CHECKING:
-    from prodagent.core.types import ToolCall
+    from prodagent.kernel.types import ToolCall
 
 
 __all__ = ["FloorTurn", "FloorMember", "SharedFloor"]

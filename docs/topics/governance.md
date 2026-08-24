@@ -6,7 +6,7 @@
 
 ## 卡位一：Gate——策略的注入口
 
-`hooks/gates.py:26` 定义了九个阻塞式检查点，覆盖 Agent 生命周期里所有“能不能继续”的决策位：会话开始、工具调用、工具结果、文档写入、Agent 交接、运行完成……每个位上可以挂任意多个检查器，**首个 veto 即停**：
+`kernel/bus.py` 的 Gate 枚举定义了九个阻塞式检查点，覆盖 Agent 生命周期里所有“能不能继续”的决策位：会话开始、工具调用、工具结果、文档写入、Agent 交接、运行完成……每个位上可以挂任意多个检查器，**首个 veto 即停**：
 
 ```python
 registry.register_checker(Gate.TOOL_CALL, my_policy)   # 你的规则

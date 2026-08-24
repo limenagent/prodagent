@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING
 from prodagent import Agent, AgentConfig, ContextConfig, FrameworkConfig, use_fake_llm
 from prodagent.coordination.ensemble import AgentFloorMember
 from prodagent.coordination.floor import SharedFloor
-from prodagent.core.types import ExecutionMode
+from prodagent.kernel.types import ExecutionMode
 from prodagent.hooks.bundles.memory import MemoryHooks
 
 from dating_chat.fake_llm import MEI_SYSTEM_PROMPT, build_mei_fake_llm

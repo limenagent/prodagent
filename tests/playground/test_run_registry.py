@@ -7,9 +7,9 @@ import pytest
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.session_store import FileSessionStore
-from prodagent.core.state.run import AgentRun, child_run_id
+from prodagent.kernel.state import AgentRun, child_run_id
 from prodagent.core.state.session import ConversationSession
-from prodagent.core.types import RunState
+from prodagent.kernel.types import RunState
 from prodagent.playground.registry import RunReconstructError, RunRegistry
 
 if TYPE_CHECKING:

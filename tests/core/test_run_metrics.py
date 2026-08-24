@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from prodagent.core.state import AgentRun
-from prodagent.core.state.run import RunMetrics
-from prodagent.core.types import LLMResponse
+from prodagent.kernel.state import AgentRun
+from prodagent.kernel.state import RunMetrics
+from prodagent.kernel.types import LLMResponse
 
 
 def test_add_tokens_accumulates_cache_write_tokens() -> None:

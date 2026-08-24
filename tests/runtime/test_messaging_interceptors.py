@@ -24,9 +24,9 @@ from prodagent.coordination.messaging.interceptors import (
 )
 from prodagent.coordination.messaging.packet import HandoffPacket
 from prodagent.core.exceptions import SecurityViolation
-from prodagent.hooks.events import HookEvent
-from prodagent.hooks.gates import BlockingResult, Gate
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.bus import BlockingResult, Gate
+from prodagent.kernel.bus import HookRegistry
 
 
 def _crossing(kind, payload, **overrides):

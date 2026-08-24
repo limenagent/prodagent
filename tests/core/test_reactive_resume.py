@@ -4,11 +4,11 @@ import pytest
 
 from prodagent import RunState
 from prodagent.backends.file.checkpoint import FileCheckpointStore
-from prodagent.core.events import RunCompletedEvent
-from prodagent.core.state import AgentRun
-from prodagent.core.types import LLMResponse, ToolCall
+from prodagent.kernel.events import RunCompletedEvent
+from prodagent.kernel.state import AgentRun
+from prodagent.kernel.types import LLMResponse, ToolCall
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.reactive import ReactiveLoop
+from prodagent.kernel.loop import ReactiveLoop
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 

@@ -5,10 +5,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from prodagent.hooks.events import HookEvent
+from prodagent.kernel.bus import HookEvent
 
 if TYPE_CHECKING:
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.bus import HookRegistry
 
 logger = logging.getLogger(__name__)
 

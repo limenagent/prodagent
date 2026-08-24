@@ -6,7 +6,7 @@ import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode, HardBudget
 from prodagent.core.config import FrameworkConfig
-from prodagent.hooks.registry import HookEvent, HookRegistry
+from prodagent.kernel.bus import HookEvent, HookRegistry
 from prodagent.llm.fake import script
 from prodagent.tooling import tool
 

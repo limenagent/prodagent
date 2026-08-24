@@ -4,10 +4,10 @@ import asyncio
 import time
 
 from prodagent import Agent, AgentConfig
-from prodagent.hooks.events import HookEvent
-from prodagent.hooks.gates import Gate, InjectionPoint
+from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.bus import Gate, InjectionPoint
 from prodagent.hooks.observers.console import ConsoleObserverHooks
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.bus import HookRegistry
 
 
 def _has_console_observer(registry: HookRegistry) -> bool:
@@ -110,7 +110,7 @@ async def test_veto_on_first_stays_serial():
 
     async def first_checker_vetoes(**_):
         await asyncio.sleep(0.05)
-        from prodagent.hooks.gates import BlockingResult
+        from prodagent.kernel.bus import BlockingResult
 
         return BlockingResult(blocked=True, reason="vetoed by first checker")
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from prodagent import RoutingFakeLLM
-from prodagent.core.types import LLMResponse, MessageList, StopReason, ToolCall
+from prodagent.kernel.types import LLMResponse, MessageList, StopReason, ToolCall
 
 
 def _resp(content: str) -> LLMResponse:

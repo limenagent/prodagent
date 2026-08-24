@@ -8,7 +8,7 @@ from prodagent.core.config import FrameworkConfig
 from prodagent.hooks.approval import ApprovalGate, ApprovalProvider
 from prodagent.hooks.bundles.memory import MemoryHooks
 from prodagent.hooks.bundles.security import ApprovalHooks
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.bus import HookRegistry
 from prodagent.llm.fake import script
 
 

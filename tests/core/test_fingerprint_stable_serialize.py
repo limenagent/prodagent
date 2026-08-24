@@ -4,7 +4,7 @@ import datetime
 from pathlib import Path
 
 from prodagent.core.progress import _tool_fingerprint
-from prodagent.core.types import ToolCall, stable_serialize
+from prodagent.kernel.types import ToolCall, stable_serialize
 
 
 class TestStableSerializeNoCollisions:

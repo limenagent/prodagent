@@ -6,7 +6,7 @@ from collections import OrderedDict
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from prodagent.core.types import LLMResponse
+    from prodagent.kernel.types import LLMResponse
 
 
 class InMemoryCache:

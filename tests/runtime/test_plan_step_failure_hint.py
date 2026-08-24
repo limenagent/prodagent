@@ -10,12 +10,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from prodagent.core.state.run import AgentRun
+from prodagent.kernel.state import AgentRun
 from prodagent.plan.dag import Plan, PlanStep
 from prodagent.plan.step_runner import StepFailed, StepRunner
 
 if TYPE_CHECKING:
-    from prodagent.core.types import ToolCall
+    from prodagent.kernel.types import ToolCall
 
 _BUSY_RAW = {
     "error": True,

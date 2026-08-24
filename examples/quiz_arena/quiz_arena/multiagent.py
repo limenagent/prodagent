@@ -32,7 +32,7 @@ from prodagent.coordination.work_queue import (
     WorkQueueSpec,
     work_queue_stream,
 )
-from prodagent.core.budget import HardBudget
+from prodagent.kernel.budget import HardBudget
 from prodagent.playground.multiagent import (
     MultiAgentAdapter,
     MultiAgentEvent,

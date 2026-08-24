@@ -22,9 +22,9 @@ import asyncio
 
 import pytest
 
-from prodagent.coordination.parent_runtime import ParentRuntime
+from prodagent.runtime.parent_runtime import ParentRuntime
 from prodagent.coordination.spawn import Spawn
-from prodagent.core.budget import HardBudget
+from prodagent.kernel.budget import HardBudget
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.agent import Agent
 from prodagent.runtime.config import AgentConfig

@@ -33,8 +33,8 @@ except ImportError as exc:  # pragma: no cover - exercised via missing-dep test
         "(or 'pip install fastapi uvicorn')"
     ) from exc
 
-from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
-from prodagent.core.types import ExecutionMode, RunState
+from prodagent.kernel.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
+from prodagent.kernel.types import ExecutionMode, RunState
 from prodagent.playground.multiagent import MultiAgentRun
 from prodagent.playground.registry import (
     CheckpointFactory,
@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     from starlette.responses import Response
     from starlette.types import Scope
 
-    from prodagent.core.state.run import AgentRun
+    from prodagent.kernel.state import AgentRun
     from prodagent.core.state.session import ConversationSession
     from prodagent.runtime.agent import Agent
 

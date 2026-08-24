@@ -7,13 +7,13 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
-from prodagent.hooks.events import HookEvent
+from prodagent.kernel.bus import HookEvent
 
 if TYPE_CHECKING:
     from prodagent.core.config import FrameworkConfig
     from prodagent.core.observability import AgentSpan
     from prodagent.hooks.audit import AuditLogger
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.bus import HookRegistry
     from prodagent.ports.span import SpanExporter
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ class SpanObserverHooks:
         self._run_traces: dict[str, str] = {}
 
     def attach(self, hooks: HookRegistry) -> None:
-        from prodagent.hooks.events import HookEvent
+        from prodagent.kernel.bus import HookEvent
 
         dedicated = {
             HookEvent.SESSION_START: self.on_session_start,
@@ -164,7 +164,7 @@ class SpanObserverHooks:
                 ]
 
     def on_session_end(self, *, run_id: str = "", run: Any = None, **_: Any) -> None:
-        from prodagent.core.state.run import is_child_subordinate
+        from prodagent.kernel.state import is_child_subordinate
 
         if run is not None and is_child_subordinate(run):
             return

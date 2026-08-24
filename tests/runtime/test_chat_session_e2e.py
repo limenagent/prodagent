@@ -20,8 +20,8 @@ import pytest
 from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.core.config import FrameworkConfig
 from prodagent.core.exceptions import PlanAlreadyCompletedError
-from prodagent.core.state.run import AgentRun
-from prodagent.core.types import RunState
+from prodagent.kernel.state import AgentRun
+from prodagent.kernel.types import RunState
 from prodagent.llm.fake import script
 from prodagent.plan.workflow import Workflow
 
@@ -149,7 +149,7 @@ async def test_workflow_deepcopy_isolates_sessions(tmp_path):
 
 @pytest.mark.asyncio
 async def test_suspended_resume_reuses_run_id_and_rejects_mode_mismatch(tmp_path):
-    from prodagent.core.types import RunState
+    from prodagent.kernel.types import RunState
 
     agent = _reactive_agent(tmp_path)
     r1 = await agent.chat("first", session_id="sus-A")
@@ -269,7 +269,7 @@ async def test_orphan_checkpoint_raises_run_id_collision(tmp_path):
     VersionConflict mid-run.
     """
     from prodagent.core.exceptions import RunIdCollisionError
-    from prodagent.core.types import RunState
+    from prodagent.kernel.types import RunState
 
     agent = _reactive_agent(tmp_path)
 
@@ -324,7 +324,7 @@ async def test_chat_stream_consumer_returns_on_terminal_event_persists_turn(tmp_
     so a consumer that returns on the terminal event skipped it. The fix wraps
     the finalize in a finally block gated on final_run.
     """
-    from prodagent.core.events import RunCompletedEvent
+    from prodagent.kernel.events import RunCompletedEvent
 
     agent = _reactive_agent(tmp_path)
 

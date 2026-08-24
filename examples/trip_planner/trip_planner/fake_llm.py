@@ -18,7 +18,7 @@ peer agent 的 REACTIVE 循环。
 from __future__ import annotations
 
 from prodagent import RoutingFakeLLM
-from prodagent.core.types import LLMResponse, ToolCall
+from prodagent.kernel.types import LLMResponse, ToolCall
 
 
 # ── 各 peer 的 JSON 总结 ────────────────────────────────────────────────────

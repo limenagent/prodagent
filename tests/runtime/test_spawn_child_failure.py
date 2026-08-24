@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.core.config import FrameworkConfig
-from prodagent.core.types import LLMResponse
+from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
 
 if TYPE_CHECKING:
@@ -44,7 +44,7 @@ def _isolated_fw(tmp_path: Path) -> FrameworkConfig:
 
 
 async def test_run_child_directly_returns_failed_on_none_run(tmp_path: Path) -> None:
-    from prodagent.coordination.parent_runtime import ParentRuntime
+    from prodagent.runtime.parent_runtime import ParentRuntime
     from prodagent.coordination.spawn import Spawn
 
     child = _child_that_fails_to_plan()
@@ -69,7 +69,7 @@ async def test_run_child_directly_returns_failed_on_none_run(tmp_path: Path) -> 
 
 
 async def test_run_child_returns_failed_when_executor_raises(tmp_path: Path) -> None:
-    from prodagent.coordination.parent_runtime import ParentRuntime
+    from prodagent.runtime.parent_runtime import ParentRuntime
     from prodagent.coordination.spawn import Spawn
 
     class _BoomLLM:

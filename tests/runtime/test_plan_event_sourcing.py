@@ -8,8 +8,8 @@ import pytest
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
 from prodagent.core.event_log import Event, PlanEventType
-from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
-from prodagent.core.types import LLMResponse
+from prodagent.kernel.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
+from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.plan.executor import PlanExecutor
 
@@ -225,8 +225,8 @@ async def test_retry_same_run_id_after_plan_failure_does_not_conflict(tmp_path):
 
 @pytest.mark.asyncio
 async def test_complete_step_aborts_when_step_obsoleted_mid_flight(tmp_path):
-    from prodagent.core.state import AgentRun
-    from prodagent.core.types import RunState, ToolCall
+    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.types import RunState, ToolCall
     from prodagent.plan.dag import Plan, PlanStep, StepStatus
 
     events, checkpoints = _stores(tmp_path)

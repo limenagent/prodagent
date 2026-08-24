@@ -13,7 +13,7 @@ from prodagent.coordination.floor_projection import (
     SelectiveToolExposure,
     project_floor,
 )
-from prodagent.core.types import ToolCall
+from prodagent.kernel.types import ToolCall
 
 
 def _make_floor(turns: list[FloorTurn]) -> SharedFloor:

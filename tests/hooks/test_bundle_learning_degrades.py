@@ -11,7 +11,7 @@ learning loop" rather than crash the run before it starts.
 from __future__ import annotations
 
 from prodagent.core.config import BackendConfig, FrameworkConfig, OrchestrationConfig
-from prodagent.hooks.events import HookEvent
+from prodagent.kernel.bus import HookEvent
 from prodagent.runtime.agent import Agent
 from prodagent.runtime.config import AgentConfig
 from prodagent.skills.registry import SkillRegistry

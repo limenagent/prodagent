@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 
-from prodagent.core.types import ToolMeta
+from prodagent.kernel.types import ToolMeta
 from prodagent.tooling import tool
 from prodagent.tooling.registry import ToolRegistry
 from prodagent.tooling.reliability.circuit_breaker import (

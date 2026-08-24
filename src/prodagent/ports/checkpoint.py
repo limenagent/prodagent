@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from prodagent.core.state.run import AgentRun
+    from prodagent.kernel.state import AgentRun
 
 
 @runtime_checkable

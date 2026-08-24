@@ -6,10 +6,10 @@ import pytest
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
-from prodagent.core.budget import HardBudget
-from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
+from prodagent.kernel.budget import HardBudget
+from prodagent.kernel.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.core.exceptions import BudgetExceeded
-from prodagent.core.types import LLMResponse
+from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.plan.executor import PlanExecutor
 
@@ -97,7 +97,7 @@ async def test_plan_first_budget_zero_turns_blocks_even_plan_generation(tmp_path
 
 @pytest.mark.asyncio
 async def test_plan_first_trips_on_sibling_spend_it_never_directly_incurred(tmp_path):
-    from prodagent.coordination.parent_runtime import SpawnAccumulator
+    from prodagent.runtime.parent_runtime import SpawnAccumulator
 
     events, checkpoints = _stores(tmp_path)
     sibling_spend = SpawnAccumulator(cost_usd=0.95, spawn_count=1)

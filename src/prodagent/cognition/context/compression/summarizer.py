@@ -4,12 +4,12 @@ import logging
 from typing import TYPE_CHECKING
 
 from prodagent.cognition.context.budget import CompressionLevel
-from prodagent.core.types import StopReason
+from prodagent.kernel.types import StopReason
 from prodagent.llm import stream_text
 
 if TYPE_CHECKING:
     from prodagent.core.config import ContextConfig
-    from prodagent.core.types import MessageList
+    from prodagent.kernel.types import MessageList
     from prodagent.llm import LLMClient
 
 logger = logging.getLogger(__name__)

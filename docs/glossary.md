@@ -5,6 +5,13 @@
 
 ## 执行
 
+- **kernel（内核）**——独立成篇的七个模块（`kernel/`）：类型、事件、
+  状态、总线、预算、原子、循环。只被依赖、不依赖任何能力包——
+  有 CI 测试钉死。
+- **Step（原子）**——能动性的最小单元：一次模型调用 + 至多一轮工具
+  执行。REACTIVE 是 while 迭代它，PLAN_FIRST 是按 DAG 迭代它。
+- **能力槽（provide / require）**——总线上的类型化登记处：插件声明
+  它携带的能力（审批门、记忆管理器），消费者按类型索取。
 - **Agent**——声明式的执行单元：系统提示 + 工具 + 模式 + 预算 + 可选
   协作拓扑与生产配置。入口是 `Agent`（`runtime/agent.py`）。
 - **run / AgentRun**——一次 `chat()` 调用的全部运行时状态；有
@@ -38,7 +45,8 @@
   输者收到冲突。
 - **HardBudget**——四轴硬预算：turns / seconds / tokens / cost_usd。
 - **SAFETY_NET_BUDGET**——裸核的防跑飞底线；不是用户预算。
-- **BudgetLedger**——peer 链与舞台原语的共享账本。
+- **BudgetLedger**——一链一本账：spawn 子代、peer 接力、舞台成员
+  共享的记账与预留（`kernel/budget.py`）。
 - **HITL（human-in-the-loop）**——人审：HIGH 工具挂起等决定。
 - **SUSPENDED**——“等人”的一等运行状态，不是异常。
 - **span**——一次行动的观测记录；`trace_id` 串起一次调用。

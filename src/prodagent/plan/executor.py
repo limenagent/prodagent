@@ -8,15 +8,15 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from prodagent.kernel.budget import check_spawn_budget
-from prodagent.core.events import (
+from prodagent.kernel.events import (
     StepCompletedEvent,
     StepFailedEvent,
     StepStartedEvent,
 )
 from prodagent.core.exceptions import LLMError
-from prodagent.core.types import MessageList, RunState, StepStatus
+from prodagent.kernel.types import MessageList, RunState, StepStatus
 from prodagent.hooks import fire as _fire
-from prodagent.hooks.events import HookEvent
+from prodagent.kernel.bus import HookEvent
 from prodagent.plan.bootstrap import PlanBootstrap
 from prodagent.plan.event_log import PlanEventLog
 from prodagent.plan.finalize import finalize_run, terminal_event
@@ -35,11 +35,11 @@ from prodagent.plan.step_runner import (
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Iterator
 
-    from prodagent.coordination.parent_runtime import SpawnAccumulator
-    from prodagent.core.budget import HardBudget
-    from prodagent.core.events import AgentEvent
-    from prodagent.core.state.run import AgentRun
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.runtime.parent_runtime import SpawnAccumulator
+    from prodagent.kernel.budget import HardBudget
+    from prodagent.kernel.events import AgentEvent
+    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.bus import HookRegistry
     from prodagent.llm import LLMClient
     from prodagent.plan.dag import Plan, PlanStep
     from prodagent.ports import CheckpointStore, EventLog
@@ -67,7 +67,7 @@ class PlanExecutor:
     Builds a DAG of steps upfront (or accepts one via ``initial_plan``), executes
     steps respecting their dependencies, and replans (up to ``max_replans`` times)
     when a step fails. Contrast with
-    :class:`~prodagent.runtime.reactive.ReactiveLoop`, the other leaf executor,
+    :class:`~prodagent.kernel.loop.ReactiveLoop`, the other leaf executor,
     which has no upfront plan and decides one action at a time.
     """
 
@@ -86,7 +86,6 @@ class PlanExecutor:
         checkpoint_store: CheckpointStore | None = None,
         framework_config: Any = None,
         budget: HardBudget | None = None,
-        spawn_accumulators: list[SpawnAccumulator] | None = None,
         initial_plan: Plan | None = None,
         budget_ledger: BudgetLedger | None = None,
         dispatcher: ToolDispatcher | None = None,
@@ -98,7 +97,6 @@ class PlanExecutor:
         self._agent_name = agent_name
         self._tool_schemas = tool_schemas or []
         self._budget = budget
-        self._spawn_accumulators = spawn_accumulators or []
         self._budget_ledger = budget_ledger
         self._max_replans = max_replans
         self._log = PlanEventLog(
@@ -136,7 +134,7 @@ class PlanExecutor:
         self._replan_count = 0
 
     def _check_budget(self, run: AgentRun) -> None:
-        check_spawn_budget(run, self._budget, self._budget_ledger, self._spawn_accumulators)
+        check_spawn_budget(run, self._budget, self._budget_ledger)
 
     async def stream(
         self,

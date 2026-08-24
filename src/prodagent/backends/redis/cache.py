@@ -6,7 +6,7 @@ import json
 from typing import TYPE_CHECKING
 
 from prodagent.backends.redis.keys import namespaced_key
-from prodagent.core.types import LLMResponse
+from prodagent.kernel.types import LLMResponse
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode, HardBudget, RunState
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.bus import HookRegistry
 from prodagent.llm.fake import script
 from prodagent.tooling import tool
 
@@ -38,7 +38,7 @@ def test_agent_run_completes():
 
 
 def test_agent_run_returns_agent_run():
-    from prodagent.core.state import AgentRun
+    from prodagent.kernel.state import AgentRun
 
     llm = script({"content": "done"})
     agent = _simple_agent(llm)
@@ -70,7 +70,7 @@ def test_agent_with_tools():
 def test_agent_constraints_in_system_prompt():
     captured_systems: list[str] = []
 
-    from prodagent.core.types import LLMResponse
+    from prodagent.kernel.types import LLMResponse
     from prodagent.llm import LLMClient
 
     class CaptureLLM(LLMClient):
@@ -98,7 +98,7 @@ def test_agent_constraints_in_system_prompt():
 def test_agent_context_in_system_prompt():
     captured_systems: list[str] = []
 
-    from prodagent.core.types import LLMResponse
+    from prodagent.kernel.types import LLMResponse
     from prodagent.llm import LLMClient
 
     class CaptureLLM(LLMClient):
@@ -118,7 +118,7 @@ def test_agent_context_in_system_prompt():
 
 
 def test_fluent_api_inject():
-    from prodagent.hooks.gates import InjectionPoint
+    from prodagent.kernel.bus import InjectionPoint
 
     agent = Agent(
         "test-agent",
@@ -134,8 +134,8 @@ def test_fluent_api_inject():
 def test_extend_human_approval_registers_checker():
     from prodagent.hooks.approval import ApprovalGate
     from prodagent.hooks.bundles.security import ApprovalHooks
-    from prodagent.hooks.gates import Gate
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.bus import Gate
+    from prodagent.kernel.bus import HookRegistry
 
     hooks = HookRegistry()
     ApprovalHooks(gate=ApprovalGate()).attach(hooks)
@@ -199,7 +199,7 @@ def test_agent_saves_to_session_dir():
 
 
 def test_agent_budget_respected():
-    from prodagent.core.types import LLMResponse
+    from prodagent.kernel.types import LLMResponse
     from prodagent.llm import LLMClient
 
     class InfiniteLoopLLM(LLMClient):
@@ -219,7 +219,7 @@ def test_agent_budget_respected():
 
 
 def test_agent_stream_yields_events():
-    from prodagent.core.events import RunCompletedEvent
+    from prodagent.kernel.events import RunCompletedEvent
     from prodagent.tooling import tool as tool_decorator
 
     @tool_decorator(name="probe", readonly=True)
@@ -254,8 +254,8 @@ def test_agent_stream_yields_events():
 
 
 def test_agent_stream_run_failed_event_on_budget_exhaustion():
-    from prodagent.core.events import RunFailedEvent
-    from prodagent.core.types import LLMResponse
+    from prodagent.kernel.events import RunFailedEvent
+    from prodagent.kernel.types import LLMResponse
     from prodagent.llm import LLMClient
 
     class LoopingLLM(LLMClient):
@@ -280,15 +280,15 @@ def test_agent_stream_run_failed_event_on_budget_exhaustion():
 
     final = events[-1] if events else None
     assert final is not None
-    from prodagent.core.events import RunCompletedEvent
+    from prodagent.kernel.events import RunCompletedEvent
 
     assert isinstance(final, RunCompletedEvent | RunFailedEvent)
 
 
 @pytest.mark.asyncio
 async def test_plan_first_failed_run_does_not_raise_attribute_error():
-    from prodagent.core.events import RunFailedEvent
-    from prodagent.core.types import LLMResponse
+    from prodagent.kernel.events import RunFailedEvent
+    from prodagent.kernel.types import LLMResponse
     from prodagent.llm.fake import FakeLLMAdapter
 
     bad_plan_llm = FakeLLMAdapter(

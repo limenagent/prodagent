@@ -44,7 +44,6 @@ if TYPE_CHECKING:
 
     from prodagent.cognition.context.manager import ContextManager
     from prodagent.cognition.context.spill import ToolResultSpillStore
-    from prodagent.coordination.parent_runtime import SpawnAccumulator
     from prodagent.kernel.budget import BudgetLedger, HardBudget
     from prodagent.kernel.bus import HookRegistry
     from prodagent.llm import LLMClient
@@ -70,7 +69,6 @@ class ReactiveLoop:
         hooks: HookRegistry | None = None,
         loop_config: LoopConfig | None = None,
         spill_store: ToolResultSpillStore | None = None,
-        spawn_accumulators: list[SpawnAccumulator] | None = None,
         initial_messages: MessageList | None = None,
         budget_ledger: BudgetLedger | None = None,
     ) -> None:
@@ -82,7 +80,6 @@ class ReactiveLoop:
         self._initial_messages = list(initial_messages) if initial_messages else None
         self._hooks = hooks
         self._dispatcher = dispatcher
-        self._spawn_accumulators = spawn_accumulators or []
         self._budget_ledger = budget_ledger
         resolved_spill_store = spill_store or (
             context_manager.spill_store if context_manager else None
@@ -197,7 +194,7 @@ class ReactiveLoop:
         await _fire(self._hooks, HookEvent.LOOP_END, run_id=run.run_id, error=error)
 
     def _check_budget(self, run: AgentRun) -> None:
-        check_spawn_budget(run, self._budget, self._budget_ledger, self._spawn_accumulators)
+        check_spawn_budget(run, self._budget, self._budget_ledger)
 
     async def _loop_events(
         self,

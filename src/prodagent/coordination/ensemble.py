@@ -13,7 +13,7 @@ from prodagent.coordination.activation import (
     ActivationContext,
     ActivationPolicy,
 )
-from prodagent.coordination.budget_ledger import SharedBudget
+from prodagent.kernel.budget import SharedBudget
 from prodagent.coordination.floor import FloorMember, FloorTurn, SharedFloor
 from prodagent.coordination.floor_projection import (
     FloorProjection,
@@ -36,7 +36,7 @@ from prodagent.coordination.termination import (
     TerminationPolicy,
     TerminationReason,
 )
-from prodagent.core.budget import HardBudget
+from prodagent.kernel.budget import HardBudget
 from prodagent.core.exceptions import BudgetExceeded
 
 from prodagent.core.text import bound_text
@@ -45,9 +45,9 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
 
     from prodagent.coordination.messaging.pipeline import Interceptor
-    from prodagent.core.events import AgentEvent
-    from prodagent.core.types import ToolCall
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.events import AgentEvent
+    from prodagent.kernel.types import ToolCall
+    from prodagent.kernel.bus import HookRegistry
     from prodagent.ports.dead_letter import DeadLetterStore
     from prodagent.runtime.agent import Agent
 
@@ -734,7 +734,7 @@ async def ensemble_stream(
     spec: EnsembleSpec,
 ) -> AsyncGenerator[AgentEvent | FloorTurnEvent | EnsembleCompletedEvent, None]:
     """Drive an ensemble and stream its events. Top-level entry, parallel to
-    :func:`~prodagent.coordination.run_loop.drive_stream` for single agents."""
+    :func:`~prodagent.runtime.runner.drive_stream` for single agents."""
     pipeline = Ensemble(spec)
     async for event in pipeline.run():
         yield event

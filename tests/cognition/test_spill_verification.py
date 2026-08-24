@@ -9,7 +9,7 @@ from prodagent.cognition.context.budget import TokenCounter
 from prodagent.cognition.context.manager import ContextManager
 from prodagent.cognition.context.spill import ToolResultSpillStore
 from prodagent.core.config import ContextConfig
-from prodagent.core.state.run import AgentRun
+from prodagent.kernel.state import AgentRun
 from prodagent.tooling.builtin.read_tool_result import make_read_tool_result
 
 
@@ -53,7 +53,7 @@ async def test_oversized_result_is_spilled_not_inlined():
         }
     )
     from prodagent.cognition.context.tool_results import reduce_on_append
-    from prodagent.core.types import ToolCall
+    from prodagent.kernel.types import ToolCall
 
     call = ToolCall(call_id="c1", name="mcp__rca__correlate_alerts", params={})
     msg = reduce_on_append({"result": big}, call, cfg, store, max_result_chars=2_000)
@@ -101,7 +101,7 @@ async def test_subthreshold_result_stays_inline():
     store = ToolResultSpillStore(spill_dir, counter=TokenCounter())
 
     from prodagent.cognition.context.tool_results import reduce_on_append
-    from prodagent.core.types import ToolCall
+    from prodagent.kernel.types import ToolCall
 
     small = '{"alerts": [], "total": 0}'
     call = ToolCall(call_id="c2", name="search_changes", params={})
@@ -136,7 +136,7 @@ async def test_mcp_wire_result_spilled_as_multiline_json():
     store = ToolResultSpillStore(spill_dir, counter=TokenCounter())
 
     from prodagent.cognition.context.tool_results import reduce_on_append
-    from prodagent.core.types import ToolCall
+    from prodagent.kernel.types import ToolCall
 
     inner = json.dumps(
         {
@@ -186,7 +186,7 @@ async def test_topology_string_field_is_expanded_to_real_lines():
     store = ToolResultSpillStore(spill_dir, counter=TokenCounter())
 
     from prodagent.cognition.context.tool_results import reduce_on_append
-    from prodagent.core.types import ToolCall
+    from prodagent.kernel.types import ToolCall
 
     topology = (
         "**Full Dependency Topology**\n"

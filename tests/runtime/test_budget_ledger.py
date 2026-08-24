@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent.coordination.budget_ledger import BudgetLedger
-from prodagent.core.budget import HardBudget
+from prodagent.kernel.budget import BudgetLedger
+from prodagent.kernel.budget import HardBudget
 from prodagent.core.exceptions import BudgetExceeded
 
 

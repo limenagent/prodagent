@@ -14,7 +14,7 @@ import pytest
 
 from prodagent.backends.postgres.checkpoint import PostgresCheckpointStore
 from prodagent.core.exceptions import VersionConflict
-from prodagent.core.state.run import AgentRun
+from prodagent.kernel.state import AgentRun
 
 
 class _AsyncCM:

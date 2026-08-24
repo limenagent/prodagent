@@ -6,7 +6,7 @@ import inspect
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from prodagent.core.types import SideEffectLevel, ToolMeta
+from prodagent.kernel.types import SideEffectLevel, ToolMeta
 from prodagent.plan.dag import Plan, PlanStep
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.decorator import _infer_schema, tool
@@ -14,7 +14,7 @@ from prodagent.tooling.decorator import _infer_schema, tool
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.bus import HookRegistry
     from prodagent.llm import LLMConfig
     from prodagent.ports.llm import LLMClient
     from prodagent.runtime.agent import Agent
@@ -207,7 +207,7 @@ class Workflow:
                     "to bind the agent's LLM before running."
                 )
             from prodagent.hooks import fire as _fire
-            from prodagent.hooks.events import HookEvent
+            from prodagent.kernel.bus import HookEvent
             from prodagent.llm import noop_chunk
 
             sys_text = system or ""

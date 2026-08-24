@@ -6,7 +6,7 @@ zero adopters; see CHANGELOG. Only the approval formatter survives.)
 
 from __future__ import annotations
 
-from prodagent.core.types import ToolCall
+from prodagent.kernel.types import ToolCall
 from prodagent.hooks.approval import ContextAwareApprovalFormatter
 
 

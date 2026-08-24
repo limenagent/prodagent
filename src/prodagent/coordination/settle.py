@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from prodagent.coordination.messaging.contract import MessageContract
-    from prodagent.coordination.run_loop import RunContext
+    from prodagent.runtime.runner import RunContext
     from prodagent.kernel.bus import HookRegistry
     from prodagent.kernel.state import AgentRun
 

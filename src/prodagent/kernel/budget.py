@@ -316,10 +316,11 @@ def check_spawn_budget(
     run: AgentRun,
     budget: HardBudget | None,
     ledger: BudgetLedger | None = None,
-    siblings: Iterable[SpendSnapshot] = (),
 ) -> None:
-    """Count live child/peer spend (ledger) and cross-hop fold sinks
-    (siblings) against the same ceiling as the run's own spend."""
+    """The ledger is the single enforcement source: children commit live,
+    peers commit at handoff. The run's own spend (metrics) plus the ledger's
+    live view must fit the ceiling. The fold accumulator is reporting-only
+    and never counted here — folded child spend is already in the ledger."""
     if budget is None:
         return
     extra_turns = 0
@@ -327,13 +328,9 @@ def check_spawn_budget(
     extra_cost_usd = 0.0
     if ledger is not None:
         spent = ledger.spent
-        extra_turns += spent.turns
-        extra_tokens += spent.tokens
-        extra_cost_usd += spent.cost_usd
-    for acc in siblings:
-        extra_turns += acc.turns
-        extra_tokens += acc.input_tokens + acc.output_tokens
-        extra_cost_usd += acc.cost_usd
+        extra_turns = spent.turns
+        extra_tokens = spent.tokens
+        extra_cost_usd = spent.cost_usd
     check_budget(
         run,
         budget,

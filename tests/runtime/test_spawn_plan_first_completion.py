@@ -5,7 +5,7 @@ import json
 import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode
-from prodagent.core.types import LLMResponse
+from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.tooling import tool
 
@@ -40,7 +40,7 @@ async def test_plan_first_child_reports_completed_not_failed():
     )
     assert child.mode is ExecutionMode.PLAN_FIRST
 
-    from prodagent.coordination.parent_runtime import ParentRuntime
+    from prodagent.runtime.parent_runtime import ParentRuntime
     from prodagent.coordination.spawn import build_spawn_tools_for_agent
 
     spawn = build_spawn_tools_for_agent([child], llm=_plan_llm(), context=ParentRuntime())

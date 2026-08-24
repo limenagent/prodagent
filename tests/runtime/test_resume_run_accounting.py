@@ -11,7 +11,7 @@ from the checkpoint.
 from __future__ import annotations
 
 from prodagent import Agent, AgentConfig, ExecutionMode, HardBudget, script, tool
-from prodagent.core.types import RunState, SideEffectLevel, ToolMeta
+from prodagent.kernel.types import RunState, SideEffectLevel, ToolMeta
 
 
 @tool(name="low_step", readonly=True)

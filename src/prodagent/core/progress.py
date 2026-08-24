@@ -9,11 +9,11 @@ import logging
 from typing import TYPE_CHECKING
 
 from prodagent.core.exceptions import InfiniteLoopDetected
-from prodagent.core.types import stable_serialize
+from prodagent.kernel.types import stable_serialize
 
 if TYPE_CHECKING:
-    from prodagent.core.state.run import AgentRun
-    from prodagent.core.types import ToolCall
+    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.types import ToolCall
 
 logger = logging.getLogger(__name__)
 

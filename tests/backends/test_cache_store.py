@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from prodagent.backends.memory import InMemoryCache
-from prodagent.core.types import LLMResponse
+from prodagent.kernel.types import LLMResponse
 from prodagent.llm import LLMConfig, noop_chunk
 from prodagent.llm.cache import (
     CachingLLMClient,

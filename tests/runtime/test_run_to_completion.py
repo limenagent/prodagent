@@ -6,7 +6,7 @@ from prodagent import Agent, AgentConfig, ExecutionMode, RunState, SideEffectLev
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.hooks.approval import ApprovalGate
 from prodagent.hooks.bundles.security import ApprovalHooks
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.bus import HookRegistry
 from prodagent.llm.fake import script
 from prodagent.tooling import tool
 

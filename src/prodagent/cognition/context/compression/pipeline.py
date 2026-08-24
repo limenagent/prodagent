@@ -9,7 +9,7 @@ from prodagent.cognition.context.compression.formatting import compress_tool_res
 if TYPE_CHECKING:
     from prodagent.cognition.context.compression.summarizer import Summariser
     from prodagent.core.config import ContextConfig
-    from prodagent.core.types import Message, MessageList
+    from prodagent.kernel.types import Message, MessageList
 
 __all__ = [
     "Stage",

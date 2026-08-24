@@ -7,8 +7,8 @@ import pytest
 from prodagent import Agent, AgentConfig, ExecutionMode, RunState
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.core.exceptions import SensitiveContentDetected
-from prodagent.hooks.gates import Gate
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.bus import Gate
+from prodagent.kernel.bus import HookRegistry
 from prodagent.llm.fake import script
 
 

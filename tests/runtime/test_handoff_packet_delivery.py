@@ -5,9 +5,9 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode
-from prodagent.coordination.parent_runtime import ParentRuntime
+from prodagent.runtime.parent_runtime import ParentRuntime
 from prodagent.coordination.spawn import build_spawn_tools_for_agent
-from prodagent.core.types import LLMResponse, SideEffectLevel, ToolMeta
+from prodagent.kernel.types import LLMResponse, SideEffectLevel, ToolMeta
 from prodagent.llm.fake import script
 from prodagent.ports.llm import LLMClient
 from prodagent.tooling.base import FunctionTool

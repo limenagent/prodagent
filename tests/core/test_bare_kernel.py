@@ -89,7 +89,7 @@ def test_bare_bundles_exclude_observers_and_gate():
 
 
 def test_bare_llm_is_not_wrapped():
-    from prodagent.coordination.run_loop import _resolve_llm
+    from prodagent.runtime.runner import _resolve_llm
     from prodagent.llm.cache import CachingLLMClient
 
     llm = script({"content": "x"})
@@ -100,9 +100,9 @@ def test_bare_llm_is_not_wrapped():
 
 
 async def test_production_restores_the_full_stack(tmp_path, monkeypatch):
-    from prodagent.coordination.run_loop import _resolve_llm
+    from prodagent.runtime.runner import _resolve_llm
     from prodagent.core.config import FrameworkConfig, production
-    from prodagent.core.types import SideEffectLevel, ToolMeta
+    from prodagent.kernel.types import SideEffectLevel, ToolMeta
     from prodagent.hooks.approval import ApprovalGate
     from prodagent.llm.cache import CachingLLMClient
     from prodagent.tooling import tool

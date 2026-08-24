@@ -5,7 +5,7 @@ from collections import deque
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from prodagent.core.types import LLMResponse, MessageList, StopReason, ToolCall
+from prodagent.kernel.types import LLMResponse, MessageList, StopReason, ToolCall
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Mapping, Sequence

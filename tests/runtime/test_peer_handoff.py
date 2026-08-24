@@ -3,16 +3,16 @@ from __future__ import annotations
 import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode
-from prodagent.coordination.parent_runtime import ParentRuntime
+from prodagent.runtime.parent_runtime import ParentRuntime
 from prodagent.coordination.peer import Peer, build_peer_tools_for_agent
-from prodagent.core.state.run import is_child_run_id
-from prodagent.core.types import LLMResponse
+from prodagent.kernel.state import is_child_run_id
+from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter, script
 
 
 @pytest.fixture
 def hook_registry():
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.bus import HookRegistry
 
     return HookRegistry()
 
@@ -250,7 +250,7 @@ async def test_peer_session_end_fires_for_root_and_peer(hook_registry):
     as a spawn child. Peer continuations now carry ``is_peer_continuation`` so
     consumers can distinguish them from vertical delegation.
     """
-    from prodagent.hooks.events import HookEvent
+    from prodagent.kernel.bus import HookEvent
 
     fired: list[tuple[str, bool]] = []
 
@@ -279,7 +279,7 @@ async def test_peer_session_end_fires_for_root_and_peer(hook_registry):
 @pytest.mark.asyncio
 async def test_spawn_child_is_not_peer_continuation(hook_registry):
     """Spawn children (vertical delegation) must NOT set is_peer_continuation."""
-    from prodagent.hooks.events import HookEvent
+    from prodagent.kernel.bus import HookEvent
 
     fired: list[tuple[str, bool]] = []
 

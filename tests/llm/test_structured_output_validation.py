@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from prodagent.core.types import LLMResponse
+from prodagent.kernel.types import LLMResponse
 from prodagent.llm import LLMConfig
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.llm.structured_output import (

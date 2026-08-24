@@ -12,12 +12,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, cast, runtime_checkable
 
-from prodagent.core.state.run import is_child_run_id
-from prodagent.core.types import RunState
+from prodagent.kernel.state import is_child_run_id
+from prodagent.kernel.types import RunState
 
 if TYPE_CHECKING:
     from prodagent.core.config import FrameworkConfig
-    from prodagent.core.state.run import AgentRun
+    from prodagent.kernel.state import AgentRun
     from prodagent.core.state.session import ConversationSession
     from prodagent.ports import CheckpointStore, SessionStore
     from prodagent.runtime.agent import Agent

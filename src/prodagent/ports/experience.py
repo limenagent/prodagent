@@ -14,10 +14,10 @@ from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from prodagent.core.types import RunState
+from prodagent.kernel.types import RunState
 
 if TYPE_CHECKING:
-    from prodagent.core.state.run import AgentRun
+    from prodagent.kernel.state import AgentRun
 
 
 @runtime_checkable

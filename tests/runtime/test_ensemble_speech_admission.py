@@ -4,7 +4,7 @@ floor survives."""
 
 from __future__ import annotations
 
-from prodagent.coordination.budget_ledger import SharedBudget
+from prodagent.kernel.budget import SharedBudget
 from prodagent.coordination.ensemble import (
     AgentFloorMember,
     EnsembleSpec,
@@ -13,9 +13,9 @@ from prodagent.coordination.ensemble import (
 )
 from prodagent.coordination.floor import FloorTurn
 from prodagent.coordination.termination import MaxRounds, TerminationPolicy
-from prodagent.core.budget import HardBudget
-from prodagent.hooks.gates import BlockingResult, Gate
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.budget import HardBudget
+from prodagent.kernel.bus import BlockingResult, Gate
+from prodagent.kernel.bus import HookRegistry
 
 
 class _ScriptedMember:

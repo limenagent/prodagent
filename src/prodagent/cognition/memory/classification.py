@@ -10,7 +10,7 @@ from prodagent.llm import LLMConfig, stream_text
 from prodagent.llm.structured_output import extract_json_object
 
 if TYPE_CHECKING:
-    from prodagent.core.state.run import AgentRun
+    from prodagent.kernel.state import AgentRun
     from prodagent.llm import LLMClient
 
 logger = logging.getLogger(__name__)

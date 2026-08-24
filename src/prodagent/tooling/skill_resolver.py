@@ -4,13 +4,13 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from prodagent.core.exceptions import SuspendPendingApproval
-from prodagent.core.types import SKILL_INJECTION_KEY, ToolCall, ToolOutcome, ToolResult
-from prodagent.hooks.events import HookEvent
-from prodagent.hooks.gates import Gate
+from prodagent.kernel.types import SKILL_INJECTION_KEY, ToolCall, ToolOutcome, ToolResult
+from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.bus import Gate
 
 if TYPE_CHECKING:
-    from prodagent.core.types import ToolMeta
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.types import ToolMeta
+    from prodagent.kernel.bus import HookRegistry
     from prodagent.skills.registry import SkillRegistry
 
 logger = logging.getLogger(__name__)

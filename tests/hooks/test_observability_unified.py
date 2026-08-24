@@ -4,7 +4,7 @@ from pathlib import Path
 from prodagent.backends.file.span import FileSpanExporter
 from prodagent.hooks.audit import AgentSpan, AuditLogger
 from prodagent.hooks.bundles.observability import SpanObserverHooks
-from prodagent.hooks.registry import HookEvent, HookRegistry
+from prodagent.kernel.bus import HookEvent, HookRegistry
 
 
 async def test_file_exporter_writes_span_as_jsonl(tmp_path: Path):

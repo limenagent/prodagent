@@ -9,7 +9,7 @@ from prodagent.playground._json import jsonable as _jsonable
 if TYPE_CHECKING:
     import asyncio
 
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.bus import HookRegistry
 
 
 class WebPushHooks:

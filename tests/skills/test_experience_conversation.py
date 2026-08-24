@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from prodagent.core.state.run import AgentRun
-from prodagent.core.types import RunState
+from prodagent.kernel.state import AgentRun
+from prodagent.kernel.types import RunState
 from prodagent.ports.experience import conversation_messages
 
 

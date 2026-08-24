@@ -4,16 +4,16 @@ import asyncio
 
 import pytest
 
-from prodagent.core.types import RunState
-from prodagent.hooks.events import HookEvent
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.types import RunState
+from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.bus import HookRegistry
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.agent import Agent
 from prodagent.runtime.config import AgentConfig
 
 
 async def test_cancelled_run_reports_failed_state() -> None:
-    from prodagent.core.types import LLMResponse
+    from prodagent.kernel.types import LLMResponse
 
     captured: dict = {}
 
@@ -28,7 +28,7 @@ async def test_cancelled_run_reports_failed_state() -> None:
         await asyncio.sleep(300)
         return {"status": "ok"}
 
-    from prodagent.core.types import SideEffectLevel, ToolMeta
+    from prodagent.kernel.types import SideEffectLevel, ToolMeta
     from prodagent.tooling.base import FunctionTool
 
     tool = FunctionTool(

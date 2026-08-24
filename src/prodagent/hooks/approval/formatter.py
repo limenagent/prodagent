@@ -8,7 +8,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from prodagent.core.types import ToolCall
+    from prodagent.kernel.types import ToolCall
 
 logger = logging.getLogger(__name__)
 

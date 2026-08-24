@@ -6,8 +6,8 @@ import asyncio
 from typing import Any
 
 from prodagent import Agent, AgentConfig, RunState
-from prodagent.hooks.events import HookEvent
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.bus import HookRegistry
 from prodagent.llm.fake import script
 
 

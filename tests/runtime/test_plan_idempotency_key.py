@@ -14,14 +14,14 @@ from typing import TYPE_CHECKING
 import pytest
 
 from prodagent import SideEffectLevel, ToolMeta
-from prodagent.core.state.run import AgentRun
+from prodagent.kernel.state import AgentRun
 from prodagent.plan.dag import Plan, PlanStep
 from prodagent.plan.step_runner import StepRunner
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
 if TYPE_CHECKING:
-    from prodagent.core.types import ToolCall
+    from prodagent.kernel.types import ToolCall
 
 
 class _StubEventLog:

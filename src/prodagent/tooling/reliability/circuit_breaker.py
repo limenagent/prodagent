@@ -9,7 +9,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from prodagent.core.types import ToolName
+    from prodagent.kernel.types import ToolName
 
 logger = logging.getLogger(__name__)
 

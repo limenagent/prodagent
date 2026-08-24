@@ -3,13 +3,13 @@ from __future__ import annotations
 import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode
-from prodagent.coordination.parent_runtime import SpawnAccumulator
-from prodagent.coordination.run_loop import _fold_spawn_accounting as fold_spawn_accounting
+from prodagent.runtime.parent_runtime import SpawnAccumulator
+from prodagent.runtime.runner import _fold_spawn_accounting as fold_spawn_accounting
 from prodagent.coordination.spawn import ChildResult
-from prodagent.core.budget import HardBudget
-from prodagent.core.state.run import AgentRun
-from prodagent.core.types import LLMResponse, ToolCall
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.budget import HardBudget
+from prodagent.kernel.state import AgentRun
+from prodagent.kernel.types import LLMResponse, ToolCall
+from prodagent.kernel.bus import HookRegistry
 from prodagent.llm import LLMConfig
 from prodagent.llm.fake import FakeLLMAdapter
 
@@ -146,7 +146,7 @@ async def test_spawned_child_run_has_parent_run_id(tmp_path, monkeypatch):
     """A spawned child's AgentRun carries parent_run_id — the explicit field
     that replaces ::-string parsing in is_child_subordinate."""
     from prodagent.core.config import FrameworkConfig
-    from prodagent.core.state.run import is_child_subordinate
+    from prodagent.kernel.state import is_child_subordinate
 
     monkeypatch.setattr(
         LLMConfig,

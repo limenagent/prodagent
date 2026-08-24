@@ -8,7 +8,7 @@ from collections import deque
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from prodagent.core.types import StepStatus
+from prodagent.kernel.types import StepStatus
 
 
 @dataclass

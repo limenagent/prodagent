@@ -13,8 +13,8 @@ from __future__ import annotations
 import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode
-from prodagent.core.budget import HardBudget
-from prodagent.core.state.run import is_child_run_id
+from prodagent.kernel.budget import HardBudget
+from prodagent.kernel.state import is_child_run_id
 from prodagent.llm.fake import script
 
 

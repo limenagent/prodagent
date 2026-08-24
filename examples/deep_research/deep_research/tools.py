@@ -9,7 +9,7 @@ LLM 直接读 content 字段里的 benchmark 数字,不需要 ``read_tool_result
 from __future__ import annotations
 
 from prodagent import ErrorReason, SideEffectLevel, ToolMeta, tool
-from prodagent.core.types import ToolError
+from prodagent.kernel.types import ToolError
 
 # ── 假 web —— mock 数据,demo 不依赖外网 ───────────────────────────────────────
 

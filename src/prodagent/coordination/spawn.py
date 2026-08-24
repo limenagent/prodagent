@@ -30,22 +30,22 @@ from prodagent.core.exceptions import (
     SECURITY_VETO_EXCEPTIONS,
     BudgetExceeded,
 )
-from prodagent.core.types import (
+from prodagent.kernel.types import (
     ErrorSeverity,
     RunState,
     SideEffectLevel,
     ToolError,
     ToolMeta,
 )
-from prodagent.hooks.events import HookEvent
+from prodagent.kernel.bus import HookEvent
 from prodagent.runtime._tool_merge import attach_tools
 from prodagent.tooling.base import FunctionTool
 
 if TYPE_CHECKING:
     from prodagent.runtime.parent_runtime import SpawnAccumulator
-    from prodagent.coordination.run_loop import RunContext
+    from prodagent.runtime.runner import RunContext
     from prodagent.core.config import FrameworkConfig
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.bus import HookRegistry
     from prodagent.ports.dead_letter import DeadLetterStore
     from prodagent.ports.llm import LLMClient
     from prodagent.runtime.agent import Agent
@@ -489,7 +489,7 @@ class Spawn:
         child = spec.fork_as_spawn(runtime)
 
         try:
-            from prodagent.coordination.run_loop import drive
+            from prodagent.runtime.runner import drive
 
             run = await drive(
                 child,

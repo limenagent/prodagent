@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent.core.types import LLMResponse
+from prodagent.kernel.types import LLMResponse
 from prodagent.llm.pricing import PricingTable, token_cost_usd
 
 M = 1_000_000

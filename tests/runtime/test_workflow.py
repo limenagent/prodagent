@@ -8,7 +8,7 @@ from prodagent.plan.workflow import Workflow
 
 @pytest.fixture
 def hook_registry():
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.bus import HookRegistry
 
     return HookRegistry()
 

@@ -5,9 +5,9 @@ import pytest
 from prodagent.cognition.context.budget import CompressionLevel, TokenCounter
 from prodagent.cognition.context.manager import ContextManager, format_state
 from prodagent.core.config import ContextConfig
-from prodagent.hooks.events import HookEvent
-from prodagent.hooks.gates import Gate, InjectionPoint
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.bus import Gate, InjectionPoint
+from prodagent.kernel.bus import HookRegistry
 
 
 def _make_run(messages=None, task="test task"):

@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 from prodagent import Agent, AgentConfig
-from prodagent.coordination.parent_runtime import SpawnAccumulator
-from prodagent.coordination.parent_runtime import ParentRuntime
-from prodagent.coordination.run_loop import RunContext, RunLoop
+from prodagent.runtime.parent_runtime import SpawnAccumulator
+from prodagent.runtime.parent_runtime import ParentRuntime
+from prodagent.runtime.runner import RunContext, RunLoop
 from prodagent.coordination.spawn import (
     Spawn,
     short_result,
 )
-from prodagent.core.state.run import AgentRun
-from prodagent.core.types import ErrorSeverity, ToolOutcome, ToolResult
+from prodagent.kernel.state import AgentRun
+from prodagent.kernel.types import ErrorSeverity, ToolOutcome, ToolResult
 from prodagent.llm.fake import FakeLLMAdapter
 
 

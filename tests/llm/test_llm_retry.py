@@ -8,7 +8,7 @@ from prodagent.llm.http_retry import (
     _delay_for,
     with_http_retry,
 )
-from prodagent.tooling.retry import Backoff, RetryPolicy
+from prodagent.core.retry import Backoff, RetryPolicy
 
 
 class _FakeHeaders(dict):

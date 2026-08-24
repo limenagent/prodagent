@@ -9,19 +9,19 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from prodagent.core.budget import SAFETY_NET_BUDGET
+from prodagent.kernel.budget import SAFETY_NET_BUDGET
 from prodagent.core.exceptions import PermissionDenied
-from prodagent.core.types import ExecutionMode, MessageList
-from prodagent.hooks.events import HookEvent
-from prodagent.hooks.gates import Gate
+from prodagent.kernel.types import ExecutionMode, MessageList
+from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.bus import Gate
 from prodagent.runtime._tool_merge import merge_tools_by_name
-from prodagent.runtime.reactive import ReactiveLoop
+from prodagent.kernel.loop import ReactiveLoop
 from prodagent.tooling.dispatcher import ToolDispatcher
 
 if TYPE_CHECKING:
     from prodagent.runtime.parent_runtime import SpawnAccumulator
     from prodagent.runtime.runner import RunContext
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.bus import HookRegistry
     from prodagent.ports import LeafExecutor
     from prodagent.runtime.agent import Agent
 
@@ -84,11 +84,6 @@ class LeafExecutorFactory:
         )
 
         # 3. executor: PLAN_FIRST (dynamic or preset DAG) vs REACTIVE loop
-        # Enforcement rides the chain ledger; only the cross-hop config-level
-        # accumulator still reaches the executors as a live-spend view.
-        spawn_accumulators = (
-            [agent.config.spawn_accumulator] if agent.config.spawn_accumulator else []
-        )
         is_root = ctx.depth == 0
         effective_mode = (
             self._forced_mode if (is_root and self._forced_mode is not None) else agent.mode
@@ -110,7 +105,6 @@ class LeafExecutorFactory:
                 checkpoint_store=ctx.checkpoint,
                 framework_config=fw,
                 budget=effective_budget,
-                spawn_accumulators=spawn_accumulators,
                 initial_plan=agent.config.initial_plan,
                 budget_ledger=ctx.budget_ledger,
                 max_replans=agent.config.max_replans,
@@ -128,7 +122,6 @@ class LeafExecutorFactory:
                 loop_config=fw.loop,
                 checkpoint_store=ctx.checkpoint,
                 spill_store=ctx.spill_store,
-                spawn_accumulators=spawn_accumulators,
                 initial_messages=initial_messages,
                 budget_ledger=ctx.budget_ledger,
             )

@@ -32,7 +32,7 @@ from prodagent.coordination.work_queue import (
     WorkQueueSpec,
     work_queue_stream,
 )
-from prodagent.core.budget import HardBudget
+from prodagent.kernel.budget import HardBudget
 
 from quiz_arena.contestants import ContestantMember, build_contestant_agent
 from quiz_arena.host import HostMember

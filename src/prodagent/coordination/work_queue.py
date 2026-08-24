@@ -44,9 +44,9 @@ from prodagent.core.event_log import Event
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-    from prodagent.coordination.budget_ledger import BudgetLedger
+    from prodagent.kernel.budget import BudgetLedger
     from prodagent.coordination.messaging.contract import MessageContract
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.bus import HookRegistry
     from prodagent.ports.dead_letter import DeadLetterStore
     from prodagent.ports.event_log import EventLog
 

@@ -3,8 +3,8 @@ from __future__ import annotations
 from prodagent import RunState
 from prodagent.core.error_classifier import ClassifiedError
 from prodagent.core.error_reason import ErrorReason
-from prodagent.core.state import AgentRun
-from prodagent.core.types import ToolCall
+from prodagent.kernel.state import AgentRun
+from prodagent.kernel.types import ToolCall
 
 
 def _rich_run() -> AgentRun:

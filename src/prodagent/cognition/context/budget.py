@@ -4,13 +4,13 @@ from enum import Enum
 from typing import TYPE_CHECKING, TypeVar
 
 from prodagent.core.text import cjk_char_count
-from prodagent.core.types import Layer
+from prodagent.kernel.types import Layer
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from prodagent.core.config import ContextConfig
-    from prodagent.core.types import Message
+    from prodagent.kernel.types import Message
 
 __all__ = [
     "Layer",

@@ -4,8 +4,8 @@ import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.backends.file.checkpoint import FileCheckpointStore
-from prodagent.hooks.events import HookEvent
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.bus import HookRegistry
 from prodagent.llm.fake import script
 
 

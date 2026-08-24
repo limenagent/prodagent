@@ -22,7 +22,7 @@ from prodagent.coordination.messaging.envelope import (
     DuplicateCrossing,
 )
 from prodagent.core.exceptions import SECURITY_VETO_EXCEPTIONS
-from prodagent.hooks.gates import Gate
+from prodagent.kernel.bus import Gate
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -31,8 +31,8 @@ if TYPE_CHECKING:
     from prodagent.coordination.floor_projection import FloorProjection
     from prodagent.coordination.messaging.contract import MessageContract
     from prodagent.coordination.messaging.idempotency import IdempotentMessageHandler
-    from prodagent.hooks.events import HookEvent
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.bus import HookEvent
+    from prodagent.kernel.bus import HookRegistry
 
 logger = logging.getLogger(__name__)
 

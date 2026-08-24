@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from prodagent.core.aliases import ToolSchema
-    from prodagent.core.types import ToolMeta, ToolName, ToolResult
+    from prodagent.kernel.types import ToolMeta, ToolName, ToolResult
 
 
 @runtime_checkable

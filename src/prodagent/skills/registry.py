@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from prodagent.core.types import GET_SKILL_TOOL_NAME
+from prodagent.kernel.types import GET_SKILL_TOOL_NAME
 
 logger = logging.getLogger(__name__)
 

@@ -17,7 +17,7 @@ system prompt 分发到 per-agent 队列:
 from __future__ import annotations
 
 from prodagent import RoutingFakeLLM
-from prodagent.core.types import LLMResponse, ToolCall
+from prodagent.kernel.types import LLMResponse, ToolCall
 
 
 def oom_happy_path_script() -> RoutingFakeLLM:

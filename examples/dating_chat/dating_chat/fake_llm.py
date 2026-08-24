@@ -38,7 +38,7 @@
 from __future__ import annotations
 
 from prodagent import RoutingFakeLLM
-from prodagent.core.types import LLMResponse, StopReason, ToolCall
+from prodagent.kernel.types import LLMResponse, StopReason, ToolCall
 
 MEI_LINES = [
     "哈哈说起来有点不好意思……前两天不小心尝了口海鲜，直接过敏躺了两天，今天才算"

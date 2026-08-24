@@ -10,8 +10,8 @@ from prodagent import ExecutionMode
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
 from prodagent.core.event_log import PlanEventType
-from prodagent.core.types import LLMResponse, RunState
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.types import LLMResponse, RunState
+from prodagent.kernel.bus import HookRegistry
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.agent import Agent
 from prodagent.runtime.config import AgentConfig

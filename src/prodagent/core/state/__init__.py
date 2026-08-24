@@ -1,5 +1,5 @@
-"""Runtime state layer — the single live object that flows through execution."""
+"""Session state — run state moved to :mod:`prodagent.kernel.state`."""
 
-from prodagent.core.state.run import AgentRun
+from prodagent.core.state.session import ConversationSession
 
-__all__ = ["AgentRun"]
+__all__ = ["ConversationSession"]

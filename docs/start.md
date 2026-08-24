@@ -70,17 +70,17 @@ asyncio.run(agent.chat("跟 Alice 打个招呼。"))
 # 这次 `.prodagent/` 下会出现 runs / sessions / events / spans
 ```
 
-`production()`（`src/prodagent/core/config.py:118`）做了什么？把
-`FrameworkConfig.profile` 翻到 `"production"` 并打开压缩与工具结果外溢。
-此后每个默认解析点都会变：session/checkpoint/event log 解析为 file 后端、
-挂上 span 导出与 HIGH 工具审批门、LLM 包上响应缓存。一张完整的
-对照表见[专题](topics/recovery.md)各章开篇。
+`production()` 做了什么？把 `FrameworkConfig.profile` 翻到 `"production"`
+并打开压缩与工具结果外溢。此后每个默认解析点都会变：
+session/checkpoint/event log 解析为 file 后端、挂上 span 导出与 HIGH
+工具审批门、LLM 包上响应缓存。这些分支**只存在于一个文件**——
+`runtime/compose.py`（组装根），"生产形态到底打开了什么"在那里是一份
+能从头读到尾的清单，且有测试保证 profile 判断不会散落到别处。
 
 ## 4 · 一个带刹车和门的 Agent
 
 ```python
-from prodagent import Agent, AgentConfig, ExecutionMode, HardBudget, tool
-from prodagent.core.types import SideEffectLevel, ToolMeta
+from prodagent import Agent, AgentConfig, ExecutionMode, HardBudget, SideEffectLevel, ToolMeta, tool
 from prodagent.core.config import production
 
 @tool(name="place_order", meta=ToolMeta(

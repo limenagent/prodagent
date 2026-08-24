@@ -24,13 +24,13 @@ flowchart TD
 
 | 站 | 包 | 你会读懂什么 | 关键文件 |
 |---|---|---|---|
-| [① 词汇](01-core.md) | `core/` | 所有层共说的语言：类型、运行状态、预算、错误 | `core/types.py`、`core/state/run.py`、`core/budget.py` |
+| [① 词汇](01-core.md) | `kernel/` | 内核七模块：类型、事件、状态、总线、预算、原子、策略 | `kernel/types.py`、`kernel/state.py`、`kernel/budget.py` |
 | [② 契约](02-ports.md) | `ports/` | 14 个 Protocol：先立契约，再谈实现 | `ports/__init__.py`、`ports/llm.py` |
 | [③ 模型](03-llm.md) | `llm/` | provider 怎么选、FakeLLM 为什么是一等公民 | `llm/providers.py`、`llm/fake.py` |
 | [④ 工具](04-tools.md) | `tooling/` | `@tool` 的元数据、分发管道、批执行语义 | `tooling/decorator.py`、`tooling/dispatcher.py` |
-| [⑤ 循环](05-loop.md) | `runtime/` | Agent 两段式构造与 REACTIVE 主循环 | `runtime/agent.py`、`runtime/reactive.py` |
+| [⑤ 循环](05-loop.md) | `kernel/` + `runtime/` | Step 原子与迭代它的两种策略；Agent 门面与组装根 | `kernel/step.py`、`kernel/loop.py`、`runtime/agent.py` |
 | [⑥ 规划](06-plan.md) | `plan/` | PLAN_FIRST 的 DAG、断点续跑、增量重规划 | `plan/executor.py`、`plan/dag.py`、`plan/workflow.py` |
-| [⑦ 协作](07-multiagent.md) | `coordination/` | spawn/peers 与 Crossing 消息平面、三舞台原语 | `coordination/run_loop.py`、`spawn.py`、`messaging/` |
+| [⑦ 协作](07-multiagent.md) | `coordination/` | spawn/peers 与 Crossing 消息平面、三舞台原语 | `runtime/runner.py`、`coordination/spawn.py`、`messaging/` |
 
 每站开头是真实代码（注明 `文件:行号`），建议开着仓库对照读；结尾一节
 **取舍**讲这一站最容易走错的岔路。恢复、审批、压缩这些能力不在这条

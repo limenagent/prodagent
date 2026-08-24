@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from prodagent.cognition.context.budget import CompressionLevel
-from prodagent.hooks.events import HookEvent
+from prodagent.kernel.bus import HookEvent
 
 if TYPE_CHECKING:
     from prodagent.runtime.agent import Agent

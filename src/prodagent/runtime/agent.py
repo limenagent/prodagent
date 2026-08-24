@@ -12,18 +12,18 @@ from prodagent.runtime.parent_runtime import SpawnAccumulator
 from prodagent.runtime.parent_runtime import ParentRuntime
 from prodagent.runtime.runner import collect_final_run, drive_stream
 from prodagent.core.config import FrameworkConfig
-from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
+from prodagent.kernel.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.core.exceptions import (
     PlanAlreadyCompletedError,
     RunIdCollisionError,
     UnknownApprovalError,
 )
-from prodagent.core.state.run import CHILD_SEPARATOR
+from prodagent.kernel.state import CHILD_SEPARATOR
 from prodagent.core.state.session import ConversationSession
-from prodagent.core.types import ExecutionMode, MessageList, RunState
-from prodagent.hooks.events import HookEvent
-from prodagent.hooks.gates import Gate, InjectionPoint
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.types import ExecutionMode, MessageList, RunState
+from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.bus import Gate, InjectionPoint
+from prodagent.kernel.bus import HookRegistry
 from prodagent.runtime._tool_merge import merge_tools_by_name
 from prodagent.runtime.config import AgentConfig
 
@@ -32,10 +32,10 @@ if TYPE_CHECKING:
 
     from prodagent.cognition.context.manager import ContextManager
     from prodagent.cognition.memory import MemoryProvider
-    from prodagent.coordination.run_loop import RunContext
-    from prodagent.core.budget import HardBudget
-    from prodagent.core.events import AgentEvent
-    from prodagent.core.state.run import AgentRun
+    from prodagent.runtime.runner import RunContext
+    from prodagent.kernel.budget import HardBudget
+    from prodagent.kernel.events import AgentEvent
+    from prodagent.kernel.state import AgentRun
     from prodagent.hooks.approval import ApprovalProvider
     from prodagent.mcp.config import MCPServerConfig
     from prodagent.plan.workflow import Workflow

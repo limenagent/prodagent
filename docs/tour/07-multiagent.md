@@ -47,7 +47,7 @@ flowchart LR
 - **`agents=`（`coordination/spawn.py`）**——父把任务派给子。子跑完，
   结果经 admission 管道**净化后**返回：白名单视图 + 记账标量，
   `tool_history` 之类不跨边界。子花销实时汇入父的预算（树形账本）。
-- **`peers=`（`coordination/run_loop.py`）**——上一站的 RunLoop 循环
+- **`peers=`（`runtime/runner.py`）**——上一站的 RunLoop 循环
   就是在等它：`pending_handoff` 出现时 fork peer、以它为根跑下一跳。
   接力棒 `HandoffPacket` 带 `message_id`，重复投递被 DEDUPE 吞掉。
 

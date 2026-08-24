@@ -13,21 +13,27 @@
 
 ::: prodagent.tooling.decorator.tool
 
-## 预算
+## 内核（kernel）
 
-::: prodagent.core.budget.HardBudget
+::: prodagent.kernel.budget.HardBudget
 
-## 类型词汇（core.types）
+::: prodagent.kernel.budget.BudgetLedger
 
-::: prodagent.core.types.ExecutionMode
+::: prodagent.kernel.step.Step
 
-::: prodagent.core.types.RunState
+::: prodagent.kernel.bus.HookRegistry
 
-::: prodagent.core.types.ToolMeta
+## 类型词汇（kernel.types）
 
-::: prodagent.core.types.SideEffectLevel
+::: prodagent.kernel.types.ExecutionMode
 
-::: prodagent.core.types.ToolResult
+::: prodagent.kernel.types.RunState
+
+::: prodagent.kernel.types.ToolMeta
+
+::: prodagent.kernel.types.SideEffectLevel
+
+::: prodagent.kernel.types.ToolResult
 
 ## 协作原语（coordination）
 
@@ -40,8 +46,6 @@
 ::: prodagent.coordination.blackboard.Trigger
 
 ::: prodagent.coordination.termination.TerminationPolicy
-
-::: prodagent.coordination.budget_ledger.BudgetLedger
 
 ## 记忆（cognition.memory）
 

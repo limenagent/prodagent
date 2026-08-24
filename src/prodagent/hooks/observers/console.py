@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any, cast
 
-from prodagent.core.types import Layer
-from prodagent.hooks.events import HookEvent
+from prodagent.kernel.types import Layer
+from prodagent.kernel.bus import HookEvent
 from prodagent.hooks.observers._ansi import (
     _BLUE,
     _BOLD,
@@ -22,11 +22,11 @@ from prodagent.hooks.observers._ansi import (
 )
 
 if TYPE_CHECKING:
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.bus import HookRegistry
 
 
 def is_subagent_run_id(run_id: str) -> bool:
-    from prodagent.core.state.run import is_child_run_id
+    from prodagent.kernel.state import is_child_run_id
 
     return bool(run_id) and is_child_run_id(run_id)
 

@@ -35,14 +35,14 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from prodagent import MaxRounds, TerminationPolicy
-from prodagent.coordination.budget_ledger import SharedBudget
+from prodagent.kernel.budget import SharedBudget
 from prodagent.coordination.ensemble import (
     EnsembleSpec,
     FloorTurnEvent,
     ensemble_stream,
 )
 from prodagent.coordination.floor_projection import PublicTextOnly
-from prodagent.core.budget import HardBudget
+from prodagent.kernel.budget import HardBudget
 
 from dating_chat.agent import MeiFloorMember, build_dating_chat_agent
 from dating_chat.memory import MEMORY_DIR, build_memory, seed_mei_memory

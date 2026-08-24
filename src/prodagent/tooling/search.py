@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from prodagent.core.types import ToolName
+    from prodagent.kernel.types import ToolName
     from prodagent.tooling.base import FunctionTool
 
 logger = logging.getLogger(__name__)

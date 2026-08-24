@@ -24,7 +24,7 @@
 from __future__ import annotations
 
 from prodagent import LLMClient, RoutingFakeLLM
-from prodagent.core.types import LLMResponse, MessageList, ToolCall
+from prodagent.kernel.types import LLMResponse, MessageList, ToolCall
 
 # ── flag_suspicious / enrich_entity 的 canned LLM 响应 ───────────────────────
 

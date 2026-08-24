@@ -50,8 +50,8 @@ if TYPE_CHECKING:
 
     from prodagent.coordination.messaging.contract import MessageContract
     from prodagent.coordination.messaging.idempotency import IdempotentMessageHandler
-    from prodagent.hooks.events import HookEvent
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.bus import HookEvent
+    from prodagent.kernel.bus import HookRegistry
     from prodagent.ports.dead_letter import DeadLetterStore
 
 logger = logging.getLogger(__name__)

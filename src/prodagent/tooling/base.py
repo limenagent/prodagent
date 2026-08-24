@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from prodagent.core.error_reason import ErrorReason
-from prodagent.core.types import ToolError, ToolMeta, ToolName, ToolResult
+from prodagent.kernel.types import ToolError, ToolMeta, ToolName, ToolResult
 
 if typing.TYPE_CHECKING:
     from collections.abc import Callable, Iterator

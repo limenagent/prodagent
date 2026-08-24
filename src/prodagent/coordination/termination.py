@@ -3,7 +3,7 @@
 Composite by design: an optional *business* strategy (moderator verdict,
 consensus vote, convergence) decides graceful end; a *mandatory* hard cap
 (:class:`MaxRounds`) guarantees stop even if business never fires. Mirrors
-:class:`~prodagent.core.budget.HardBudget` — business is "end elegantly",
+:class:`~prodagent.kernel.budget.HardBudget` — business is "end elegantly",
 cap is "stop, no matter what". Business may be ``None``; the cap may not —
 an unattended ensemble that never stops is a cost runaway.
 """
@@ -71,7 +71,7 @@ class MaxRounds:
     ``max_rounds=N`` means "no member speaks in round N or later" — so
     ``max_rounds=2`` allows rounds 0 and 1, i.e. ``2 × N`` turns for an
     N-member round-robin. Checked *before* the next speaker is scheduled —
-    same semantics as :class:`~prodagent.core.budget.HardBudget`'s turn axis:
+    same semantics as :class:`~prodagent.kernel.budget.HardBudget`'s turn axis:
     check before the next unit of work, not mid-work.
     """
 

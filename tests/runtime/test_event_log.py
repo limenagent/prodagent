@@ -9,7 +9,7 @@ from prodagent.core.event_log import (
     PlanEventType,
     hybrid_restore,
 )
-from prodagent.core.state import AgentRun
+from prodagent.kernel.state import AgentRun
 from prodagent.plan.event_log import apply_event
 
 

@@ -7,7 +7,7 @@ from prodagent.tooling.reliability.circuit_breaker import ToolCircuitBreaker
 from prodagent.tooling.search import ToolSearchConfig, ToolSearchIndex, preset_procedural
 
 if TYPE_CHECKING:
-    from prodagent.core.types import ToolMeta, ToolName
+    from prodagent.kernel.types import ToolMeta, ToolName
     from prodagent.tooling.base import FunctionTool
 
 logger = logging.getLogger(__name__)

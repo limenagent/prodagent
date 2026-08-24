@@ -4,12 +4,12 @@ import contextlib
 
 import pytest
 
-from prodagent.core.budget import HardBudget, check_budget
+from prodagent.kernel.budget import HardBudget, check_budget
 from prodagent.core.exceptions import BudgetExceeded
-from prodagent.core.state.run import AgentRun
-from prodagent.core.types import LLMResponse
+from prodagent.kernel.state import AgentRun
+from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.reactive import ReactiveLoop
+from prodagent.kernel.loop import ReactiveLoop
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -97,8 +97,8 @@ class TestSpawnExtras:
 
 class TestReactiveLoopSpawnAccumulators:
     async def test_loop_trips_on_sibling_spend_it_never_directly_incurred(self):
-        from prodagent.coordination.parent_runtime import SpawnAccumulator
-        from prodagent.core.events import RunFailedEvent
+        from prodagent.runtime.parent_runtime import SpawnAccumulator
+        from prodagent.kernel.events import RunFailedEvent
 
         budget = HardBudget(max_turns=50, max_tokens=1_000_000, max_seconds=600, max_cost_usd=0.9)
         sibling_spend = SpawnAccumulator(cost_usd=0.95, spawn_count=1)

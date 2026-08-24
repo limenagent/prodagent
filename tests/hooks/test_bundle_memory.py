@@ -4,8 +4,8 @@ from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.backends.file import FileDocumentStore, FileGraphStore
 from prodagent.cognition.memory.manager import MemoryManager
 from prodagent.hooks.bundles.memory import MemoryHooks
-from prodagent.hooks.gates import InjectionPoint
-from prodagent.hooks.registry import HookEvent, HookRegistry
+from prodagent.kernel.bus import InjectionPoint
+from prodagent.kernel.bus import HookEvent, HookRegistry
 from prodagent.llm.fake import script
 
 
@@ -129,8 +129,8 @@ async def test_classify_runs_on_peer_continuation(tmp_path):
     horizontal handoff (peer) from vertical delegation (spawn child).
     """
     from prodagent.cognition.memory.classification import MemoryClassifier
-    from prodagent.core.state.run import AgentRun
-    from prodagent.core.types import RunState
+    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.types import RunState
 
     class _FakeLLM:
         def __init__(self, json_body: str) -> None:
@@ -181,8 +181,8 @@ async def test_classify_runs_on_peer_continuation(tmp_path):
 async def test_classify_skips_spawn_child(tmp_path):
     """Spawn children (vertical delegation) must still be skipped."""
     from prodagent.cognition.memory.classification import MemoryClassifier
-    from prodagent.core.state.run import AgentRun
-    from prodagent.core.types import RunState
+    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.types import RunState
 
     class _FakeLLM:
         def __init__(self, json_body: str) -> None:

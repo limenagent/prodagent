@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TypeAlias
 
-from prodagent.core.types import LLMResponse
+from prodagent.kernel.types import LLMResponse
 from prodagent.ports.cache import CacheStore
 
 Factory: TypeAlias = Callable[[], CacheStore]

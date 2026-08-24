@@ -17,7 +17,7 @@ from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.core.config import FrameworkConfig
 from prodagent.hooks.approval import ApprovalDecision, ApprovalGate
 from prodagent.hooks.bundles.security import ApprovalHooks
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.bus import HookRegistry
 from prodagent.llm.fake import script
 from prodagent.plan.workflow import Workflow
 from prodagent.tooling import tool

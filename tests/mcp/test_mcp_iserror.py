@@ -6,7 +6,7 @@ from typing import Any
 import httpx
 import pytest
 
-from prodagent.core.types import ErrorSeverity, ToolOutcome, ToolResult
+from prodagent.kernel.types import ErrorSeverity, ToolOutcome, ToolResult
 from prodagent.mcp.client import MCPClient
 from prodagent.mcp.config import MCPServerConfig
 

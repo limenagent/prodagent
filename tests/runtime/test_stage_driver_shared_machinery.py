@@ -11,8 +11,8 @@ import pytest
 from prodagent.backends.memory.lock import InProcessLockStore
 from prodagent.coordination._stage import StageDriver
 from prodagent.coordination.activation import Activation
-from prodagent.coordination.budget_ledger import BudgetLedger
-from prodagent.core.budget import HardBudget
+from prodagent.kernel.budget import BudgetLedger
+from prodagent.kernel.budget import HardBudget
 
 if TYPE_CHECKING:
     from prodagent.coordination.termination import TerminationReason

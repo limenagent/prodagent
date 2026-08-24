@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from prodagent.hooks.events import HookEvent
+from prodagent.kernel.bus import HookEvent
 from prodagent.hooks.observers.console import ConsoleObserverHooks
 
 

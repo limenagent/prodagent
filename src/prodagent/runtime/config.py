@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from prodagent.core.types import ExecutionMode
+from prodagent.kernel.types import ExecutionMode
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -14,12 +14,12 @@ if TYPE_CHECKING:
     from prodagent.cognition.memory.manager import MemoryProvider
     from prodagent.runtime.parent_runtime import SpawnAccumulator
     from prodagent.coordination.messaging.contract import MessageContract
-    from prodagent.core.budget import HardBudget
+    from prodagent.kernel.budget import HardBudget
     from prodagent.core.config import FrameworkConfig
     from prodagent.hooks.approval.gate import ApprovalProvider
-    from prodagent.hooks.events import HookEvent
-    from prodagent.hooks.gates import Gate, InjectionPoint
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.bus import HookEvent
+    from prodagent.kernel.bus import Gate, InjectionPoint
+    from prodagent.kernel.bus import HookRegistry
     from prodagent.llm import LLMClient
     from prodagent.mcp.config import MCPServerConfig
     from prodagent.plan.dag import Plan

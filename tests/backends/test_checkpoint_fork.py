@@ -7,9 +7,9 @@ import pytest
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
-from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
-from prodagent.core.state.run import AgentRun
-from prodagent.core.types import LLMResponse
+from prodagent.kernel.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
+from prodagent.kernel.state import AgentRun
+from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.plan.executor import PlanExecutor
 

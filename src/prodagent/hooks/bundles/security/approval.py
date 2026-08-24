@@ -6,14 +6,14 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from prodagent.core.exceptions import SuspendPendingApproval
-from prodagent.core.types import ToolCall
+from prodagent.kernel.types import ToolCall
 from prodagent.hooks.approval import ApprovalDecision, ApprovalProvider
-from prodagent.hooks.events import HookEvent
-from prodagent.hooks.gates import BlockingResult, Gate
+from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.bus import BlockingResult, Gate
 
 if TYPE_CHECKING:
     from prodagent.hooks.approval import ApprovalGate
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.bus import HookRegistry
 
 logger = logging.getLogger(__name__)
 

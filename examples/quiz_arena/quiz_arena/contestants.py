@@ -28,7 +28,7 @@ from prodagent import (
     Trigger,
     use_fake_llm,
 )
-from prodagent.core.types import ExecutionMode, LLMResponse, MessageList, StopReason
+from prodagent.kernel.types import ExecutionMode, LLMResponse, MessageList, StopReason
 
 _HINT_PATTERN = re.compile(r"\[提示：正确答案是\s*(.+?)\]")
 

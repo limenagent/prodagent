@@ -6,8 +6,8 @@ import contextlib
 from prodagent.core.exceptions import SuspendPendingApproval
 from prodagent.hooks.approval import ApprovalDecision, ApprovalGate
 from prodagent.hooks.bundles.security import ApprovalHooks
-from prodagent.hooks.events import HookEvent
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.bus import HookRegistry
 
 
 def _make_hooks() -> tuple[HookRegistry, ApprovalHooks, list[dict]]:

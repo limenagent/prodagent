@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, overload
 
 from pydantic import TypeAdapter
 
-from prodagent.core.types import SideEffectLevel, ToolMeta
+from prodagent.kernel.types import SideEffectLevel, ToolMeta
 from prodagent.tooling.base import FunctionTool, _typed_params
 
 if TYPE_CHECKING:

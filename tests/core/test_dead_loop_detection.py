@@ -4,8 +4,8 @@ import pytest
 
 from prodagent.core.exceptions import InfiniteLoopDetected
 from prodagent.core.progress import ProgressMonitor, _tool_fingerprint
-from prodagent.core.state.run import AgentRun
-from prodagent.core.types import ToolCall
+from prodagent.kernel.state import AgentRun
+from prodagent.kernel.types import ToolCall
 
 
 def _call(name: str, **params) -> ToolCall:

@@ -20,14 +20,14 @@ from prodagent.coordination.messaging.envelope import Crossing, CrossingKind, Di
 from prodagent.coordination.messaging.idempotency import IdempotentMessageHandler
 from prodagent.coordination.messaging.packet import HandoffPacket
 from prodagent.coordination.messaging.pipeline import Pipeline, assembly_pipeline
-from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
+from prodagent.kernel.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.core.exceptions import BudgetExceeded
-from prodagent.core.state.run import AgentRun, child_run_id, is_child_subordinate, make_failed_run
-from prodagent.core.types import ExecutionMode, MessageList, RunState
+from prodagent.kernel.state import AgentRun, child_run_id, is_child_subordinate, make_failed_run
+from prodagent.kernel.types import ExecutionMode, MessageList, RunState
 from prodagent.hooks import fire as _fire
 from prodagent.hooks import save_and_fire_checkpoint
-from prodagent.hooks.events import HookEvent
-from prodagent.hooks.gates import Gate
+from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.bus import Gate
 from prodagent.runtime.compose import find_suspended_peer, hop_tool_assemblers
 from prodagent.runtime.factory import LeafExecutorFactory
 
@@ -37,8 +37,8 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from prodagent.cognition.context.spill import ToolResultSpillStore
-    from prodagent.core.events import AgentEvent
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.events import AgentEvent
+    from prodagent.kernel.bus import HookRegistry
     from prodagent.ports import CheckpointStore, EventLog
     from prodagent.ports.llm import LLMClient
     from prodagent.runtime.agent import Agent
@@ -232,7 +232,7 @@ class RunLoop:
     A "hop" is one agent's turn: build its executor via ``LeafExecutorFactory``,
     run it to completion, then check whether it produced a peer hand-off. If so,
     loop again with the peer as the new root agent; otherwise the run is done.
-    Not to be confused with :class:`~prodagent.runtime.reactive.ReactiveLoop`,
+    Not to be confused with :class:`~prodagent.kernel.loop.ReactiveLoop`,
     which drives the think/act steps *inside* a single hop — ``RunLoop`` never
     talks to an LLM directly, it only orchestrates which agent gets the next hop.
     """
@@ -340,7 +340,7 @@ class RunLoop:
                     if final_run is not None:
                         overall_final_run = final_run
 
-                    next_ctx = await self._next_context(final_run, ctx)
+                    next_ctx = await self._next_context(final_run, ctx, spawn_acc)
                     if next_ctx is None and overall_final_run is not None:
                         if settle_hooks is None:
                             settle_hooks = self._root_agent.hooks
@@ -366,6 +366,7 @@ class RunLoop:
         self,
         run: AgentRun | None,
         ctx: RunContext,
+        spawn_acc: SpawnAccumulator | None = None,
     ) -> RunContext | None:
         if run is None or run.pending_handoff is None:
             return None
@@ -385,11 +386,23 @@ class RunLoop:
             return None
 
         if self._ledger is not None:
+            # Commit only this hop's OWN share: children already committed
+            # live, and the fold folded their totals into run.metrics —
+            # committing the post-fold numbers would count them twice.
+            child_turns = spawn_acc.turns if spawn_acc is not None else 0
+            child_tokens = (
+                spawn_acc.input_tokens + spawn_acc.output_tokens
+                if spawn_acc is not None
+                else 0
+            )
+            child_cost = spawn_acc.cost_usd if spawn_acc is not None else 0.0
             await self._ledger.commit(
                 member=self._ctx.agent.name,
-                turns=run.turn_count,
-                tokens=run.input_tokens + run.output_tokens,
-                cost_usd=run.cost_usd,
+                turns=max(0, run.turn_count - child_turns),
+                tokens=max(
+                    0, run.input_tokens + run.output_tokens - child_tokens
+                ),
+                cost_usd=max(0.0, run.cost_usd - child_cost),
             )
             try:
                 await self._ledger.check(member=peer_name)

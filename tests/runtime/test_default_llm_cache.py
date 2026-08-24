@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode
-from prodagent.core.budget import HardBudget
-from prodagent.core.types import LLMResponse
+from prodagent.kernel.budget import HardBudget
+from prodagent.kernel.types import LLMResponse
 from prodagent.llm import LLMConfig, noop_chunk
 from prodagent.llm.cache import CachingLLMClient
 
@@ -36,20 +36,20 @@ class TestDefaultCacheWiring:
         return Agent("t", system_prompt="x", config=AgentConfig(name="t", llm=llm, framework=fw))
 
     def test_bare_profile_does_not_wrap_llm(self):
-        from prodagent.coordination.run_loop import _resolve_llm
+        from prodagent.runtime.runner import _resolve_llm
 
         plain = _CountingLLM()
         llm = _resolve_llm(self._agent(plain))
         assert llm is plain  # the naked kernel: no cache wrapper
 
     def test_production_profile_wraps_with_caching_client(self):
-        from prodagent.coordination.run_loop import _resolve_llm
+        from prodagent.runtime.runner import _resolve_llm
 
         llm = _resolve_llm(self._agent(_CountingLLM(), profile="production"))
         assert isinstance(llm, CachingLLMClient)
 
     def test_user_supplied_caching_client_not_double_wrapped(self):
-        from prodagent.coordination.run_loop import _resolve_llm
+        from prodagent.runtime.runner import _resolve_llm
 
         inner = _CountingLLM()
         user_cached = CachingLLMClient(inner, None)  # type: ignore[arg-type]
@@ -69,7 +69,7 @@ class TestDefaultCacheWiring:
         return fw
 
     def test_plain_llm_is_wrapped_not_misclassified_as_caching(self):
-        from prodagent.coordination.run_loop import _resolve_llm
+        from prodagent.runtime.runner import _resolve_llm
         from prodagent.llm.cache import CachingLLM
 
         plain = _CountingLLM()
@@ -87,7 +87,7 @@ class TestDefaultCacheWiring:
             mode=ExecutionMode.REACTIVE,
             config=AgentConfig(name="billing", llm=llm, framework=self._fw("production")),
         )
-        from prodagent.coordination.run_loop import _resolve_llm
+        from prodagent.runtime.runner import _resolve_llm
 
         wrapped = _resolve_llm(agent)
         cfg = LLMConfig(model="m", temperature=0.0, max_tokens=100)
@@ -102,7 +102,7 @@ class TestDefaultCacheWiring:
 
     async def test_temperature_gt_zero_bypasses_default_cache(self):
         llm = _CountingLLM()
-        from prodagent.coordination.run_loop import _resolve_llm
+        from prodagent.runtime.runner import _resolve_llm
 
         agent = Agent(
             "t",
@@ -126,7 +126,7 @@ class TestDefaultCacheWiring:
         reused across runs without leaking a resolved client back into
         declarative state.
         """
-        from prodagent.coordination.run_loop import _resolve_llm
+        from prodagent.runtime.runner import _resolve_llm
 
         agent = Agent("t", system_prompt="x")
         assert agent.config.llm is None
@@ -141,7 +141,7 @@ class TestDefaultCacheWiring:
     async def test_context_resolves_stores_by_profile(self):
         """Bare: checkpoint/event_log stay None. Production: both resolve.
         Neither profile mutates the Agent — it stays declarative across runs."""
-        from prodagent.coordination.run_loop import RunContext
+        from prodagent.runtime.runner import RunContext
 
         bare = Agent(
             "t",
@@ -170,7 +170,7 @@ class TestDefaultCacheWiring:
 
 class TestCostSkipping:
     def test_post_llm_accounting_skips_cached_response(self):
-        from prodagent.core.state.run import AgentRun
+        from prodagent.kernel.state import AgentRun
 
         run = AgentRun(run_id="r1", task="t")
 
@@ -200,7 +200,7 @@ class TestCostSkipping:
         assert run.cost_usd == 0.0
 
     def test_post_llm_accounting_bills_fresh_response(self):
-        from prodagent.core.state.run import AgentRun
+        from prodagent.kernel.state import AgentRun
 
         run = AgentRun(run_id="r1", task="t")
         from prodagent.kernel.step import Step

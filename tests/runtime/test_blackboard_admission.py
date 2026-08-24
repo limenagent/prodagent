@@ -13,8 +13,8 @@ from prodagent.coordination.blackboard import (
 )
 from prodagent.coordination.messaging.contract import MessageContract
 from prodagent.coordination.termination import MaxRounds, TerminationPolicy
-from prodagent.hooks.gates import BlockingResult, Gate
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.bus import BlockingResult, Gate
+from prodagent.kernel.bus import HookRegistry
 
 
 class _OnceMember:

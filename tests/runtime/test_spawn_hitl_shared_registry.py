@@ -126,8 +126,8 @@ async def test_shared_registry_child_suspends_then_completes_after_one_approval(
 async def test_gate_registers_one_checker_per_registry(tmp_path):
     """Attaching two ApprovalHooks that share a gate to the same registry
     yields exactly one APPROVAL_REQUEST checker (the dedup invariant)."""
-    from prodagent.hooks.gates import Gate
-    from prodagent.hooks.registry import HookRegistry
+    from prodagent.kernel.bus import Gate
+    from prodagent.kernel.bus import HookRegistry
 
     gate = ApprovalGate()
     registry = HookRegistry()

@@ -8,7 +8,7 @@ import pytest
 
 from prodagent import CorruptedCheckpointError, VersionConflict
 from prodagent.backends.file.checkpoint import FileCheckpointStore
-from prodagent.core.state.run import AgentRun
+from prodagent.kernel.state import AgentRun
 
 if TYPE_CHECKING:
     from pathlib import Path

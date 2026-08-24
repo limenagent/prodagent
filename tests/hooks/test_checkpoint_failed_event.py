@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent.core.state.run import AgentRun
+from prodagent.kernel.state import AgentRun
 from prodagent.hooks import fire_checkpoint_failed
-from prodagent.hooks.events import HookEvent
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.bus import HookRegistry
 
 
 def _run() -> AgentRun:

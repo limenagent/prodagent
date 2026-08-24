@@ -7,10 +7,10 @@ import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.coordination.messaging.contract import MessageContract
-from prodagent.core.state.run import PendingHandoff
-from prodagent.hooks.events import HookEvent
-from prodagent.hooks.gates import BlockingResult, Gate
-from prodagent.hooks.registry import HookRegistry
+from prodagent.kernel.state import PendingHandoff
+from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.bus import BlockingResult, Gate
+from prodagent.kernel.bus import HookRegistry
 from prodagent.llm.fake import script
 
 

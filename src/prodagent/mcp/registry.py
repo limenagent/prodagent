@@ -4,7 +4,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from prodagent.core.types import SideEffectLevel
+from prodagent.kernel.types import SideEffectLevel
 from prodagent.mcp.client import MCPClient
 
 if TYPE_CHECKING:

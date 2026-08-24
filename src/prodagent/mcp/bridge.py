@@ -6,7 +6,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from prodagent.core.error_reason import ErrorReason
-from prodagent.core.types import SideEffectLevel, ToolError, ToolMeta
+from prodagent.kernel.types import SideEffectLevel, ToolError, ToolMeta
 from prodagent.mcp.transports import RPCError
 from prodagent.tooling.base import FunctionTool
 

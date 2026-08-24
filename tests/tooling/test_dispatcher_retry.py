@@ -4,11 +4,11 @@ import pytest
 
 from prodagent import SideEffectLevel, ToolMeta
 from prodagent.core.error_reason import ErrorReason
-from prodagent.core.state import AgentRun
-from prodagent.core.types import ErrorSeverity, ToolCall, ToolError, ToolOutcome
+from prodagent.kernel.state import AgentRun
+from prodagent.kernel.types import ErrorSeverity, ToolCall, ToolError, ToolOutcome
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher, _default_tool_retry_policy
-from prodagent.tooling.retry import Backoff, RetryPolicy
+from prodagent.core.retry import Backoff, RetryPolicy
 
 
 def _yellow_result(message: str = "transient") -> ToolError:

@@ -8,8 +8,8 @@ _SYMBOL_SOURCES: dict[str, str] = {
     "Agent": "prodagent.runtime.agent",
     "AgentConfig": "prodagent.runtime.config",
     "Workflow": "prodagent.plan.workflow",
-    "drive": "prodagent.coordination.run_loop",
-    "drive_stream": "prodagent.coordination.run_loop",
+    "drive": "prodagent.runtime.runner",
+    "drive_stream": "prodagent.runtime.runner",
 }
 
 __all__ = sorted(_SYMBOL_SOURCES)
