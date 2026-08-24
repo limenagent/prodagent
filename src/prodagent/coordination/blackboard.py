@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
-from prodagent.coordination._stage import StageDriver
+from prodagent.coordination._stage import StageDriver, ViewInjector
 from prodagent.coordination._store import RoundedLockableStore
 from prodagent.coordination.messaging.envelope import (
     Crossing,
@@ -27,6 +27,7 @@ from prodagent.coordination.termination import (
     TerminationPolicy,
     TerminationReason,
 )
+from prodagent.core.text import bound_text
 
 
 class BoardVersionConflict(Exception):
@@ -312,10 +313,8 @@ class Blackboard(StageDriver[BoardWriteEvent | BlackboardCompletedEvent]):
     def _bound_value(self, value: Any) -> Any:
         """Cap free-text values — one verbose expert must not blow every other
         expert's context window. Structured values are the contracts' business."""
-        if isinstance(value, str) and len(value) > self._value_max_chars:
-            return value[: self._value_max_chars] + (
-                f"\n…(truncated, {len(value) - self._value_max_chars} more chars)"
-            )
+        if isinstance(value, str):
+            return bound_text(value, self._value_max_chars)
         return value
 
     async def _compute(self, expert_name: str, trigger: Trigger) -> BoardWrite | None:
@@ -518,15 +517,8 @@ def _render_value(value: Any, max_chars: int) -> str:
     same guarantee the floor's projection gives its members."""
     text = value if isinstance(value, str) else repr(value)
     if len(text) > max_chars:
-        return text[:max_chars] + f"\n…(truncated, {len(text) - max_chars} more chars)"
+        return bound_text(text, max_chars)
     return text
-
-
-def _make_board_injector(slot: _BoardViewSlot) -> Any:
-    async def _injector(**kw: Any) -> str:
-        return _format_board_block(slot)
-
-    return _injector
 
 
 class AgentBlackboardMember:
@@ -544,7 +536,9 @@ class AgentBlackboardMember:
         self._session_id = session_id
         self._write_key = write_key
         self._slot = _BoardViewSlot()
-        self._injector_wired = False
+        self._view_injector = ViewInjector(
+            agent, block="BOARD", render=lambda: _format_board_block(self._slot)
+        )
         self._view_pipe: Pipeline | None = None
 
     @property
@@ -570,7 +564,7 @@ class AgentBlackboardMember:
         )
         self._slot.snapshot = delivery.crossing.payload
         self._slot.trigger_name = trigger.name
-        self._wire_board_injector_once()
+        self._view_injector.wire_once()
 
         prompt = (
             f"Trigger {trigger.name!r} fired. Review the [BOARD] state above. "
@@ -599,21 +593,3 @@ class AgentBlackboardMember:
             tokens=int(getattr(run, "input_tokens", 0) or 0)
             + int(getattr(run, "output_tokens", 0) or 0),
         )
-
-    def _wire_board_injector_once(self) -> None:
-        if self._injector_wired:
-            return
-        from prodagent.hooks.gates import InjectionPoint
-
-        hooks = self._agent.hooks
-        if hooks is None:
-            hooks = self._agent.attach_default_hooks()
-        if hooks is None:
-            logger.warning(
-                "[blackboard] agent %s has no hooks registry — [BOARD] block "
-                "will not be injected; member won't see board state",
-                self.name,
-            )
-            return
-        hooks.register_injector(InjectionPoint.CONTEXT_INJECTOR, _make_board_injector(self._slot))
-        self._injector_wired = True

@@ -30,6 +30,7 @@ import logging
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from prodagent.core.text import bound_text
 from prodagent.coordination.messaging.envelope import (
     Crossing,
     CrossingRejected,
@@ -119,7 +120,7 @@ def _dead_letter_payload(crossing: Crossing[Any]) -> dict[str, Any]:
         "direction": crossing.direction.value,
         "from_agent": crossing.from_agent,
         "to": crossing.to,
-        "payload": preview[:_DEAD_LETTER_PREVIEW_CHARS],
+        "payload": bound_text(preview, _DEAD_LETTER_PREVIEW_CHARS),
     }
 
 

@@ -14,22 +14,21 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from prodagent.coordination.parent_runtime import SpawnAccumulator, fold_spawn_fields
+from prodagent.runtime.parent_runtime import SpawnAccumulator, fold_spawn_fields
 from prodagent.kernel.budget import BudgetLedger
 from prodagent.coordination.messaging.envelope import Crossing, CrossingKind, Direction
 from prodagent.coordination.messaging.idempotency import IdempotentMessageHandler
 from prodagent.coordination.messaging.packet import HandoffPacket
 from prodagent.coordination.messaging.pipeline import Pipeline, assembly_pipeline
-from prodagent.coordination.peer import assemble_peer_tools, find_suspended_peer
 from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.core.exceptions import BudgetExceeded
 from prodagent.core.state.run import AgentRun, child_run_id, is_child_subordinate, make_failed_run
 from prodagent.core.types import ExecutionMode, MessageList, RunState
-from prodagent.coordination.spawn import assemble_spawn_tools
 from prodagent.hooks import fire as _fire
 from prodagent.hooks import save_and_fire_checkpoint
 from prodagent.hooks.events import HookEvent
 from prodagent.hooks.gates import Gate
+from prodagent.runtime.compose import find_suspended_peer, hop_tool_assemblers
 from prodagent.runtime.factory import LeafExecutorFactory
 
 if TYPE_CHECKING:
@@ -309,10 +308,7 @@ class RunLoop:
             ctx = self._ctx
             ctx.budget_ledger = self._ledger
             if not ctx.tool_assemblers:
-                ctx.tool_assemblers = [
-                    lambda ctx, tools, schemas, acc: assemble_spawn_tools(ctx, tools, schemas),
-                    assemble_peer_tools,
-                ]
+                ctx.tool_assemblers = hop_tool_assemblers()
             final_run: AgentRun | None = None
             next_ctx: RunContext | None = None
             try:

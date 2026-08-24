@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from prodagent.core.exceptions import SuspendPendingApproval
 from prodagent.core.types import ToolCall
-from prodagent.hooks.approval import ApprovalDecision
+from prodagent.hooks.approval import ApprovalDecision, ApprovalProvider
 from prodagent.hooks.events import HookEvent
 from prodagent.hooks.gates import BlockingResult, Gate
 
@@ -38,6 +38,7 @@ class ApprovalHooks:
 
     def attach(self, hooks: HookRegistry) -> None:
         self._hooks = hooks
+        hooks.provide(ApprovalProvider, self._gate)
         if self._gate.is_wired_to(hooks):
             return
         self._gate.mark_wired(hooks)

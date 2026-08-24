@@ -13,12 +13,12 @@ Imports in a clean subprocess and inspects ``sys.modules`` for prodagent.*:
 These are the CI pins for "lightweight": whoever hangs a heavy module on
 the kernel import chain turns this red first.
 
-Why 65 and not fewer: the remaining mass is coordination + messaging
-(13 — spawn/peers/r_loop are the multi-agent kernel, kept by owner
-decision), ports (15 — tiny Protocol files that ARE the kernel's
-vocabulary), tooling (10 — the @tool/dispatch/runner spine), and core
-state/budget/events. Going lower would mean splitting ports or demoting
-coordination — cost exceeds value.
+Why this size and not smaller: kernel (8), ports (15 — tiny Protocol
+files that ARE the kernel's vocabulary), tooling (10 — the @tool/dispatch
+spine), the messaging plane (7 — the driver's shared data structures),
+plus runtime core (agent/config/runner/factory/compose/parent_runtime).
+spawn/peers and the stage primitives load lazily via compose — importing
+an Agent pulls no multi-agent machinery.
 """
 
 from __future__ import annotations
@@ -55,6 +55,8 @@ KERNEL_EXPECTED = frozenset(
         "prodagent.core.state",
         "prodagent.core.state.run",
         "prodagent.core.state.session",
+        "prodagent.core.text",
+        "prodagent.core.retry",
         "prodagent.core.types",
         "prodagent.kernel",
         "prodagent.kernel.budget",
@@ -83,7 +85,6 @@ KERNEL_EXPECTED = frozenset(
         "prodagent.ports.session",
         "prodagent.ports.span",
         "prodagent.ports.tool",
-        "prodagent.tooling.retry",
         "prodagent.runtime",
         "prodagent.runtime._tool_merge",
         "prodagent.runtime.agent",
@@ -96,9 +97,8 @@ KERNEL_EXPECTED = frozenset(
         "prodagent.coordination.messaging.interceptors",
         "prodagent.coordination.messaging.packet",
         "prodagent.coordination.messaging.pipeline",
-        "prodagent.coordination.parent_runtime",
-        "prodagent.coordination.peer",
-        "prodagent.coordination.spawn",
+        "prodagent.runtime.parent_runtime",
+        "prodagent.runtime.compose",
         "prodagent.runtime.factory",
         "prodagent.runtime.runner",
         "prodagent.runtime.reactive",

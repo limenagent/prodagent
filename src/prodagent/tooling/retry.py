@@ -1,36 +1,5 @@
-"""RetryPolicy — pluggable retry with backoff strategies."""
+"""Shim — RetryPolicy moved to :mod:`prodagent.core.retry`."""
 
-from __future__ import annotations
+from prodagent.core.retry import Backoff, RetryPolicy
 
-import random
-from dataclasses import dataclass
-from enum import StrEnum
-
-
-class Backoff(StrEnum):
-    """Delay growth strategy between retry attempts."""
-
-    FIXED = "fixed"
-    EXPONENTIAL = "exponential"
-    # Exponential with full jitter — uniform in [0, min(cap, base×2^n)].
-    JITTERED = "jittered"
-
-
-@dataclass
-class RetryPolicy:
-    """Configures how the framework retries failed tool calls."""
-
-    max_attempts: int = 3
-    base_delay: float = 1.0
-    max_delay: float = 60.0
-    backoff: Backoff = Backoff.JITTERED
-
-    def delay(self, attempt: int) -> float:
-        """Compute sleep duration (seconds) before *attempt* (1-based)."""
-        if self.backoff is Backoff.FIXED:
-            return self.base_delay
-
-        exponential = min(self.base_delay * (2.0 ** (attempt - 1)), self.max_delay)
-        if self.backoff is Backoff.JITTERED:
-            return random.uniform(0.0, exponential)
-        return exponential
+__all__ = ["RetryPolicy", "Backoff"]

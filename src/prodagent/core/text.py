@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-__all__ = ["tokenize_cjk", "cjk_char_count"]
+__all__ = ["tokenize_cjk", "cjk_char_count", "bound_text"]
 _CJK = re.compile(r"[㐀-䶿一-鿿豈-﫿]")
 _CJK_RUN = re.compile(r"[㐀-䶿一-鿿豈-﫿]+")
 _ASCII_WORD = re.compile(r"[A-Za-z][A-Za-z0-9_-]{1,}")
@@ -36,3 +36,10 @@ def tokenize_cjk(text: str, *, min_len: int = 2) -> list[str]:
 
 def cjk_char_count(text: str) -> int:
     return len(_CJK.findall(text))
+
+
+def bound_text(text: str, max_chars: int) -> str:
+    """Clip *text* to *max_chars*, noting how much was cut."""
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + f"\n…(truncated, {len(text) - max_chars} more chars)"

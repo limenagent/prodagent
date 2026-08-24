@@ -5,14 +5,14 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from prodagent.coordination.parent_runtime import ParentRuntime, describe_agent
+from prodagent.runtime.parent_runtime import ParentRuntime, describe_agent
 from prodagent.core.error_reason import ErrorReason
 from prodagent.core.types import RunState, SideEffectLevel, ToolError, ToolMeta, ToolResult
 from prodagent.runtime._tool_merge import attach_tools
 from prodagent.tooling.base import FunctionTool
 
 if TYPE_CHECKING:
-    from prodagent.coordination.parent_runtime import SpawnAccumulator
+    from prodagent.runtime.parent_runtime import SpawnAccumulator
     from prodagent.coordination.run_loop import RunContext
     from prodagent.core.state.run import PendingHandoff
     from prodagent.ports import CheckpointStore

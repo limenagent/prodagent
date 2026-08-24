@@ -8,8 +8,8 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any, cast
 
-from prodagent.coordination.parent_runtime import SpawnAccumulator
-from prodagent.coordination.parent_runtime import ParentRuntime
+from prodagent.runtime.parent_runtime import SpawnAccumulator
+from prodagent.runtime.parent_runtime import ParentRuntime
 from prodagent.runtime.runner import collect_final_run, drive_stream
 from prodagent.core.config import FrameworkConfig
 from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
@@ -234,9 +234,13 @@ class Agent:
     def _find_approval_gate(self) -> ApprovalProvider | None:
         from prodagent.hooks.approval import ApprovalProvider
 
-        for ext in self.config.extensions:
-            if hasattr(ext, "approval_gate"):
-                return cast("ApprovalProvider", ext.approval_gate)
+        # Idempotent wire-first: what a probe sees is what a run would use.
+        self.attach_default_hooks()
+        hooks = self.config.hooks
+        if hooks is not None:
+            gate = hooks.require(ApprovalProvider)
+            if gate is not None:
+                return cast("ApprovalProvider", gate)
         if isinstance(self.config.approval, ApprovalProvider):
             return self.config.approval
         return None
@@ -504,11 +508,14 @@ class Agent:
         # lazy: keeps the memory bundle (and the kernel import chain) out of
         # module-level imports — see tests/core/test_import_weight.py
         from prodagent.cognition.memory import MemoryProvider
-        from prodagent.hooks.bundles.memory import MemoryHooks
 
-        for ext in self.config.extensions:
-            if isinstance(ext, MemoryHooks):
-                return cast("MemoryProvider", ext.memory_manager)
+        # Idempotent wire-first: what a probe sees is what a run would use.
+        self.attach_default_hooks()
+        hooks = self.config.hooks
+        if hooks is not None:
+            manager = hooks.require(MemoryProvider)
+            if manager is not None:
+                return cast("MemoryProvider", manager)
         if isinstance(self.config.memory, MemoryProvider):
             return self.config.memory
         return None

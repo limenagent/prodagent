@@ -160,6 +160,7 @@ class HookRegistry:
         }
         self._failure_policy: FailurePolicy = failure_policy
         self._attached_extensions: set[int] = set()
+        self._capabilities: dict[type, Any] = {}
 
     @staticmethod
     def _insert(bucket: list[tuple[int, Any]], priority: int, handler: Any) -> None:
@@ -181,6 +182,17 @@ class HookRegistry:
         self, point: InjectionPoint, injector: InjectorHandler, *, priority: int = 0
     ) -> None:
         self._insert(self._injectors[point], priority, _ensure_async(injector))
+
+    def provide(self, capability: type, impl: Any) -> None:
+        """Declare a typed capability (an ApprovalProvider, a MemoryProvider).
+
+        The replacement for scanning extension bags with isinstance/hasattr:
+        attachers declare what they carry, consumers require by type."""
+        self._capabilities[capability] = impl
+
+    def require(self, capability: type) -> Any | None:
+        """Look up a declared capability; ``None`` when nobody provides it."""
+        return self._capabilities.get(capability)
 
     def attach_extension(self, ext: Any) -> bool:
         """Attach an ``extensions=`` extension idempotently."""

@@ -19,7 +19,7 @@ from prodagent.runtime.reactive import ReactiveLoop
 from prodagent.tooling.dispatcher import ToolDispatcher
 
 if TYPE_CHECKING:
-    from prodagent.coordination.parent_runtime import SpawnAccumulator
+    from prodagent.runtime.parent_runtime import SpawnAccumulator
     from prodagent.runtime.runner import RunContext
     from prodagent.hooks.registry import HookRegistry
     from prodagent.ports import LeafExecutor

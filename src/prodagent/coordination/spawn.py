@@ -24,7 +24,7 @@ from prodagent.coordination.messaging.pipeline import (
     admission_pipeline,
     assembly_pipeline,
 )
-from prodagent.coordination.parent_runtime import ParentRuntime, describe_agent
+from prodagent.runtime.parent_runtime import ParentRuntime, describe_agent
 from prodagent.core.error_reason import ErrorReason
 from prodagent.core.exceptions import (
     SECURITY_VETO_EXCEPTIONS,
@@ -42,7 +42,7 @@ from prodagent.runtime._tool_merge import attach_tools
 from prodagent.tooling.base import FunctionTool
 
 if TYPE_CHECKING:
-    from prodagent.coordination.parent_runtime import SpawnAccumulator
+    from prodagent.runtime.parent_runtime import SpawnAccumulator
     from prodagent.coordination.run_loop import RunContext
     from prodagent.core.config import FrameworkConfig
     from prodagent.hooks.registry import HookRegistry
@@ -60,6 +60,12 @@ STATE_TIMEOUT = "timeout"
 STATE_DUPLICATE = "duplicate"
 STATE_CONTRACT_VIOLATION = "contract_violation"
 STATE_HANDOFF_REJECTED = "handoff_rejected"
+
+
+def child_run_id_for(parent_run_id: str | None, name: str) -> str | None:
+    from prodagent.kernel.state import child_run_id
+
+    return child_run_id(parent_run_id, name) if parent_run_id else None
 
 
 @dataclass
@@ -246,6 +252,72 @@ class Spawn:
                 message=f"Unknown sub-agent {name!r}. Available: {list(self._spec_map.keys())}",
             ).as_dict()
 
+        packet = self._build_packet(name, spec, task, input_refs, idempotency_key)
+        child_run_id = (
+            child_run_id_for(self._ctx.parent_run_id, name)
+            if self._ctx.parent_run_id
+            else None
+        )
+
+        # DOWNSTREAM: dispatch (dedupe + gate); rejected dispatches die before
+        # the child burns any budget.
+        short = await self._dispatch(packet, name, child_run_id)
+        if short is not None:
+            return short
+
+        await self._fire(
+            HookEvent.AGENT_SPAWN,
+            name=name,
+            task=task,
+            packet_id=packet.task_id,
+            depth=self._ctx.depth + 1,
+            parent_run_id=self._ctx.parent_run_id,
+            child_run_id=child_run_id,
+        )
+
+        exhausted = await self._reserve(name)
+        if exhausted is not None:
+            return exhausted
+
+        result = await self._run_with_timeout(spec, task, packet, child_run_id)
+        await self._commit(name, result)
+
+        if result.state == STATE_TIMEOUT:
+            return ToolError.from_reason(
+                ErrorReason.TIMEOUT,
+                code="subagent_timeout",
+                message=f"Sub-agent {name!r} timed out after {result.output}",
+                hint="The child ran past its wall-clock budget. Do not retry the same spawn — investigate the child's plan or raise its budget.",
+                severity=ErrorSeverity.RED,
+            ).as_dict()
+
+        if result.state == STATE_SUSPENDED and result.approval_request_id:
+            self._ctx.accumulator.add(result)
+            logger.info(
+                "[spawn] child %r suspended pending approval (request_id=%s) — "
+                "propagating to parent run",
+                name,
+                result.approval_request_id,
+            )
+            return {
+                "suspended": True,
+                "reason": f"sub-agent {name!r} suspended pending approval",
+                "tool": "spawn_agent",
+                "approval_request_id": result.approval_request_id,
+                "agent": name,
+            }
+
+        self._ctx.accumulator.add(result)
+        return await self._admit(name, result, packet, child_run_id)
+
+    def _build_packet(
+        self,
+        name: str,
+        spec: Agent,
+        task: str,
+        input_refs: dict[str, str] | None,
+        idempotency_key: str,
+    ) -> HandoffPacket:
         packet_kwargs: dict[str, Any] = {
             "task_description": task,
             "constraints": list(self._ctx.constraints),
@@ -262,16 +334,12 @@ class Spawn:
             packet.available_tools,
             task[:60],
         )
+        return packet
 
-        from prodagent.core.state.run import child_run_id as _child_run_id
-
-        child_run_id = (
-            _child_run_id(self._ctx.parent_run_id, name) if self._ctx.parent_run_id else None
-        )
-
-        # DOWNSTREAM crossing: dispatch the packet to the child through the
-        # assembly pipeline (dedupe + gate). Rejected dispatches die before
-        # the child burns any budget.
+    async def _dispatch(
+        self, packet: HandoffPacket, name: str, child_run_id: str | None
+    ) -> dict[str, Any] | None:
+        """Dispatch the packet DOWNSTREAM; a dict means the spawn ends here."""
         dispatch = await self._dispatch_pipeline.process(
             Crossing.mint(
                 direction=Direction.DOWNSTREAM,
@@ -302,72 +370,46 @@ class Spawn:
                 STATE_HANDOFF_REJECTED,
                 f"Dispatch rejected: {dispatch.reason}",
             ).as_dict()
+        return None
 
-        await self._fire(
-            HookEvent.AGENT_SPAWN,
-            name=name,
-            task=task,
-            packet_id=packet.task_id,
-            depth=self._ctx.depth + 1,
-            parent_run_id=self._ctx.parent_run_id,
-            child_run_id=child_run_id,
-        )
-
-        if self._budget_ledger is not None:
-            try:
-                await self._budget_ledger.reserve(member=name, turns=1)
-            except BudgetExceeded as exc:
-                return ToolError.from_reason(
-                    ErrorReason.BUDGET_EXCEEDED,
-                    code="spawn_budget_exhausted",
-                    message=f"Cannot spawn {name!r}: {exc.message}",
-                    hint="Concurrent sub-agent spend has hit the shared budget ceiling.",
-                    severity=ErrorSeverity.RED,
-                ).as_dict()
-
-        result = await self._run_with_timeout(spec, task, packet, child_run_id)
-
-        if self._budget_ledger is not None:
-            await self._budget_ledger.commit(
-                member=name,
-                turns=result.turns,
-                tokens=result.input_tokens + result.output_tokens,
-                cost_usd=result.cost_usd,
-                reserved_turns=1,
-            )
-
-        if result.state == STATE_TIMEOUT:
+    async def _reserve(self, name: str) -> dict[str, Any] | None:
+        if self._budget_ledger is None:
+            return None
+        try:
+            await self._budget_ledger.reserve(member=name, turns=1)
+        except BudgetExceeded as exc:
             return ToolError.from_reason(
-                ErrorReason.TIMEOUT,
-                code="subagent_timeout",
-                message=f"Sub-agent {name!r} timed out after {result.output}",
-                hint="The child ran past its wall-clock budget. Do not retry the same spawn — investigate the child's plan or raise its budget.",
+                ErrorReason.BUDGET_EXCEEDED,
+                code="spawn_budget_exhausted",
+                message=f"Cannot spawn {name!r}: {exc.message}",
+                hint="Concurrent sub-agent spend has hit the shared budget ceiling.",
                 severity=ErrorSeverity.RED,
             ).as_dict()
+        return None
 
-        if result.state == STATE_SUSPENDED and result.approval_request_id:
-            self._ctx.accumulator.add(result)
-            logger.info(
-                "[spawn] child %r suspended pending approval (request_id=%s) — "
-                "propagating to parent run",
-                name,
-                result.approval_request_id,
-            )
-            return {
-                "suspended": True,
-                "reason": f"sub-agent {name!r} suspended pending approval",
-                "tool": "spawn_agent",
-                "approval_request_id": result.approval_request_id,
-                "agent": name,
-            }
+    async def _commit(self, name: str, result: ChildResult) -> None:
+        if self._budget_ledger is None:
+            return
+        await self._budget_ledger.commit(
+            member=name,
+            turns=result.turns,
+            tokens=result.input_tokens + result.output_tokens,
+            cost_usd=result.cost_usd,
+            reserved_turns=1,
+        )
 
-        self._ctx.accumulator.add(result)
-
-        # UPSTREAM crossing: the child's result enters the parent's world
-        # through the admission pipeline (per-spec contract → trim → security
-        # gate → audit). Same message_id as the dispatch — one logical
-        # crossing, two directions. Rejections are dead-lettered at the
-        # pipeline boundary; strict contract violations never reach the parent.
+    async def _admit(
+        self,
+        name: str,
+        result: ChildResult,
+        packet: HandoffPacket,
+        child_run_id: str | None,
+    ) -> dict[str, Any]:
+        """UPSTREAM: the child's result enters the parent's world through the
+        admission pipeline (per-spec contract → trim → security gate → audit).
+        Same message_id as the dispatch — one logical crossing, two
+        directions. Rejections are dead-lettered at the pipeline boundary;
+        strict contract violations never reach the parent."""
         delivery = await self._result_pipeline.process(
             Crossing.mint(
                 direction=Direction.UPSTREAM,

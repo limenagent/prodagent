@@ -27,7 +27,7 @@ from prodagent.core.types import (
 )
 from prodagent.hooks.events import HookEvent
 from prodagent.hooks.gates import Gate
-from prodagent.tooling.retry import Backoff, RetryPolicy
+from prodagent.core.retry import Backoff, RetryPolicy
 from prodagent.tooling.skill_resolver import SkillResolver
 
 TRANSIENT_EXC: tuple[type[BaseException], ...] = (

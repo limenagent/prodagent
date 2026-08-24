@@ -16,6 +16,8 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
+from prodagent.core.text import bound_text
+
 _DEFAULT_PRIOR_OUTPUT_MAX_CHARS = 2000
 
 
@@ -33,9 +35,7 @@ class HandoffPacket:
     def to_task_prompt(self) -> str:
         lines = [self.task_description.strip(), ""]
         if self.prior_output:
-            trimmed = self.prior_output[: self.prior_output_max_chars]
-            if len(self.prior_output) > self.prior_output_max_chars:
-                trimmed += f"\n…(truncated, {len(self.prior_output) - self.prior_output_max_chars} more chars)"
+            trimmed = bound_text(self.prior_output, self.prior_output_max_chars)
             lines.append("Prior agent output:")
             lines.append(trimmed)
             lines.append("")

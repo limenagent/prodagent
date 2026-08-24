@@ -63,3 +63,25 @@ def resolve_session_store(fw: FrameworkConfig, explicit: SessionStore | None) ->
     from prodagent.backends.factory import resolve_session_store as _resolve
 
     return _resolve(fw)
+
+
+def hop_tool_assemblers() -> list:
+    """Collaboration capabilities that contribute hop tools (spawn/peer).
+
+    The driver attaches these to ``RunContext.tool_assemblers``; the factory
+    consumes them blind. As the assembly root, this is the one place runtime
+    may name coordination capabilities."""
+    from prodagent.coordination.peer import assemble_peer_tools
+    from prodagent.coordination.spawn import assemble_spawn_tools
+
+    return [
+        lambda ctx, tools, schemas, acc: assemble_spawn_tools(ctx, tools, schemas),
+        assemble_peer_tools,
+    ]
+
+
+async def find_suspended_peer(checkpoint, root_run_id):
+    """Resume discovery — peer chains park their suspended hop in the checkpoint."""
+    from prodagent.coordination.peer import find_suspended_peer as _find
+
+    return await _find(checkpoint, root_run_id)

@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
     from prodagent.cognition.context.spill import ToolResultSpillStore
     from prodagent.cognition.memory.manager import MemoryProvider
-    from prodagent.coordination.parent_runtime import SpawnAccumulator
+    from prodagent.runtime.parent_runtime import SpawnAccumulator
     from prodagent.coordination.messaging.contract import MessageContract
     from prodagent.core.budget import HardBudget
     from prodagent.core.config import FrameworkConfig

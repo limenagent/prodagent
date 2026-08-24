@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from prodagent.coordination.floor import FloorTurn
+from prodagent.core.text import bound_text
 
 if TYPE_CHECKING:
     from prodagent.coordination.floor import SharedFloor
@@ -58,11 +59,7 @@ class PublicTextOnly:
         # Speaker sees its own turn verbatim — no point truncating your own words.
         if viewer == turn.speaker:
             return turn
-        text = turn.text
-        if len(text) > self.max_chars:
-            text = text[: self.max_chars] + (
-                f"\n…(truncated, {len(turn.text) - self.max_chars} more chars)"
-            )
+        text = bound_text(turn.text, self.max_chars)
         return FloorTurn(
             speaker=turn.speaker,
             round=turn.round,
@@ -94,11 +91,7 @@ class SelectiveToolExposure:
     def project(self, turn: FloorTurn, *, viewer: str) -> FloorTurn:
         if viewer == turn.speaker:
             return turn
-        text = turn.text
-        if len(text) > self.max_chars:
-            text = text[: self.max_chars] + (
-                f"\n…(truncated, {len(turn.text) - self.max_chars} more chars)"
-            )
+        text = bound_text(turn.text, self.max_chars)
         allowed = [
             call for call in turn.tool_calls if viewer in self.tool_visibility.get(call.name, [])
         ]

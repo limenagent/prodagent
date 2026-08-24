@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 from prodagent.core.exceptions import SuspendPendingApproval
 from prodagent.hooks.approval.formatter import ContextAwareApprovalFormatter
-from prodagent.ports.approval import ApprovalDecision, ApprovalRequest
+from prodagent.ports.approval import ApprovalDecision, ApprovalRequest, ApprovalStore
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +32,15 @@ class ApprovalGate:
         self,
         *,
         formatter: ContextAwareApprovalFormatter | None = None,
+        store: ApprovalStore | None = None,
     ) -> None:
         self._fmt = formatter or ContextAwareApprovalFormatter()
         self._pending: dict[str, ApprovalRequest] = {}
         self._deferred: dict[str, ApprovalDecision] = {}
         self._wired_registries: weakref.WeakSet[Any] = weakref.WeakSet()
+        # Optional durable backing: with a store, a decision submitted on one
+        # node resumes a gate rebuilt on another.
+        self._store = store
 
     def is_wired_to(self, registry: object) -> bool:
         """True if this gate already has an APPROVAL_REQUEST checker on ``registry``."""
@@ -64,6 +68,15 @@ class ApprovalGate:
                     decision,
                 )
                 return decision
+            if self._store is not None:
+                stored = await self._store.get_request(pending_approval_id)
+                if stored is not None and stored.decision is not None:
+                    logger.info(
+                        "Approval resumed: request=%s -> %s (durable store hit)",
+                        pending_approval_id,
+                        stored.decision,
+                    )
+                    return stored.decision
             logger.warning(
                 "Approval resume for request=%s but no deferred decision found; will re-request",
                 pending_approval_id,
@@ -85,6 +98,8 @@ class ApprovalGate:
             run_id=run_id,
         )
         self._pending[request_id] = req
+        if self._store is not None:
+            await self._store.create_request(req)
 
         logger.info(
             "APPROVAL SUSPENDED [%s]: tool='%s' — awaiting submit_decision()",
@@ -109,6 +124,8 @@ class ApprovalGate:
         self._deferred[request_id] = decision
         if req is not None:
             req.approver_id = approver_id
+        if self._store is not None:
+            await self._store.submit_decision(request_id, decision, approver_id=approver_id)
         logger.info(
             "Approval decision submitted: %s -> %s by %s",
             request_id,

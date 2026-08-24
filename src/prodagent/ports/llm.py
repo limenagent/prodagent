@@ -10,10 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from prodagent.kernel.types import LLMResponse, MessageList
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
-
-    from prodagent.core.types import LLMResponse, MessageList
 
 
 @runtime_checkable
@@ -31,6 +31,31 @@ class LLMClient(Protocol):
     ) -> LLMResponse: ...
 
 
+@dataclass(frozen=True)
+class PricingTable:
+    """Per-provider token rates (USD per million tokens)."""
+
+    input_rate_per_million: float
+    output_rate_per_million: float
+    # Fraction of input rate charged for cache-read tokens (Anthropic 0.1, OpenAI 0.5).
+    cache_read_discount: float = 0.1
+    # Multiplier on input rate charged for cache-write tokens (Anthropic 1.25).
+    cache_write_premium: float = 1.25
+
+
+def token_cost_usd(response: LLMResponse, pricing: PricingTable) -> float:
+    cache_read = response.cache_read_tokens or 0
+    cache_write = response.cache_write_tokens or 0
+    input_billed = max(0, response.input_tokens - cache_read - cache_write)
+    cost = (
+        input_billed / 1_000_000 * pricing.input_rate_per_million
+        + response.output_tokens / 1_000_000 * pricing.output_rate_per_million
+        + cache_read / 1_000_000 * (pricing.input_rate_per_million * pricing.cache_read_discount)
+        + cache_write / 1_000_000 * (pricing.input_rate_per_million * pricing.cache_write_premium)
+    )
+    return max(0.0, cost)
+
+
 @dataclass
 class LLMConfig:
     model: str = ""
@@ -45,6 +70,9 @@ class LLMConfig:
     cache_boundary_index: int | None = None
 
     def __post_init__(self) -> None:
+        # Convenience default-filling reaches the provider catalog below. The
+        # alternative — filling at adapter construction — silently zeroes the
+        # cost axis for every bare LLMConfig() passed to complete().
         if not self.model:
             from prodagent.llm.providers import detect_default_model
 
@@ -61,8 +89,7 @@ class LLMConfig:
                 self.cost_per_million_output = table.output_rate_per_million
 
     def cost_for_response(self, response: LLMResponse) -> float:
-        from prodagent.llm.pricing import PricingTable, token_cost_usd
-
+        # Pure contract math — no provider package involved.
         pricing = PricingTable(
             input_rate_per_million=self.cost_per_million_input,
             output_rate_per_million=self.cost_per_million_output,

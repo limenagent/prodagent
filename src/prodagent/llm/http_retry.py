@@ -12,7 +12,7 @@ from prodagent.core.error_classifier import (
     PERMANENT_STATUS_CODES,
     RETRYABLE_STATUS_CODES,
 )
-from prodagent.tooling.retry import Backoff, RetryPolicy
+from prodagent.core.retry import Backoff, RetryPolicy
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine

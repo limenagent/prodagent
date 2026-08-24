@@ -7,7 +7,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
-from prodagent.coordination._stage import StageDriver
+from prodagent.coordination._stage import StageDriver, ViewInjector
 from prodagent.coordination.activation import Activation
 from prodagent.coordination.budget_ledger import SharedBudget
 from prodagent.coordination.floor import FloorMember, FloorTurn, SharedFloor
@@ -34,6 +34,8 @@ from prodagent.coordination.termination import (
 )
 from prodagent.core.budget import HardBudget
 from prodagent.core.exceptions import BudgetExceeded
+
+from prodagent.core.text import bound_text
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -211,19 +213,6 @@ def _format_floor_block(slot: _FloorViewSlot) -> str:
     return "\n".join(lines)
 
 
-def _make_floor_injector(slot: _FloorViewSlot) -> Any:
-    """Build an async injector closure bound to ``slot``. Registered at
-    ``InjectionPoint.CONTEXT_INJECTOR`` (same point MemoryHooks uses). Returns
-    the [FLOOR] snippet string (empty string is filtered out by the context
-    manager). ``query`` is ignored: the floor view is set externally by the
-    pipeline, not derived from the task."""
-
-    async def _injector(**kw: Any) -> str:
-        return _format_floor_block(slot)
-
-    return _injector
-
-
 # ---------------------------------------------------------------------------
 # AgentFloorMember — adapt a prodagent Agent to the FloorMember protocol
 # ---------------------------------------------------------------------------
@@ -243,7 +232,9 @@ class AgentFloorMember:
         self._agent = agent
         self._session_id = session_id
         self._slot = _FloorViewSlot()
-        self._injector_wired = False
+        self._view_injector = ViewInjector(
+            agent, block="FLOOR", render=lambda: _format_floor_block(self._slot)
+        )
         self._view_pipe: Pipeline | None = None
         self.last_run_id: str = ""
         """Run id of the most recent ``agent.chat()`` call — set after each
@@ -282,7 +273,7 @@ class AgentFloorMember:
         self._slot.topic = floor.topic
         self._slot.round_num = round_num
 
-        self._wire_floor_injector_once()
+        self._view_injector.wire_once()
 
         # The message the member responds to: the most recent turn addressed
         # to them, or to the floor; else the topic prompt. This is simpler
@@ -319,27 +310,6 @@ class AgentFloorMember:
             elapsed_s=float(getattr(run, "elapsed_seconds", lambda: 0.0)()),
             turn_id=str(uuid.uuid4()),
         )
-
-    def _wire_floor_injector_once(self) -> None:
-        if self._injector_wired:
-            return
-        from prodagent.hooks.gates import InjectionPoint
-
-        hooks = self._agent.hooks
-        if hooks is None:
-            # attach_default_hooks is normally called lazily during drive_stream,
-            # but we need the registry now to register the injector before the
-            # first chat() call resolves hooks.
-            hooks = self._agent.attach_default_hooks()
-        if hooks is None:
-            logger.warning(
-                "[ensemble] agent %s has no hooks registry — [FLOOR] block "
-                "will not be injected; member won't see other members' turns",
-                self.name,
-            )
-            return
-        hooks.register_injector(InjectionPoint.CONTEXT_INJECTOR, _make_floor_injector(self._slot))
-        self._injector_wired = True
 
     def _build_prompt(self, floor: SharedFloor) -> str:
         """What the member is told to respond to."""
@@ -490,11 +460,8 @@ class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
     def _bound_turn(payload: Any) -> Any:
         """Cap each turn's free text — one long-winded (or poisoned) member
         must not blow every other member's context window."""
-        if payload is not None and len(payload.text) > _TURN_TEXT_MAX_CHARS:
-            trimmed = payload.text[:_TURN_TEXT_MAX_CHARS] + (
-                f"\n…(truncated, {len(payload.text) - _TURN_TEXT_MAX_CHARS} more chars)"
-            )
-            payload.text = trimmed
+        if payload is not None:
+            payload.text = bound_text(payload.text, _TURN_TEXT_MAX_CHARS)
         return payload
 
     def _compute_round(self, speaker: str) -> int:

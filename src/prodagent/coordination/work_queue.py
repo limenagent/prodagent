@@ -38,6 +38,7 @@ from prodagent.coordination.termination import (
     TerminationPolicy,
     TerminationReason,
 )
+from prodagent.core.text import bound_text
 from prodagent.core.event_log import Event
 
 if TYPE_CHECKING:
@@ -506,7 +507,7 @@ class WorkQueue(StageDriver[WorkQueueEvent]):
         """Cap a worker's error text — one verbose crash must not flood every
         consumer of the queue's events."""
         if payload is not None and payload.error is not None and len(payload.error) > 2000:
-            payload.error = payload.error[:2000] + "\n…(truncated)"
+            payload.error = bound_text(payload.error, 2000)
         return payload
 
     async def _open(self) -> None:

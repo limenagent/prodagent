@@ -42,6 +42,43 @@ from prodagent.coordination.activation import Activation
 from prodagent.coordination.termination import TerminationReason
 from prodagent.core.exceptions import BudgetExceeded
 
+class ViewInjector:
+    """Wire-once CONTEXT_INJECTOR registration for a stage member's view.
+
+    The stage (floor/board) refreshes a view slot externally before each
+    turn; this class only owns register-once semantics on the member's hook
+    registry — wiring must happen before the first ``chat()`` resolves one."""
+
+    def __init__(self, agent: Any, *, block: str, render: Any) -> None:
+        self._agent = agent
+        self._block = block
+        self._render = render
+        self._wired = False
+
+    def wire_once(self) -> None:
+        if self._wired:
+            return
+        from prodagent.kernel.bus import InjectionPoint
+
+        hooks = self._agent.hooks
+        if hooks is None:
+            hooks = self._agent.attach_default_hooks()
+        if hooks is None:
+            logger.warning(
+                "[%s] agent %s has no hooks registry — [%s] block will not "
+                "be injected; member won't see the shared view",
+                self._block,
+                getattr(self._agent, "name", "?"),
+                self._block,
+            )
+            return
+        hooks.register_injector(InjectionPoint.CONTEXT_INJECTOR, self._inject)
+        self._wired = True
+
+    async def _inject(self, **kw: Any) -> str:
+        return self._render()
+
+
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
 
