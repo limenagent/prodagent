@@ -8,7 +8,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 from prodagent.coordination._stage import StageDriver, ViewInjector
-from prodagent.coordination.activation import Activation
+from prodagent.coordination.activation import (
+    Activation,
+    ActivationContext,
+    ActivationPolicy,
+)
 from prodagent.coordination.budget_ledger import SharedBudget
 from prodagent.coordination.floor import FloorMember, FloorTurn, SharedFloor
 from prodagent.coordination.floor_projection import (
@@ -211,6 +215,73 @@ def _format_floor_block(slot: _FloorViewSlot) -> str:
     else:
         lines.append("transcript: (you are first to speak)")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# SpeakingOrder → ActivationPolicy adapters
+# ---------------------------------------------------------------------------
+
+
+class _BatchOrderPolicy:
+    """FreeForAll-shaped orders: the order itself returns the activation batch."""
+
+    def __init__(self, order: Any) -> None:
+        self._order = order
+
+    async def next_activations(self, ctx: ActivationContext) -> list[Activation]:
+        return [self._order.activation(ctx.store)]
+
+
+class _PickedOrderPolicy:
+    """Moderated-shaped orders: an async picker names one speaker at a time."""
+
+    def __init__(self, order: Any) -> None:
+        self._order = order
+
+    async def next_activations(self, ctx: ActivationContext) -> list[Activation]:
+        speaker = await self._order.pick_speaker(ctx.store)
+        if speaker is None:
+            return []
+        return [
+            Activation(
+                members=[speaker],
+                dispatch="serial",
+                round_num=self._order.round_of(ctx.store, speaker),
+                label="moderated",
+            )
+        ]
+
+
+class _SyncOrderPolicy:
+    """Classic ``next_speaker`` orders (RoundRobin and user orders)."""
+
+    def __init__(self, order: Any, compute_round: Any) -> None:
+        self._order = order
+        self._compute_round = compute_round
+
+    async def next_activations(self, ctx: ActivationContext) -> list[Activation]:
+        speaker = self._order.next_speaker(ctx.store)
+        if speaker is None:
+            return []
+        return [
+            Activation(
+                members=[speaker],
+                dispatch="serial",
+                round_num=self._compute_round(speaker),
+                label=type(self._order).__name__,
+            )
+        ]
+
+
+def _order_as_policy(order: Any, compute_round: Any) -> ActivationPolicy:
+    """Adapt any speaking-order shape (or a raw policy) to ActivationPolicy."""
+    if hasattr(order, "next_activations"):
+        return order
+    if hasattr(order, "activation"):
+        return _BatchOrderPolicy(order)
+    if hasattr(order, "pick_speaker"):
+        return _PickedOrderPolicy(order)
+    return _SyncOrderPolicy(order, compute_round)
 
 
 # ---------------------------------------------------------------------------
@@ -433,6 +504,7 @@ class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
     def __init__(self, spec: EnsembleSpec) -> None:
         super().__init__()
         self._spec = spec
+        self._activation = _order_as_policy(spec.order, self._compute_round)
         self._floor = spec.build_floor()
         # Narrow the base's Optional attribute: Ensemble always has a budget
         # (unlike Blackboard/WorkQueue, where None means unbudgeted).
@@ -480,36 +552,11 @@ class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
         return last.round
 
     async def _next_activation(self) -> Activation | None:
-        """Adapt the spec's speaking order to an :class:`Activation`.
-
-        Three shapes, checked in order: ``activation()`` (batch orders —
-        FreeForAll), async ``pick_speaker`` (Moderated and user orders shaped
-        like it), sync ``next_speaker`` (RoundRobin and user orders shaped
-        like it). ``None`` means the order itself ran out of speakers."""
-        order = self._spec.order
-        if hasattr(order, "activation"):
-            batched = cast("FreeForAll", order)  # duck-typed: any batch order qualifies
-            return batched.activation(self._floor)
-        if hasattr(order, "pick_speaker"):
-            moderated = cast("Moderated", order)  # duck-typed: any async picker qualifies
-            speaker = await moderated.pick_speaker(self._floor)
-            if speaker is None:
-                return None
-            return Activation(
-                members=[speaker],
-                dispatch="serial",
-                round_num=moderated.round_of(self._floor, speaker),
-                label="moderated",
-            )
-        speaker = order.next_speaker(self._floor)
-        if speaker is None:
-            return None
-        return Activation(
-            members=[speaker],
-            dispatch="serial",
-            round_num=self._compute_round(speaker),
-            label=type(order).__name__,
+        """Ask the activation policy; ``None`` when the order ran out of speakers."""
+        activations = await self._activation.next_activations(
+            ActivationContext(store=self._floor, round_num=self._floor.round_count())
         )
+        return activations[0] if activations else None
 
     def _build_default_budget(self) -> SharedBudget:
         """Rough default: sum each member's own HardBudget into a floor cap.

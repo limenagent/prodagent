@@ -28,6 +28,7 @@ This module names that concept once:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Awaitable
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
@@ -93,6 +94,9 @@ class ActivationContext:
 class ActivationPolicy(Protocol):
     """Decides who acts next. Returns one or more :class:`Activation` batches
     for the coming round, or an empty list when there is no pending work —
-    which the driver surfaces as its quiescent/no-activation stop reason."""
+    which the driver surfaces as its quiescent/no-activation stop reason.
 
-    def next_activations(self, ctx: ActivationContext) -> list[Activation]: ...
+    Async by design: a moderated picker may await an LLM to name the next
+    speaker."""
+
+    def next_activations(self, ctx: ActivationContext) -> Awaitable[list[Activation]]: ...

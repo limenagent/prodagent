@@ -34,10 +34,18 @@
 
 | 决策 | 一句话 Why | 深挖 |
 |---|---|---|
-| 包目录=书目录（13 包，学习序） | 阅读路径、依赖方向、教学顺序三者同构 | [学习路线](index.md) |
-| 内核 import 链 64 模块，精确钉死 | “轻量”是会红的测试，不是 README 里的形容词 | [学习路线](index.md) |
+| 包目录=书目录（14 包，学习序） | 阅读路径、依赖方向、教学顺序三者同构 | [学习路线](index.md) |
+| 内核 import 链精确钉死 | "轻量"是会红的测试，不是 README 里的形容词；import Agent 不加载多智能体机械 | [学习路线](index.md) |
+| `kernel/` 独立成篇（七模块，不 import 能力包） | 循环的读者不该先穿过协作机械；纯度有 CI 测试 | [⑤ 循环](tour/05-loop.md) |
+| Step 是原子，循环是策略 | REACTIVE = while 迭代原子；PLAN_FIRST = for-each-DAG 迭代原子——两种执行器共享同一个原子的纪律 | [⑤ 循环](tour/05-loop.md) |
+| profile 只允许出现在 compose.py | "production() 打开什么"是一个文件里的清单，不是散落消费现场的 if | [上手](start.md) |
+| 能力槽 provide/require 取代扩展扫描 | 插件声明它携带什么，消费者按类型索取——isinstance/hasattr 扫描是字符串协议 | [专题](topics/approval.md) |
+| 总线 ≠ 管线（两个原语） | fire/collect 是扇出，Pipeline 是链式短路——对偶不是同一机制；只共享 60 行助手 | [⑦ 协作](tour/07-multiagent.md) |
+| AgentRun 不分解成扩展组合 | 全库被读得最多的对象碎片化换不来任何行为；挂起字段簇才是真内聚 | [⑤ 循环](tour/05-loop.md) |
+| AgentConfig 保持扁平不分组 | 分组的动因（新能力加字段）已随插件插槽消失；分组是 churn 换美观 | [⑤ 循环](tour/05-loop.md) |
+| 不加 VersionedStore 泛型端口 | conformance 套件已逐后端钉死乐观并发；平行的泛型协议是无强制力的第二套词汇 | [契约](tour/02-ports.md) |
 | `backends` 永不出现在模块级导入 | import 一个 Agent 不该拉起一个数据库驱动 | [契约](tour/02-ports.md) |
-| 计划是 DAG 不是图灵完备图 | 带循环的计划要模拟才能回答“它会做什么”，可审计性归零 | [⑥ 规划](tour/06-plan.md) |
+| 计划是 DAG 不是图灵完备图 | 带循环的计划要模拟才能回答"它会做什么"，可审计性归零 | [⑥ 规划](tour/06-plan.md) |
 | Workflow 是代码不是 YAML | 节点引用的是 Agent 对象不是字符串名字；类型检查站在你这边 | [⑥ 规划](tour/06-plan.md) |
 | 挂起是一等状态不是阻塞点 | `chat()` 是库调用；阻塞等人会把调用方拖进超时泥潭 | [审批](topics/approval.md) |
 | 循环不可编排（无步骤图 DSL） | 检查点的次序是事故换来的不变量，开放编排=让用户重新踩坑 | [⑤ 循环](tour/05-loop.md) |

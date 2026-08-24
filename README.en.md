@@ -1,6 +1,6 @@
 # prodagent
 
-> An industrial-grade LLM agent implementation you can actually **finish reading**. 25,000 lines, 14 packages, 1,194 offline tests — loop, budgets, recovery, HITL approval, multi-agent collaboration; every mechanism small enough to read in one sitting, complete enough to run in production.
+> An industrial-grade LLM agent implementation you can actually **finish reading**. 25,000 lines, 14 packages, 1,200 offline tests — loop, budgets, recovery, HITL approval, multi-agent collaboration; every mechanism small enough to read in one sitting, complete enough to run in production.
 
 [![PyPI](https://img.shields.io/pypi/v/prodagent)](https://pypi.org/project/prodagent/)
 [![CI](https://github.com/limenagent/prodagent/actions/workflows/ci.yml/badge.svg)](https://github.com/limenagent/prodagent/actions/workflows/ci.yml)
@@ -130,7 +130,7 @@ The package tree is the learning order: `core → ports → llm → tooling → 
 | 8 | [dating_chat](examples/dating_chat) | agent speed-dating | Ensemble shared floor + memory A/B |
 | 9 | [quiz_arena](examples/quiz_arena) | quiz show | WorkQueue (leases+dead letter) + Blackboard |
 
-All run offline (FakeLLM scripts precise to per-turn tool calls) — the same machinery behind 1,194 tests.
+All run offline (FakeLLM scripts precise to per-turn tool calls) — the same machinery behind 1,200 tests.
 
 ## License
 

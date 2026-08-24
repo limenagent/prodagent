@@ -10,9 +10,9 @@
 ```mermaid
 flowchart TD
     U["await agent.chat(task)"] --> A["runtime/agent.py<br/>Agent.chat → chat_stream<br/>会话轮次簿记"]
-    A --> K["coordination/run_loop.py<br/>drive_stream → RunContext → RunLoop<br/>（裸核在此解析 LLM/存储）"]
+    A --> K["runtime/runner.py<br/>drive_stream → RunContext → RunLoop<br/>（compose 在此按 profile 解析 LLM/存储）"]
     K --> F["runtime/factory.py<br/>LeafExecutorFactory.prepare<br/>工具装配 → 运行时 → 执行器"]
-    F --> R["runtime/reactive.py<br/>ReactiveLoop.stream<br/>think → decide → execute"]
+    F --> R["kernel/loop.py + kernel/step.py<br/>Step 原子：think → decide → execute<br/>loop：迭代原子的策略"]
     R --> D["tooling/dispatcher.py<br/>ToolDispatcher.run_batch<br/>只读并行 / 写串行"]
     R --> L["ports/llm.py → llm/<br/>LLMClient.complete"]
     D --> T["你的 @tool 函数"]

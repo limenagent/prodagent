@@ -1,7 +1,7 @@
 # prodagent
 
 > 
-> **25,000 行，14 个包，1,194 个离线测试。**
+> **25,000 行，14 个包，1,200 个离线测试。**
 > 一份你**真的能读完**的工业级 LLM Agent 实现。循环、预算、恢复、审批、权限、可观测、评估、多 Agent 协作——每个机制都小到一次读懂，完整到能上生产。
 
 [![PyPI](https://img.shields.io/pypi/v/prodagent)](https://pypi.org/project/prodagent/)
@@ -194,7 +194,7 @@ graph TD
 | 8 | [dating_chat](examples/dating_chat) | Agent 相亲 | Ensemble 共享会话 + 记忆 A/B 对比 |
 | 9 | [quiz_arena](examples/quiz_arena) | 抢答竞赛 | WorkQueue（租约+死信）+ Blackboard + 多租户隔离 |
 
-全部离线可跑（FakeLLM 脚本精确到每轮工具调用），与 1,194 个测试共用同一套机制。
+全部离线可跑（FakeLLM 脚本精确到每轮工具调用），与 1,200 个测试共用同一套机制。
 
 ---
 
