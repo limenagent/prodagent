@@ -97,10 +97,12 @@ async def test_plan_first_budget_zero_turns_blocks_even_plan_generation(tmp_path
 
 @pytest.mark.asyncio
 async def test_plan_first_trips_on_sibling_spend_it_never_directly_incurred(tmp_path):
-    from prodagent.runtime.parent_runtime import SpawnAccumulator
+    from prodagent.kernel.budget import BudgetLedger
 
     events, checkpoints = _stores(tmp_path)
-    sibling_spend = SpawnAccumulator(cost_usd=0.95, spawn_count=1)
+    budget = HardBudget(max_turns=50, max_cost_usd=0.9, max_tokens=1_000_000, max_seconds=600)
+    ledger = BudgetLedger(max=budget)
+    await ledger.commit(member="sibling", turns=0, tokens=0, cost_usd=0.95)
     planner = PlanExecutor(
         _plan_llm(_multi_step_plan(3)),
         _CountingExecutor(),
@@ -108,8 +110,8 @@ async def test_plan_first_trips_on_sibling_spend_it_never_directly_incurred(tmp_
         messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
-        budget=HardBudget(max_turns=50, max_cost_usd=0.9, max_tokens=1_000_000, max_seconds=600),
-        spawn_accumulators=[sibling_spend],
+        budget=budget,
+        budget_ledger=ledger,
     )
 
     with pytest.raises(BudgetExceeded) as exc_info:

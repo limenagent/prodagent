@@ -49,7 +49,7 @@ spawn 出去的子 Agent 花的钱算谁的？算链的。`RunLoop` 在链的起
   无法靠竞态越过上限），子 run 结束后 `commit` 真实花销；
 - peer 接力前 commit 当前成员的花销、交接前 check 下家余量——链上
   任何一环超限，链条在那里停下；
-- 叶子执行器每轮把"账本在途 + 自己已花"一起对账
+- 叶子执行器每轮把"账本已落账 + 自己已花"一起对账（在途预留只在 spawn 的 reserve 门口把门——为自己预留的额度不能反过来封锁自己）
   （`check_spawn_budget`，同样在 `kernel/budget.py`）。
 
 另有 `SpawnAccumulator`（`runtime/parent_runtime.py`）做**终局折账**：

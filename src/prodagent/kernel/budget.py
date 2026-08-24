@@ -135,6 +135,17 @@ class BudgetLedger:
     _start_monotonic: float = field(default_factory=time.monotonic)
 
     @property
+    def committed(self) -> _Spend:
+        """Read-only snapshot of settled spend only. Executors check against
+        this view: an in-flight reservation gates siblings at reserve time,
+        and must not block the very child it was reserved for."""
+        return _Spend(
+            turns=self._committed.turns,
+            tokens=self._committed.tokens,
+            cost_usd=self._committed.cost_usd,
+        )
+
+    @property
     def spent(self) -> _Spend:
         """Read-only snapshot of current (committed + reserved) spend — best-effort, no lock."""
         return _Spend(
@@ -319,18 +330,19 @@ def check_spawn_budget(
 ) -> None:
     """The ledger is the single enforcement source: children commit live,
     peers commit at handoff. The run's own spend (metrics) plus the ledger's
-    live view must fit the ceiling. The fold accumulator is reporting-only
-    and never counted here — folded child spend is already in the ledger."""
+    SETTLED spend must fit the ceiling — in-flight reservations are the
+    reserve gate's business, not the executor's. The fold accumulator is
+    reporting-only: folded child spend is already in the ledger."""
     if budget is None:
         return
     extra_turns = 0
     extra_tokens = 0
     extra_cost_usd = 0.0
     if ledger is not None:
-        spent = ledger.spent
-        extra_turns = spent.turns
-        extra_tokens = spent.tokens
-        extra_cost_usd = spent.cost_usd
+        settled = ledger.committed
+        extra_turns = settled.turns
+        extra_tokens = settled.tokens
+        extra_cost_usd = settled.cost_usd
     check_budget(
         run,
         budget,

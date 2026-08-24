@@ -97,11 +97,12 @@ class TestSpawnExtras:
 
 class TestReactiveLoopSpawnAccumulators:
     async def test_loop_trips_on_sibling_spend_it_never_directly_incurred(self):
-        from prodagent.runtime.parent_runtime import SpawnAccumulator
+        from prodagent.kernel.budget import BudgetLedger
         from prodagent.kernel.events import RunFailedEvent
 
         budget = HardBudget(max_turns=50, max_tokens=1_000_000, max_seconds=600, max_cost_usd=0.9)
-        sibling_spend = SpawnAccumulator(cost_usd=0.95, spawn_count=1)
+        ledger = BudgetLedger(max=budget)
+        await ledger.commit(member="sibling", turns=0, tokens=0, cost_usd=0.95)
         llm = FakeLLMAdapter(responses=[LLMResponse(content="done", stop_reason="end_turn")])
         dispatcher = ToolDispatcher({"noop": _noop_tool})
         loop = ReactiveLoop(
@@ -110,7 +111,7 @@ class TestReactiveLoopSpawnAccumulators:
             system_prompt="test",
             tools_schema=[],
             budget=budget,
-            spawn_accumulators=[sibling_spend],
+            budget_ledger=ledger,
         )
 
         events = [event async for event in loop.stream("test", run_id="sibling-spend-test")]

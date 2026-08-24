@@ -16,10 +16,12 @@ def _plan_llm() -> FakeLLMAdapter:
 
 
 async def test_spawned_child_trips_on_spend_already_committed_by_a_sibling():
+    from prodagent.kernel.budget import BudgetLedger
+
     budget = HardBudget(max_turns=50, max_cost_usd=0.9, max_tokens=1_000_000, max_seconds=600)
-    ctx = ParentRuntime(budget=budget)
-    ctx.accumulator.cost_usd = 0.95
-    ctx.accumulator.spawn_count = 1
+    ledger = BudgetLedger(max=budget)
+    await ledger.commit(member="earlier-sibling", turns=0, tokens=0, cost_usd=0.95)
+    ctx = ParentRuntime(budget=budget, budget_ledger=ledger)
 
     child = Agent(
         "worker",
@@ -30,8 +32,9 @@ async def test_spawned_child_trips_on_spend_already_committed_by_a_sibling():
 
     result = await pipeline.spawn("worker", "do something")
 
-    assert result["state"] == "failed", result
-    assert "cost" in result["output"].lower() or "Cost limit" in result["output"]
+    # The reserve gate rejects the spawn pre-flight — sibling spend is already
+    # at cap, so the child never burns a single token of its own.
+    assert result.get("code") == "spawn_budget_exhausted", result
 
 
 async def test_spawned_child_completes_when_sibling_spend_stays_under_ceiling():

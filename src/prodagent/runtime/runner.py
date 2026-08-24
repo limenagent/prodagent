@@ -138,8 +138,12 @@ async def drive_stream(
     forced_mode: ExecutionMode | None = None,
     initial_messages: MessageList | None = None,
     parent_run_id: str | None = None,
+    budget_ledger: BudgetLedger | None = None,
 ) -> AsyncGenerator[AgentEvent, None]:
-    """Stream agent events from a fresh or resumed run."""
+    """Stream agent events from a fresh or resumed run.
+
+    ``budget_ledger`` joins a spawned child into its parent's chain ledger —
+    one accounting tree per root run."""
     root_run_id = run_id or str(uuid.uuid4())
     initial_ctx = await _resolve_initial_context(agent, root_run_id, task)
     if parent_run_id is not None:
@@ -151,6 +155,7 @@ async def drive_stream(
         output_schema=output_schema,
         forced_mode=forced_mode,
         initial_messages=initial_messages,
+        budget_ledger=budget_ledger,
     )
     async for event in loop.run():
         yield event
@@ -164,6 +169,7 @@ async def drive(
     parent_run_id: str | None = None,
     forced_mode: ExecutionMode | None = None,
     initial_messages: MessageList | None = None,
+    budget_ledger: BudgetLedger | None = None,
 ) -> AgentRun:
     """Drive an agent to terminal state and return the final run. Used by spawn."""
     root_run_id = run_id or str(uuid.uuid4())
@@ -174,6 +180,7 @@ async def drive(
         forced_mode=forced_mode,
         initial_messages=initial_messages,
         parent_run_id=parent_run_id,
+        budget_ledger=budget_ledger,
     )
     return await collect_final_run(stream, fallback_run_id=root_run_id, fallback_task=task)
 
@@ -246,6 +253,7 @@ class RunLoop:
         *,
         forced_mode: ExecutionMode | None = None,
         initial_messages: MessageList | None = None,
+        budget_ledger: BudgetLedger | None = None,
     ) -> None:
         self._root_agent = root_agent
         self._ctx = initial_ctx
@@ -254,9 +262,9 @@ class RunLoop:
         self._factory = LeafExecutorFactory(
             forced_mode=forced_mode, initial_messages=initial_messages
         )
-        # One ledger for the whole chain: spawn children, peer hops, and the
-        # leaf executors' live checks all read and write this single reference.
-        self._ledger: BudgetLedger | None = (
+        # One ledger for the whole tree: a spawned child arrives with its
+        # parent's ledger (siblings visible); a root run mints a fresh one.
+        self._ledger: BudgetLedger | None = budget_ledger or (
             BudgetLedger(max=root_agent.budget_config) if root_agent.budget_config else None
         )
         self._relay_dedupe: IdempotentMessageHandler | None = None

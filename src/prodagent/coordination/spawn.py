@@ -496,6 +496,7 @@ class Spawn:
                 child_task,
                 run_id=child_run_id,
                 parent_run_id=self._ctx.parent_run_id,
+                budget_ledger=self._budget_ledger,
             )
         except SECURITY_VETO_EXCEPTIONS:
             raise
