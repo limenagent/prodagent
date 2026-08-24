@@ -8,11 +8,11 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
-from prodagent.coordination.budget_ledger import BudgetLedger
 from prodagent.coordination.messaging.contract import (
     DEFAULT_CHILD_CONTRACT,
     MessageContract,
 )
+from prodagent.kernel.budget import BudgetLedger
 from prodagent.coordination.messaging.envelope import (
     Crossing,
     CrossingKind,
@@ -42,7 +42,7 @@ from prodagent.runtime._tool_merge import attach_tools
 from prodagent.tooling.base import FunctionTool
 
 if TYPE_CHECKING:
-    from prodagent.coordination.accounting import SpawnAccumulator
+    from prodagent.coordination.parent_runtime import SpawnAccumulator
     from prodagent.coordination.run_loop import RunContext
     from prodagent.core.config import FrameworkConfig
     from prodagent.hooks.registry import HookRegistry
@@ -170,7 +170,11 @@ class Spawn:
             if dead_letter_queue is not None
             else resolve_dead_letter(self._framework_config)
         )
-        self._budget_ledger = BudgetLedger(max=ctx.budget) if ctx.budget is not None else None
+        # Shared chain ledger (one per RunLoop) — peers and siblings see the same
+        # spend. A standalone Spawn (no chain) still enforces its own ceiling.
+        self._budget_ledger = ctx.budget_ledger or (
+            BudgetLedger(max=ctx.budget) if ctx.budget is not None else None
+        )
         self._idempotency = IdempotentMessageHandler(ttl_seconds=orch.handoff_idempotency_ttl_s)
         self._dispatch_pipeline = assembly_pipeline(
             dedupe=self._idempotency,

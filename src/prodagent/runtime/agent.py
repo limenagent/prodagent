@@ -8,9 +8,9 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any, cast
 
-from prodagent.coordination.accounting import SpawnAccumulator
+from prodagent.coordination.parent_runtime import SpawnAccumulator
 from prodagent.coordination.parent_runtime import ParentRuntime
-from prodagent.coordination.run_loop import collect_final_run, drive_stream
+from prodagent.runtime.runner import collect_final_run, drive_stream
 from prodagent.core.config import FrameworkConfig
 from prodagent.core.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.core.exceptions import (
@@ -292,21 +292,15 @@ class Agent:
         return session, alloc.run_id, alloc.mode, alloc.messages
 
     def _ensure_checkpoint_resolved(self) -> CheckpointStore | None:
-        if self.config.checkpoint is None and self.framework_config.profile == "production":
-            from prodagent.backends.factory import resolve_checkpoint
+        from prodagent.runtime.compose import resolve_checkpoint
 
-            self.config.checkpoint = resolve_checkpoint(self.framework_config)
+        self.config.checkpoint = resolve_checkpoint(self.framework_config, self.config.checkpoint)
         return self.config.checkpoint
 
     def _ensure_session_store_resolved(self) -> SessionStore:
-        if self._session_store is None:
-            from prodagent.backends.factory import in_memory_session_store, resolve_session_store
+        from prodagent.runtime.compose import resolve_session_store
 
-            if self.framework_config.profile == "production":
-                self._session_store = resolve_session_store(self.framework_config)
-            else:
-                # Bare kernel: in-process sessions — nothing touches disk.
-                self._session_store = in_memory_session_store()
+        self._session_store = resolve_session_store(self.framework_config, self._session_store)
         return self._session_store
 
     # -- Prompt & context -------------------------------------------------

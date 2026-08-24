@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from prodagent.coordination.accounting import check_spawn_budget
+from prodagent.kernel.budget import check_spawn_budget
 from prodagent.core.events import (
     StepCompletedEvent,
     StepFailedEvent,
@@ -35,7 +35,7 @@ from prodagent.plan.step_runner import (
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Iterator
 
-    from prodagent.coordination.accounting import SpawnAccumulator
+    from prodagent.coordination.parent_runtime import SpawnAccumulator
     from prodagent.core.budget import HardBudget
     from prodagent.core.events import AgentEvent
     from prodagent.core.state.run import AgentRun
@@ -88,6 +88,7 @@ class PlanExecutor:
         budget: HardBudget | None = None,
         spawn_accumulators: list[SpawnAccumulator] | None = None,
         initial_plan: Plan | None = None,
+        budget_ledger: BudgetLedger | None = None,
         dispatcher: ToolDispatcher | None = None,
     ) -> None:
         self._llm = llm
@@ -98,6 +99,7 @@ class PlanExecutor:
         self._tool_schemas = tool_schemas or []
         self._budget = budget
         self._spawn_accumulators = spawn_accumulators or []
+        self._budget_ledger = budget_ledger
         self._max_replans = max_replans
         self._log = PlanEventLog(
             event_log=event_log,
@@ -134,7 +136,7 @@ class PlanExecutor:
         self._replan_count = 0
 
     def _check_budget(self, run: AgentRun) -> None:
-        check_spawn_budget(run, self._budget, self._spawn_accumulators)
+        check_spawn_budget(run, self._budget, self._budget_ledger, self._spawn_accumulators)
 
     async def stream(
         self,

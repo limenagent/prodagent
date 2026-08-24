@@ -12,7 +12,7 @@ from prodagent.runtime._tool_merge import attach_tools
 from prodagent.tooling.base import FunctionTool
 
 if TYPE_CHECKING:
-    from prodagent.coordination.accounting import SpawnAccumulator
+    from prodagent.coordination.parent_runtime import SpawnAccumulator
     from prodagent.coordination.run_loop import RunContext
     from prodagent.core.state.run import PendingHandoff
     from prodagent.ports import CheckpointStore

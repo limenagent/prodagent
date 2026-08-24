@@ -1,0 +1,282 @@
+"""The REACTIVE loop — a policy for iterating Steps.
+
+The turn atom (assemble → call model → account → act) lives in
+:class:`prodagent.kernel.step.Step`; this class owns everything *around* the
+atom — run resolution and resume, loop spans, termination, settling, and
+checkpointing. Termination flags land on the run (``COMPLETED`` /
+``SUSPENDED`` / ``pending_handoff``); the loop only translates them into
+terminal events.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import uuid
+from typing import TYPE_CHECKING
+
+from prodagent.core.config import ContextConfig, LoopConfig
+from prodagent.core.error_classifier import classify_error
+from prodagent.core.error_reason import ErrorLayer
+from prodagent.core.exceptions import BudgetExceeded, InfiniteLoopDetected
+from prodagent.core.progress import ProgressMonitor
+from prodagent.kernel.bus import fire as _fire
+from prodagent.kernel.bus import save_and_fire_checkpoint
+from prodagent.kernel.budget import SAFETY_NET_BUDGET, check_spawn_budget
+from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.events import (
+    AgentEvent,
+    RunCompletedEvent,
+    RunFailedEvent,
+    RunSuspendedEvent,
+)
+from prodagent.kernel.state import AgentRun
+from prodagent.kernel.step import Step
+from prodagent.kernel.types import (
+    Message,
+    MessageList,
+    RunState,
+)
+from prodagent.ports.llm import LLMConfig
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
+    from prodagent.cognition.context.manager import ContextManager
+    from prodagent.cognition.context.spill import ToolResultSpillStore
+    from prodagent.coordination.parent_runtime import SpawnAccumulator
+    from prodagent.kernel.budget import BudgetLedger, HardBudget
+    from prodagent.kernel.bus import HookRegistry
+    from prodagent.llm import LLMClient
+    from prodagent.ports import CheckpointStore
+    from prodagent.tooling.dispatcher import ToolDispatcher
+
+logger = logging.getLogger(__name__)
+
+
+class ReactiveLoop:
+    """Greedy think→decide→execute loop: the ``ExecutionMode.REACTIVE`` leaf executor."""
+
+    def __init__(
+        self,
+        llm: LLMClient,
+        dispatcher: ToolDispatcher,
+        *,
+        system_prompt: str = "",
+        tools_schema: list[dict] | None = None,
+        budget: HardBudget | None = None,
+        checkpoint_store: CheckpointStore | None = None,
+        context_manager: ContextManager | None = None,
+        hooks: HookRegistry | None = None,
+        loop_config: LoopConfig | None = None,
+        spill_store: ToolResultSpillStore | None = None,
+        spawn_accumulators: list[SpawnAccumulator] | None = None,
+        initial_messages: MessageList | None = None,
+        budget_ledger: BudgetLedger | None = None,
+    ) -> None:
+        self._system = system_prompt
+        self._tools_schema = tools_schema or []
+        self._budget = budget or SAFETY_NET_BUDGET
+        self._checkpoint_store = checkpoint_store
+        self._context_manager = context_manager
+        self._initial_messages = list(initial_messages) if initial_messages else None
+        self._hooks = hooks
+        self._dispatcher = dispatcher
+        self._spawn_accumulators = spawn_accumulators or []
+        self._budget_ledger = budget_ledger
+        resolved_spill_store = spill_store or (
+            context_manager.spill_store if context_manager else None
+        )
+        # The dispatcher needs the ContextConfig for spill truncation even
+        # when the ContextManager itself is off (spill without compression).
+        if context_manager is not None:
+            tool_context_config: ContextConfig | None = context_manager.config
+        else:
+            tool_context_config = ContextConfig() if resolved_spill_store else None
+        cfg = loop_config or LoopConfig()
+        self._progress = ProgressMonitor(
+            stall_threshold=cfg.stall_threshold,
+            repeat_threshold=cfg.repeat_threshold,
+            window_size=cfg.fingerprint_window,
+        )
+        dispatcher.configure_batch(
+            loop_config=loop_config,
+            context_config=tool_context_config,
+            spill_store=resolved_spill_store,
+            progress_monitor=self._progress,
+        )
+        self._step = self._build_step(llm, dispatcher)
+
+    def _build_step(self, llm: LLMClient, dispatcher: ToolDispatcher) -> Step:
+        cm = self._context_manager
+
+        async def _assemble(run: AgentRun) -> tuple[str, MessageList]:
+            assert cm is not None and self._dispatcher is not None
+            return await cm.prepare(
+                run, hooks=self._hooks, invoked_skills=self._dispatcher.invoked_skills()
+            )
+
+        return Step(
+            llm,
+            dispatcher,
+            budget=self._budget,
+            guard=self._progress,
+            bus=self._hooks,
+            assembler=_assemble if cm is not None else None,
+            budget_check=self._check_budget,
+            llm_config=LLMConfig(),
+            cache_boundary=(lambda: cm.cache_boundary_index) if cm is not None else None,
+        )
+
+    async def stream(
+        self,
+        task: str,
+        *,
+        run_id: str | None = None,
+        parent_run_id: str | None = None,
+    ) -> AsyncGenerator[AgentEvent, None]:
+        run = await self._resolve_run(task, run_id=run_id, parent_run_id=parent_run_id)
+        logger.info("ReactiveLoop[%s] stream started: %r", run.run_id, task[:80])
+        await self._begin_run_span(run, task)
+
+        try:
+            async for event in self._loop_events(run):
+                yield event
+        except BudgetExceeded as exc:
+            yield await self._settle_terminated(run, exc)
+        except InfiniteLoopDetected as exc:
+            yield await self._settle_terminated(run, exc)
+        except Exception as exc:
+            await self._settle_unexpected(run, exc)
+            raise
+        else:
+            await self._end_run_span(run)
+        finally:
+            if self._checkpoint_store is not None:
+                await save_and_fire_checkpoint(self._checkpoint_store, run, self._hooks)
+
+    async def _settle_terminated(
+        self, run: AgentRun, exc: BudgetExceeded | InfiniteLoopDetected
+    ) -> AgentEvent:
+        run.state = RunState.FAILED
+        self._record_fault(run, exc)
+        await self._end_run_span(run, error=str(exc))
+        logger.warning("ReactiveLoop[%s] terminated: %s", run.run_id, exc)
+        return RunFailedEvent(run=run, error=str(exc))
+
+    async def _settle_unexpected(self, run: AgentRun, exc: BaseException) -> None:
+        run.state = RunState.FAILED
+        self._record_fault(run, exc)
+        await self._end_run_span(run, error=str(exc))
+        logger.exception("ReactiveLoop[%s] unexpected error", run.run_id)
+
+    @staticmethod
+    def _record_fault(run: AgentRun, exc: BaseException) -> None:
+        run.last_error = str(exc)
+        run.error = classify_error(exc, layer=ErrorLayer.RUNTIME)
+
+    @staticmethod
+    def _prune_unresolved_tool_uses(run: AgentRun) -> None:
+        msgs = run.messages
+        if not msgs:
+            return
+        last = msgs[-1]
+        if last.get("role") == "assistant" and run.pending_tool_call is not None:
+            msgs.pop()
+        run.pending_tool_call = None
+
+    async def _begin_run_span(self, run: AgentRun, task: str) -> None:
+        await _fire(
+            self._hooks,
+            HookEvent.LOOP_START,
+            run_id=run.run_id,
+            task=task[:200],
+        )
+
+    async def _end_run_span(self, run: AgentRun, *, error: str | None = None) -> None:
+        await _fire(self._hooks, HookEvent.LOOP_END, run_id=run.run_id, error=error)
+
+    def _check_budget(self, run: AgentRun) -> None:
+        check_spawn_budget(run, self._budget, self._budget_ledger, self._spawn_accumulators)
+
+    async def _loop_events(
+        self,
+        run: AgentRun,
+    ) -> AsyncGenerator[AgentEvent, None]:
+        # Resuming a SUSPENDED run: retry the exact call awaiting approval instead of asking the LLM again.
+        if run.pending_tool_call is not None:
+            resumed_call = run.pending_tool_call
+            run.pending_tool_call = None
+            self._dispatcher.set_pending_approval_id(run.pending_approval_id)
+            run.pending_approval_id = None
+            async for batch_evt in self._dispatcher.run_batch(run, [resumed_call]):
+                yield batch_evt
+
+            self._check_budget(run)
+
+            if run.state is RunState.SUSPENDED:
+                yield RunSuspendedEvent(run=run)
+                return
+
+        while True:
+            async for event in self._step.run(
+                run, system=self._system, tools=self._tools_schema or None
+            ):
+                yield event
+
+            if run.pending_handoff is not None:
+                yield RunCompletedEvent(run=run)
+                return
+            if run.state is RunState.COMPLETED:
+                yield RunCompletedEvent(run=run)
+                return
+            if run.state is RunState.SUSPENDED:
+                yield RunSuspendedEvent(run=run)
+                return
+
+    def _init_run(
+        self,
+        task: str,
+        *,
+        run_id: str | None,
+        parent_run_id: str | None = None,
+    ) -> AgentRun:
+        resolved_run_id = run_id or str(uuid.uuid4())
+        run = AgentRun(run_id=resolved_run_id, task=task, parent_run_id=parent_run_id)
+        run.messages.append(Message(role="user", content=task))
+        return run
+
+    async def _resolve_run(
+        self,
+        task: str,
+        *,
+        run_id: str | None,
+        parent_run_id: str | None = None,
+    ) -> AgentRun:
+        if self._initial_messages is not None:
+            resolved_run_id = run_id or str(uuid.uuid4())
+            run = AgentRun(run_id=resolved_run_id, task=task, parent_run_id=parent_run_id)
+            run.messages = list(self._initial_messages)
+            logger.info(
+                "ReactiveLoop[%s] chat turn: %d seeded messages",
+                resolved_run_id,
+                len(run.messages),
+            )
+            return run
+
+        if self._checkpoint_store is not None and run_id:
+            existing = await self._checkpoint_store.load(run_id)
+            if existing is not None:
+                if existing.state is not RunState.SUSPENDED:
+                    self._prune_unresolved_tool_uses(existing)
+                existing.state = RunState.RUNNING
+                existing.last_error = None
+                existing.error = None
+                logger.info(
+                    "ReactiveLoop[%s] resuming from checkpoint: %d messages, turn=%d",
+                    run_id,
+                    len(existing.messages),
+                    existing.turn_count,
+                )
+                return existing
+        return self._init_run(task, run_id=run_id, parent_run_id=parent_run_id)

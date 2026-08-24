@@ -3,7 +3,8 @@ from __future__ import annotations
 import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode
-from prodagent.coordination.accounting import SpawnAccumulator, fold_spawn_accounting
+from prodagent.coordination.parent_runtime import SpawnAccumulator
+from prodagent.coordination.run_loop import _fold_spawn_accounting as fold_spawn_accounting
 from prodagent.coordination.spawn import ChildResult
 from prodagent.core.budget import HardBudget
 from prodagent.core.state.run import AgentRun

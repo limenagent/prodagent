@@ -9,8 +9,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from prodagent.coordination.peer import assemble_peer_tools
-from prodagent.coordination.spawn import assemble_spawn_tools
 from prodagent.core.budget import SAFETY_NET_BUDGET
 from prodagent.core.exceptions import PermissionDenied
 from prodagent.core.types import ExecutionMode, MessageList
@@ -21,8 +19,8 @@ from prodagent.runtime.reactive import ReactiveLoop
 from prodagent.tooling.dispatcher import ToolDispatcher
 
 if TYPE_CHECKING:
-    from prodagent.coordination.accounting import SpawnAccumulator
-    from prodagent.coordination.run_loop import RunContext
+    from prodagent.coordination.parent_runtime import SpawnAccumulator
+    from prodagent.runtime.runner import RunContext
     from prodagent.hooks.registry import HookRegistry
     from prodagent.ports import LeafExecutor
     from prodagent.runtime.agent import Agent
@@ -62,8 +60,11 @@ class LeafExecutorFactory:
         tool_schemas: list[dict[str, Any]] = [t.schema for t in active_tools]
         if agent.skills:
             tool_schemas.append(agent.skills.as_tool_schema())
-        spawn_acc = assemble_spawn_tools(ctx, active_tools, tool_schemas)
-        spawn_acc = assemble_peer_tools(ctx, active_tools, tool_schemas, spawn_acc)
+        # Hop tools arrive via the ctx seam — the factory stays blind to
+        # which collaboration capabilities exist.
+        spawn_acc = None
+        for assembler in ctx.tool_assemblers:
+            spawn_acc = assembler(ctx, active_tools, tool_schemas, spawn_acc) or spawn_acc
 
         # 2. runtime: dispatcher + optional context manager + budget + prompt
         system = agent.build_system_prompt()
@@ -83,9 +84,11 @@ class LeafExecutorFactory:
         )
 
         # 3. executor: PLAN_FIRST (dynamic or preset DAG) vs REACTIVE loop
-        spawn_accumulators = [
-            acc for acc in (agent.config.spawn_accumulator, spawn_acc) if acc is not None
-        ]
+        # Enforcement rides the chain ledger; only the cross-hop config-level
+        # accumulator still reaches the executors as a live-spend view.
+        spawn_accumulators = (
+            [agent.config.spawn_accumulator] if agent.config.spawn_accumulator else []
+        )
         is_root = ctx.depth == 0
         effective_mode = (
             self._forced_mode if (is_root and self._forced_mode is not None) else agent.mode
@@ -109,6 +112,7 @@ class LeafExecutorFactory:
                 budget=effective_budget,
                 spawn_accumulators=spawn_accumulators,
                 initial_plan=agent.config.initial_plan,
+                budget_ledger=ctx.budget_ledger,
                 max_replans=agent.config.max_replans,
                 dispatcher=dispatcher,
             )
@@ -126,6 +130,7 @@ class LeafExecutorFactory:
                 spill_store=ctx.spill_store,
                 spawn_accumulators=spawn_accumulators,
                 initial_messages=initial_messages,
+                budget_ledger=ctx.budget_ledger,
             )
         return hooks, executor, spawn_acc
 

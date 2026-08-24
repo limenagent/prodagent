@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from prodagent import Agent, AgentConfig
-from prodagent.coordination.accounting import SpawnAccumulator
+from prodagent.coordination.parent_runtime import SpawnAccumulator
 from prodagent.coordination.parent_runtime import ParentRuntime
 from prodagent.coordination.run_loop import RunContext, RunLoop
 from prodagent.coordination.spawn import (

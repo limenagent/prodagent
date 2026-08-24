@@ -1,6 +1,8 @@
-"""kernel — the reading unit: vocabulary, state, budget, events.
+"""kernel — the reading unit: vocabulary, state, budget, bus, step.
 
-These five modules are the irreducible nouns every layer speaks. The rest of
-the framework builds on them; they build on nothing (save tiny helpers in
-``core`` that have no behaviour of their own).
+These six modules are the irreducible core every layer builds on and none
+may import a capability package. ``types``/``events``/``state`` are the
+nouns; ``budget`` is the ceiling and the shared ledger; ``bus`` is the one
+seam to the outside; ``step`` is the atom of agency — one model call plus
+at most one tool round.
 """

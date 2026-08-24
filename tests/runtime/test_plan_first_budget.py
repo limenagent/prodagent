@@ -97,7 +97,7 @@ async def test_plan_first_budget_zero_turns_blocks_even_plan_generation(tmp_path
 
 @pytest.mark.asyncio
 async def test_plan_first_trips_on_sibling_spend_it_never_directly_incurred(tmp_path):
-    from prodagent.coordination.accounting import SpawnAccumulator
+    from prodagent.coordination.parent_runtime import SpawnAccumulator
 
     events, checkpoints = _stores(tmp_path)
     sibling_spend = SpawnAccumulator(cost_usd=0.95, spawn_count=1)

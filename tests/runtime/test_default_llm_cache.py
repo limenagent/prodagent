@@ -174,12 +174,12 @@ class TestCostSkipping:
 
         run = AgentRun(run_id="r1", task="t")
 
-        from prodagent.runtime.reactive import ReactiveLoop
+        from prodagent.kernel.step import Step
 
-        loop = object.__new__(ReactiveLoop)
-        loop._llm_config = LLMConfig(model="m")
-        loop._hooks = None
-        loop._budget = (
+        step = object.__new__(Step)
+        step._llm_config = LLMConfig(model="m")
+        step._bus = None
+        step._budget = (
             HardBudget()
         )  # constructor guarantees a budget; default is the unlimited case
 
@@ -192,7 +192,7 @@ class TestCostSkipping:
         )
         import asyncio
 
-        asyncio.run(ReactiveLoop._post_llm_accounting(loop, run, cached_resp))  # type: ignore[arg-type]
+        asyncio.run(Step._account(step, run, cached_resp))  # type: ignore[arg-type]
 
         assert run.turn_count == 1
         assert run.input_tokens == 0
@@ -203,16 +203,16 @@ class TestCostSkipping:
         from prodagent.core.state.run import AgentRun
 
         run = AgentRun(run_id="r1", task="t")
-        from prodagent.runtime.reactive import ReactiveLoop
+        from prodagent.kernel.step import Step
 
-        loop = object.__new__(ReactiveLoop)
-        loop._llm_config = LLMConfig(
+        step = object.__new__(Step)
+        step._llm_config = LLMConfig(
             model="m",
             cost_per_million_input=1.0,
             cost_per_million_output=2.0,
         )
-        loop._hooks = None
-        loop._budget = (
+        step._bus = None
+        step._budget = (
             HardBudget()
         )  # constructor guarantees a budget; default is the unlimited case
 
@@ -224,7 +224,7 @@ class TestCostSkipping:
         )
         import asyncio
 
-        asyncio.run(ReactiveLoop._post_llm_accounting(loop, run, fresh_resp))  # type: ignore[arg-type]
+        asyncio.run(Step._account(step, run, fresh_resp))  # type: ignore[arg-type]
 
         assert run.turn_count == 1
         assert run.input_tokens == 100
