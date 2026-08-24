@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 __all__ = ["Neo4jGraphStore"]
@@ -43,6 +44,15 @@ class Neo4jGraphStore:
         labels: list[str] | None = None,
         properties: dict[str, Any] | None = None,
     ) -> None:
+        # sync driver — keep off the event loop
+        await asyncio.to_thread(self._add_node_sync, node_id, labels, properties)
+
+    def _add_node_sync(
+        self,
+        node_id: str,
+        labels: list[str] | None,
+        properties: dict[str, Any] | None,
+    ) -> None:
         labels = labels or []
         props = {"id": node_id, **(properties or {})}
         label_set_clauses = ", ".join(f"n:{_cypher_escape(lab)}" for lab in labels)
@@ -58,6 +68,15 @@ class Neo4jGraphStore:
         rel: str,
         properties: dict[str, Any] | None = None,
     ) -> None:
+        await asyncio.to_thread(self._add_edge_sync, src, dst, rel, properties)
+
+    def _add_edge_sync(
+        self,
+        src: str,
+        dst: str,
+        rel: str,
+        properties: dict[str, Any] | None,
+    ) -> None:
         rel_esc = _cypher_escape(rel)
         props = properties or {}
         # Auto-create endpoints (MERGE on id alone, with Entity label).
@@ -71,6 +90,9 @@ class Neo4jGraphStore:
             sess.run(cypher, src=src, dst=dst, props=props)
 
     async def get_node(self, node_id: str) -> dict[str, Any] | None:
+        return await asyncio.to_thread(self._get_node_sync, node_id)
+
+    def _get_node_sync(self, node_id: str) -> dict[str, Any] | None:
         with self._driver.session() as sess:
             rec = sess.run(
                 "MATCH (n:Entity {id: $id}) "
@@ -82,6 +104,9 @@ class Neo4jGraphStore:
         return _shape_node(rec)
 
     async def list_nodes(self, label: str | None = None) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self._list_nodes_sync, label)
+
+    def _list_nodes_sync(self, label: str | None) -> list[dict[str, Any]]:
         if label is None:
             cypher = (
                 "MATCH (n:Entity) RETURN n.id AS id, labels(n) AS labels, properties(n) AS props"
@@ -105,6 +130,11 @@ class Neo4jGraphStore:
         rel: str | None = None,
         depth: int = 1,
     ) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self._neighbors_sync, node_id, rel, depth)
+
+    def _neighbors_sync(
+        self, node_id: str, rel: str | None, depth: int
+    ) -> list[dict[str, Any]]:
         rel_pattern = "" if rel is None else f":{_cypher_escape(rel)}"
         # variable-length path 1..depth hops, only out-edges
         cypher = (
@@ -121,12 +151,20 @@ class Neo4jGraphStore:
     async def traverse(
         self, start: str, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self._traverse_sync, start, query, params)
+
+    def _traverse_sync(
+        self, start: str, query: str, params: dict[str, Any] | None
+    ) -> list[dict[str, Any]]:
         wrapped = f"MATCH (start:Entity {{id: $start_id}}) WITH start {query}"
         with self._driver.session() as sess:
             records = sess.run(wrapped, start_id=start, **(params or {}))
             return [dict(rec) for rec in records]
 
     async def delete_node(self, node_id: str) -> None:
+        await asyncio.to_thread(self._delete_node_sync, node_id)
+
+    def _delete_node_sync(self, node_id: str) -> None:
         # DETACH DELETE drops the node and its incident edges in one go.
         with self._driver.session() as sess:
             sess.run("MATCH (n:Entity {id: $id}) DETACH DELETE n", id=node_id)

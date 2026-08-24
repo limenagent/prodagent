@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 from pathlib import Path
@@ -20,9 +21,9 @@ __all__ = ["FileExperienceStore"]
 class FileExperienceStore:
     """Append-only JSONL store for agent run experiences.
 
-    Writes are synchronous — callers already run this in a background
-    ``asyncio.create_task`` (LearningHooks._safely_run_loop), so a microsecond
-    disk append doesn't block the agent loop. A file lock guards against
+    File IO runs on a worker thread — the port contract forbids blocking
+    the event loop, even though today's caller is a background task
+    (LearningHooks._safely_run_loop). A file lock guards against
     concurrent writers within the same process.
     """
 
@@ -34,8 +35,7 @@ class FileExperienceStore:
         if not self._path.exists():
             self._path.touch()
 
-    async def record(self, record: ExperienceRecord) -> None:
-        """Append *record* to the journal."""
+    def _record_sync(self, record: ExperienceRecord) -> None:
         line = record.to_jsonl()
         try:
             with self._file_lock:
@@ -44,6 +44,10 @@ class FileExperienceStore:
                 self._trim_if_needed()
         except Exception:
             logger.exception("FileExperienceStore: failed to write record")
+
+    async def record(self, record: ExperienceRecord) -> None:
+        """Append *record* to the journal."""
+        await asyncio.to_thread(self._record_sync, record)
 
     def _trim_if_needed(self) -> None:
         """Keep only the most recent max_records lines; rewrite if over limit.
@@ -61,8 +65,7 @@ class FileExperienceStore:
         except Exception:
             logger.debug("FileExperienceStore: trim failed")
 
-    async def load_all(self) -> list[ExperienceRecord]:
-        """Load every record from the journal (most recent last)."""
+    def _load_all_sync(self) -> list[ExperienceRecord]:
         records: list[ExperienceRecord] = []
         try:
             with self._file_lock:
@@ -74,3 +77,7 @@ class FileExperienceStore:
         except FileNotFoundError:
             pass
         return records
+
+    async def load_all(self) -> list[ExperienceRecord]:
+        """Load every record from the journal (most recent last)."""
+        return await asyncio.to_thread(self._load_all_sync)

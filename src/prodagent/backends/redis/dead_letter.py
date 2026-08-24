@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from typing import TYPE_CHECKING, Any, Literal
@@ -39,6 +40,15 @@ class RedisDeadLetterQueue:
         payload: dict[str, Any],
         error: str,
     ) -> Literal["dead_letter", "retry"]:
+        # sync client — keep off the event loop
+        return await asyncio.to_thread(self._on_failure_sync, message_id, payload, error)
+
+    def _on_failure_sync(
+        self,
+        message_id: str,
+        payload: dict[str, Any],
+        error: str,
+    ) -> Literal["dead_letter", "retry"]:
         count_key = namespaced_key(self._ns, "dlq", "counts", message_id)
         count = self._client.incr(count_key)
         if count == 1:
@@ -61,6 +71,9 @@ class RedisDeadLetterQueue:
         return "retry"
 
     async def dead_letters(self) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self._dead_letters_sync)
+
+    def _dead_letters_sync(self) -> list[dict[str, Any]]:
         raw = self._client.lrange(self._dead_key(), 0, -1)
         out = []
         for item in raw:

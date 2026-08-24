@@ -28,13 +28,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import dataclasses
-import enum
 import logging
 import time
 from dataclasses import dataclass, field
-from pathlib import PurePath
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+from prodagent.playground._json import jsonable as _jsonable
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -280,7 +279,7 @@ class MultiAgentRun:
 
 
 # ---------------------------------------------------------------------------
-# JSON serialization — mirrors web_hooks._jsonable but for the envelope
+# JSON serialization — shared with web_hooks (playground/_json.py)
 # ---------------------------------------------------------------------------
 
 
@@ -304,29 +303,3 @@ def _participant_to_dict(p: ParticipantStatus) -> dict[str, Any]:
         "state": p.state,
         "meta": _jsonable(p.meta),
     }
-
-
-def _jsonable(obj: Any) -> Any:
-    """Recursively coerce *obj* to JSON-serializable primitives."""
-    if obj is None or isinstance(obj, bool | int | float | str):
-        return obj
-    if isinstance(obj, enum.Enum):
-        return obj.value
-    if isinstance(obj, PurePath):
-        return str(obj)
-    if isinstance(obj, dict):
-        return {str(k): _jsonable(v) for k, v in obj.items()}
-    if isinstance(obj, list | tuple | set | frozenset):
-        return [_jsonable(v) for v in obj]
-    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
-        return {f.name: _jsonable(getattr(obj, f.name)) for f in dataclasses.fields(obj)}
-    if hasattr(obj, "model_dump") and callable(obj.model_dump):
-        try:
-            return _jsonable(obj.model_dump(mode="json"))
-        except Exception:  # noqa: BLE001 — serialization falls back to repr
-            logger.warning(
-                "[multiagent] model_dump() failed for %r; falling back to repr",
-                type(obj).__name__,
-                exc_info=True,
-            )
-    return repr(obj)

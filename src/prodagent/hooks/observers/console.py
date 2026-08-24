@@ -439,6 +439,48 @@ class ConsoleObserverHooks:
         print(f"{status}{_c(stats, _DIM)}")
         print(_c(bar, color))
 
+    def _run_failed(
+        self,
+        *,
+        run_id: str = "",
+        error: str = "",
+        turns: int = 0,
+        cost_usd: float = 0,
+        **_: Any,
+    ) -> None:
+        if is_subagent_run_id(run_id):
+            return
+        print(
+            f"{self._label('RUN', _RED)}✗ FAILED after {turns} turns "
+            f"(${cost_usd:.4f})  {self._dim(error[:120])}"
+        )
+
+    def _checkpoint_failed(self, *, run_id: str = "", turns: int = 0, **_: Any) -> None:
+        print(
+            f"{self._label('CHECKPOINT', _YELLOW)}! save failed for run="
+            f"{_c(run_id[:16], _BOLD)} at turn {turns} — durable state may be stale"
+        )
+
+    def _peer_handoff(
+        self,
+        *,
+        from_agent: str = "",
+        to: str = "",
+        task: str = "",
+        depth: int = 0,
+        **_: Any,
+    ) -> None:
+        print(
+            f"{self._label('HANDOFF', _MAGENTA)}{_c(from_agent[:16], _BOLD)} → "
+            f"{_c(to[:16], _BOLD)}  {self._dim('depth=' + str(depth))}  "
+            f"{self._dim(task[:60])}"
+        )
+
+    def _loop_end(self, *, run_id: str = "", error: str | None = None, **_: Any) -> None:
+        if not error:
+            return
+        print(f"{self._label('LOOP', _RED)}✗ ended with error  {self._dim(str(error)[:120])}")
+
 
 # Dispatch table — HookEvent → bound method name.
 _HANDLERS: dict[HookEvent, str] = {
@@ -465,7 +507,13 @@ _HANDLERS: dict[HookEvent, str] = {
     HookEvent.AGENT_SPAWN: "_agent_spawn",
     HookEvent.AGENT_RESULT: "_agent_result",
     HookEvent.RUN_COMPLETE: "_run_complete",
+    HookEvent.RUN_FAILED: "_run_failed",
+    HookEvent.CHECKPOINT_FAILED: "_checkpoint_failed",
+    HookEvent.PEER_HANDOFF: "_peer_handoff",
+    HookEvent.LOOP_END: "_loop_end",
     HookEvent.LEARNING_SYNTHESIZE: "_learning_synthesize",
+    # LOOP_START is deliberately not rendered — it would double-print with
+    # SESSION_START on every hop.
 }
 
 

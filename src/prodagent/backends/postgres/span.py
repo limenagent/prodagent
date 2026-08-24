@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import asdict
 from typing import TYPE_CHECKING
@@ -26,6 +27,10 @@ class PostgresSpanExporter:
         if self._closed:
             return
         blob = json.dumps(asdict(span), default=str, ensure_ascii=False)
+        # sync pool — keep off the event loop
+        await asyncio.to_thread(self._export_sync, blob)
+
+    def _export_sync(self, blob: str) -> None:
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(

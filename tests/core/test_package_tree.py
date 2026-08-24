@@ -1,9 +1,10 @@
 """The package tree IS the book's table of contents.
 
-Thirteen packages in learning order — vocabulary → contracts → providers →
-tools → the agent → planning → collaboration → cognition → observation →
-skills → storage → protocol bridging → the playground. A new top-level
-package is a chapter decision, not an accident: this test fails first.
+Fourteen packages in learning order — the kernel vocabulary → the shared
+helpers → contracts → providers → tools → the agent → planning →
+collaboration → cognition → observation → skills → storage → protocol
+bridging → the playground. A new top-level package is a chapter decision,
+not an accident: this test fails first.
 """
 
 from __future__ import annotations
@@ -14,7 +15,8 @@ SRC = Path(__file__).resolve().parents[2] / "src" / "prodagent"
 
 # learning order — the order a reader meets them
 BOOK_TOC = [
-    "core",  # vocabulary: types, state, budget, errors, config
+    "kernel",  # the irreducible vocabulary: types, events, state, budget
+    "core",  # shared mechanics: errors, config, progress, io, text
     "ports",  # the contracts
     "llm",  # providers, fake, cache, pricing
     "tooling",  # @tool, dispatch, registry + breaker, skills loader

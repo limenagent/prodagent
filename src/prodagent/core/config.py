@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Literal, get_args, get_type_hints
+from typing import Any, Literal, get_args, get_type_hints
 
 
 @dataclass
@@ -147,6 +147,10 @@ class FrameworkConfig:
     backend: BackendConfig = field(default_factory=BackendConfig)
     console_observer: bool = False
     profile: Literal["bare", "production"] = "bare"
+
+    # Declared (not stashed) so dataclasses.replace() carries it over —
+    # a replaced config must keep sharing the original's connection pools.
+    _backend_registry: Any = field(default=None, repr=False, compare=False)
 
     @classmethod
     def default(cls) -> FrameworkConfig:

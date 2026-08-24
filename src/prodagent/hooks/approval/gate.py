@@ -57,6 +57,7 @@ class ApprovalGate:
         if pending_approval_id is not None:
             decision = self._deferred.pop(pending_approval_id, None)
             if decision is not None:
+                self._pending.pop(pending_approval_id, None)
                 logger.info(
                     "Approval resumed: request=%s -> %s (deferred decision applied)",
                     pending_approval_id,
@@ -102,6 +103,8 @@ class ApprovalGate:
         decision: ApprovalDecision,
         approver_id: str = "",
     ) -> None:
+        # Unknown ids are allowed: a decision may be pre-submitted for a
+        # request minted before a crash (id restored from checkpoint).
         req = self._pending.get(request_id)
         self._deferred[request_id] = decision
         if req is not None:

@@ -576,7 +576,9 @@ class RunLoop:
         )
 
         for handler in hooks.event_handlers(HookEvent.SESSION_END):
-            flush = getattr(handler, "flush", None)
+            # Drain hooks live on the handler's instance; a bound method hides them.
+            owner = getattr(handler, "__self__", None)
+            flush = getattr(owner if owner is not None else handler, "flush", None)
             if flush is None:
                 continue
             if is_child_subordinate(run):

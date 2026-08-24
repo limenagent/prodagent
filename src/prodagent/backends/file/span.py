@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import threading
@@ -31,7 +32,7 @@ class FileSpanExporter:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._f = self._path.open("a", encoding="utf-8")
 
-    async def export(self, span: AgentSpan) -> None:
+    def _export_sync(self, span: AgentSpan) -> None:
         with self._lock:
             if self._closed:
                 logger.error("FileSpanExporter write after shutdown for %s", self._path)
@@ -43,7 +44,10 @@ class FileSpanExporter:
             except OSError as exc:
                 logger.error("FileSpanExporter write failed for %s: %s", self._path, exc)
 
-    async def shutdown(self) -> None:
+    async def export(self, span: AgentSpan) -> None:
+        await asyncio.to_thread(self._export_sync, span)
+
+    def _shutdown_sync(self) -> None:
         with self._lock:
             if self._closed:
                 return
@@ -55,3 +59,6 @@ class FileSpanExporter:
                 self._f.close()
             except (OSError, ValueError):
                 pass
+
+    async def shutdown(self) -> None:
+        await asyncio.to_thread(self._shutdown_sync)

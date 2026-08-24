@@ -18,6 +18,10 @@ __all__ = ["RedisLockStore"]
 
 _ACQUIRE_POLL_INTERVAL_S = 0.05
 
+# timeout=0 is a trylock, but a Redis lock still needs a positive crash-safety
+# TTL (px<=0 is a protocol error).
+_NONBLOCKING_TTL_S = 1.0
+
 # Lua: delete key only if its value matches the token — atomic compare-and-delete
 _RELEASE_SCRIPT = """
 if redis.call('get', KEYS[1]) == ARGV[1] then
@@ -79,10 +83,19 @@ class RedisLockStore:
     async def acquire(self, name: str, *, timeout: float) -> LockToken:
         token_value = uuid.uuid4().hex
         key = self._key(name)
-        deadline = time.monotonic() + timeout
+        px = max(1, int((timeout if timeout > 0 else _NONBLOCKING_TTL_S) * 1000))
 
+        if timeout <= 0:
+            ok = await self._client.set(key, token_value, nx=True, px=px)
+            if not ok:
+                raise TimeoutError(
+                    f"could not acquire lock {name!r} (non-blocking acquire)"
+                )
+            return LockToken(name=name, handle=token_value)
+
+        deadline = time.monotonic() + timeout
         while True:
-            ok = await self._client.set(key, token_value, nx=True, px=int(timeout * 1000))
+            ok = await self._client.set(key, token_value, nx=True, px=px)
             if ok:
                 return LockToken(name=name, handle=token_value)
             if time.monotonic() >= deadline:

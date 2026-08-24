@@ -1,7 +1,7 @@
 # prodagent
 
 > 
-> **25,000 行，13 个包，1,182 个离线测试。**
+> **25,000 行，14 个包，1,194 个离线测试。**
 > 一份你**真的能读完**的工业级 LLM Agent 实现。循环、预算、恢复、审批、权限、可观测、评估、多 Agent 协作——每个机制都小到一次读懂，完整到能上生产。
 
 [![PyPI](https://img.shields.io/pypi/v/prodagent)](https://pypi.org/project/prodagent/)
@@ -46,7 +46,7 @@
 
 一类是**教学玩具**——几十行代码演示 ReAct 循环，看起来清晰，但没有预算、没有恢复、没有审批、没有多 Agent、没有权限、没有可观测，离生产差十万八千里。
 
-prodagent 卡在中间。它是一个**可以 `pip install` 的生产级库**，同时**整个代码base 只有 25,000 行，13 个包，按学习顺序排列**。你可以从头读到尾，每一个机制都能在脑子里建立完整的心智模型。
+prodagent 卡在中间。它是一个**可以 `pip install` 的生产级库**，同时**整个代码base 只有 25,000 行，14 个包，按学习顺序排列**。你可以从头读到尾，每一个机制都能在脑子里建立完整的心智模型。
 
 更重要的是，它的设计是**可拆解的**。预算、审批、崩溃恢复、上下文压缩、多 Agent 治理、权限策略、可观测追踪——每个都是独立模块，有清晰的 Protocol 边界。你的项目缺哪块，就搬哪块，不用引入整个框架。
 
@@ -174,7 +174,7 @@ graph TD
     R -.-> OBS["span 追踪 / CoT 落盘"]
 ```
 
-包目录即学习顺序：`core → ports → llm → tooling → runtime → plan → coordination → cognition → hooks → skills → evaluation → backends → mcp → playground`。
+包目录即学习顺序：`kernel → core → ports → llm → tooling → runtime → plan → coordination → cognition → hooks → skills → evaluation → backends → mcp → playground`。`kernel/` 是不可再分的词汇层——类型、事件、运行状态、预算，五组成员只被依赖、不依赖任何能力包，是整套框架的阅读起点。
 
 ---
 
@@ -194,7 +194,7 @@ graph TD
 | 8 | [dating_chat](examples/dating_chat) | Agent 相亲 | Ensemble 共享会话 + 记忆 A/B 对比 |
 | 9 | [quiz_arena](examples/quiz_arena) | 抢答竞赛 | WorkQueue（租约+死信）+ Blackboard + 多租户隔离 |
 
-全部离线可跑（FakeLLM 脚本精确到每轮工具调用），与 1,182 个测试共用同一套机制。
+全部离线可跑（FakeLLM 脚本精确到每轮工具调用），与 1,194 个测试共用同一套机制。
 
 ---
 

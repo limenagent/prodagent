@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import TYPE_CHECKING, Any
 
@@ -40,12 +41,17 @@ class PostgresDocumentStore:
         return [StoredMemory.from_dict(json.loads(r[0])) for r in rows]
 
     async def load_memories(self) -> list[StoredMemory]:
-        return self._load_all()
+        # sync pool — keep off the event loop
+        return await asyncio.to_thread(self._load_all)
 
     async def load_constraints(self) -> list[StoredMemory]:
-        return [m for m in self._load_all() if m.memory_type is MemoryType.CONSTRAINT]
+        mems = await asyncio.to_thread(self._load_all)
+        return [m for m in mems if m.memory_type is MemoryType.CONSTRAINT]
 
     async def save_memories(self, data: list[StoredMemory]) -> None:
+        await asyncio.to_thread(self._save_memories_sync, data)
+
+    def _save_memories_sync(self, data: list[StoredMemory]) -> None:
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -63,6 +69,9 @@ class PostgresDocumentStore:
             conn.commit()
 
     async def append_soft(self, record: MemoryRecord) -> None:
+        await asyncio.to_thread(self._append_soft_sync, record)
+
+    def _append_soft_sync(self, record: MemoryRecord) -> None:
         stored = build_stored_memory(record)
         mid = stored.id
 
@@ -104,11 +113,13 @@ class PostgresDocumentStore:
         conn.commit()
 
     async def mark_superseded(self, mem_id: str, superseded: bool) -> None:
-        self._mutate_mem(mem_id, lambda d: d.__setitem__("superseded", superseded))
+        await asyncio.to_thread(
+            self._mutate_mem, mem_id, lambda d: d.__setitem__("superseded", superseded)
+        )
 
     async def touch_memory(self, mem_id: str) -> None:
         def _touch(d: dict[str, Any]) -> None:
             d["access_count"] = d.get("access_count", 0) + 1
             d["last_access"] = now_timestamp()
 
-        self._mutate_mem(mem_id, _touch)
+        await asyncio.to_thread(self._mutate_mem, mem_id, _touch)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -61,31 +62,44 @@ class FileDocumentStore:
         return [m for m in await self.load_memories() if m.memory_type is MemoryType.CONSTRAINT]
 
     async def load_memories(self) -> list[StoredMemory]:
-        return [StoredMemory.from_dict(m) for m in _read_json(self._memories_file, default=[])]
+        return await asyncio.to_thread(
+            lambda: [StoredMemory.from_dict(m) for m in _read_json(self._memories_file, default=[])]
+        )
 
     async def save_memories(self, data: list[StoredMemory]) -> None:
-        with _exclusive(self._lock_file):
-            _write_json(self._memories_file, [m.to_dict() for m in data[:MAX_SOFT_MEMORIES]])
+        def _save() -> None:
+            with _exclusive(self._lock_file):
+                _write_json(self._memories_file, [m.to_dict() for m in data[:MAX_SOFT_MEMORIES]])
+
+        await asyncio.to_thread(_save)
 
     async def append_soft(self, record: MemoryRecord) -> None:
-        stored = build_stored_memory(record)
-        with _exclusive(self._lock_file):
-            memories = [
-                StoredMemory.from_dict(m) for m in _read_json(self._memories_file, default=[])
-            ]
-            memories.insert(0, stored)
-            _write_json(self._memories_file, [m.to_dict() for m in memories[:MAX_SOFT_MEMORIES]])
+        def _append() -> None:
+            stored = build_stored_memory(record)
+            with _exclusive(self._lock_file):
+                memories = [
+                    StoredMemory.from_dict(m) for m in _read_json(self._memories_file, default=[])
+                ]
+                memories.insert(0, stored)
+                _write_json(
+                    self._memories_file, [m.to_dict() for m in memories[:MAX_SOFT_MEMORIES]]
+                )
+
+        await asyncio.to_thread(_append)
 
     async def _mutate_mem(self, mem_id: str, fn: Callable[[StoredMemory], None]) -> None:
-        with _exclusive(self._lock_file):
-            memories = [
-                StoredMemory.from_dict(m) for m in _read_json(self._memories_file, default=[])
-            ]
-            for mem in memories:
-                if mem.id == mem_id:
-                    fn(mem)
-                    _write_json(self._memories_file, [m.to_dict() for m in memories])
-                    return
+        def _mutate() -> None:
+            with _exclusive(self._lock_file):
+                memories = [
+                    StoredMemory.from_dict(m) for m in _read_json(self._memories_file, default=[])
+                ]
+                for mem in memories:
+                    if mem.id == mem_id:
+                        fn(mem)
+                        _write_json(self._memories_file, [m.to_dict() for m in memories])
+                        return
+
+        await asyncio.to_thread(_mutate)
 
     async def mark_superseded(self, mem_id: str, superseded: bool) -> None:
         await self._mutate_mem(mem_id, lambda mem: setattr(mem, "superseded", superseded))

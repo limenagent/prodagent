@@ -29,10 +29,10 @@ class BackendRegistry:
 
     @classmethod
     def for_config(cls, fw: FrameworkConfig) -> BackendRegistry:
-        reg = getattr(fw, "_backend_registry", None)
+        reg = fw._backend_registry
         if reg is None:
             reg = cls()
-            object.__setattr__(fw, "_backend_registry", reg)
+            fw._backend_registry = reg
         return reg
 
     def redis_async_client(self) -> Any:
