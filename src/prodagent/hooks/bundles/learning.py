@@ -11,8 +11,8 @@ from prodagent.ports.experience import ExperienceOutcome, ExperienceRecord
 
 if TYPE_CHECKING:
     from prodagent.core.config import FrameworkConfig
-    from prodagent.kernel.state import AgentRun
     from prodagent.kernel.bus import HookRegistry
+    from prodagent.kernel.state import AgentRun
     from prodagent.ports.experience import ExperienceStore
     from prodagent.skills.registry import SkillContent, SkillRegistry
     from prodagent.skills.skill_synthesizer import SkillSynthesizer

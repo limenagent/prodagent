@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 from prodagent import Agent, AgentConfig
-from prodagent.runtime.parent_runtime import SpawnAccumulator
-from prodagent.runtime.parent_runtime import ParentRuntime
-from prodagent.runtime.runner import RunContext, RunLoop
 from prodagent.coordination.spawn import (
     Spawn,
     short_result,
@@ -11,6 +8,8 @@ from prodagent.coordination.spawn import (
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import ErrorSeverity, ToolOutcome, ToolResult
 from prodagent.llm.fake import FakeLLMAdapter
+from prodagent.runtime.parent_runtime import ParentRuntime, SpawnAccumulator
+from prodagent.runtime.runner import RunContext, RunLoop
 
 
 async def test_spawn_timeout_returns_permanent_error(monkeypatch) -> None:

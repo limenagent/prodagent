@@ -14,9 +14,8 @@ from prodagent.coordination.blackboard import (
     Trigger,
     blackboard_stream,
 )
-from prodagent.kernel.budget import BudgetLedger
 from prodagent.coordination.termination import MaxRounds, TerminationPolicy
-from prodagent.kernel.budget import HardBudget
+from prodagent.kernel.budget import BudgetLedger, HardBudget
 
 
 class _CounterExpert:

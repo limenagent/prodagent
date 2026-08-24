@@ -151,10 +151,10 @@ async def test_resume_after_approval_reexecutes_suspended_step(tmp_path):
     import json
 
     from prodagent import Agent, AgentConfig, ExecutionMode, SideEffectLevel, ToolMeta
-    from prodagent.kernel.types import LLMResponse
     from prodagent.hooks.approval import ApprovalGate
     from prodagent.hooks.bundles.security import ApprovalHooks
     from prodagent.kernel.bus import HookRegistry
+    from prodagent.kernel.types import LLMResponse
     from prodagent.llm.fake import FakeLLMAdapter
     from prodagent.tooling import tool
 

@@ -23,14 +23,13 @@ from prodagent.cognition.context.compression import (
     safe_tail_start,
 )
 from prodagent.core.config import ContextConfig
-from prodagent.kernel.bus import HookEvent
-from prodagent.kernel.bus import Gate, InjectionPoint
+from prodagent.kernel.bus import Gate, HookEvent, InjectionPoint
 
 if TYPE_CHECKING:
     from prodagent.cognition.context.spill import ToolResultSpillStore
+    from prodagent.kernel.bus import HookRegistry
     from prodagent.kernel.state import AgentRun
     from prodagent.kernel.types import Message, MessageList
-    from prodagent.kernel.bus import HookRegistry
     from prodagent.llm import LLMClient
 
 logger = logging.getLogger(__name__)

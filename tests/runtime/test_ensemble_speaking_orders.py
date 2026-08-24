@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent.kernel.budget import SharedBudget
 from prodagent.coordination.ensemble import (
     EnsembleCompletedEvent,
     EnsembleSpec,
@@ -17,7 +16,7 @@ from prodagent.coordination.ensemble import (
 )
 from prodagent.coordination.floor import FloorTurn, SharedFloor
 from prodagent.coordination.termination import MaxRounds, TerminationPolicy
-from prodagent.kernel.budget import HardBudget
+from prodagent.kernel.budget import HardBudget, SharedBudget
 
 
 class _EchoMember:

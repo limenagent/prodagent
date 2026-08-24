@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 from prodagent.core.exceptions import SuspendPendingApproval
-from prodagent.kernel.types import ToolCall
 from prodagent.hooks.approval import ApprovalDecision, ApprovalGate
+from prodagent.kernel.types import ToolCall
 
 
 def _high_risk_call() -> ToolCall:

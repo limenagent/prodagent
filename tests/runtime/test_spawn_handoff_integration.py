@@ -135,8 +135,8 @@ async def test_spawn_tool_meta_allows_parallel_and_idempotent():
 
 
 async def test_spawn_aggregates_cost_into_accumulator():
-    from prodagent.runtime.parent_runtime import ParentRuntime
     from prodagent.coordination.spawn import build_spawn_tools_for_agent
+    from prodagent.runtime.parent_runtime import ParentRuntime
 
     fake_llm = script({"content": "done"})
     ctx = ParentRuntime()
@@ -151,8 +151,7 @@ async def test_spawn_aggregates_cost_into_accumulator():
 async def test_l7_handoff_rejection_dead_letters(monkeypatch=None):
     from prodagent.coordination.spawn import build_spawn_tools_for_agent
     from prodagent.core.exceptions import SecurityViolation
-    from prodagent.kernel.bus import Gate
-    from prodagent.kernel.bus import HookRegistry
+    from prodagent.kernel.bus import Gate, HookRegistry
 
     hooks = HookRegistry()
 

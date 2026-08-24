@@ -9,21 +9,20 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from prodagent.kernel.budget import SAFETY_NET_BUDGET
 from prodagent.core.exceptions import PermissionDenied
-from prodagent.kernel.types import ExecutionMode, MessageList
-from prodagent.kernel.bus import HookEvent
-from prodagent.kernel.bus import Gate
-from prodagent.runtime._tool_merge import merge_tools_by_name
+from prodagent.kernel.budget import SAFETY_NET_BUDGET
+from prodagent.kernel.bus import Gate, HookEvent
 from prodagent.kernel.loop import ReactiveLoop
+from prodagent.kernel.types import ExecutionMode, MessageList
+from prodagent.runtime._tool_merge import merge_tools_by_name
 from prodagent.tooling.dispatcher import ToolDispatcher
 
 if TYPE_CHECKING:
-    from prodagent.runtime.parent_runtime import SpawnAccumulator
-    from prodagent.runtime.runner import RunContext
     from prodagent.kernel.bus import HookRegistry
     from prodagent.ports import LeafExecutor
     from prodagent.runtime.agent import Agent
+    from prodagent.runtime.parent_runtime import SpawnAccumulator
+    from prodagent.runtime.runner import RunContext
 
 logger = logging.getLogger(__name__)
 

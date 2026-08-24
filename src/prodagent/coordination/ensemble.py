@@ -13,7 +13,6 @@ from prodagent.coordination.activation import (
     ActivationContext,
     ActivationPolicy,
 )
-from prodagent.kernel.budget import SharedBudget
 from prodagent.coordination.floor import FloorMember, FloorTurn, SharedFloor
 from prodagent.coordination.floor_projection import (
     FloorProjection,
@@ -36,18 +35,17 @@ from prodagent.coordination.termination import (
     TerminationPolicy,
     TerminationReason,
 )
-from prodagent.kernel.budget import HardBudget
 from prodagent.core.exceptions import BudgetExceeded
-
 from prodagent.core.text import bound_text
+from prodagent.kernel.budget import HardBudget, SharedBudget
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
 
     from prodagent.coordination.messaging.pipeline import Interceptor
+    from prodagent.kernel.bus import HookRegistry
     from prodagent.kernel.events import AgentEvent
     from prodagent.kernel.types import ToolCall
-    from prodagent.kernel.bus import HookRegistry
     from prodagent.ports.dead_letter import DeadLetterStore
     from prodagent.runtime.agent import Agent
 
@@ -276,7 +274,7 @@ class _SyncOrderPolicy:
 def _order_as_policy(order: Any, compute_round: Any) -> ActivationPolicy:
     """Adapt any speaking-order shape (or a raw policy) to ActivationPolicy."""
     if hasattr(order, "next_activations"):
-        return order
+        return cast("ActivationPolicy", order)
     if hasattr(order, "activation"):
         return _BatchOrderPolicy(order)
     if hasattr(order, "pick_speaker"):

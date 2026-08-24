@@ -8,18 +8,17 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from prodagent.core.exceptions import LLMError, SuspendPendingApproval
+from prodagent.hooks import fire as _fire
+from prodagent.kernel.bus import Gate, HookEvent
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import RunState
-from prodagent.hooks import fire as _fire
-from prodagent.kernel.bus import HookEvent
-from prodagent.kernel.bus import Gate
 from prodagent.plan.dag import Plan
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from prodagent.kernel.types import MessageList
     from prodagent.kernel.bus import HookRegistry
+    from prodagent.kernel.types import MessageList
     from prodagent.plan.event_log import PlanEventLog
     from prodagent.plan.planner import Planner
     from prodagent.tooling.dispatcher import ToolDispatcher

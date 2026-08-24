@@ -3,15 +3,15 @@ from __future__ import annotations
 import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode
-from prodagent.runtime.parent_runtime import SpawnAccumulator
-from prodagent.runtime.runner import _fold_spawn_accounting as fold_spawn_accounting
 from prodagent.coordination.spawn import ChildResult
 from prodagent.kernel.budget import HardBudget
+from prodagent.kernel.bus import HookRegistry
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import LLMResponse, ToolCall
-from prodagent.kernel.bus import HookRegistry
 from prodagent.llm import LLMConfig
 from prodagent.llm.fake import FakeLLMAdapter
+from prodagent.runtime.parent_runtime import SpawnAccumulator
+from prodagent.runtime.runner import _fold_spawn_accounting as fold_spawn_accounting
 
 
 def _reactive_agent(name: str, *, context: str = "") -> Agent:

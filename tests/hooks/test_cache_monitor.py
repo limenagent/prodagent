@@ -4,9 +4,8 @@ import logging
 
 import pytest
 
-from prodagent.kernel.bus import HookEvent
 from prodagent.hooks.observers.cache_monitor import CacheMonitorHooks
-from prodagent.kernel.bus import HookRegistry
+from prodagent.kernel.bus import HookEvent, HookRegistry
 
 pytestmark = pytest.mark.asyncio
 

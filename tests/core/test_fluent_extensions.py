@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from prodagent import Agent, AgentConfig, ExecutionMode
-from prodagent.kernel.bus import BlockingResult, Gate, InjectionPoint
-from prodagent.kernel.bus import HookEvent, HookRegistry
+from prodagent.kernel.bus import BlockingResult, Gate, HookEvent, HookRegistry, InjectionPoint
 from prodagent.llm.fake import script
 
 

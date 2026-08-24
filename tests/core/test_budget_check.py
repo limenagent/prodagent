@@ -4,12 +4,12 @@ import contextlib
 
 import pytest
 
-from prodagent.kernel.budget import HardBudget, check_budget
 from prodagent.core.exceptions import BudgetExceeded
+from prodagent.kernel.budget import HardBudget, check_budget
+from prodagent.kernel.loop import ReactiveLoop
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.kernel.loop import ReactiveLoop
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 

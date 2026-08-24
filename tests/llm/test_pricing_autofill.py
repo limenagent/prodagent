@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent.kernel.budget import HardBudget, check_budget
 from prodagent.core.exceptions import BudgetExceeded
+from prodagent.kernel.budget import HardBudget, check_budget
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm import LLMConfig

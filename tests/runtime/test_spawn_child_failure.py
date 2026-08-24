@@ -44,8 +44,8 @@ def _isolated_fw(tmp_path: Path) -> FrameworkConfig:
 
 
 async def test_run_child_directly_returns_failed_on_none_run(tmp_path: Path) -> None:
-    from prodagent.runtime.parent_runtime import ParentRuntime
     from prodagent.coordination.spawn import Spawn
+    from prodagent.runtime.parent_runtime import ParentRuntime
 
     child = _child_that_fails_to_plan()
     llm = FakeLLMAdapter(responses=[LLMResponse(content="not json", stop_reason="end_turn")])
@@ -69,8 +69,8 @@ async def test_run_child_directly_returns_failed_on_none_run(tmp_path: Path) -> 
 
 
 async def test_run_child_returns_failed_when_executor_raises(tmp_path: Path) -> None:
-    from prodagent.runtime.parent_runtime import ParentRuntime
     from prodagent.coordination.spawn import Spawn
+    from prodagent.runtime.parent_runtime import ParentRuntime
 
     class _BoomLLM:
         async def complete(self, messages, *, system="", tools=None, config=None, on_chunk):

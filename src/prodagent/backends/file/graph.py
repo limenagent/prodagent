@@ -6,7 +6,10 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from prodagent.backends._shared.graph_model import GraphModel
 from prodagent.backends.file._locking import _exclusive

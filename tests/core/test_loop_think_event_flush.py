@@ -5,12 +5,11 @@ from typing import TYPE_CHECKING
 import pytest
 
 from prodagent.backends.file.span import FileSpanExporter
-from prodagent.kernel.types import LLMResponse
 from prodagent.hooks.audit import AuditLogger
-from prodagent.kernel.bus import HookEvent
-from prodagent.kernel.bus import HookRegistry
-from prodagent.llm.fake import FakeLLMAdapter
+from prodagent.kernel.bus import HookEvent, HookRegistry
 from prodagent.kernel.loop import ReactiveLoop
+from prodagent.kernel.types import LLMResponse
+from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 

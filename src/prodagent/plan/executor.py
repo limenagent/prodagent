@@ -7,16 +7,16 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from prodagent.core.exceptions import LLMError
+from prodagent.hooks import fire as _fire
 from prodagent.kernel.budget import check_spawn_budget
+from prodagent.kernel.bus import HookEvent
 from prodagent.kernel.events import (
     StepCompletedEvent,
     StepFailedEvent,
     StepStartedEvent,
 )
-from prodagent.core.exceptions import LLMError
 from prodagent.kernel.types import MessageList, RunState, StepStatus
-from prodagent.hooks import fire as _fire
-from prodagent.kernel.bus import HookEvent
 from prodagent.plan.bootstrap import PlanBootstrap
 from prodagent.plan.event_log import PlanEventLog
 from prodagent.plan.finalize import finalize_run, terminal_event
@@ -35,11 +35,10 @@ from prodagent.plan.step_runner import (
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Iterator
 
-    from prodagent.runtime.parent_runtime import SpawnAccumulator
-    from prodagent.kernel.budget import HardBudget
+    from prodagent.kernel.budget import BudgetLedger, HardBudget
+    from prodagent.kernel.bus import HookRegistry
     from prodagent.kernel.events import AgentEvent
     from prodagent.kernel.state import AgentRun
-    from prodagent.kernel.bus import HookRegistry
     from prodagent.llm import LLMClient
     from prodagent.plan.dag import Plan, PlanStep
     from prodagent.ports import CheckpointStore, EventLog

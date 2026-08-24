@@ -14,8 +14,8 @@ from prodagent.core.event_log import (
 from prodagent.hooks import save_and_fire_checkpoint
 
 if TYPE_CHECKING:
-    from prodagent.kernel.state import AgentRun
     from prodagent.kernel.bus import HookRegistry
+    from prodagent.kernel.state import AgentRun
     from prodagent.plan.dag import Plan
     from prodagent.ports import CheckpointStore, EventLog
 

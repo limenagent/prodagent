@@ -12,19 +12,17 @@ if TYPE_CHECKING:
 
     from prodagent.cognition.context.spill import ToolResultSpillStore
     from prodagent.cognition.memory.manager import MemoryProvider
-    from prodagent.runtime.parent_runtime import SpawnAccumulator
     from prodagent.coordination.messaging.contract import MessageContract
-    from prodagent.kernel.budget import HardBudget
     from prodagent.core.config import FrameworkConfig
     from prodagent.hooks.approval.gate import ApprovalProvider
-    from prodagent.kernel.bus import HookEvent
-    from prodagent.kernel.bus import Gate, InjectionPoint
-    from prodagent.kernel.bus import HookRegistry
+    from prodagent.kernel.budget import HardBudget
+    from prodagent.kernel.bus import Gate, HookEvent, HookRegistry, InjectionPoint
     from prodagent.llm import LLMClient
     from prodagent.mcp.config import MCPServerConfig
     from prodagent.plan.dag import Plan
     from prodagent.ports import CheckpointStore, EventLog, SessionStore, Tool
     from prodagent.runtime.agent import Agent
+    from prodagent.runtime.parent_runtime import SpawnAccumulator
     from prodagent.skills.registry import SkillRegistry
     from prodagent.tooling.registry import ToolRegistry
 

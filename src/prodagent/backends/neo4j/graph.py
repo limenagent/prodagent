@@ -132,9 +132,7 @@ class Neo4jGraphStore:
     ) -> list[dict[str, Any]]:
         return await asyncio.to_thread(self._neighbors_sync, node_id, rel, depth)
 
-    def _neighbors_sync(
-        self, node_id: str, rel: str | None, depth: int
-    ) -> list[dict[str, Any]]:
+    def _neighbors_sync(self, node_id: str, rel: str | None, depth: int) -> list[dict[str, Any]]:
         rel_pattern = "" if rel is None else f":{_cypher_escape(rel)}"
         # variable-length path 1..depth hops, only out-edges
         cypher = (

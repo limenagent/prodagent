@@ -27,6 +27,6 @@ def test_no_profile_branches_outside_compose() -> None:
         text = p.read_text(encoding="utf-8")
         if 'profile == "' in text or 'profile != "' in text:
             offenders.append(str(p.relative_to(SRC)))
-    assert not offenders, (
-        "profile branching leaked outside compose/config:\n  " + "\n  ".join(offenders)
+    assert not offenders, "profile branching leaked outside compose/config:\n  " + "\n  ".join(
+        offenders
     )

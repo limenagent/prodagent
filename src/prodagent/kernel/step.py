@@ -16,16 +16,16 @@ import logging
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from prodagent.core.exceptions import BudgetExceeded
-from prodagent.kernel.budget import HardBudget
 from prodagent.kernel.bus import HookEvent, HookRegistry
 from prodagent.kernel.events import ThinkTokenEvent
-from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import LLMResponse, Message, MessageList, RunState, StopReason
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Awaitable, Callable
+    from collections.abc import AsyncIterator, Awaitable, Callable
 
+    from prodagent.kernel.budget import HardBudget
     from prodagent.kernel.events import AgentEvent
+    from prodagent.kernel.state import AgentRun
     from prodagent.kernel.types import ToolCall
     from prodagent.ports.llm import LLMClient, LLMConfig
 
@@ -45,9 +45,7 @@ class ContextAssembler(Protocol):
 class ToolRunner(Protocol):
     """Executes a batch of tool calls against a run, yielding events."""
 
-    def run_batch(
-        self, run: AgentRun, calls: list[ToolCall]
-    ) -> AsyncGenerator[AgentEvent, None]: ...
+    def run_batch(self, run: AgentRun, calls: list[ToolCall]) -> AsyncIterator[AgentEvent]: ...
 
 
 @runtime_checkable
@@ -95,7 +93,7 @@ class Step:
         *,
         system: str,
         tools: list[dict[str, Any]] | None,
-    ) -> AsyncGenerator[AgentEvent, None]:
+    ) -> AsyncIterator[AgentEvent]:
         response, token_events = await self._think(run, system=system, tools=tools)
         for evt in token_events:
             yield evt

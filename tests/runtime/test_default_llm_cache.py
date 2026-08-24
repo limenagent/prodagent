@@ -69,8 +69,8 @@ class TestDefaultCacheWiring:
         return fw
 
     def test_plain_llm_is_wrapped_not_misclassified_as_caching(self):
-        from prodagent.runtime.runner import _resolve_llm
         from prodagent.llm.cache import CachingLLM
+        from prodagent.runtime.runner import _resolve_llm
 
         plain = _CountingLLM()
         assert not isinstance(plain, CachingLLM)

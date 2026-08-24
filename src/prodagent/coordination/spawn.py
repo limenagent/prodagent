@@ -12,7 +12,6 @@ from prodagent.coordination.messaging.contract import (
     DEFAULT_CHILD_CONTRACT,
     MessageContract,
 )
-from prodagent.kernel.budget import BudgetLedger
 from prodagent.coordination.messaging.envelope import (
     Crossing,
     CrossingKind,
@@ -24,12 +23,13 @@ from prodagent.coordination.messaging.pipeline import (
     admission_pipeline,
     assembly_pipeline,
 )
-from prodagent.runtime.parent_runtime import ParentRuntime, describe_agent
 from prodagent.core.error_reason import ErrorReason
 from prodagent.core.exceptions import (
     SECURITY_VETO_EXCEPTIONS,
     BudgetExceeded,
 )
+from prodagent.kernel.budget import BudgetLedger
+from prodagent.kernel.bus import HookEvent
 from prodagent.kernel.types import (
     ErrorSeverity,
     RunState,
@@ -37,18 +37,18 @@ from prodagent.kernel.types import (
     ToolError,
     ToolMeta,
 )
-from prodagent.kernel.bus import HookEvent
 from prodagent.runtime._tool_merge import attach_tools
+from prodagent.runtime.parent_runtime import ParentRuntime, describe_agent
 from prodagent.tooling.base import FunctionTool
 
 if TYPE_CHECKING:
-    from prodagent.runtime.parent_runtime import SpawnAccumulator
-    from prodagent.runtime.runner import RunContext
     from prodagent.core.config import FrameworkConfig
     from prodagent.kernel.bus import HookRegistry
     from prodagent.ports.dead_letter import DeadLetterStore
     from prodagent.ports.llm import LLMClient
     from prodagent.runtime.agent import Agent
+    from prodagent.runtime.parent_runtime import SpawnAccumulator
+    from prodagent.runtime.runner import RunContext
 
 logger = logging.getLogger(__name__)
 
@@ -254,9 +254,7 @@ class Spawn:
 
         packet = self._build_packet(name, spec, task, input_refs, idempotency_key)
         child_run_id = (
-            child_run_id_for(self._ctx.parent_run_id, name)
-            if self._ctx.parent_run_id
-            else None
+            child_run_id_for(self._ctx.parent_run_id, name) if self._ctx.parent_run_id else None
         )
 
         # DOWNSTREAM: dispatch (dedupe + gate); rejected dispatches die before

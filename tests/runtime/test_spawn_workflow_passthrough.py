@@ -8,10 +8,10 @@ from __future__ import annotations
 import pytest
 
 from prodagent import Agent, AgentConfig
-from prodagent.runtime.parent_runtime import ParentRuntime
 from prodagent.coordination.spawn import build_spawn_tools_for_agent
 from prodagent.llm.fake import script
 from prodagent.plan.workflow import Workflow
+from prodagent.runtime.parent_runtime import ParentRuntime
 from prodagent.tooling import tool
 
 

@@ -388,9 +388,7 @@ async def fire(bus: HookRegistry | None, event: HookEvent, **payload: Any) -> No
         await bus.fire(event, **payload)
 
 
-async def fire_checkpoint_failed(
-    bus: HookRegistry | None, run: Any, *, was_failed: bool
-) -> None:
+async def fire_checkpoint_failed(bus: HookRegistry | None, run: Any, *, was_failed: bool) -> None:
     """Fire CHECKPOINT_FAILED when a save flipped the run's sticky flag.
 
     "Checkpoint" here means run-state persistence (CheckpointStore snapshot),

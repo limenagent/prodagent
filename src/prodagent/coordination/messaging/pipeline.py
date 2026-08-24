@@ -30,7 +30,6 @@ import logging
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from prodagent.core.text import bound_text
 from prodagent.coordination.messaging.envelope import (
     Crossing,
     CrossingRejected,
@@ -44,14 +43,14 @@ from prodagent.coordination.messaging.interceptors import (
     GateInterceptor,
     TrimInterceptor,
 )
+from prodagent.core.text import bound_text
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from prodagent.coordination.messaging.contract import MessageContract
     from prodagent.coordination.messaging.idempotency import IdempotentMessageHandler
-    from prodagent.kernel.bus import HookEvent
-    from prodagent.kernel.bus import HookRegistry
+    from prodagent.kernel.bus import HookEvent, HookRegistry
     from prodagent.ports.dead_letter import DeadLetterStore
 
 logger = logging.getLogger(__name__)

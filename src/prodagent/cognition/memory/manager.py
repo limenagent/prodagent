@@ -26,11 +26,10 @@ from prodagent.cognition.memory.facts import FactStore
 from prodagent.cognition.memory.forgetting import RECALL_FLOOR, activation
 from prodagent.cognition.memory.storage import MemoryRecord, MemoryType
 from prodagent.cognition.memory.touch_worker import TouchBackWorker
-from prodagent.kernel.state import is_child_subordinate
 from prodagent.core.time import now_utc
+from prodagent.kernel.bus import Gate, HookEvent
+from prodagent.kernel.state import is_child_subordinate
 from prodagent.kernel.types import RunState
-from prodagent.kernel.bus import HookEvent
-from prodagent.kernel.bus import Gate
 
 if TYPE_CHECKING:
     from pathlib import Path

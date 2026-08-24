@@ -10,17 +10,17 @@ from importlib import resources
 from typing import TYPE_CHECKING, Any
 
 from prodagent.core.exceptions import SECURITY_VETO_EXCEPTIONS, LLMError
-from prodagent.kernel.types import StepStatus
 from prodagent.hooks import fire as _fire
 from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.types import StepStatus
 from prodagent.llm import LLMConfig
 from prodagent.llm.structured_output import extract_json_object
 from prodagent.plan.dag import Plan, PlanStep
 
 if TYPE_CHECKING:
+    from prodagent.kernel.bus import HookRegistry
     from prodagent.kernel.state import AgentRun
     from prodagent.kernel.types import MessageList
-    from prodagent.kernel.bus import HookRegistry
     from prodagent.llm import LLMClient
 
 logger = logging.getLogger(__name__)

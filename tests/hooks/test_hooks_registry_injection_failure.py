@@ -4,9 +4,7 @@ import asyncio
 
 import pytest
 
-from prodagent.kernel.bus import HookEvent
-from prodagent.kernel.bus import InjectionPoint
-from prodagent.kernel.bus import HookRegistry
+from prodagent.kernel.bus import HookEvent, HookRegistry, InjectionPoint
 
 
 @pytest.mark.asyncio

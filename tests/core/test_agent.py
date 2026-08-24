@@ -134,8 +134,7 @@ def test_fluent_api_inject():
 def test_extend_human_approval_registers_checker():
     from prodagent.hooks.approval import ApprovalGate
     from prodagent.hooks.bundles.security import ApprovalHooks
-    from prodagent.kernel.bus import Gate
-    from prodagent.kernel.bus import HookRegistry
+    from prodagent.kernel.bus import Gate, HookRegistry
 
     hooks = HookRegistry()
     ApprovalHooks(gate=ApprovalGate()).attach(hooks)

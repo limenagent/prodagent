@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from prodagent.kernel.state import AgentRun
-from prodagent.kernel.state import RunMetrics
+from prodagent.kernel.state import AgentRun, RunMetrics
 from prodagent.kernel.types import LLMResponse
 
 

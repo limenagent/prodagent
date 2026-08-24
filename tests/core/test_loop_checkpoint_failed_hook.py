@@ -3,11 +3,10 @@ from __future__ import annotations
 import pytest
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore
-from prodagent.kernel.types import LLMResponse
-from prodagent.kernel.bus import HookEvent
-from prodagent.kernel.bus import HookRegistry
-from prodagent.llm.fake import FakeLLMAdapter
+from prodagent.kernel.bus import HookEvent, HookRegistry
 from prodagent.kernel.loop import ReactiveLoop
+from prodagent.kernel.types import LLMResponse
+from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.tooling.dispatcher import ToolDispatcher
 
 

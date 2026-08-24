@@ -11,8 +11,7 @@ import asyncio
 
 from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.core.config import FrameworkConfig
-from prodagent.kernel.bus import HookEvent
-from prodagent.kernel.bus import HookRegistry
+from prodagent.kernel.bus import HookEvent, HookRegistry
 from prodagent.llm.fake import script
 from prodagent.skills.registry import SkillRegistry
 

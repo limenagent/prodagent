@@ -40,9 +40,9 @@ class BoardVersionConflict(Exception):
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable
 
-    from prodagent.kernel.budget import BudgetLedger
     from prodagent.coordination.messaging.contract import MessageContract
     from prodagent.coordination.messaging.pipeline import Interceptor
+    from prodagent.kernel.budget import BudgetLedger
     from prodagent.kernel.bus import HookRegistry
     from prodagent.ports.dead_letter import DeadLetterStore
     from prodagent.ports.lock import LockStore, LockToken

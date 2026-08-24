@@ -6,7 +6,6 @@ import contextlib
 from prodagent import Agent, AgentConfig, ExecutionMode, RunState, SideEffectLevel, ToolMeta
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.core.exceptions import SuspendPendingApproval
-from prodagent.kernel.types import ToolCall
 from prodagent.hooks.approval import (
     ApprovalDecision,
     ApprovalGate,
@@ -14,6 +13,7 @@ from prodagent.hooks.approval import (
 )
 from prodagent.hooks.bundles.security import ApprovalHooks
 from prodagent.kernel.bus import HookRegistry
+from prodagent.kernel.types import ToolCall
 from prodagent.llm.fake import script
 from prodagent.tooling import tool
 

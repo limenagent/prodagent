@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 
 from prodagent import Agent, AgentConfig
-from prodagent.runtime.parent_runtime import ParentRuntime
 from prodagent.coordination.spawn import Spawn
 from prodagent.kernel.budget import HardBudget
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
+from prodagent.runtime.parent_runtime import ParentRuntime
 
 
 def _plan_llm() -> FakeLLMAdapter:

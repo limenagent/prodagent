@@ -36,7 +36,11 @@ KERNEL_MODULES = sorted(
 def _loaded_by(import_line: str) -> list[str]:
     env = {**os.environ, "PYTHONPATH": str(SRC_PARENT)}
     proc = subprocess.run(
-        [sys.executable, "-c", f"import sys; {import_line}; print('\\n'.join(sorted(m for m in sys.modules if m.startswith('prodagent'))))"],
+        [
+            sys.executable,
+            "-c",
+            f"import sys; {import_line}; print('\\n'.join(sorted(m for m in sys.modules if m.startswith('prodagent'))))",
+        ],
         capture_output=True,
         text=True,
         check=True,

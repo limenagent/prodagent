@@ -18,8 +18,7 @@ from prodagent.coordination.work_queue import (
     WorkResult,
     work_queue_stream,
 )
-from prodagent.kernel.bus import BlockingResult, Gate
-from prodagent.kernel.bus import HookRegistry
+from prodagent.kernel.bus import BlockingResult, Gate, HookRegistry
 
 
 class _ScriptedWorker:

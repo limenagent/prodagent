@@ -18,8 +18,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore  # noqa: E402
 from prodagent.backends.file.session_store import FileSessionStore  # noqa: E402
-from prodagent.kernel.state import AgentRun, PendingHandoff  # noqa: E402
 from prodagent.core.state.session import ConversationSession, TurnRecord  # noqa: E402
+from prodagent.kernel.state import AgentRun, PendingHandoff  # noqa: E402
 from prodagent.kernel.types import ExecutionMode, Message, RunState  # noqa: E402
 from prodagent.playground import server as server_mod  # noqa: E402
 

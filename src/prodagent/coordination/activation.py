@@ -28,10 +28,11 @@ This module names that concept once:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from collections.abc import Awaitable
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable
+
     from prodagent.coordination._store import SharedStore
 
 __all__ = [

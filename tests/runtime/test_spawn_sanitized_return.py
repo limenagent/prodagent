@@ -10,13 +10,12 @@ from typing import TYPE_CHECKING
 from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
 from prodagent.coordination.messaging.contract import MessageContract
-from prodagent.runtime.parent_runtime import ParentRuntime
 from prodagent.coordination.spawn import Spawn
 from prodagent.core.config import FrameworkConfig
+from prodagent.kernel.bus import BlockingResult, Gate, HookRegistry
 from prodagent.kernel.types import LLMResponse
-from prodagent.kernel.bus import BlockingResult, Gate
-from prodagent.kernel.bus import HookRegistry
 from prodagent.llm.fake import FakeLLMAdapter
+from prodagent.runtime.parent_runtime import ParentRuntime
 
 if TYPE_CHECKING:
     from pathlib import Path

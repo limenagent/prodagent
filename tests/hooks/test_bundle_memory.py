@@ -4,8 +4,7 @@ from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.backends.file import FileDocumentStore, FileGraphStore
 from prodagent.cognition.memory.manager import MemoryManager
 from prodagent.hooks.bundles.memory import MemoryHooks
-from prodagent.kernel.bus import InjectionPoint
-from prodagent.kernel.bus import HookEvent, HookRegistry
+from prodagent.kernel.bus import HookEvent, HookRegistry, InjectionPoint
 from prodagent.llm.fake import script
 
 

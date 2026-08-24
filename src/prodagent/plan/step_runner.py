@@ -11,10 +11,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from prodagent.core.exceptions import SuspendPendingApproval, ToolAbortError, ToolBlockedError
-from prodagent.kernel.state import AgentRun, PendingHandoff
-from prodagent.kernel.types import Message, RunState, StepStatus, ToolCall, ToolOutcome, ToolResult
 from prodagent.hooks import fire as _fire
 from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.state import AgentRun, PendingHandoff
+from prodagent.kernel.types import Message, RunState, StepStatus, ToolCall, ToolOutcome, ToolResult
 
 if TYPE_CHECKING:
     from prodagent.kernel.bus import HookRegistry

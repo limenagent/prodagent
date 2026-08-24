@@ -15,11 +15,11 @@ from typing import Any
 import pytest
 
 from prodagent import Agent, AgentConfig
-from prodagent.runtime.parent_runtime import ParentRuntime
 from prodagent.core.config import FrameworkConfig
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.llm.http_retry import DeliveryGuard, with_http_retry
 from prodagent.plan.workflow import Workflow
+from prodagent.runtime.parent_runtime import ParentRuntime
 
 
 def _agent(**kwargs: Any) -> Agent:

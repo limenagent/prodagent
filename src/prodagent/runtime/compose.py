@@ -20,12 +20,16 @@ found via the bus's typed slots (``provide``/``require``).
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from prodagent.core.config import FrameworkConfig
     from prodagent.ports import CheckpointStore, EventLog, SessionStore
     from prodagent.ports.llm import LLMClient
+
+if TYPE_CHECKING:
+    from prodagent.core.config import FrameworkConfig
+    from prodagent.hooks.bundles.base import HookBundle
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +49,9 @@ def wrap_llm(llm: LLMClient, fw: FrameworkConfig) -> LLMClient:
     return CachingLLMClient(llm, framework_config=fw)
 
 
-def resolve_checkpoint(fw: FrameworkConfig, explicit: CheckpointStore | None) -> CheckpointStore | None:
+def resolve_checkpoint(
+    fw: FrameworkConfig, explicit: CheckpointStore | None
+) -> CheckpointStore | None:
     if fw.profile != "production":
         return explicit
     if explicit is not None:
@@ -77,7 +83,7 @@ def resolve_session_store(fw: FrameworkConfig, explicit: SessionStore | None) ->
     return _resolve(fw)
 
 
-def hop_tool_assemblers() -> list:
+def hop_tool_assemblers() -> list[Any]:
     """Collaboration capabilities that contribute hop tools (spawn/peer).
 
     The driver attaches these to ``RunContext.tool_assemblers``; the factory
@@ -92,14 +98,14 @@ def hop_tool_assemblers() -> list:
     ]
 
 
-async def find_suspended_peer(checkpoint, root_run_id):
+async def find_suspended_peer(checkpoint: Any, root_run_id: str) -> tuple[str, str] | None:
     """Resume discovery — peer chains park their suspended hop in the checkpoint."""
     from prodagent.coordination.peer import find_suspended_peer as _find
 
     return await _find(checkpoint, root_run_id)
 
 
-def default_bundles(fw):
+def default_bundles(fw: FrameworkConfig | None) -> list[HookBundle]:
     """The profile's bundle manifest — what ``attach_default_hooks`` wires.
 
     The bare profile stays silent: console is opt-in via env/flag, learning

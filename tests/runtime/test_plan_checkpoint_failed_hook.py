@@ -6,9 +6,8 @@ import pytest
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
+from prodagent.kernel.bus import HookEvent, HookRegistry
 from prodagent.kernel.types import LLMResponse
-from prodagent.kernel.bus import HookEvent
-from prodagent.kernel.bus import HookRegistry
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.plan.executor import PlanExecutor
 

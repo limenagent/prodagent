@@ -4,10 +4,8 @@ import asyncio
 import time
 
 from prodagent import Agent, AgentConfig
-from prodagent.kernel.bus import HookEvent
-from prodagent.kernel.bus import Gate, InjectionPoint
 from prodagent.hooks.observers.console import ConsoleObserverHooks
-from prodagent.kernel.bus import HookRegistry
+from prodagent.kernel.bus import Gate, HookEvent, HookRegistry, InjectionPoint
 
 
 def _has_console_observer(registry: HookRegistry) -> bool:

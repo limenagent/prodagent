@@ -88,9 +88,7 @@ class RedisLockStore:
         if timeout <= 0:
             ok = await self._client.set(key, token_value, nx=True, px=px)
             if not ok:
-                raise TimeoutError(
-                    f"could not acquire lock {name!r} (non-blocking acquire)"
-                )
+                raise TimeoutError(f"could not acquire lock {name!r} (non-blocking acquire)")
             return LockToken(name=name, handle=token_value)
 
         deadline = time.monotonic() + timeout

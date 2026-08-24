@@ -4,9 +4,8 @@ import asyncio
 
 import pytest
 
+from prodagent.kernel.bus import HookEvent, HookRegistry
 from prodagent.kernel.types import RunState
-from prodagent.kernel.bus import HookEvent
-from prodagent.kernel.bus import HookRegistry
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.agent import Agent
 from prodagent.runtime.config import AgentConfig

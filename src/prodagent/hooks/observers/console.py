@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any, cast
 
-from prodagent.kernel.types import Layer
-from prodagent.kernel.bus import HookEvent
 from prodagent.hooks.observers._ansi import (
     _BLUE,
     _BOLD,
@@ -20,6 +18,8 @@ from prodagent.hooks.observers._ansi import (
 from prodagent.hooks.observers._ansi import (
     colorize as _c,
 )
+from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.types import Layer
 
 if TYPE_CHECKING:
     from prodagent.kernel.bus import HookRegistry

@@ -14,22 +14,18 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from prodagent.runtime.parent_runtime import SpawnAccumulator, fold_spawn_fields
-from prodagent.kernel.budget import BudgetLedger
 from prodagent.coordination.messaging.envelope import Crossing, CrossingKind, Direction
 from prodagent.coordination.messaging.idempotency import IdempotentMessageHandler
 from prodagent.coordination.messaging.packet import HandoffPacket
 from prodagent.coordination.messaging.pipeline import Pipeline, assembly_pipeline
-from prodagent.kernel.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.core.exceptions import BudgetExceeded
-from prodagent.kernel.state import AgentRun, child_run_id, is_child_subordinate, make_failed_run
-from prodagent.kernel.types import ExecutionMode, MessageList, RunState
-from prodagent.hooks import fire as _fire
-from prodagent.hooks import save_and_fire_checkpoint
+from prodagent.kernel.budget import BudgetLedger
 from prodagent.kernel.bus import HookEvent
-from prodagent.kernel.bus import Gate
+from prodagent.kernel.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
+from prodagent.kernel.state import AgentRun, child_run_id, is_child_subordinate, make_failed_run
 from prodagent.runtime.compose import find_suspended_peer, hop_tool_assemblers
 from prodagent.runtime.factory import LeafExecutorFactory
+from prodagent.runtime.parent_runtime import SpawnAccumulator
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -37,11 +33,13 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from prodagent.cognition.context.spill import ToolResultSpillStore
-    from prodagent.kernel.events import AgentEvent
     from prodagent.kernel.bus import HookRegistry
+    from prodagent.kernel.events import AgentEvent
+    from prodagent.kernel.types import ExecutionMode, MessageList
     from prodagent.ports import CheckpointStore, EventLog
     from prodagent.ports.llm import LLMClient
     from prodagent.runtime.agent import Agent
+    from prodagent.runtime.parent_runtime import SpawnAccumulator
 
 logger = logging.getLogger(__name__)
 
@@ -399,17 +397,13 @@ class RunLoop:
             # committing the post-fold numbers would count them twice.
             child_turns = spawn_acc.turns if spawn_acc is not None else 0
             child_tokens = (
-                spawn_acc.input_tokens + spawn_acc.output_tokens
-                if spawn_acc is not None
-                else 0
+                spawn_acc.input_tokens + spawn_acc.output_tokens if spawn_acc is not None else 0
             )
             child_cost = spawn_acc.cost_usd if spawn_acc is not None else 0.0
             await self._ledger.commit(
                 member=self._ctx.agent.name,
                 turns=max(0, run.turn_count - child_turns),
-                tokens=max(
-                    0, run.input_tokens + run.output_tokens - child_tokens
-                ),
+                tokens=max(0, run.input_tokens + run.output_tokens - child_tokens),
                 cost_usd=max(0.0, run.cost_usd - child_cost),
             )
             try:

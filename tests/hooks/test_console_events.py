@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from prodagent.kernel.bus import HookEvent
 from prodagent.hooks.observers.console import ConsoleObserverHooks
+from prodagent.kernel.bus import HookEvent
 
 
 def test_console_renders_failure_events(capsys) -> None:

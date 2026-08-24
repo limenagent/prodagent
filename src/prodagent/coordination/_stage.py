@@ -42,6 +42,7 @@ from prodagent.coordination.activation import Activation
 from prodagent.coordination.termination import TerminationReason
 from prodagent.core.exceptions import BudgetExceeded
 
+
 class ViewInjector:
     """Wire-once CONTEXT_INJECTOR registration for a stage member's view.
 
@@ -49,7 +50,7 @@ class ViewInjector:
     turn; this class only owns register-once semantics on the member's hook
     registry — wiring must happen before the first ``chat()`` resolves one."""
 
-    def __init__(self, agent: Any, *, block: str, render: Any) -> None:
+    def __init__(self, agent: Any, *, block: str, render: Callable[[], str]) -> None:
         self._agent = agent
         self._block = block
         self._render = render

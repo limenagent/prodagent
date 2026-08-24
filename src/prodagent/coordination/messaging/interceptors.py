@@ -31,8 +31,7 @@ if TYPE_CHECKING:
     from prodagent.coordination.floor_projection import FloorProjection
     from prodagent.coordination.messaging.contract import MessageContract
     from prodagent.coordination.messaging.idempotency import IdempotentMessageHandler
-    from prodagent.kernel.bus import HookEvent
-    from prodagent.kernel.bus import HookRegistry
+    from prodagent.kernel.bus import HookEvent, HookRegistry
 
 logger = logging.getLogger(__name__)
 

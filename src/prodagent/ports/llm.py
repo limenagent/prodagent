@@ -10,10 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from prodagent.kernel.types import LLMResponse, MessageList
-
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+
+    from prodagent.kernel.types import LLMResponse, MessageList
 
 
 @runtime_checkable

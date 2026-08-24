@@ -12,9 +12,9 @@ if TYPE_CHECKING:
 
 from prodagent import RunState
 from prodagent.backends.file.experience import FileExperienceStore
+from prodagent.hooks.bundles.learning import LearningHooks
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import LLMResponse, MessageList, ToolCall
-from prodagent.hooks.bundles.learning import LearningHooks
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.ports.experience import ExperienceRecord
 from prodagent.skills.registry import SkillRegistry

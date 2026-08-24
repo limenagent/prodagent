@@ -6,9 +6,9 @@ import pytest
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
+from prodagent.core.exceptions import BudgetExceeded
 from prodagent.kernel.budget import HardBudget
 from prodagent.kernel.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
-from prodagent.core.exceptions import BudgetExceeded
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.plan.executor import PlanExecutor

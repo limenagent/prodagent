@@ -10,8 +10,10 @@ from typing import TYPE_CHECKING, Any
 from prodagent.core.config import ContextConfig, LoopConfig
 from prodagent.core.error_classifier import classify_error
 from prodagent.core.error_reason import ErrorLayer, ErrorReason
-from prodagent.kernel.events import ToolCallStartEvent, ToolResultEvent
 from prodagent.core.exceptions import SECURITY_VETO_EXCEPTIONS
+from prodagent.core.retry import Backoff, RetryPolicy
+from prodagent.kernel.bus import Gate, HookEvent
+from prodagent.kernel.events import ToolCallStartEvent, ToolResultEvent
 from prodagent.kernel.types import (
     GET_SKILL_TOOL_NAME,
     SKILL_INJECTION_KEY,
@@ -25,9 +27,6 @@ from prodagent.kernel.types import (
     ToolOutcome,
     ToolResult,
 )
-from prodagent.kernel.bus import HookEvent
-from prodagent.kernel.bus import Gate
-from prodagent.core.retry import Backoff, RetryPolicy
 from prodagent.tooling.skill_resolver import SkillResolver
 
 TRANSIENT_EXC: tuple[type[BaseException], ...] = (
@@ -48,10 +47,10 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
 
     from prodagent.cognition.context.spill import ToolResultSpillStore
-    from prodagent.kernel.events import AgentEvent
     from prodagent.core.progress import ProgressMonitor
-    from prodagent.kernel.state import AgentRun
     from prodagent.kernel.bus import HookRegistry
+    from prodagent.kernel.events import AgentEvent
+    from prodagent.kernel.state import AgentRun
     from prodagent.skills.registry import SkillRegistry
     from prodagent.tooling.base import FunctionTool
     from prodagent.tooling.registry import ToolRegistry

@@ -8,38 +8,35 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any, cast
 
-from prodagent.runtime.parent_runtime import SpawnAccumulator
-from prodagent.runtime.parent_runtime import ParentRuntime
-from prodagent.runtime.runner import collect_final_run, drive_stream
 from prodagent.core.config import FrameworkConfig
-from prodagent.kernel.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.core.exceptions import (
     PlanAlreadyCompletedError,
     RunIdCollisionError,
     UnknownApprovalError,
 )
-from prodagent.kernel.state import CHILD_SEPARATOR
 from prodagent.core.state.session import ConversationSession
+from prodagent.kernel.bus import Gate, HookEvent, HookRegistry, InjectionPoint
+from prodagent.kernel.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
+from prodagent.kernel.state import CHILD_SEPARATOR
 from prodagent.kernel.types import ExecutionMode, MessageList, RunState
-from prodagent.kernel.bus import HookEvent
-from prodagent.kernel.bus import Gate, InjectionPoint
-from prodagent.kernel.bus import HookRegistry
 from prodagent.runtime._tool_merge import merge_tools_by_name
 from prodagent.runtime.config import AgentConfig
+from prodagent.runtime.parent_runtime import ParentRuntime, SpawnAccumulator
+from prodagent.runtime.runner import collect_final_run, drive_stream
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Sequence
 
     from prodagent.cognition.context.manager import ContextManager
     from prodagent.cognition.memory import MemoryProvider
-    from prodagent.runtime.runner import RunContext
+    from prodagent.hooks.approval import ApprovalProvider
     from prodagent.kernel.budget import HardBudget
     from prodagent.kernel.events import AgentEvent
     from prodagent.kernel.state import AgentRun
-    from prodagent.hooks.approval import ApprovalProvider
     from prodagent.mcp.config import MCPServerConfig
     from prodagent.plan.workflow import Workflow
     from prodagent.ports import CheckpointStore, EventLog, SessionStore, Tool
+    from prodagent.runtime.runner import RunContext
     from prodagent.skills.registry import SkillRegistry
 
 logger = logging.getLogger(__name__)

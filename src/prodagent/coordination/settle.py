@@ -14,17 +14,17 @@ from typing import TYPE_CHECKING
 from prodagent.coordination.messaging.envelope import Crossing, CrossingKind, Direction
 from prodagent.coordination.messaging.pipeline import admission_pipeline
 from prodagent.core.exceptions import SECURITY_VETO_EXCEPTIONS
-from prodagent.kernel.bus import Gate, HookEvent, fire as _fire
-from prodagent.kernel.bus import save_and_fire_checkpoint
+from prodagent.kernel.bus import Gate, HookEvent, save_and_fire_checkpoint
+from prodagent.kernel.bus import fire as _fire
 from prodagent.kernel.types import RunState
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from prodagent.coordination.messaging.contract import MessageContract
-    from prodagent.runtime.runner import RunContext
     from prodagent.kernel.bus import HookRegistry
     from prodagent.kernel.state import AgentRun
+    from prodagent.runtime.runner import RunContext
 
 logger = logging.getLogger(__name__)
 

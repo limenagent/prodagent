@@ -34,8 +34,7 @@ class MemoryHooks:
 
     def attach(self, hooks: HookRegistry) -> None:
         from prodagent.cognition.memory import MemoryProvider
-        from prodagent.kernel.bus import HookEvent
-        from prodagent.kernel.bus import InjectionPoint
+        from prodagent.kernel.bus import HookEvent, InjectionPoint
 
         hooks.provide(MemoryProvider, self._manager)
 

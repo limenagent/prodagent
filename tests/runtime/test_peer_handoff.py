@@ -3,11 +3,11 @@ from __future__ import annotations
 import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode
-from prodagent.runtime.parent_runtime import ParentRuntime
 from prodagent.coordination.peer import Peer, build_peer_tools_for_agent
 from prodagent.kernel.state import is_child_run_id
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter, script
+from prodagent.runtime.parent_runtime import ParentRuntime
 
 
 @pytest.fixture

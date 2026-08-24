@@ -29,7 +29,7 @@ class BackendRegistry:
 
     @classmethod
     def for_config(cls, fw: FrameworkConfig) -> BackendRegistry:
-        reg = fw._backend_registry
+        reg: BackendRegistry | None = fw._backend_registry
         if reg is None:
             reg = cls()
             fw._backend_registry = reg

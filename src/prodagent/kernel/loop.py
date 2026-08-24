@@ -10,20 +10,18 @@ terminal events.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from prodagent.core.config import ContextConfig, LoopConfig
 from prodagent.core.error_classifier import classify_error
 from prodagent.core.error_reason import ErrorLayer
 from prodagent.core.exceptions import BudgetExceeded, InfiniteLoopDetected
 from prodagent.core.progress import ProgressMonitor
-from prodagent.kernel.bus import fire as _fire
-from prodagent.kernel.bus import save_and_fire_checkpoint
 from prodagent.kernel.budget import SAFETY_NET_BUDGET, check_spawn_budget
-from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.bus import HookEvent, save_and_fire_checkpoint
+from prodagent.kernel.bus import fire as _fire
 from prodagent.kernel.events import (
     AgentEvent,
     RunCompletedEvent,
@@ -62,7 +60,7 @@ class ReactiveLoop:
         dispatcher: ToolDispatcher,
         *,
         system_prompt: str = "",
-        tools_schema: list[dict] | None = None,
+        tools_schema: list[dict[str, Any]] | None = None,
         budget: HardBudget | None = None,
         checkpoint_store: CheckpointStore | None = None,
         context_manager: ContextManager | None = None,
