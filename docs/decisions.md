@@ -43,6 +43,7 @@
 | 总线 ≠ 管线（两个原语） | fire/collect 是扇出，Pipeline 是链式短路——对偶不是同一机制；只共享 60 行助手 | [⑦ 协作](tour/07-multiagent.md) |
 | AgentRun 不分解成扩展组合 | 全库被读得最多的对象碎片化换不来任何行为；挂起字段簇才是真内聚 | [⑤ 循环](tour/05-loop.md) |
 | AgentConfig 保持扁平不分组 | 分组的动因（新能力加字段）已随插件插槽消失；分组是 churn 换美观 | [⑤ 循环](tour/05-loop.md) |
+| 不引入统一 Plugin/Kit 协议类 | 三插槽已各有其位（端口/总线/执行器）；再造一个统一 Plugin 接口是给三种合法签名改名，不是新能力 | [⑤ 循环](tour/05-loop.md) |
 | 不加 VersionedStore 泛型端口 | conformance 套件已逐后端钉死乐观并发；平行的泛型协议是无强制力的第二套词汇 | [契约](tour/02-ports.md) |
 | `backends` 永不出现在模块级导入 | import 一个 Agent 不该拉起一个数据库驱动 | [契约](tour/02-ports.md) |
 | 计划是 DAG 不是图灵完备图 | 带循环的计划要模拟才能回答"它会做什么"，可审计性归零 | [⑥ 规划](tour/06-plan.md) |

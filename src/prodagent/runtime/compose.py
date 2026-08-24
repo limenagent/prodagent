@@ -1,8 +1,20 @@
-"""compose — the only place that reads ``profile``.
+"""compose — the assembly root: the only place that reads ``profile``.
 
 ``production()`` (core/config.py) flips flags; this module is the consumer
-side: what those flags actually attach. Bare profile resolves nothing —
-explicit config still works, ``None`` stays ``None``, nothing touches disk.
+side — the one file that answers "what does a production agent consist of".
+
+Capabilities attach through three sockets, and everything the framework
+does uses one of them:
+
+- **Port replacement** — implement a kernel/ports protocol: LLM adapters,
+  the caching wrapper, the context assembler, every store backend.
+- **Bus attachment** — register on the kernel bus: observers, gates,
+  injectors (memory recall, approval veto, spans, learning).
+- **Executor replacement** — implement ``LeafExecutor``: PLAN_FIRST is the
+  second strategy for iterating the Step atom.
+
+Tools arrive through the hop seam (``tool_assemblers``); capabilities are
+found via the bus's typed slots (``provide``/``require``).
 """
 
 from __future__ import annotations
@@ -85,3 +97,28 @@ async def find_suspended_peer(checkpoint, root_run_id):
     from prodagent.coordination.peer import find_suspended_peer as _find
 
     return await _find(checkpoint, root_run_id)
+
+
+def default_bundles(fw):
+    """The profile's bundle manifest — what ``attach_default_hooks`` wires.
+
+    The bare profile stays silent: console is opt-in via env/flag, learning
+    only attaches when ``skills=`` is set — no observer, no span export, no
+    approval gate. The production profile restores the full stack."""
+    from prodagent.hooks.bundles.default_wiring import (
+        ApprovalDefaultBundle,
+        CacheMonitorDefaultBundle,
+        ConsoleDefaultBundle,
+        LearningDefaultBundle,
+        SpanDefaultBundle,
+    )
+
+    if fw is None or fw.profile == "bare":
+        return [ConsoleDefaultBundle(), LearningDefaultBundle()]
+    return [
+        ConsoleDefaultBundle(),
+        CacheMonitorDefaultBundle(),
+        SpanDefaultBundle(),
+        ApprovalDefaultBundle(),
+        LearningDefaultBundle(),
+    ]

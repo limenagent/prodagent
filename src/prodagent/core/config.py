@@ -121,7 +121,8 @@ def production(framework_config: FrameworkConfig | None = None) -> FrameworkConf
     Durability (checkpoint/session/event log on file backends), span export,
     the HITL approval gate for HIGH side-effect tools, the LLM response
     cache, and context compression + tool-result spill — everything the bare
-    kernel leaves out, restored in one call.
+    kernel leaves out, restored in one call. The consumer side — exactly
+    what these flags attach — is the manifest in ``runtime/compose.py``.
     """
     fw = framework_config or FrameworkConfig.from_env()
     fw.profile = "production"
