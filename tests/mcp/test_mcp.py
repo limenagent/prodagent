@@ -253,6 +253,35 @@ class TestMCPClient:
         assert "hits" in result
         await client.close()
 
+    async def test_list_tools_parses_annotations(self) -> None:
+        cfg = MCPServerConfig(name="mock", transport="http", url="http://x/mcp")
+        client = MCPClient(cfg)
+        _patch_client_session(
+            client,
+            _mock_server_handler(
+                tools=[
+                    {
+                        "name": "search",
+                        "description": "d",
+                        "inputSchema": {},
+                        "annotations": {
+                            "readOnlyHint": True,
+                            "destructiveHint": False,
+                            "idempotentHint": True,
+                        },
+                    },
+                    {"name": "plain", "description": "d", "inputSchema": {}},
+                ]
+            ),
+        )
+        tools = await client.list_tools()
+        by_name = {t.name: t for t in tools}
+        assert by_name["search"].read_only_hint is True
+        assert by_name["search"].destructive_hint is False
+        assert by_name["search"].idempotent_hint is True
+        assert by_name["plain"].read_only_hint is None
+        await client.close()
+
 
 class TestMCPToolBridge:
     def test_qualified_name_sanitises(self) -> None:
@@ -276,6 +305,65 @@ class TestMCPToolBridge:
         t = tools[0]
         assert t.name == "mcp__rca__search"
         assert t.schema["name"] == "mcp__rca__search"
+        assert t.meta.is_readonly is True
+        assert t.meta.side_effect_level.value == "low"
+        await client.close()
+
+    async def test_read_only_hint_overrides_side_effect_level(self) -> None:
+        cfg = MCPServerConfig(name="rca", transport="http", url="http://x/mcp")
+        client = MCPClient(cfg)
+        _patch_client_session(
+            client,
+            _mock_server_handler(
+                tools=[
+                    {
+                        "name": "fetch",
+                        "description": "d",
+                        "inputSchema": {},
+                        "annotations": {"readOnlyHint": True},
+                    }
+                ],
+            ),
+        )
+        tools = await adapt_mcp_tools(client)
+        t = tools[0]
+        assert t.meta.is_readonly is True
+        assert t.meta.side_effect_level.value == "low"
+        await client.close()
+
+    async def test_destructive_hint_marks_high_risk_and_requires_approval(self) -> None:
+        cfg = MCPServerConfig(name="rca", transport="http", url="http://x/mcp")
+        client = MCPClient(cfg)
+        _patch_client_session(
+            client,
+            _mock_server_handler(
+                tools=[
+                    {
+                        "name": "delete_repo",
+                        "description": "d",
+                        "inputSchema": {},
+                        "annotations": {"destructiveHint": True},
+                    }
+                ],
+            ),
+        )
+        tools = await adapt_mcp_tools(client)
+        t = tools[0]
+        assert t.meta.is_readonly is False
+        assert t.meta.side_effect_level.value == "high"
+        await client.close()
+
+    async def test_readonly_pattern_still_falls_back_without_hints(self) -> None:
+        cfg = MCPServerConfig(name="rca", transport="http", url="http://x/mcp")
+        client = MCPClient(cfg)
+        _patch_client_session(
+            client,
+            _mock_server_handler(
+                tools=[{"name": "search", "description": "d", "inputSchema": {}}],
+            ),
+        )
+        tools = await adapt_mcp_tools(client, readonly_patterns=["search"])
+        t = tools[0]
         assert t.meta.is_readonly is True
         assert t.meta.side_effect_level.value == "low"
         await client.close()

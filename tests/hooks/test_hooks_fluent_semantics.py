@@ -10,10 +10,8 @@ from prodagent.kernel.bus import Gate, HookEvent, HookRegistry, InjectionPoint
 
 def _has_console_observer(registry: HookRegistry) -> bool:
     all_handlers: list = []
-    for handlers in registry._event_handlers.values():
-        for entry in handlers:
-            h = entry[1] if isinstance(entry, tuple) else entry
-            all_handlers.append(h)
+    for event in HookEvent:
+        all_handlers.extend(registry.event_handlers(event))
     return any(
         getattr(h, "__self__", None).__class__ is ConsoleObserverHooks
         or "ConsoleObserver" in getattr(h, "__qualname__", "")

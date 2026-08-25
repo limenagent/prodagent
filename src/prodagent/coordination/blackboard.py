@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import fnmatch
 import logging
 import time
@@ -11,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from prodagent.coordination._stage import StageDriver, ViewInjector
 from prodagent.coordination._store import RoundedLockableStore
+from prodagent.coordination.activation import Activation, ActivationContext, ActivationPolicy
 from prodagent.coordination.messaging.envelope import (
     Crossing,
     CrossingKind,
@@ -38,14 +38,14 @@ class BoardVersionConflict(Exception):
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Callable
+    from collections.abc import AsyncGenerator, Awaitable, Callable
 
     from prodagent.coordination.messaging.contract import MessageContract
     from prodagent.coordination.messaging.pipeline import Interceptor
     from prodagent.kernel.budget import BudgetLedger
     from prodagent.kernel.bus import HookRegistry
     from prodagent.ports.dead_letter import DeadLetterStore
-    from prodagent.ports.lock import LockStore, LockToken
+    from prodagent.ports.lock import LockStore
     from prodagent.runtime.agent import Agent
 
 logger = logging.getLogger(__name__)
@@ -60,6 +60,7 @@ __all__ = [
     "BoardSlot",
     "BoardVersionConflict",
     "Trigger",
+    "BlackboardPolicy",
     "BlackboardMember",
     "BoardWrite",
     "BlackboardSpec",
@@ -163,6 +164,31 @@ class Trigger:
         if not self.keys:
             return True
         return any(fnmatch.fnmatch(k, pattern) for k in changed_keys for pattern in self.keys)
+
+
+class BlackboardPolicy:
+    """Adapts the Trigger list to :class:`~prodagent.coordination.activation.ActivationPolicy`.
+
+    Each matched trigger becomes one :class:`Activation` this round: ``event``
+    mode fans out concurrently, ``buzz_in`` races for a single winner — the
+    same two dispatch shapes :meth:`StageDriver._dispatch` already gives
+    Ensemble and WorkQueue, so Blackboard no longer hand-rolls its own."""
+
+    def __init__(self, triggers: dict[str, Trigger]) -> None:
+        self._triggers = triggers
+
+    async def next_activations(self, ctx: ActivationContext) -> list[Activation]:
+        changed = list(ctx.changed_keys)
+        matched = [t for t in self._triggers.values() if t.matches(changed)]
+        return [
+            Activation(
+                members=list(t.experts),
+                dispatch="single_winner" if t.mode == "buzz_in" else "concurrent",
+                round_num=ctx.round_num,
+                label=t.name,
+            )
+            for t in matched
+        ]
 
 
 @dataclass
@@ -288,6 +314,8 @@ class Blackboard(StageDriver[BoardWriteEvent | BlackboardCompletedEvent]):
         self.board = Board()
         self._budget = spec.budget
         self._value_max_chars = spec.value_max_chars or _VALUE_MAX_CHARS_DEFAULT
+        self._activation: ActivationPolicy = BlackboardPolicy(spec.triggers)
+        self._trigger_by_name: dict[str, Trigger] = {t.name: t for t in spec.triggers.values()}
         self._dlq: DeadLetterStore = (
             spec.dead_letter if spec.dead_letter is not None else resolve_dead_letter(None)
         )
@@ -334,49 +362,19 @@ class Blackboard(StageDriver[BoardWriteEvent | BlackboardCompletedEvent]):
         await self._run_enveloped(expert_name, _act)
         return produced[0] if produced else None
 
-    async def _dispatch_event(self, trigger: Trigger) -> list[BoardWrite | None]:
-        return list(
-            await asyncio.gather(*(self._compute(name, trigger) for name in trigger.experts))
-        )
+    def _member_runner(self, trigger: Trigger) -> Callable[[str], Awaitable[BoardWrite | None]]:
+        """Bind ``trigger`` into a ``(name) -> BoardWrite | None`` callable —
+        the shape :meth:`StageDriver._dispatch` runs per activation member."""
 
-    async def _dispatch_buzz_in(self, trigger: Trigger) -> list[BoardWrite | None]:
-        """Lock-first-then-compute: race for one lock, then only the winner computes.
+        async def run_one(name: str) -> BoardWrite | None:
+            return await self._compute(name, trigger)
 
-        Race and compute are two separate phases. If each candidate
-        acquired-and-released independently, a candidate whose
-        ``try_contribute`` never actually suspends (no real ``await`` inside)
-        would finish and release before the next candidate's task is even
-        scheduled — the "loser" would see a free lock and become a second
-        winner in the same round. Holding the lock across the whole race
-        (release only after the sole winner computes) closes that: every other
-        candidate's one-shot ``acquire(timeout=0)`` sees it already held for
-        the entire duration of this trigger's dispatch."""
-        lock_name = f"board:{id(self.board)}:{trigger.name}"
-        winner: str | None = None
-        token: LockToken | None = None
-
-        async def _race(name: str) -> None:
-            nonlocal winner, token
-            try:
-                acquired = await self._spec.lock_store.acquire(lock_name, timeout=0)
-            except TimeoutError:
-                return
-            winner, token = name, acquired
-
-        await asyncio.gather(*(_race(name) for name in trigger.experts))
-
-        if winner is None or token is None:
-            return [None] * len(trigger.experts)
-        won_token = token
-        try:
-            write = await self._compute(winner, trigger)
-        finally:
-            await self._spec.lock_store.release(won_token)
-        return [write if name == winner else None for name in trigger.experts]
+        return run_one
 
     async def _rounds(self) -> AsyncGenerator[BoardWriteEvent, None]:
-        """One round per iteration: match changed-key triggers → dispatch
-        (event fan-out or buzz_in lock-race) → fold writes. Sets
+        """One round per iteration: ask :class:`BlackboardPolicy` which triggers
+        matched → dispatch each activation via :meth:`StageDriver._dispatch`
+        (concurrent fan-out or single-winner lock-race) → fold writes. Sets
         ``self._reason`` when the board should stop. Crash→error and
         finalize-to-unknown are handled by :meth:`StageDriver.run`."""
         round_num = 0
@@ -396,8 +394,12 @@ class Blackboard(StageDriver[BoardWriteEvent | BlackboardCompletedEvent]):
 
             self.board._advance_round(round_num)
             changed = self.board._drain_changes() if round_num > 0 else []
-            matched = [t for t in self._spec.triggers.values() if t.matches(changed)]
-            if not matched:
+            activations = await self._activation.next_activations(
+                ActivationContext(
+                    store=self.board, changed_keys=tuple(changed), round_num=round_num
+                )
+            )
+            if not activations:
                 self._reason = TerminationReason(
                     reason="quiescent",
                     detail="No trigger matched — board has no pending work",
@@ -405,12 +407,15 @@ class Blackboard(StageDriver[BoardWriteEvent | BlackboardCompletedEvent]):
                 break
 
             before = self.board.fingerprint()
-            for trigger in matched:
-                dispatch = (
-                    self._dispatch_buzz_in if trigger.mode == "buzz_in" else self._dispatch_event
+            for activation in activations:
+                trigger = self._trigger_by_name[activation.label]
+                results = await self._dispatch(
+                    activation,
+                    self._member_runner(trigger),
+                    lock_store=self._spec.lock_store,
+                    lock_scope=f"board:{id(self.board)}",
                 )
-                results = await dispatch(trigger)
-                for write in results:
+                for _name, write in results:
                     if write is None:
                         continue
                     delivery = await self._write_pipeline.process(
@@ -466,7 +471,7 @@ class Blackboard(StageDriver[BoardWriteEvent | BlackboardCompletedEvent]):
             if self.board.fingerprint() == before:
                 self._reason = TerminationReason(
                     reason="no_contribution",
-                    detail=f"Matched trigger(s) {[t.name for t in matched]} produced no writes",
+                    detail=f"Matched trigger(s) {[a.label for a in activations]} produced no writes",
                 )
                 break
 

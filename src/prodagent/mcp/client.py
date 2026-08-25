@@ -23,6 +23,9 @@ class MCPToolInfo:
     description: str
     input_schema: dict[str, Any] = field(default_factory=dict)
     server_name: str = ""
+    read_only_hint: bool | None = None
+    destructive_hint: bool | None = None
+    idempotent_hint: bool | None = None
 
     def to_anthropic_schema(self) -> dict[str, Any]:
         return {
@@ -111,6 +114,9 @@ class MCPClient:
                 description=t.get("description", ""),
                 input_schema=t.get("inputSchema", {}),
                 server_name=self._name,
+                read_only_hint=t.get("annotations", {}).get("readOnlyHint"),
+                destructive_hint=t.get("annotations", {}).get("destructiveHint"),
+                idempotent_hint=t.get("annotations", {}).get("idempotentHint"),
             )
             for t in raw_tools
         ]

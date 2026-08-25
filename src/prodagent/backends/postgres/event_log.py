@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+from prodagent.backends.postgres._versioned import lock_and_check_version
 from prodagent.backends.postgres.schema import ensure_schema_via_pool_async
 from prodagent.core.event_log import Event
-from prodagent.core.exceptions import VersionConflict
 
 if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
@@ -35,22 +35,15 @@ class PostgresEventLog:
         }
         async with self._pool.connection() as conn:
             async with conn.cursor() as cur:
-                await cur.execute(
-                    "SELECT pg_advisory_xact_lock(hashtext(%s))",
-                    (f"{self._ns}:{event.plan_id}",),
-                )
-                await cur.execute(
+                current = await lock_and_check_version(
+                    cur,
+                    f"{self._ns}:{event.plan_id}",
                     "SELECT COALESCE(MAX(seq), 0) FROM pa_event "
                     "WHERE namespace = %s AND plan_id = %s",
                     (self._ns, event.plan_id),
+                    expected_seq,
+                    f"plan {event.plan_id}",
                 )
-                row = await cur.fetchone()
-                current = int(row[0]) if row else 0
-                if expected_seq is not None and current != expected_seq:
-                    raise VersionConflict(
-                        f"expected tail seq {expected_seq} for plan {event.plan_id}, "
-                        f"found {current} — concurrent writer won"
-                    )
                 new_seq = current + 1
                 event.seq = new_seq
                 record["seq"] = new_seq

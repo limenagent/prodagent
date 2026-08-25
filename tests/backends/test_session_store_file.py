@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from prodagent.backends.file.session_store import FileSessionStore
-from prodagent.core.state.session import ConversationSession
+from prodagent.core.session import ConversationSession
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import ExecutionMode, RunState
 

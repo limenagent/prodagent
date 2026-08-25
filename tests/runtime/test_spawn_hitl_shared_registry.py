@@ -134,5 +134,5 @@ async def test_gate_registers_one_checker_per_registry(tmp_path):
     ApprovalHooks(gate=gate).attach(registry)
     ApprovalHooks(gate=gate).attach(registry)  # parent's + child's, same gate
 
-    handlers = registry._check_handlers[Gate.APPROVAL_REQUEST]
+    handlers = registry.check_handlers(Gate.APPROVAL_REQUEST)
     assert len(handlers) == 1, f"expected one checker, got {len(handlers)}"

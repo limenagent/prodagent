@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent.core.state.session import ConversationSession, TurnRecord
+from prodagent.core.session import ConversationSession, TurnRecord
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import ExecutionMode, RunState
 

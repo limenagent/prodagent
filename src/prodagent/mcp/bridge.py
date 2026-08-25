@@ -71,8 +71,7 @@ async def adapt_mcp_tools(
     tools = await client.list_tools()
     result: list[FunctionTool] = []
     for info in tools:
-        is_ro = any(p in info.name.lower() for p in patterns)
-        level = SideEffectLevel.LOW if is_ro else side_effect_level
+        is_ro, level = _classify_risk(info, patterns=patterns, default_level=side_effect_level)
         result.append(
             _make_tool(
                 info,
@@ -95,6 +94,23 @@ async def adapt_mcp_tools(
         client.name,
     )
     return result
+
+
+def _classify_risk(
+    info: MCPToolInfo,
+    *,
+    patterns: list[str],
+    default_level: SideEffectLevel,
+) -> tuple[bool, SideEffectLevel]:
+    """Prefer the MCP protocol's own annotations; fall back to substring matching
+    only when the server didn't provide a hint."""
+    if info.read_only_hint is True:
+        return True, SideEffectLevel.LOW
+    if info.destructive_hint is True:
+        return False, SideEffectLevel.HIGH
+    if any(p in info.name.lower() for p in patterns):
+        return True, SideEffectLevel.LOW
+    return False, default_level
 
 
 def _make_tool(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -18,6 +19,7 @@ from prodagent.skills.registry import SkillCard, SkillContent, SkillRegistry
 
 if TYPE_CHECKING:
     from prodagent.kernel.types import MessageList
+    from prodagent.ports.experience import ExperienceStore
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +34,10 @@ _SKILL_SECTIONS: tuple[tuple[str, str], ...] = (
     ("verification", "## Verification"),
 )
 
-_SYNTH_TAG_OVERLAP = 1
+# Matches SkillRegistry.find_similar's default — previously 1 here vs 2 there,
+# which let two skills sharing a single incidental tag get silently merged
+# into one file (design.md §3.7).
+_TAG_OVERLAP = 2
 
 _SYNTHESIS_SYSTEM = """\
 You are a process analyst who distils reusable procedures from real agent \
@@ -244,22 +249,43 @@ class SynthesisResult:
 
 
 class SkillSynthesizer:
-    """Rolling-accumulator skill patcher."""
+    """Rolling-accumulator skill patcher.
+
+    Creating a new skill is lenient (one successful run is enough — there's
+    nothing to lose). Overwriting an *existing* skill is a higher-stakes
+    write — a bad patch silently degrades every future run that reads it —
+    so it goes through :meth:`_overwrite_guard` first: a cooldown per skill
+    name, and (when ``store`` is given) a minimum number of corroborating
+    successful runs. Both are opt-in via ``store``/``min_repeat_successes``/
+    ``overwrite_cooldown_seconds`` so existing callers that construct a bare
+    ``SkillSynthesizer(llm, registry)`` keep today's lenient behavior; the
+    stricter gate only activates once wired with an ``ExperienceStore``
+    (which ``LearningHooks`` does by default — see its constructor).
+    """
 
     _MAX_ATTEMPTS = 3
+    _DEFAULT_MIN_REPEAT_SUCCESSES = 2
+    _DEFAULT_OVERWRITE_COOLDOWN_SECONDS = 24 * 3600.0
 
     def __init__(
         self,
         llm: LLMClient,
         registry: SkillRegistry,
         *,
+        store: ExperienceStore | None = None,
         config: LLMConfig | None = None,
         max_attempts: int = _MAX_ATTEMPTS,
+        min_repeat_successes: int = _DEFAULT_MIN_REPEAT_SUCCESSES,
+        overwrite_cooldown_seconds: float = _DEFAULT_OVERWRITE_COOLDOWN_SECONDS,
     ) -> None:
         self._llm = llm
         self._registry = registry
+        self._store = store
         self._config = config or LLMConfig(temperature=0.0, max_tokens=32768, timeout_seconds=180.0)
         self._max_attempts = max(1, max_attempts)
+        self._min_repeat_successes = max(1, min_repeat_successes)
+        self._overwrite_cooldown_seconds = overwrite_cooldown_seconds
+        self._last_overwrite_at: dict[str, float] = {}
 
     async def maybe_synthesize(
         self,
@@ -269,10 +295,15 @@ class SkillSynthesizer:
         if seed_record.outcome != ExperienceOutcome.SUCCESS:
             return SynthesisResult()
 
-        existing_name = self._registry.find_by_tags(
-            seed_record.tags, min_tag_overlap=_SYNTH_TAG_OVERLAP
-        )
+        existing_name = self._registry.find_by_tags(seed_record.tags, min_tag_overlap=_TAG_OVERLAP)
         existing = self._registry.get(existing_name) if existing_name else None
+
+        if existing is not None and existing_name is not None:
+            blocked = await self._overwrite_guard(existing_name, existing)
+            if blocked is not None:
+                logger.info("SkillSynthesizer: %s", blocked)
+                return SynthesisResult(failure=blocked)
+
         primary_tag = seed_record.tags[0] if seed_record.tags else ""
 
         result = await self.synthesize_from(
@@ -280,6 +311,8 @@ class SkillSynthesizer:
         )
         if result.skill is not None:
             self._register_or_merge(result.skill)
+            if existing is not None:
+                self._last_overwrite_at[result.skill.card.name] = time.time()
             contra = (
                 f" — {len(result.skill.contradictions)} contradiction(s) flagged"
                 if result.skill.contradictions
@@ -292,6 +325,41 @@ class SkillSynthesizer:
                 contra,
             )
         return result
+
+    async def _overwrite_guard(self, name: str, existing: SkillContent) -> str | None:
+        """Return a failure reason if overwriting *name* should be blocked, else None.
+
+        Checked before the LLM call, so a blocked overwrite costs nothing.
+        """
+        last = self._last_overwrite_at.get(name)
+        if last is not None:
+            elapsed = time.time() - last
+            if elapsed < self._overwrite_cooldown_seconds:
+                return (
+                    f"rate_limited: skill {name!r} was auto-overwritten {elapsed:.0f}s ago "
+                    f"(< {self._overwrite_cooldown_seconds:.0f}s cooldown)"
+                )
+
+        if self._store is None:
+            # No corroboration history wired — fall back to the lenient gate
+            # rather than blocking every overwrite indefinitely.
+            return None
+
+        records = await self._store.load_all()
+        existing_tags = set(existing.card.tags)
+        corroborating = sum(
+            1
+            for r in records
+            if r.outcome == ExperienceOutcome.SUCCESS
+            and len(set(r.tags) & existing_tags) >= _TAG_OVERLAP
+        )
+        if corroborating < self._min_repeat_successes:
+            return (
+                f"insufficient corroboration: overwriting {name!r} needs "
+                f"{self._min_repeat_successes} successful run(s) with overlapping tags, "
+                f"found {corroborating}"
+            )
+        return None
 
     def _register_or_merge(self, skill: SkillContent) -> None:
         """Register *skill*, updating an existing near-duplicate in place."""

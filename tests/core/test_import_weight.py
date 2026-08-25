@@ -13,7 +13,10 @@ Imports in a clean subprocess and inspects ``sys.modules`` for prodagent.*:
 These are the CI pins for "lightweight": whoever hangs a heavy module on
 the kernel import chain turns this red first.
 
-Why this size and not smaller: kernel (8), ports (15 — tiny Protocol
+Why this size and not smaller: kernel (10 — includes core.budget_axes, the
+shared turns/seconds/tokens/cost precedence check used by both check_budget()
+and BudgetLedger, and core.pipeline, the generic mount/dispatch plumbing
+behind kernel/bus.py's HookRegistry), ports (15 — tiny Protocol
 files that ARE the kernel's vocabulary), tooling (10 — the @tool/dispatch
 spine), the messaging plane (7 — the driver's shared data structures),
 plus runtime core (agent/config/runner/factory/compose/parent_runtime).
@@ -44,7 +47,9 @@ KERNEL_EXPECTED = frozenset(
     {
         "prodagent",
         "prodagent.core",
+        "prodagent.core.budget_axes",
         "prodagent.core.lazy",
+        "prodagent.core.pipeline",
         "prodagent.kernel.budget",
         "prodagent.core.config",
         "prodagent.core.error_classifier",
@@ -52,9 +57,8 @@ KERNEL_EXPECTED = frozenset(
         "prodagent.kernel.events",
         "prodagent.core.exceptions",
         "prodagent.core.progress",
-        "prodagent.core.state",
         "prodagent.kernel.state",
-        "prodagent.core.state.session",
+        "prodagent.core.session",
         "prodagent.core.text",
         "prodagent.core.retry",
         "prodagent.kernel.types",

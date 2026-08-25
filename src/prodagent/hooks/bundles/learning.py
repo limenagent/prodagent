@@ -42,12 +42,14 @@ class LearningHooks:
                 "to lazy-resolve one."
             )
         # synthesizer lazy-resolves its aux LLM from framework_config so callers
-        # don't have to wire SkillSynthesizer(llm, registry) themselves.
+        # don't have to wire SkillSynthesizer(llm, registry) themselves. Passing
+        # `store` here is what activates SkillSynthesizer's stricter overwrite
+        # gate (corroboration count + cooldown) — see its docstring.
         if synthesizer is None and framework_config is not None:
             from prodagent.backends.factory import resolve_llm
             from prodagent.skills.skill_synthesizer import SkillSynthesizer
 
-            synthesizer = SkillSynthesizer(resolve_llm(framework_config), registry)
+            synthesizer = SkillSynthesizer(resolve_llm(framework_config), registry, store=store)
         if synthesizer is None:
             raise ValueError(
                 "LearningHooks requires either an explicit synthesizer or a "

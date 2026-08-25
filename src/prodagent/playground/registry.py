@@ -17,7 +17,7 @@ from prodagent.kernel.types import RunState
 
 if TYPE_CHECKING:
     from prodagent.core.config import FrameworkConfig
-    from prodagent.core.state.session import ConversationSession
+    from prodagent.core.session import ConversationSession
     from prodagent.kernel.state import AgentRun
     from prodagent.ports import CheckpointStore, SessionStore
     from prodagent.runtime.agent import Agent

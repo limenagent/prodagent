@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     from starlette.responses import Response
     from starlette.types import Scope
 
-    from prodagent.core.state.session import ConversationSession
+    from prodagent.core.session import ConversationSession
     from prodagent.kernel.state import AgentRun
     from prodagent.runtime.agent import Agent
 

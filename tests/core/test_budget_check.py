@@ -95,6 +95,28 @@ class TestSpawnExtras:
             check_budget(run, budget, extra_tokens=100)
 
 
+class TestAxisPrecedenceConsistency:
+    """check_budget() and BudgetLedger both delegate to evaluate_axes() now —
+    when multiple axes are over cap simultaneously, both must report the same
+    one (turns > seconds > tokens > cost)."""
+
+    def test_check_budget_reports_turns_when_turns_and_cost_both_over(self):
+        run = _make_run(turns=10)
+        run.metrics.cost_usd = 10.0
+        budget = HardBudget(max_turns=5, max_tokens=1_000_000, max_seconds=600, max_cost_usd=1.0)
+        with pytest.raises(BudgetExceeded, match="Turn limit"):
+            check_budget(run, budget)
+
+    async def test_budget_ledger_reports_turns_when_turns_and_cost_both_over(self):
+        from prodagent.kernel.budget import BudgetLedger
+
+        budget = HardBudget(max_turns=5, max_tokens=1_000_000, max_seconds=600, max_cost_usd=1.0)
+        ledger = BudgetLedger(max=budget)
+        await ledger.commit(member="x", turns=10, tokens=0, cost_usd=10.0)
+        with pytest.raises(BudgetExceeded, match="turns axis"):
+            await ledger.check(member="x")
+
+
 class TestReactiveLoopSpawnAccumulators:
     async def test_loop_trips_on_sibling_spend_it_never_directly_incurred(self):
         from prodagent.kernel.budget import BudgetLedger

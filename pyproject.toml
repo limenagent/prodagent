@@ -65,6 +65,7 @@ dev = [
     "prodagent[anthropic]",
     "mypy>=1.10.0",
     "ruff>=0.5.0",
+    "import-linter>=2.0",
 ]
 all = [
     "prodagent[testing]",
@@ -142,3 +143,17 @@ exclude_lines = [
     "raise NotImplementedError",
     "@overload",
 ]
+
+[tool.importlinter]
+root_packages = ["prodagent"]
+
+[[tool.importlinter.contracts]]
+name = "Playground is a leaf — nothing else in prodagent depends on it"
+type = "forbidden"
+source_modules = [
+    "prodagent.core", "prodagent.kernel", "prodagent.runtime",
+    "prodagent.coordination", "prodagent.cognition", "prodagent.plan",
+    "prodagent.ports", "prodagent.backends", "prodagent.llm",
+    "prodagent.tooling", "prodagent.mcp", "prodagent.hooks", "prodagent.skills",
+]
+forbidden_modules = ["prodagent.playground"]

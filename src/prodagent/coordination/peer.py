@@ -1,4 +1,12 @@
-"""Peer — horizontal peer handoff (``peers=``)."""
+"""Peer — horizontal peer handoff (``peers=``).
+
+This module only defines the ``handoff_to_<peer>`` tool schema. The real
+handoff chain — ``HandoffPacket``, ``Crossing``, idempotency dedup — lives in
+``runtime/runner.py`` (see its handling around the ``PendingHandoff`` state).
+Peer is a *delegation strategy*, not a multi-round staged topology: contrast
+with ensemble/blackboard/work_queue, which run their own round loop over a
+shared store.
+"""
 
 from __future__ import annotations
 

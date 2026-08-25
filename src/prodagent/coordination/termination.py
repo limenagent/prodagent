@@ -22,7 +22,6 @@ __all__ = [
     "MaxRounds",
     "TerminationPolicy",
     "TerminationReason",
-    "evaluate_termination",
 ]
 
 
@@ -122,18 +121,3 @@ class TerminationPolicy:
             if stop:
                 return True, reason
         return self.hard_cap.should_stop(floor, next_round=next_round)
-
-
-def evaluate_termination(
-    policy: TerminationPolicy,
-    floor: RoundCountable,
-    *,
-    next_round: int,
-) -> TerminationReason:
-    """Evaluate policy. Budget is *not* checked here — the pipeline owns the
-    :class:`SharedBudget` and checks it separately (it's the hardest stop,
-    independent of policy)."""
-    stop, reason = policy.should_stop(floor, next_round=next_round)
-    if stop and reason is not None:
-        return reason
-    return TerminationReason(reason="continue", detail="no termination condition met")

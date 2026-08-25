@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -84,6 +85,28 @@ def _parse_skill_file(path: Path) -> SkillContent:
     return SkillContent(card=card, full_doc=body.strip())
 
 
+def _to_markdown(content: SkillContent) -> str:
+    """Render *content* as a Markdown file with YAML front-matter — the
+    on-disk format shared by ``.md`` skill files and ``.history/`` snapshots."""
+    try:
+        import yaml
+    except ImportError as exc:
+        raise RuntimeError("Persisting skills requires pyyaml: pip install pyyaml") from exc
+
+    front_matter = yaml.safe_dump(
+        {
+            "name": content.card.name,
+            "description": content.card.description,
+            "version": content.card.version,
+            "tags": content.card.tags,
+        },
+        sort_keys=False,
+        allow_unicode=True,
+        default_flow_style=False,
+    ).strip()
+    return f"---\n{front_matter}\n---\n\n{content.full_doc}"
+
+
 class SkillRegistry:
     """Progressive-disclosure skill registry."""
 
@@ -98,13 +121,60 @@ class SkillRegistry:
         return self._skills_dir
 
     def register(self, content: SkillContent) -> Path | None:
-        """Register a SkillContent in memory, and persist to disk if skills_dir is set."""
+        """Register a SkillContent in memory, and persist to disk if skills_dir is set.
+
+        If this overwrites a previously-registered version of the same skill,
+        the version being replaced is archived to ``.history/`` first so a bad
+        auto-synthesis can be undone with :meth:`rollback`.
+        """
         with self._lock:
+            previous = self._skills.get(content.card.name)
             self._skills[content.card.name] = content
         logger.debug("Skill registered: %s", content.card.name)
         if self._skills_dir is not None:
+            if previous is not None:
+                self._archive(previous)
             return self._persist(content)
         return None
+
+    def _history_dir(self, name: str) -> Path | None:
+        if self._skills_dir is None:
+            return None
+        return self._skills_dir / ".history" / name
+
+    def _archive(self, content: SkillContent) -> None:
+        """Snapshot *content* before it's overwritten by a newer version."""
+        history_dir = self._history_dir(content.card.name)
+        if history_dir is None:
+            return
+        try:
+            history_dir.mkdir(parents=True, exist_ok=True)
+            path = history_dir / f"{int(time.time())}_v{content.card.version}.md"
+            path.write_text(_to_markdown(content), encoding="utf-8")
+            logger.info("Skill archived before overwrite: %s", path)
+        except OSError:
+            logger.exception(
+                "SkillRegistry: failed to archive skill %r before overwrite", content.card.name
+            )
+
+    def rollback(self, name: str, to_version: str) -> bool:
+        """Restore *name* to *to_version* from its version history.
+
+        Re-registers the archived snapshot, which itself archives the version
+        being replaced — a rollback is never destructive. Returns ``False``
+        if no archived snapshot for *to_version* exists (including when this
+        registry has no ``skills_dir``, since history is disk-only).
+        """
+        history_dir = self._history_dir(name)
+        if history_dir is None or not history_dir.exists():
+            return False
+        candidates = sorted(history_dir.glob(f"*_v{to_version}.md"))
+        if not candidates:
+            return False
+        content = _parse_skill_file(candidates[-1])
+        self.register(content)
+        logger.info("Skill %r rolled back to v%s from %s", name, to_version, candidates[-1])
+        return True
 
     def _persist(self, content: SkillContent) -> Path | None:
         """Write a synthesised skill to disk as a Markdown file with YAML front-matter."""
@@ -113,25 +183,8 @@ class SkillRegistry:
         skills_dir = self._skills_dir
         try:
             skills_dir.mkdir(parents=True, exist_ok=True)
-            try:
-                import yaml
-            except ImportError as exc:
-                raise RuntimeError("Persisting skills requires pyyaml: pip install pyyaml") from exc
-
-            front_matter = yaml.safe_dump(
-                {
-                    "name": content.card.name,
-                    "description": content.card.description,
-                    "version": content.card.version,
-                    "tags": content.card.tags,
-                },
-                sort_keys=False,
-                allow_unicode=True,
-                default_flow_style=False,
-            ).strip()
-            front = f"---\n{front_matter}\n---\n\n"
             path = skills_dir / f"{content.card.name}.md"
-            path.write_text(front + content.full_doc, encoding="utf-8")
+            path.write_text(_to_markdown(content), encoding="utf-8")
             logger.info("Skill persisted to disk: %s", path)
             return path
         except OSError:

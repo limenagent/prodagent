@@ -138,7 +138,7 @@ def test_extend_human_approval_registers_checker():
 
     hooks = HookRegistry()
     ApprovalHooks(gate=ApprovalGate()).attach(hooks)
-    assert len(hooks._check_handlers[Gate.APPROVAL_REQUEST]) == 1
+    assert len(hooks.check_handlers(Gate.APPROVAL_REQUEST)) == 1
 
 
 def test_fluent_api_budget():

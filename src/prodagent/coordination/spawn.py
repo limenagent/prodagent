@@ -1,4 +1,12 @@
-"""Spawn — vertical sub-agent delegation (``agents=``)."""
+"""Spawn — vertical sub-agent delegation (``agents=``).
+
+A single LLM tool call decides dispatch and the parent keeps running while it
+waits for a result — there is no round loop here. Contrast with the three
+stage-driven topologies (ensemble/blackboard/work_queue), which iterate
+rounds over a shared store until a :class:`~prodagent.coordination.termination.TerminationPolicy`
+fires. Spawn and :mod:`~prodagent.coordination.peer` are *delegation
+strategies*; they are not a fourth and fifth "topology."
+"""
 
 from __future__ import annotations
 

@@ -14,6 +14,7 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
+from prodagent.core.budget_axes import evaluate_axes
 from prodagent.core.exceptions import BudgetExceeded
 
 if TYPE_CHECKING:
@@ -44,60 +45,62 @@ def check_budget(
     extra_cost_usd: float = 0.0,
 ) -> None:
     turn_count = run.turn_count + extra_turns
-    if turn_count >= budget.max_turns:
+    elapsed = run.elapsed_seconds()
+    total_tokens = run.input_tokens + run.output_tokens + extra_tokens
+    billable_tokens = total_tokens - run.cache_read_tokens
+    cost_usd = run.cost_usd + extra_cost_usd
+
+    outcome = evaluate_axes(
+        turns=turn_count,
+        elapsed=elapsed,
+        tokens=billable_tokens,
+        cost_usd=cost_usd,
+        max_turns=budget.max_turns,
+        max_seconds=budget.max_seconds,
+        max_tokens=budget.max_tokens,
+        max_cost_usd=budget.max_cost_usd,
+    )
+    if outcome is None:
+        return
+    axis, value, limit = outcome
+
+    if axis == "turns":
         raise BudgetExceeded(
             f"Turn limit reached: {turn_count}/{budget.max_turns}",
             run_id=run.run_id,
             axis="turns",
-            value=turn_count,
-            limit=budget.max_turns,
+            value=value,
+            limit=limit,
         )
-
-    elapsed = run.elapsed_seconds()
-    if elapsed >= budget.max_seconds:
+    if axis == "seconds":
         raise BudgetExceeded(
             f"Time limit reached: {elapsed:.1f}s/{budget.max_seconds}s",
             run_id=run.run_id,
             axis="seconds",
-            value=elapsed,
-            limit=budget.max_seconds,
+            value=value,
+            limit=limit,
         )
-
-    total_tokens = run.input_tokens + run.output_tokens + extra_tokens
-    billable_tokens = total_tokens - run.cache_read_tokens
-    if billable_tokens >= budget.max_tokens:
+    if axis == "tokens":
         cached = run.cache_read_tokens
         raise BudgetExceeded(
             f"Token limit reached: {billable_tokens}/{budget.max_tokens}"
             + (f" ({cached} cached tokens excluded)" if cached else ""),
             run_id=run.run_id,
             axis="tokens",
-            value=billable_tokens,
-            limit=budget.max_tokens,
+            value=value,
+            limit=limit,
         )
-
-    cost_usd = run.cost_usd + extra_cost_usd
-    if cost_usd >= budget.max_cost_usd:
-        raise BudgetExceeded(
-            f"Cost limit reached: ${cost_usd:.4f}/${budget.max_cost_usd}",
-            run_id=run.run_id,
-            axis="cost_usd",
-            value=cost_usd,
-            limit=budget.max_cost_usd,
-        )
+    raise BudgetExceeded(
+        f"Cost limit reached: ${cost_usd:.4f}/${budget.max_cost_usd}",
+        run_id=run.run_id,
+        axis="cost_usd",
+        value=value,
+        limit=limit,
+    )
 
 
 # ── Shared ledger ─────────────────────────────────────────────────────────────
 # Moved verbatim from coordination/budget_ledger.py.
-
-
-class BudgetAxis:
-    """Axis labels — match :class:`BudgetExceeded` context values."""
-
-    TURNS = "turns"
-    SECONDS = "seconds"
-    TOKENS = "tokens"
-    COST_USD = "cost_usd"
 
 
 @dataclass
@@ -258,24 +261,10 @@ class BudgetLedger:
                 )
 
     def _raise_if_over_cap_locked(self, *, member: str) -> None:
-        if not self._is_over_cap_locked():
+        outcome = self._evaluate_axes_locked()
+        if outcome is None:
             return
-        turns = self._committed.turns + self._reserved.turns
-        tokens = self._committed.tokens + self._reserved.tokens
-        cost_usd = self._committed.cost_usd + self._reserved.cost_usd
-        elapsed = self.elapsed_seconds()
-        # Precedence: turns, seconds, tokens, cost.
-        axis: str
-        value: float
-        limit: float
-        if turns >= self.max.max_turns:
-            axis, value, limit = BudgetAxis.TURNS, turns, self.max.max_turns
-        elif elapsed >= self.max.max_seconds:
-            axis, value, limit = BudgetAxis.SECONDS, elapsed, self.max.max_seconds
-        elif tokens >= self.max.max_tokens:
-            axis, value, limit = BudgetAxis.TOKENS, tokens, self.max.max_tokens
-        else:
-            axis, value, limit = BudgetAxis.COST_USD, cost_usd, self.max.max_cost_usd
+        axis, value, limit = outcome
         raise BudgetExceeded(
             f"Shared budget ledger exhausted on {axis} axis: "
             f"{value}/{limit} (member {member!r} blocked)",
@@ -283,18 +272,22 @@ class BudgetLedger:
             value=value,
             limit=limit,
             member=member,
-            floor_spent=spent_to_dict(self.spent, elapsed=elapsed),
+            floor_spent=spent_to_dict(self.spent, elapsed=self.elapsed_seconds()),
         )
 
     def _is_over_cap_locked(self) -> bool:
-        turns = self._committed.turns + self._reserved.turns
-        tokens = self._committed.tokens + self._reserved.tokens
-        cost_usd = self._committed.cost_usd + self._reserved.cost_usd
-        return (
-            turns >= self.max.max_turns
-            or self.elapsed_seconds() >= self.max.max_seconds
-            or tokens >= self.max.max_tokens
-            or cost_usd >= self.max.max_cost_usd
+        return self._evaluate_axes_locked() is not None
+
+    def _evaluate_axes_locked(self) -> tuple[str, float, float] | None:
+        return evaluate_axes(
+            turns=self._committed.turns + self._reserved.turns,
+            elapsed=self.elapsed_seconds(),
+            tokens=self._committed.tokens + self._reserved.tokens,
+            cost_usd=self._committed.cost_usd + self._reserved.cost_usd,
+            max_turns=self.max.max_turns,
+            max_seconds=self.max.max_seconds,
+            max_tokens=self.max.max_tokens,
+            max_cost_usd=self.max.max_cost_usd,
         )
 
     def _snapshot_locked(self) -> dict[str, float | int]:

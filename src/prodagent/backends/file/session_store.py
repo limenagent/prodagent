@@ -11,7 +11,7 @@ from typing import Any
 from prodagent.backends.file._locking import _exclusive
 from prodagent.core.exceptions import VersionConflict
 from prodagent.core.io import safe_filename_component, write_atomic_json
-from prodagent.core.state.session import ConversationSession
+from prodagent.core.session import ConversationSession
 
 logger = logging.getLogger(__name__)
 

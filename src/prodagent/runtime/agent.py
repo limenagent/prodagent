@@ -14,7 +14,7 @@ from prodagent.core.exceptions import (
     RunIdCollisionError,
     UnknownApprovalError,
 )
-from prodagent.core.state.session import ConversationSession
+from prodagent.core.session import ConversationSession
 from prodagent.kernel.bus import Gate, HookEvent, HookRegistry, InjectionPoint
 from prodagent.kernel.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.kernel.state import CHILD_SEPARATOR
@@ -68,6 +68,46 @@ class Agent:
     everything else — LLM client, topology, storage, hooks, extensions —
     is a field on :class:`AgentConfig` (``runtime/config.py``). Hot params
     override the matching config fields when both are given.
+
+    Construction sequence — "where do tools/hooks come from" spans three
+    files and two distinct times (constructor time vs. per-hop time); this
+    is the map so no one has to reconstruct it by stepping through a
+    debugger:
+
+    1. **``Agent.__init__`` (eager, once)** — merges hot params into
+       ``AgentConfig``, then ``_bind_invariants`` resolves ``workflow=`` if
+       given: it binds the workflow to an LLM, compiles it into
+       ``config.initial_plan``, and appends ``workflow.tools`` to
+       ``config.tools``. Everything else on ``AgentConfig`` stays exactly
+       as passed — no other resolution happens here.
+    2. **``Agent.attach_default_hooks`` (lazy, idempotent, first call wins)**
+       — called by both probes (``_find_approval_gate``, ``memory_manager``)
+       and the real run path. If ``config.hooks`` is already set, wires it;
+       otherwise builds a fresh ``HookRegistry``, attaches
+       ``default_hook_bundles(framework_config)`` (``hooks/bundles/base.py``),
+       then calls ``_wire_hooks`` to register accumulated injectors /
+       checkers / event handlers / extensions from ``AgentConfig``.
+       ``_hooks_wired`` guards against double-registration on repeated calls
+       (see ``tests/runtime/test_spawn_hitl_shared_registry.py`` for why
+       that guard exists).
+    3. **``LeafExecutorFactory.prepare`` (``runtime/factory.py``, once per
+       hop)** — the actual tool assembly happens here, not in ``Agent``:
+       calls ``agent.attach_default_hooks()`` first, then
+       ``agent.resolve_tools()`` (inline tools + ``tool_registry``),
+       merges in MCP tools, a spill-reader tool if paging is active, and
+       whatever ``ctx.tool_assemblers`` contribute (spawn/peer/handoff
+       tools — the factory itself stays blind to which collaboration
+       capabilities exist, per ``compose.py``'s ``hop_tool_assemblers``
+       seam). It then builds the system prompt (``build_system_prompt``),
+       optionally a ``ContextManager`` (``build_context_manager``), and
+       finally a ``PlanExecutor`` or ``ReactiveLoop`` depending on
+       ``effective_mode``.
+
+    fork/spawn/peer derivation (``_fork``, ``fork_as_spawn``,
+    ``fork_as_peer``) always happens *before* step 3 for the child — a
+    forked ``Agent`` re-enters this same sequence from step 2 onward on its
+    own hop, it does not inherit an already-wired ``HookRegistry`` unless
+    the fork explicitly overrides ``hooks=`` (see ``_runtime_overrides``).
     """
 
     def __init__(

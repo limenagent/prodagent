@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from prodagent.core.exceptions import VersionConflict
 
 if TYPE_CHECKING:
-    from prodagent.core.state.session import ConversationSession
+    from prodagent.core.session import ConversationSession
 
 __all__ = ["InMemorySessionStore"]
 
