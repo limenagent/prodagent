@@ -90,35 +90,26 @@ stateDiagram-v2
 
 这是 prodagent 最核心的抽象。**一个 Step = 一次模型调用 + 至多一轮工具执行。**
 
-```
-┌─────────────────────────────────────────────────┐
-│                   Step.run()                    │
-│                                                 │
-│  1. _prepare()                                  │
-│     ├─ 预算检查（turns/tokens/cost/seconds）    │
-│     ├─ 死循环检测（fingerprint 窗口比对）       │
-│     └─ 上下文组装（system + messages）          │
-│                                                 │
-│  2. _call_llm()                                 │
-│     ├─ 硬超时（max_seconds - elapsed）          │
-│     ├─ 流式 chunk 回调                          │
-│     └─ cache_boundary 标记                      │
-│                                                 │
-│  3. _account()                                  │
-│     ├─ token/cost 记账                          │
-│     ├─ assistant 消息写入历史                   │
-│     └─ TOKEN_UPDATE 事件                        │
-│                                                 │
-│  4. _end_turn()?                                │
-│     ├─ 是 → RunState.COMPLETED，返回            │
-│     └─ 否 → 继续执行工具                        │
-│                                                 │
-│  5. runner.run_batch(tool_calls)                │
-│     └─ 权限 → 审批 → 执行 → 结果写回            │
-│                                                 │
-│  6. 再次预算检查                                │
-└─────────────────────────────────────────────────┘
-```
+**`Step.run()` 内部依次执行：**
+
+1. **`_prepare()`**
+   - 预算检查（turns/tokens/cost/seconds）
+   - 死循环检测（fingerprint 窗口比对）
+   - 上下文组装（system + messages）
+2. **`_call_llm()`**
+   - 硬超时（max_seconds - elapsed）
+   - 流式 chunk 回调
+   - cache_boundary 标记
+3. **`_account()`**
+   - token/cost 记账
+   - assistant 消息写入历史
+   - TOKEN_UPDATE 事件
+4. **`_end_turn()`**
+   - 是 → `RunState.COMPLETED`，返回
+   - 否 → 继续执行工具
+5. **`runner.run_batch(tool_calls)`**
+   - 权限 → 审批 → 执行 → 结果写回
+6. **再次预算检查**
 
 **为什么 Step 是原子的？**
 

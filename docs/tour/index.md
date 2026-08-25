@@ -53,14 +53,6 @@ graph LR
     S4 --> S5["⑤ 循环内核<br/>think→decide→execute"]
     S5 --> S6["⑥ 规划与DAG<br/>三种执行模式"]
     S6 --> S7["⑦ 多Agent协作<br/>五种拓扑"]
-
-    style S1 fill:#e8f4fd,stroke:#2196f3
-    style S2 fill:#fff3e0,stroke:#ff9800
-    style S3 fill:#f3e5f5,stroke:#9c27b0
-    style S4 fill:#e8f5e9,stroke:#4caf50
-    style S5 fill:#fffde7,stroke:#fbc02d
-    style S6 fill:#fce4ec,stroke:#e91e63
-    style S7 fill:#e0f7fa,stroke:#00bcd4
 ```
 
 ### 每站你将学会什么

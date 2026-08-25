@@ -128,7 +128,7 @@ Step.run()
 ├── _prepare()
 │   └── _check_budget()  ← ① 这一轮还能不能开始？
 ├── _call_llm()
-│   └── asyncio.wait_for  ← ② 时间硬截止
+│   └── asyncio.wait_for ← ② 时间硬截止
 ├── _account()           ← 记账
 ├── _end_turn()?
 └── runner.run_batch()
