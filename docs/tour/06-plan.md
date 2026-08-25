@@ -261,7 +261,7 @@ Workflow:   for node in ready_nodes: function()  (可选 Step.run())
 | PlanExecutor | `plan/executor.py` |
 | DAG 数据结构 | `plan/dag.py` |
 | Workflow | `plan/workflow.py` |
-| 重规划逻辑 | `plan/replan.py` |
+| 重规划逻辑 | `plan/executor.py` |
 | Agent 装配 | `runtime/agent.py` |
 | 工厂模式选择 | `runtime/factory.py` |
 

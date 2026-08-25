@@ -243,9 +243,8 @@ graph TD
 | ApprovalStore 端口 | `ports/approval.py` |
 | 审批 hooks | `hooks/approval/` |
 | 挂起恢复 | `kernel/loop.py::_loop_events` |
-| 审批拒绝处理 | `hooks/approval/reject.py` |
-| Memory 后端 | `backends/memory/approval.py` |
-| Postgres 后端 | `backends/postgres/approval.py` |
+| 审批拒绝处理 | `hooks/approval/gate.py` |
+| Memory 后端（唯一实现） | `backends/memory/approval.py` |
 
 ---
 

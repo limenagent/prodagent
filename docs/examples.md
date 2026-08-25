@@ -237,9 +237,7 @@ pip install "prodagent[playground]"
 # 启动可视化 playground，浏览器里选示例运行
 make playground
 
-# 或者直接跑某个示例
-python examples/greeter/run.py
-python examples/deep_research/run.py
+# 示例没有独立入口：playground/registry.py 自动扫描 examples/ 注册，浏览器里选着跑
 ```
 
 所有示例默认用 FakeLLM，**零 API key、零网络、完全离线可复现**。

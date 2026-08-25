@@ -273,8 +273,8 @@ prodagent 不绑定特定模型。你可以：
 | LLMClient 端口 | `ports/llm.py` |
 | LLMConfig / PricingTable | `ports/llm.py` |
 | 成本计算 | `ports/llm.py::token_cost_usd` |
-| OpenAI 适配器 | `llm/openai.py` |
-| Anthropic 适配器 | `llm/anthropic.py` |
+| OpenAI 适配器 | `llm/openai_adapter.py` |
+| Anthropic 适配器 | `llm/anthropic_adapter.py` |
 | FakeLLM | `llm/fake.py` |
 | 定价表 | `llm/pricing.py` |
 | 模型自动检测 | `llm/providers.py` |

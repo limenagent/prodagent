@@ -171,11 +171,11 @@ graph TD
 | 内容 | 源码位置 |
 |------|---------|
 | SkillResolver | `tooling/skill_resolver.py` |
-| 技能蒸馏 | `skills/distill.py` |
+| 技能蒸馏 | `skills/skill_synthesizer.py` |
 | 技能存储端口 | `ports/experience.py` |
-| runbook 结构 | `skills/runbook.py` |
-| 召回与评分 | `skills/recall.py` |
-| 反馈与退役 | `skills/feedback.py` |
+| 技能文件格式 | `skills/registry.py` |
+| 召回与评分 | `skills/registry.py` |
+| 反馈与退役 | `skills/registry.py` |
 
 ---
 

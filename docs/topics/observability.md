@@ -210,10 +210,10 @@ agent = Agent("demo", tools=[search], config=AgentConfig(framework=production())
 | SpanStore 端口 | `ports/span.py` |
 | EventLog 端口 | `ports/event_log.py` |
 | 可观测 hooks | `hooks/observers/` |
-| Span 实现 | `backends/file/span.py` `backends/memory/span.py` |
+| Span 实现 | `backends/file/span.py` `backends/postgres/span.py` |
 | 事件日志实现 | `backends/file/event_log.py` |
 | CoT 记录 | `kernel/step.py::_call_llm` |
-| Metrics 聚合 | `hooks/observers/metrics.py` |
+| 缓存指标聚合 | `hooks/observers/cache_monitor.py` |
 
 ---
 

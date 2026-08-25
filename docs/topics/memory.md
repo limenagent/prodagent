@@ -199,12 +199,12 @@ graph TD
 | 内容 | 源码位置 |
 |------|---------|
 | MemoryManager | `cognition/memory/manager.py` |
-| 规则通道 | `cognition/memory/rules.py` |
-| 实体通道 | `cognition/memory/entities.py` |
-| 精确通道 | `cognition/memory/exact.py` |
-| 语义通道 | `cognition/memory/semantic.py` |
-| 冲突裁决 | `cognition/memory/arbitration.py` |
-| 遗忘曲线 | `cognition/memory/decay.py` |
+| 规则通道 | `cognition/memory/channels.py`（RuleChannel） |
+| 实体通道 | `cognition/memory/channels.py`（EntityChannel） |
+| 精确通道 | `cognition/memory/channels.py`（ExactChannel） |
+| 语义通道 | `cognition/memory/channels.py`（SemanticChannel）`cognition/memory/embedder.py` |
+| 冲突裁决 | `cognition/memory/conflict.py` |
+| 遗忘曲线 | `cognition/memory/forgetting.py` |
 | 记忆端口 | `ports/experience.py` |
 
 ---
