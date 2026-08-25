@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -463,10 +464,10 @@ class SkillSynthesizer:
                 )
             )
 
-        name = str(data.get("name", f"synthesised-{primary_tag}"))
+        name = _sanitize_name(str(data.get("name") or f"synthesised-{primary_tag}"))
         description = str(data.get("description", ""))[:120]
         version = str(data.get("version", "1.0"))
-        tags = data.get("tags", [primary_tag] if primary_tag else [])
+        tags = _coerce_tags(data.get("tags"), primary_tag)
         sections = [f"{header}\n{data[key]}" for key, header in _SKILL_SECTIONS if data.get(key)]
         full_doc = "\n\n".join(sections) if sections else "(synthesised — no procedure)"
 
@@ -491,3 +492,34 @@ def _bump_version(version: str) -> str:
         return f"{int(major)}.{int(minor or 0) + 1}"
     except (ValueError, TypeError):
         return "1.1"
+
+
+_UNSAFE_NAME_CHARS = re.compile(r"[^A-Za-z0-9_.-]+")
+
+
+def _sanitize_name(raw: str) -> str:
+    """Make an LLM-provided skill name a safe filename component.
+
+    Synthesised names flow straight into ``skills_dir / f"{name}.md"`` —
+    unsanitised, ``../../evil`` writes outside the skills directory. Keep the
+    registry's disk charset (no separators, no traversal), clamp length,
+    fall back to a generic name when nothing survives."""
+    cleaned = _UNSAFE_NAME_CHARS.sub("-", raw.strip()).strip("-").replace("..", "-")
+    return cleaned[:64].strip("-") or "synthesised-skill"
+
+
+def _coerce_tags(raw: Any, primary_tag: str) -> list[str]:
+    """LLM ``tags`` must arrive as a list — a bare string would be iterated
+    character-by-character by every downstream ``set(tags)``/overlap count."""
+    if isinstance(raw, str):
+        candidates: list[Any] = [raw]
+    elif isinstance(raw, list):
+        candidates = raw
+    else:
+        candidates = []
+    tags: list[str] = []
+    for item in candidates:
+        text = str(item).strip() if isinstance(item, (str, int, float)) else ""
+        if text and text not in tags:
+            tags.append(text)
+    return tags or ([primary_tag] if primary_tag else [])

@@ -4,6 +4,7 @@ three dispatch modes (:meth:`_dispatch`), exercised through a minimal driver."""
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 import pytest
@@ -75,7 +76,9 @@ async def test_envelope_blocks_member_that_cannot_reserve():
 
 
 @pytest.mark.asyncio
-async def test_envelope_releases_reservation_when_act_raises():
+async def test_envelope_commits_the_turn_when_act_raises():
+    """A crashed attempt consumes its turn slot — releasing it would let a
+    crash-looping member speak forever while the turns axis reads zero."""
     ledger = BudgetLedger(
         max=HardBudget(max_turns=10, max_seconds=60, max_tokens=10_000, max_cost_usd=10.0)
     )
@@ -88,9 +91,10 @@ async def test_envelope_releases_reservation_when_act_raises():
     with pytest.raises(RuntimeError):
         await driver._run_enveloped("alice", act)
 
-    # The reservation was given back: the ledger is not permanently over-drawn.
-    assert ledger.spent.turns == 0
-    await ledger.check(member="alice")  # no BudgetExceeded
+    # The turn is committed (tokens/cost unknowable → 0), not released.
+    assert ledger.spent.turns == 1
+    assert ledger.committed.turns == 1
+    assert ledger.member_reserved("alice").turns == 0
 
 
 @pytest.mark.asyncio
@@ -169,3 +173,86 @@ async def test_dispatch_single_winner_requires_lock_store():
         await driver._dispatch(
             Activation(members=["a"], dispatch="single_winner", label="t"), run_one
         )
+
+
+# ---------------------------------------------------------------------------
+# concurrent dispatch — a raising member cancels its in-flight siblings
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dispatch_concurrent_failure_cancels_siblings():
+    """A member that raises must not leave siblings burning as orphans.
+
+    Plain ``asyncio.gather`` propagates the first exception but keeps the
+    surviving coroutines running in the background — their spend never
+    reaches the ledger after the run has already terminated."""
+    import time
+
+    driver = _ProbeDriver()
+    slow_finished = False
+    slow_cancelled = False
+
+    async def run_one(name: str) -> str:
+        nonlocal slow_finished, slow_cancelled
+        if name == "boom":
+            raise RuntimeError("member exploded")
+        try:
+            await asyncio.sleep(5.0)
+            slow_finished = True
+            return "slow-done"
+        except asyncio.CancelledError:
+            slow_cancelled = True
+            raise
+
+    started = time.monotonic()
+    with pytest.raises(RuntimeError, match="member exploded"):
+        await driver._dispatch(
+            Activation(members=["boom", "slow"], dispatch="concurrent", label="t"),
+            run_one,
+        )
+
+    assert time.monotonic() - started < 2.0  # failed fast, didn't wait out the sleeper
+    assert not slow_finished
+    assert slow_cancelled
+
+
+# ---------------------------------------------------------------------------
+# per-member reservations — release only touches your own share
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_release_cannot_free_another_members_reservation():
+    ledger = BudgetLedger(
+        max=HardBudget(max_turns=100, max_seconds=60, max_tokens=10_000, max_cost_usd=10.0)
+    )
+    await ledger.reserve(member="alice", turns=1, tokens=500)
+
+    # Bob tries to release Alice's reservation (buggy caller / bad actor).
+    await ledger.release(member="bob", reserved_turns=1, reserved_tokens=500)
+
+    assert ledger.spent.turns == 1  # Alice's reservation is untouched
+    assert ledger.spent.tokens == 500
+    assert ledger.member_reserved("bob").turns == 0
+
+    # Alice releases her own — only now does it free up.
+    await ledger.release(member="alice", reserved_turns=1, reserved_tokens=500)
+    assert ledger.spent.turns == 0
+    assert ledger.spent.tokens == 0
+
+
+@pytest.mark.asyncio
+async def test_commit_reconciles_only_the_committing_members_bucket():
+    ledger = BudgetLedger(
+        max=HardBudget(max_turns=100, max_seconds=60, max_tokens=10_000, max_cost_usd=10.0)
+    )
+    await ledger.reserve(member="alice", turns=1)
+    await ledger.reserve(member="bob", turns=1)
+
+    await ledger.commit(member="alice", turns=1, tokens=10, cost_usd=0.1, reserved_turns=1)
+
+    assert ledger.member_reserved("alice").turns == 0
+    assert ledger.member_reserved("bob").turns == 1  # bob's still spoken for
+    assert ledger.committed.turns == 1
+    assert ledger.spent.turns == 2  # alice committed + bob reserved

@@ -6,7 +6,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING
 
-from prodagent.kernel.types import ExecutionMode, Message, MessageList, RunState
+from prodagent.core.types import ExecutionMode, Message, MessageList, RunState
 
 if TYPE_CHECKING:
     from prodagent.core.aliases import JsonDict

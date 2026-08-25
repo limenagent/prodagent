@@ -40,7 +40,7 @@ class _SuspendOnCall:
         self._trigger = trigger
         self.calls: list[str] = []
 
-    async def __call__(self, call) -> dict:
+    async def __call__(self, call, *, run_id: str = "") -> dict:
         self.calls.append(call.name)
         if call.name == self._trigger:
             from prodagent.core.exceptions import SuspendPendingApproval
@@ -244,7 +244,7 @@ class _HandoffOnA:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    async def __call__(self, call) -> ToolResult:
+    async def __call__(self, call, *, run_id: str = "") -> ToolResult:
         self.calls.append(call.name)
         if call.name == "a":
             return ToolResult.for_handoff(peer="peer_x", task="take over", tool="a")
@@ -288,7 +288,7 @@ async def test_handoff_wins_concurrent_sibling_does_not_commit(tmp_path):
 
 
 class _SlowFirst:
-    async def __call__(self, call) -> ToolResult:
+    async def __call__(self, call, *, run_id: str = "") -> ToolResult:
         if call.name == "a":
             await asyncio.sleep(0.05)  # completes LAST
         return ToolResult(ToolOutcome.OK, value={"action": call.name}, tool=call.name)

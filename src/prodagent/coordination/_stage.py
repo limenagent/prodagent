@@ -159,11 +159,13 @@ class StageDriver(Generic[E]):
         ``act`` runs the unit and returns either ``None`` ("nothing happened —
         no claim, no contribution") or ``(tokens, cost_usd)`` — the actuals to
         commit against the reserved turn. The reservation is reconciled away by
-        the commit; if ``act`` *raises*, the reservation is released instead
-        (the crashed attempt doesn't consume a turn — a retry re-charges it
-        then) and the exception propagates to the caller, which decides how to
-        isolate the member. A member that can't reserve (over cap) never acts —
-        ``None`` comes back with no budget movement.
+        the commit; if ``act`` *raises*, the reserved turn is still **committed**
+        (tokens/cost unknown → 0) rather than released: a crashed attempt
+        consumed a real turn slot, and releasing would let a crash-looping
+        member speak forever while the turns axis shows zero. The exception
+        propagates to the caller, which decides how to isolate the member. A
+        member that can't reserve (over cap) never acts — ``None`` comes back
+        with no budget movement.
 
         This is the one envelope Blackboard and WorkQueue share; hoisting it
         here means the reserve/release/commit invariants live once.
@@ -179,7 +181,16 @@ class StageDriver(Generic[E]):
             raise
         except Exception:
             if self._budget is not None:
-                await self._budget.release(member=member, reserved_turns=1)
+                # The attempt crashed mid-turn — the turn slot is gone even
+                # though tokens/cost are unknowable. Commit it; releasing here
+                # would make crash-looping members invisible to the turns axis.
+                await self._budget.commit(
+                    member=member,
+                    turns=1,
+                    tokens=0,
+                    cost_usd=0.0,
+                    reserved_turns=1,
+                )
             raise
         if self._budget is not None:
             tokens, cost_usd = actuals if actuals is not None else (0, 0.0)
@@ -205,7 +216,10 @@ class StageDriver(Generic[E]):
 
         - ``serial`` — one ``run_one`` at a time, in order.
         - ``concurrent`` — all at once via gather (results keep member order,
-          so streams stay deterministic even when completion isn't).
+          so streams stay deterministic even when completion isn't). A raising
+          member fails the batch fast **and cancels its in-flight siblings** —
+          plain gather would leave them running as orphans whose spend never
+          reaches the ledger ("run over, work still burning").
         - ``single_winner`` — candidates race for one lock on ``lock_store``
           (required for this mode); only the winner's ``run_one`` runs. The
           race and the compute are two phases on purpose: the lock is held
@@ -217,7 +231,16 @@ class StageDriver(Generic[E]):
         if activation.dispatch == "serial":
             return [(m, await run_one(m)) for m in activation.members]
         if activation.dispatch == "concurrent":
-            results = await asyncio.gather(*(run_one(m) for m in activation.members))
+            tasks = [asyncio.ensure_future(run_one(m)) for m in activation.members]
+            try:
+                results = await asyncio.gather(*tasks)
+            except BaseException:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                # Reap cancelled/failed siblings so nothing outlives the batch.
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
             return list(zip(activation.members, results, strict=True))
 
         # single_winner — lock-first-then-compute.

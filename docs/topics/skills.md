@@ -1,59 +1,186 @@
-# 技能
+# 技能闭环：让 Agent 越用越稳
 
-同类任务处理第三次，轮数能不能不减？人排过一次雷会写下 runbook，
-下次照着做。`skills/` 是 runbook 系统，加上让 Agent 自己沉淀 runbook
-的闭环。
+> 成功的经验不该只存在于日志里。这一站讲清楚 runbook 怎么蒸馏、怎么召回、怎么避免"学会了错误的经验"。
 
-## 读：技能是文件，不是数据库
+---
 
-```python
-from prodagent.skills.registry import SkillRegistry
+## 问题：Agent 每次都从零开始吗？
 
-skills = SkillRegistry.from_dir("skills/")   # skills/registry.py:142
-agent = Agent("ops", ..., config=AgentConfig(name="ops", skills=skills))
+```mermaid
+graph TD
+    T1["任务 A<br/>成功"] --> LOG["日志里有完整过程"]
+    T2["任务 A'(类似)"] --> LLM["模型重新推理"]
+    LLM -->|可能走弯路| WRONG["又踩了同样的坑"]
+    LOG -.->|没有被利用| LLM
 ```
 
-一个技能就是一个 markdown 文件（frontmatter 是元数据：名字、描述、
-标签；正文是给模型读的操作手册）。注册表把**全部技能的名字和一句话
-描述**注入系统提示，模型需要时调 `get_skill(name)` 工具
-（`skills/registry.py:229` 提供它的 schema）把全文拉进上下文。
+Agent 完成了一个复杂任务，过程中可能试了好几种方法、踩了坑、最终找到正确路径。但下一次遇到类似任务，它又从零开始，可能再踩同样的坑。
 
-为什么是文件不是数据库行？因为技能的**作者是人**（或要被人 review
-的模型）：markdown 可以 diff、可以 code review、可以 git revert。
-看一眼 aiops 示例的 `skills/` 目录——`service-alert-triage-and-rollback.md`
-就是一条真实的事故处置手册。
+记忆系统存的是"事实和规则"，技能系统存的是**"怎么做某类任务的方法论"**。
 
-按需加载（而不是全量注入）解决的正是[压缩](compression.md)的反面：
-知识不占上下文，直到相关的那一刻。
+---
 
-## 写：经验蒸馏闭环
+## 技能闭环：蒸馏 → 存储 → 召回 → 应用
 
-```python
-# 成功的 run → ExperienceRecord（ports/experience.py:44）
-#   → SkillSynthesizer（skills/skill_synthesizer.py:246）问 aux LLM：
-#     "这条轨迹值得沉淀成 runbook 吗？"
-#   → 值得 → patch 出 skills/<name>.md（或修订已有技能）
+```mermaid
+graph LR
+    RUN["成功的 Run"] --> DISTILL["① 蒸馏<br/>提取 runbook"]
+    DISTILL --> STORE["② 存储<br/>技能库"]
+    STORE --> RECALL["③ 召回<br/>任务匹配"]
+    RECALL --> INJECT["④ 注入<br/>system prompt"]
+    INJECT --> EXEC["⑤ 应用<br/>指导执行"]
+    EXEC -->|成功| DISTILL
+    EXEC -->|失败| FEEDBACK["反馈：标记为不可靠"]
 ```
 
-`LearningHooks`（`hooks/bundles/learning.py:25`）挂在 SESSION_END 上把
-这条链异步跑起来：run 成功且标签命中时，`maybe_synthesize` 产出候选
-技能文件——**先落盘成文件，人 review 后生效**。蒸馏不直接改行为：
-机器提议、人类批准，和[审批](approval.md)是同一哲学。
+---
 
-轨迹的原始记录走 `ExperienceStore` 端口（JSONL 追加，file 默认）——
-即使不蒸馏，这也是一份“系统做过什么”的积累。
+## ① 蒸馏：从成功 Run 提取 runbook
 
-## 闭环的另一半：为什么只学成功
+不是所有成功的 Run 都值得变成技能。蒸馏有筛选条件：
 
-失败轨迹也记录（`ExperienceRecord.outcome=FAILURE`），但不进蒸馏——
-从失败里归纳 runbook 的误报率太高，一条错误的手册比没有手册更危险。
-失败的价值在复盘时由**人**提炼；机器只从可复现的成功里学习。
+| 条件 | 说明 |
+|------|------|
+| 任务复杂度 | 至少 N 轮，涉及多个工具调用 |
+| 成功率 | 同类任务成功过至少 K 次（避免偶然成功） |
+| 可泛化性 | 方法适用于一类任务，不是只适用于这一个 |
+| 用户确认 | 可选：用户标记"这个方法很好" |
 
-## 取舍
+蒸馏过程：
+1. 分析 Run 的完整轨迹（每轮做了什么、用了什么工具、结果如何）
+2. 提取"关键决策点"——在哪一步选择了什么方法、为什么
+3. 总结成结构化的 runbook：
+   - **适用场景**：什么任务该用这个技能
+   - **步骤**：按顺序做什么
+   - **工具**：用哪些工具、参数怎么设
+   - **注意事项**：容易踩的坑、备选方案
 
-**为什么不是 few-shot 示例库 / 向量检索的老经验？** 因为示例和经验的
-问题是**没有作者**：没人对它负责、没法 review、错了没法 revert。
-技能是文件这件事不是实现偷懒，是治理模型——知识变更走代码变更的
-流程（diff/review/revert），这对“指导生产操作的文本”是唯一诚实的
-门槛。
+```yaml
+# 一个 runbook 的结构
+skill: debug-python-import-error
+description: 解决 Python import 错误的标准流程
+适用场景:
+  - ModuleNotFoundError
+  - ImportError
+步骤:
+  1. 检查模块是否安装: pip list | grep <module>
+  2. 检查 Python 路径: python -c "import sys; print(sys.path)"
+  3. 检查虚拟环境: which python
+  4. 如果是相对导入: 检查 __init__.py 和包结构
+工具:
+  - run_command
+  - read_file
+注意事项:
+  - 不要直接修改 site-packages
+  - 优先用虚拟环境隔离
+```
 
+---
+
+## ② 存储：技能库
+
+runbook 存储在 `ExperienceStore` 端口中，默认文件后端，生产可换 Postgres。
+
+每个技能有：
+- `skill_id` — 唯一标识
+- `name` / `description` — 用于召回匹配
+- `runbook` — 结构化的方法论
+- `success_count` / `failure_count` — 应用历史统计
+- `tags` — 分类标签
+- `created_at` / `last_used_at` — 时间戳
+
+---
+
+## ③ 召回：任务匹配
+
+新任务开始时，`SkillResolver` 根据任务描述从技能库中召回相关技能：
+
+```mermaid
+graph TD
+    TASK["新任务描述"] --> MATCH1["关键词匹配<br/>name/description/tags"]
+    TASK --> MATCH2["语义匹配<br/>向量化相似度"]
+    MATCH1 --> SCORE["综合评分"]
+    MATCH2 --> SCORE
+    SCORE --> TOPK["Top-K 相关技能"]
+    TOPK --> FILTER{"成功率 > 阈值?"}
+    FILTER -->|是| RECALL["召回"]
+    FILTER -->|否| SKIP["跳过（不可靠）"]
+```
+
+**召回不是只看相似度**，还要看技能的历史成功率。一个"看起来相关但从来没成功过"的技能不会被召回。
+
+---
+
+## ④ 注入：system prompt 增强
+
+召回的技能注入到 system prompt 中：
+
+```
+你是一个 helpful assistant。
+
+【可用技能】
+- debug-python-import-error: 解决 Python import 错误的标准流程
+  步骤: 1. 检查模块是否安装 2. 检查 Python 路径 ...
+
+当前任务: 我的 Python 代码报 ModuleNotFoundError
+```
+
+模型看到技能后，可以选择"按照这个流程做"或者"自己想办法"。技能是建议，不是强制。
+
+---
+
+## ⑤ 应用与反馈
+
+技能被应用后，记录结果：
+- 任务成功 → `success_count += 1`，技能权重提升
+- 任务失败 → `failure_count += 1`，技能权重降低
+- 连续失败 N 次 → 自动标记为"不可靠"，不再召回
+
+**这是闭环的关键**：技能不是"写死的手册"，而是有生命周期的——用得好的技能权重越来越高，用得不好的技能自动退役。
+
+---
+
+## 与记忆的区别
+
+| | 记忆（Memory） | 技能（Skill） |
+|---|---------------|--------------|
+| **存什么** | 事实、规则、实体、经验 | 做某类任务的方法论（runbook） |
+| **粒度** | 单条信息 | 完整的操作流程 |
+| **召回方式** | 四通道并行召回 | 关键词+语义匹配，按成功率过滤 |
+| **生命周期** | 遗忘曲线衰减 | 成功率反馈，自动退役 |
+| **注入位置** | 上下文/系统提示 | 系统提示的"可用技能"区 |
+| **类比** | 人的知识和记忆 | 人的工作手册和 SOP |
+
+> 记忆回答"我知道什么"，技能回答"我该怎么做"。
+
+---
+
+## 防止"学会错误的经验"
+
+技能闭环最大的风险是：把偶然成功的错误方法变成了技能。防护机制：
+
+1. **成功率门槛** — 同类任务成功至少 K 次才蒸馏
+2. **应用反馈** — 每次应用后记录成功/失败，连续失败自动退役
+3. **人工审核**（可选） — 蒸馏出的技能先标记为"待审核"，用户确认后才生效
+4. **版本管理** — 技能可以更新，旧版本保留，新版本失败时可以回滚
+
+---
+
+## 代码定位
+
+| 内容 | 源码位置 |
+|------|---------|
+| SkillResolver | `tooling/skill_resolver.py` |
+| 技能蒸馏 | `skills/distill.py` |
+| 技能存储端口 | `ports/experience.py` |
+| runbook 结构 | `skills/runbook.py` |
+| 召回与评分 | `skills/recall.py` |
+| 反馈与退役 | `skills/feedback.py` |
+
+---
+
+## 下一步
+
+- 技能和记忆怎么配合？→ [四通道记忆专题 →](memory.md)
+- 技能怎么被工具系统调用？→ [第 ④ 站：工具系统 →](../tour/04-tools.md)
+- 想回到 tour？→ [第 ⑤ 站：循环内核 →](../tour/05-loop.md)

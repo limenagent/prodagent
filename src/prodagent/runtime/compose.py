@@ -28,6 +28,8 @@ if TYPE_CHECKING:
     from prodagent.ports.llm import LLMClient
 
 if TYPE_CHECKING:
+    from prodagent.coordination.relay import PeerRelay
+    from prodagent.coordination.settle import Settler
     from prodagent.core.config import FrameworkConfig
     from prodagent.hooks.bundles.base import HookBundle
 
@@ -103,6 +105,32 @@ async def find_suspended_peer(checkpoint: Any, root_run_id: str) -> tuple[str, s
     from prodagent.coordination.peer import find_suspended_peer as _find
 
     return await _find(checkpoint, root_run_id)
+
+
+def peer_relay(root_run_id: str) -> PeerRelay:
+    """The peer-chain relay — assembled here so runtime names coordination
+    in exactly one file (this one)."""
+    from prodagent.coordination.relay import PeerRelay as _PeerRelay
+
+    return _PeerRelay(root_run_id)
+
+
+def make_settler(
+    agent_name: str,
+    root_run_id: str,
+    output_schema: Any,
+    output_contract: Any,
+) -> Settler:
+    """Terminal-state discipline for a finished chain — same seam rule as
+    :func:`peer_relay`."""
+    from prodagent.coordination.settle import Settler as _Settler
+
+    return _Settler(
+        agent_name=agent_name,
+        root_run_id=root_run_id,
+        output_schema=output_schema,
+        output_contract=output_contract,
+    )
 
 
 def default_bundles(fw: FrameworkConfig | None) -> list[HookBundle]:

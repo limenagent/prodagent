@@ -6,9 +6,10 @@ from typing import Any
 import httpx
 import pytest
 
-from prodagent.kernel.types import ErrorSeverity, ToolOutcome, ToolResult
+from prodagent.kernel.types import ErrorSeverity, ToolOutcome
 from prodagent.mcp.client import MCPClient
 from prodagent.mcp.config import MCPServerConfig
+from prodagent.tooling.base import coerce_result
 
 
 def _json_response(req_id: int, result: dict[str, Any]) -> httpx.Response:
@@ -93,7 +94,7 @@ async def test_mcp_iserror_routes_to_abort_via_from_raw() -> None:
     _patch_client_session(client, _error_server_handler())
 
     raw = await client.call_tool("delete", {"id": "r-42"})
-    tr = ToolResult.from_raw(raw, tool="delete")
+    tr = coerce_result(raw, tool="delete")
 
     assert tr.outcome is ToolOutcome.ABORT
     assert tr.error is not None

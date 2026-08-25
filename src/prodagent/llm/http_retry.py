@@ -29,6 +29,22 @@ RETRYABLE_EXC: tuple[type[BaseException], ...] = (
 )
 
 
+def register_retryable_exceptions(*exc_types: type[BaseException]) -> None:
+    """Let provider SDK adapters add their transport-level exception families.
+
+    The built-in whitelist covers httpx and stdlib transport errors, but
+    provider SDKs wrap those in their own hierarchies — ``openai.APIConnectionError``
+    does not subclass ``httpx.TransportError`` — so without registration the
+    most common transient failures (connection reset, DNS, timeout) never
+    retry at the framework layer. Adapters call this in ``__init__`` right
+    after their SDK import succeeds. Idempotent; registering a subclass of an
+    already-registered type is a no-op."""
+    global RETRYABLE_EXC
+    added = tuple(t for t in exc_types if not issubclass(t, RETRYABLE_EXC))
+    if added:
+        RETRYABLE_EXC = RETRYABLE_EXC + added
+
+
 class CapacityError(Exception):
     """Raised for 529 (overloaded) responses — capacity pressure, not a fault.
     Retrying immediately makes overload worse; shed load or point the client

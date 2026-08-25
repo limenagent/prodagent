@@ -14,7 +14,14 @@ AST-scans imports across ``src/prodagent``:
 
 Rules (new packages/files are governed automatically):
 
-- ``core`` depends on core only — the bottom layer;
+- ``core`` depends on core only — the bottom layer (kernel imports core,
+  never the reverse — shared vocabulary lives in ``core/types.py`` and is
+  re-exported by ``kernel/types.py``);
+- ``runtime`` ⇏ ``coordination`` — no runtime import of coordination may
+  EXECUTE outside the assembly root: the peer relay and the settler arrive
+  through the compose seam (``runtime/compose.py`` is the single exempt
+  file; ``if TYPE_CHECKING`` type vocabulary, e.g. AgentConfig's
+  ``MessageContract``/``Plan`` fields, carries no runtime dependency);
 - ``ports`` depends on ports / core only;
 - ``backends`` depends on backends / ports / core — storage must not
   reach into the business layer;
@@ -52,6 +59,11 @@ FORBIDDEN: dict[str, frozenset[str]] = {
             "playground",
             "repl",
             "bootstrap",
+            "kernel",
+            "ports",
+            "plan",
+            "coordination",
+            "skills",
         }
     ),
     "ports": frozenset(
@@ -86,7 +98,7 @@ FORBIDDEN: dict[str, frozenset[str]] = {
             "repl",
         }
     ),
-    "runtime": frozenset({"backends", "playground", "repl"}),
+    "runtime": frozenset({"backends", "playground", "repl", "coordination"}),
     "tooling": frozenset({"backends", "playground", "repl"}),
     "hooks": frozenset({"backends", "playground", "repl"}),
     "guardrail": frozenset({"backends", "playground", "repl"}),
@@ -156,6 +168,53 @@ def _target_roots(imported: str) -> set[str]:
         return set()
     root = parts[1]
     return {root} if root in TOP_LEVEL_PACKAGES else set()
+
+
+def _is_type_checking_guard(node: ast.If) -> bool:
+    test = node.test
+    return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
+        isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+    )
+
+
+def _executed_imports(tree: ast.Module) -> list[tuple[int, str]]:
+    """Imports at any scope that actually EXECUTE — everything except those
+    nested under an ``if TYPE_CHECKING:`` guard."""
+    guarded_lines: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.If) and _is_type_checking_guard(node):
+            for sub in ast.walk(node):
+                if isinstance(sub, (ast.Import, ast.ImportFrom)):
+                    guarded_lines.add(sub.lineno)
+    return [(ln, mod) for ln, mod in _all_imports(tree) if ln not in guarded_lines]
+
+
+COMPOSE_EXEMPT = "runtime/compose.py"
+
+
+def test_runtime_reaches_coordination_only_through_compose() -> None:
+    """The assembly-root rule: runtime/compose.py is the ONE runtime file that
+    may import coordination (lazily, in function bodies). Everywhere else in
+    runtime, a coordination import must never execute — that is the seam that
+    keeps the coordination→runtime dependency one-way."""
+    violations: list[str] = []
+    for path in sorted(SRC.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        rel_parts = path.relative_to(SRC).parts
+        if rel_parts[0] != "runtime":
+            continue
+        rel = "/".join(rel_parts)
+        if rel == COMPOSE_EXEMPT:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for lineno, imported in _executed_imports(tree):
+            if _target_roots(imported) & {"coordination"}:
+                violations.append(f"{rel}:{lineno}  runtime -> coordination")
+    assert not violations, (
+        "runtime must reach coordination only through the compose seam"
+        f" ({COMPOSE_EXEMPT}). Executing imports:\n  " + "\n  ".join(violations)
+    )
 
 
 def test_layering_contract() -> None:

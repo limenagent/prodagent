@@ -4,11 +4,30 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Generic, Literal, TypeAlias, TypedDict
+from typing import TYPE_CHECKING, Any, Generic, TypeAlias
 
 from typing_extensions import TypeVar
 
 from prodagent.core.error_reason import NON_RETRYABLE_REASONS, ErrorReason
+
+# Vocabulary shared with core lives in core/types.py (core must not import
+# kernel); re-exported here so kernel consumers keep one import site. The
+# redundant `as` aliases mark the re-export explicitly (mypy strict reads it).
+from prodagent.core.types import (
+    ExecutionMode as ExecutionMode,
+)
+from prodagent.core.types import (
+    Message as Message,
+)
+from prodagent.core.types import (
+    MessageList as MessageList,
+)
+from prodagent.core.types import (
+    RunState as RunState,
+)
+from prodagent.core.types import (
+    stable_serialize as stable_serialize,
+)
 
 if TYPE_CHECKING:
     from prodagent.core.aliases import JsonDict, ToolParams
@@ -18,35 +37,6 @@ RunId: TypeAlias = str
 
 SKILL_INJECTION_KEY = "_skill_injection"
 GET_SKILL_TOOL_NAME = "get_skill"
-
-
-class Message(TypedDict, total=False):
-    """Strongly-typed LLM conversation message."""
-
-    role: Literal["user", "assistant", "system", "tool"]
-    content: str | list[JsonDict]
-    tool_calls: list[JsonDict]
-    tool_call_id: str
-
-
-MessageList: TypeAlias = list[Message]
-
-
-def stable_serialize(obj: object) -> object:
-    """Best-effort stable JSON pre-serializer for fingerprint / hash computation."""
-    import datetime
-    import decimal
-    import pathlib
-
-    if isinstance(obj, (datetime.datetime, datetime.date, datetime.time)):
-        return obj.isoformat()
-    if isinstance(obj, datetime.timedelta):
-        return repr(obj)
-    if isinstance(obj, decimal.Decimal):
-        return str(obj)
-    if isinstance(obj, pathlib.PurePath):
-        return str(obj)
-    return repr(obj)
 
 
 @dataclass
@@ -156,13 +146,6 @@ class LLMResponse:
         )
 
 
-class RunState(StrEnum):
-    RUNNING = "running"
-    SUSPENDED = "suspended"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
-
 class StepStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
@@ -177,19 +160,6 @@ class Layer(StrEnum):
     L1 = "L1"
     L2 = "L2"
     L3 = "L3"
-
-
-class ExecutionMode(StrEnum):
-    """Controls how an Agent decides which tools to call and in what order."""
-
-    PLAN_FIRST = "plan_first"
-    """LLM proposes a full execution plan (JSON DAG); framework executes it.
-    Enables plan auditing and HITL plan review. Opt-in (AgentConfig default
-    is REACTIVE — the default path pays no planning tax)."""
-
-    REACTIVE = "reactive"
-    """Each turn picks the next tool based on the previous result.
-    WARNING: bypasses plan auditing and HITL plan review. Default."""
 
 
 class SideEffectLevel(StrEnum):
@@ -363,58 +333,6 @@ class ToolResult(Generic[_T]):
             tool=tool,
             handoff={"peer": peer, "task": task, "input_refs": input_refs or {}},
         )
-
-    @classmethod
-    def from_raw(cls, raw: Any, *, tool: ToolName = "") -> ToolResult[Any]:
-        if isinstance(raw, ToolResult):
-            return raw
-        if isinstance(raw, ToolError):
-            return cls.from_error(raw, tool=tool)
-        if isinstance(raw, dict):
-            if raw.get("suspended"):
-                return cls.suspended(
-                    reason=raw.get("reason", ""),
-                    tool=raw.get("tool", tool),
-                    approval_request_id=raw.get("approval_request_id", ""),
-                )
-            if raw.get("handoff"):
-                return cls.for_handoff(
-                    peer=raw.get("peer", ""),
-                    task=raw.get("task", ""),
-                    input_refs=raw.get("input_refs"),
-                    tool=raw.get("tool", tool),
-                )
-            if raw.get("blocked"):
-                return cls.blocked_by(raw.get("reason", ""), tool=raw.get("tool", tool))
-            if raw.get("error"):
-                raw_reason = raw.get("reason", "")
-                err_val = raw.get("error")
-                message = raw.get("message", "")
-                if isinstance(err_val, str) and not message:
-                    message = err_val
-                try:
-                    reason = ErrorReason(raw_reason)
-                except ValueError:
-                    reason = ErrorReason.UNKNOWN
-                    message = message or f"invalid ErrorReason: {raw_reason!r}"
-                return cls.from_error(
-                    ToolError(
-                        reason=reason,
-                        code=raw.get("code", ""),
-                        error_severity=ErrorSeverity.coerce(
-                            raw.get("error_severity"),
-                            default=(
-                                ErrorSeverity.RED
-                                if reason in NON_RETRYABLE_REASONS
-                                else ErrorSeverity.YELLOW
-                            ),
-                        ),
-                        message=message,
-                        hint=raw.get("hint", ""),
-                    ),
-                    tool=tool,
-                )
-        return cls(ToolOutcome.OK, value=raw, tool=tool)
 
     def to_wire(self) -> JsonDict:
         if self.outcome is ToolOutcome.OK:

@@ -7,8 +7,15 @@ from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
 
-from prodagent.core.error_reason import ErrorReason
-from prodagent.kernel.types import ToolError, ToolMeta, ToolName, ToolResult
+from prodagent.core.error_reason import NON_RETRYABLE_REASONS, ErrorReason
+from prodagent.kernel.types import (
+    ErrorSeverity,
+    ToolError,
+    ToolMeta,
+    ToolName,
+    ToolOutcome,
+    ToolResult,
+)
 
 if typing.TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -17,7 +24,7 @@ if typing.TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["FunctionTool"]
+__all__ = ["FunctionTool", "coerce_result"]
 
 
 def _typed_params(
@@ -122,7 +129,7 @@ class FunctionTool:
             raw = await self._fn(**kwargs)
         else:
             raw = self._fn(**kwargs)
-        return ToolResult.from_raw(raw, tool=self.name)
+        return coerce_result(raw, tool=self.name)
 
     def _coerce_params(self, kwargs: ToolParams) -> ToolParams:
         if not self._adapters:
@@ -161,3 +168,61 @@ def _build_adapters(fn: Callable[..., Any], tool_name: str) -> dict[str, TypeAda
                 exc_info=True,
             )
     return adapters
+
+
+def coerce_result(raw: Any, *, tool: ToolName = "") -> ToolResult[Any]:
+    """Coerce whatever a tool function returned into a ToolResult.
+
+    A plain value is OK; a ToolResult/ToolError passes through; a dict can
+    carry the control-flow markers (suspended / handoff / blocked / error).
+    Everything else wraps as OK — this is the single throat tool output
+    passes through before entering a run's transcript."""
+    if isinstance(raw, ToolResult):
+        return raw
+    if isinstance(raw, ToolError):
+        return ToolResult.from_error(raw, tool=tool)
+    if isinstance(raw, dict):
+        if raw.get("suspended"):
+            return ToolResult.suspended(
+                reason=raw.get("reason", ""),
+                tool=raw.get("tool", tool),
+                approval_request_id=raw.get("approval_request_id", ""),
+            )
+        if raw.get("handoff"):
+            return ToolResult.for_handoff(
+                peer=raw.get("peer", ""),
+                task=raw.get("task", ""),
+                input_refs=raw.get("input_refs"),
+                tool=raw.get("tool", tool),
+            )
+        if raw.get("blocked"):
+            return ToolResult.blocked_by(raw.get("reason", ""), tool=raw.get("tool", tool))
+        if raw.get("error"):
+            raw_reason = raw.get("reason", "")
+            err_val = raw.get("error")
+            message = raw.get("message", "")
+            if isinstance(err_val, str) and not message:
+                message = err_val
+            try:
+                reason = ErrorReason(raw_reason)
+            except ValueError:
+                reason = ErrorReason.UNKNOWN
+                message = message or f"invalid ErrorReason: {raw_reason!r}"
+            return ToolResult.from_error(
+                ToolError(
+                    reason=reason,
+                    code=raw.get("code", ""),
+                    error_severity=ErrorSeverity.coerce(
+                        raw.get("error_severity"),
+                        default=(
+                            ErrorSeverity.RED
+                            if reason in NON_RETRYABLE_REASONS
+                            else ErrorSeverity.YELLOW
+                        ),
+                    ),
+                    message=message,
+                    hint=raw.get("hint", ""),
+                ),
+                tool=tool,
+            )
+    return ToolResult(ToolOutcome.OK, value=raw, tool=tool)

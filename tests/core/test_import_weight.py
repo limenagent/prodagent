@@ -18,10 +18,11 @@ shared turns/seconds/tokens/cost precedence check used by both check_budget()
 and BudgetLedger, and kernel.pipeline, the generic mount/dispatch plumbing
 behind kernel/bus.py's HookRegistry), ports (15 — tiny Protocol
 files that ARE the kernel's vocabulary), tooling (10 — the @tool/dispatch
-spine), the messaging plane (7 — the driver's shared data structures),
-plus runtime core (agent/config/runner/factory/compose/parent_runtime).
-spawn/peers and the stage primitives load lazily via compose — importing
-an Agent pulls no multi-agent machinery.
+spine), plus runtime core (agent/config/runner/factory/compose/parent_runtime).
+The peer relay moved to coordination/relay.py behind the compose seam, so
+the messaging plane left this chain entirely — spawn/peers, the stage
+primitives AND the relay load lazily via compose. Importing an Agent pulls
+no multi-agent machinery at all.
 """
 
 from __future__ import annotations
@@ -59,7 +60,7 @@ KERNEL_EXPECTED = frozenset(
         "prodagent.core.progress",
         "prodagent.kernel.state",
         "prodagent.core.session",
-        "prodagent.core.text",
+        "prodagent.core.types",
         "prodagent.core.retry",
         "prodagent.kernel.types",
         "prodagent.kernel",
@@ -85,14 +86,6 @@ KERNEL_EXPECTED = frozenset(
         "prodagent.runtime._tool_merge",
         "prodagent.runtime.agent",
         "prodagent.runtime.config",
-        "prodagent.coordination",
-        "prodagent.coordination.messaging",
-        "prodagent.coordination.messaging.contract",
-        "prodagent.coordination.messaging.envelope",
-        "prodagent.coordination.messaging.idempotency",
-        "prodagent.coordination.messaging.interceptors",
-        "prodagent.coordination.messaging.packet",
-        "prodagent.coordination.messaging.pipeline",
         "prodagent.runtime.parent_runtime",
         "prodagent.runtime.compose",
         "prodagent.runtime.factory",

@@ -6,15 +6,16 @@ import asyncio
 import json
 import logging
 import time
-from collections.abc import Callable, Coroutine
+import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from prodagent.core.exceptions import SuspendPendingApproval, ToolAbortError, ToolBlockedError
 from prodagent.hooks import fire as _fire
 from prodagent.kernel.bus import HookEvent
 from prodagent.kernel.state import AgentRun, PendingHandoff
 from prodagent.kernel.types import Message, RunState, StepStatus, ToolCall, ToolOutcome, ToolResult
+from prodagent.tooling.base import coerce_result
 
 if TYPE_CHECKING:
     from prodagent.kernel.bus import HookRegistry
@@ -35,7 +36,13 @@ __all__ = [
 ]
 
 
-ToolExecutor = Callable[[ToolCall], Coroutine[Any, Any, ToolResult]]
+class ToolExecutor(Protocol):
+    """Executes one tool call — the same shape as ``ToolDispatcher.dispatch``
+    so hook payloads and ``inject_run_id`` tools work identically in both
+    execution modes. ``run_id`` is required in practice; the default keeps
+    hand-written executors in tests working."""
+
+    async def __call__(self, call: ToolCall, *, run_id: str = "") -> ToolResult: ...
 
 
 def _call_id(step_id: str, run_id: str) -> str:
@@ -141,7 +148,7 @@ class StepRunner:
                 call=call,
             )
         try:
-            raw = await self._execute_tool(call)
+            raw = await self._execute_tool(call, run_id=run.run_id)
         except SuspendPendingApproval as exc:
             await self._park_suspended(
                 step,
@@ -164,7 +171,7 @@ class StepRunner:
             raise
         except Exception as exc:
             return StepFailed(step=step, error=exc, call=call)
-        result = ToolResult.from_raw(raw, tool=step.action)
+        result = coerce_result(raw, tool=step.action)
 
         if result.outcome is ToolOutcome.HANDOFF:
             await self._park_handoff(step, result, call, plan, run)
@@ -248,6 +255,10 @@ class StepRunner:
                 action=step.action,
                 run_id=run.run_id,
             )
+            if self._dispatcher is not None:
+                # Same throat as REACTIVE: spill truncation and max_result_chars
+                # apply to plan steps too, not just loop batches.
+                return self._dispatcher.build_tool_message(wire, call, run)
             return {
                 "role": "tool",
                 "tool_call_id": call.call_id,
@@ -275,6 +286,7 @@ class StepRunner:
                 peer_name=peer,
                 task=h.get("task", ""),
                 input_refs=dict(h.get("input_refs") or {}),
+                message_id=str(uuid.uuid4()),
             )
             run.final_output = f"Handed off to {peer}" if peer else "Handed off"
             await self._log.record_step_completed(plan, run, step.step_id, step.output_ref)

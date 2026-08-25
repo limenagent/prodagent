@@ -118,6 +118,7 @@ class PlanExecutor:
             agent_name=agent_name,
             dispatcher=dispatcher,
         )
+        self._dispatcher = dispatcher
         self._bootstrap = PlanBootstrap(
             self._log,
             self._planner,
@@ -191,23 +192,54 @@ class PlanExecutor:
         plan: Plan,
         run: AgentRun,
     ) -> list[StepOutcome]:
-        raw = await asyncio.gather(
-            *[self._step_runner.run_one(s, plan, run) for s in ready],
-            return_exceptions=True,
-        )
-        outcomes: list[StepOutcome] = []
-        for step, r in zip(ready, raw, strict=True):
-            if isinstance(r, asyncio.CancelledError):
-                raise r
-            if isinstance(r, BaseException):
-                outcomes.append(StepFailed(step=step, error=r))
-            else:
-                outcomes.append(r)
+        """Dispatch ready steps with the same ordering discipline as the
+        REACTIVE batch: readonly steps run concurrently (bounded), write
+        steps run one at a time — two HIGH side-effect tools must never
+        race just because the DAG unblocked them together. A suspension or
+        handoff stops the batch: the run is already waiting on a human or a
+        peer, firing more side effects would be wrong. Failures don't stop
+        it — matching REACTIVE, where a failed write lets its siblings run."""
+        by_step: dict[str, StepOutcome] = {}
 
-        for step, oc in zip(ready, outcomes, strict=True):
+        readonly = [s for s in ready if self._step_is_readonly(s)]
+        writes = [s for s in ready if s.step_id not in {r.step_id for r in readonly}]
+
+        if readonly:
+            raw = await asyncio.gather(
+                *[self._step_runner.run_one(s, plan, run) for s in readonly],
+                return_exceptions=True,
+            )
+            for step, r in zip(readonly, raw, strict=True):
+                if isinstance(r, asyncio.CancelledError):
+                    raise r
+                if isinstance(r, BaseException):
+                    by_step[step.step_id] = StepFailed(step=step, error=r)
+                else:
+                    by_step[step.step_id] = r
+
+        for step in writes:
+            if run.state is not RunState.RUNNING or run.pending_handoff is not None:
+                break
+            try:
+                by_step[step.step_id] = await self._step_runner.run_one(step, plan, run)
+            except asyncio.CancelledError:
+                raise
+            except BaseException as exc:  # noqa: BLE001 — a step failure is data, not a crash
+                by_step[step.step_id] = StepFailed(step=step, error=exc)
+
+        # Steps never launched (batch stopped by suspend/handoff) are omitted —
+        # they stay PENDING in the plan and re-run after resume.
+        outcomes = [by_step[s.step_id] for s in ready if s.step_id in by_step]
+        for oc in outcomes:
             if isinstance(oc, StepSuccess):
-                commit_transcript(step, oc, run)
+                commit_transcript(oc.step, oc, run)
         return outcomes
+
+    def _step_is_readonly(self, step: PlanStep) -> bool:
+        if self._dispatcher is None:
+            return False  # no metadata → treat everything as a write (serial, safe)
+        meta = self._dispatcher.meta_for(step.action)
+        return meta.is_readonly if meta is not None else False
 
     @staticmethod
     def _classify_outcomes(outcomes: list[StepOutcome]) -> _BatchResult:

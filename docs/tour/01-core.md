@@ -1,116 +1,202 @@
-# ① 词汇 kernel
+# 第 ① 站：核心词汇
 
-先看一个真实类型，再谈包。一次工具调用穿过整个框架时，它的形状是：
+> 在深入任何机制之前，先把词汇表对齐。Agent 领域最容易混淆的就是这些"看起来差不多"的概念。
 
-```python
-# src/prodagent/kernel/types.py:53
-@dataclass(slots=True)
-class ToolCall:
-    call_id: str
-    name: str
-    params: dict[str, Any]
+---
+
+## 一句话定义
+
+| 概念 | 一句话 | 类比 |
+|------|--------|------|
+| **Agent** | 一个有身份、有系统提示、有工具集的实体 | 一个员工 |
+| **Run** | 一次任务执行的完整生命周期 | 员工接的一个项目 |
+| **Step** | 一次模型调用 + 至多一轮工具执行 | 项目里的一个工作日 |
+| **Turn** | 模型的一次输出（可能含工具调用） | 工作日里的一次决策 |
+| **Message** | 对话历史中的一条消息 | 沟通记录 |
+| **ToolCall** | 模型请求调用一个工具 | 员工申请使用某个资源 |
+| **ToolResult** | 工具执行后的返回 | 资源使用的结果 |
+
+---
+
+## 它们的包含关系
+
+```mermaid
+graph TD
+    Agent["Agent<br/>(员工)"] -->|拥有多个| Run["Run<br/>(项目)"]
+    Run -->|包含多个| Step["Step<br/>(工作日)"]
+    Step -->|包含 0~1 个| Turn["Turn<br/>(一次决策)"]
+    Turn -->|可能产生| ToolCall["ToolCall<br/>(资源申请)"]
+    ToolCall -->|执行后得到| ToolResult["ToolResult<br/>(结果)"]
+    Run -->|维护| Messages["Message 列表<br/>(沟通记录)"]
 ```
 
-三个字段。从 LLM 适配器到你的函数，"模型想调一个工具"在框架里始终是
-这一个形状。
+---
 
-它住在 `kernel/`——一个独立成篇的包，七个模块、约两千一百行，
-不 import 任何能力包。这件事有测试钉死（`tests/core/test_kernel_purity.py`
-逐个加载 kernel 模块、断言 import 链上不出现
-tooling/cognition/hooks/plan/coordination 中的任何一个）：往后每一站
-讲的能力，都挂在内核之外的插槽上；内核自己只被依赖。
+## 逐个拆解
 
-## 七个模块，一条阅读线
-
-| 顺序 | 模块 | 内容 | 在线上的位置 |
-|---|---|---|---|
-| 1 | `kernel/types.py`（441 行） | `ToolCall` / `LLMResponse` / `ToolResult` / `ToolMeta` / `StopReason` / `RunState` / `ExecutionMode` / `SideEffectLevel` / `ToolOutcome` | 名词 |
-| 2 | `kernel/events.py` | `AgentEvent` 家族——`chat()` 流式吐给你的事件 | 对外的动词 |
-| 3 | `kernel/state.py` | `AgentRun`——一次调用的全部运行时状态 | 状态机的实体 |
-| 4 | `kernel/bus.py` | 三协议总线：fire / check / collect | 外界观察与干预的唯一通道 |
-| 5 | `kernel/budget.py` | `HardBudget` 上限 + `BudgetLedger` 共享账本 + `check_budget` | "停"的机制 |
-| 6 | `kernel/step.py` | 原子：一次模型调用 + 至多一轮工具执行 | 能动性的最小单元 |
-| 7 | `kernel/loop.py` | REACTIVE 循环——迭代原子的策略 | 第五站的主体 |
-
-名词、事件、状态、总线、预算、原子、策略——自底向上正好一章读完。
-`core/` 仍在（错误分类、配置、会话簿记这些"无行为的热心机械"），但
-词汇已经搬进内核；两层的分界线就一条：**kernel 里的东西被一切依赖，
-且不依赖任何能力**。
-
-## AgentRun：一次调用的状态机
+### Agent — 有身份的执行者
 
 ```python
-# src/prodagent/kernel/state.py:136（节选）
+agent = Agent(
+    name="researcher",           # 身份标识
+    system_prompt="你是一个...",  # 行为准则
+    tools=[search, fetch],       # 可用工具
+    mode=ExecutionMode.REACTIVE, # 执行模式
+)
+```
+
+**关键点**：
+- Agent 是**无状态的配置对象**——它不保存某次任务的进度
+- 同一个 Agent 可以同时跑多个 Run（并发）
+- Agent 的身份（name）会出现在日志、审计、多 Agent 协作中
+
+> 为什么 Agent 不保存状态？因为这样才能支持并发和恢复。状态属于 Run，不属于 Agent。
+
+### Run — 一次任务的完整生命周期
+
+```python
 @dataclass
-class AgentRun(Generic[_RunT]):
-    run_id: str
-    task: str
-    parent_run_id: str | None = None
-    state: RunState = RunState.RUNNING
-    messages: MessageList = field(default_factory=list)
-    tool_history: list[ToolCall] = field(default_factory=list)
-    pending_tool_call: ToolCall | None = None
-    pending_approval_id: str | None = None
-    ...
+class AgentRun:
+    run_id: str              # 唯一标识
+    task: str                # 用户的原始任务
+    state: RunState          # RUNNING / COMPLETED / SUSPENDED / FAILED
+    messages: MessageList    # 完整对话历史
+    metrics: RunMetrics      # token / cost / turns 统计
+    pending_tool_call: ...   # 审批挂起时保存待执行的调用
+    checkpoint_version: int  # 乐观并发控制版本号
 ```
 
-三个字段值得注意：
+**Run 的状态机**：
 
-- **`state: RunState`** 只有四个值——`RUNNING / SUSPENDED / COMPLETED / FAILED`。
-  状态机越小学越稳；"挂起等人审"是一等状态而不是异常，这是
-  [审批](../topics/approval.md)能做成断点续跑的前提。
-- **`pending_tool_call`** 记住"正卡在哪个调用上等人"。崩溃恢复后，循环
-  重放的是**这一个调用**，不是重新问模型（`kernel/loop.py` 的
-  resume 分支）。
-- **`parent_run_id`** 让子 Agent 的花费可以向上汇总（
-  [预算](../topics/budget.md) 的链式账本）。
+```mermaid
+stateDiagram-v2
+    [*] --> RUNNING: chat() 启动
+    RUNNING --> COMPLETED: 模型输出最终答案
+    RUNNING --> SUSPENDED: HIGH 工具等待审批
+    SUSPENDED --> RUNNING: 审批通过，恢复执行
+    SUSPENDED --> RUNNING: 审批拒绝，增量重规划
+    RUNNING --> FAILED: 预算耗尽 / 死循环 / 异常
+    RUNNING --> RUNNING: 每轮 Step 后 checkpoint
+    COMPLETED --> [*]
+    FAILED --> [*]
+```
 
-## 停的机制：上限、账本、安全网
+**关键点**：
+- Run 是**可序列化的**——整个对象可以存到磁盘，下次加载继续跑
+- `pending_tool_call` 是恢复的关键：审批挂起时保存工具调用，通过后直接执行，不重新问 LLM
+- `checkpoint_version` 用于乐观并发，防止两个进程同时写同一个 Run
+
+### Step — 代理的原子单位
+
+这是 prodagent 最核心的抽象。**一个 Step = 一次模型调用 + 至多一轮工具执行。**
+
+```
+┌─────────────────────────────────────────────────┐
+│                   Step.run()                    │
+│                                                 │
+│  1. _prepare()                                  │
+│     ├─ 预算检查（turns/tokens/cost/seconds）    │
+│     ├─ 死循环检测（fingerprint 窗口比对）       │
+│     └─ 上下文组装（system + messages）          │
+│                                                 │
+│  2. _call_llm()                                 │
+│     ├─ 硬超时（max_seconds - elapsed）          │
+│     ├─ 流式 chunk 回调                          │
+│     └─ cache_boundary 标记                      │
+│                                                 │
+│  3. _account()                                  │
+│     ├─ token/cost 记账                          │
+│     ├─ assistant 消息写入历史                   │
+│     └─ TOKEN_UPDATE 事件                        │
+│                                                 │
+│  4. _end_turn()?                                │
+│     ├─ 是 → RunState.COMPLETED，返回            │
+│     └─ 否 → 继续执行工具                        │
+│                                                 │
+│  5. runner.run_batch(tool_calls)                │
+│     └─ 权限 → 审批 → 执行 → 结果写回            │
+│                                                 │
+│  6. 再次预算检查                                │
+└─────────────────────────────────────────────────┘
+```
+
+**为什么 Step 是原子的？**
+
+因为它是**可恢复的最小单位**。如果进程在 Step 中间被杀，下次恢复时：
+- 如果模型调用已完成但工具未执行 → 从 `pending_tool_call` 恢复，直接执行工具
+- 如果模型调用未完成 → 重新执行整个 Step（模型调用是幂等的吗？不一定，但这是唯一安全的选择）
+
+> 对比：很多框架把"多轮循环"写成一个大函数，中间状态散落在局部变量里，根本无法恢复。prodagent 把每一步的状态都收敛到 `AgentRun` 对象里，这是可恢复的前提。
+
+### Turn — 模型的一次输出
+
+Turn 是 Step 内部的概念。一个 Step 恰好包含一个 Turn（一次模型调用的输出）。
 
 ```python
-# src/prodagent/kernel/budget.py:18
 @dataclass
-class HardBudget:
-    max_turns: int = 20
-    max_seconds: float = 120.0
-    max_tokens: int = 100_000
-    max_cost_usd: float = 1.0
-
-# src/prodagent/kernel/budget.py:27
-SAFETY_NET_BUDGET = HardBudget()
+class LLMResponse:
+    content: str                    # 文本输出
+    tool_calls: list[ToolCall]      # 请求的工具调用
+    stop_reason: StopReason         # end_turn / tool_calls / max_tokens
+    input_tokens: int
+    output_tokens: int
+    reasoning_content: str          # 思维链（如果模型支持）
 ```
 
-四轴独立、任一触顶即抛 `BudgetExceeded`。`SAFETY_NET_BUDGET` 是裸核
-不配预算时的防跑飞底线——它**被执行**（否则裸循环可以无限烧钱，那是
-bug 不是特性），但它不挂到 `AgentConfig`、不出现在用户配置里：
-防跑飞属于循环的正确性，不属于用户的预算。
+**StopReason 的含义**：
+- `end_turn` — 模型说完了，没有工具调用 → Step 结束，Run 可能完成
+- `tool_calls` — 模型要调用工具 → 执行工具，然后进入下一个 Step
+- `max_tokens` — 输出被截断了 → 通常意味着需要继续
 
-同一个文件里还住着 `BudgetLedger`：并发花钱的各方（spawn 出的子
-Agent、peer 接力、ensemble 成员）共享同一本账，先 `reserve` 后
-`commit`，在途的预留也占额度。一条 run 链从起点到终点只有这一本
-账——[预算专题](../topics/budget.md)展开它的三段式语义。
+### Message — 对话历史
 
-## 错的词汇：一个根，两种严重度
+Message 就是 OpenAI 格式的消息字典，没有额外封装：
 
-`core/exceptions.py` 只有一个根 `AgentError`，之下按"谁处理"分：
-`BudgetExceeded`（循环停下并落账）、`VersionConflict`（乐观并发输家）、
-`SecurityViolation` 家族（拼进 `SECURITY_VETO_EXCEPTIONS`，消息平面里
-变成一次 strict 拒绝）。整个文件 116 行——重构时删掉了 11 个没有 catch 位的异常类：
-没人接的异常是死词汇。
+```python
+Message = dict[str, Any]  # {"role": "user"|"assistant"|"tool", "content": ...}
 
-## 取舍
+# assistant 消息可能带 tool_calls
+{"role": "assistant", "content": "", "tool_calls": [{"id": "...", "function": {...}}]}
 
-**不是 pydantic 模型？** 运行时状态（`AgentRun`）用 dataclass：
-框架内部单源流动的可变实体，不需要校验和序列化开销；只有跨进
-持久化的地方（checkpoint）自己定义 `to_dict/from_dict`。pydantic 留给
-真正需要验证外部输入的边界——`llm/` 适配器解析 provider 响应时。
+# tool 消息必须带 tool_call_id
+{"role": "tool", "tool_call_id": "...", "content": "搜索结果..."}
+```
 
-**为什么给词汇一个独立包？** 曾经类型散在 `core/` 里，"循环"住
-`runtime/`、驱动住 `coordination/`——读循环之前先要穿过协作机械。
-现在内核物理上连续：读者从 `types.py` 走到 `loop.py` 不会撞见任何
-一个能力包的名字。纯度不是审美口号，是会红的测试。
+**为什么不封装成类？**
+- 与 LLM API 格式直接对齐，减少转换层
+- 序列化/反序列化零成本
+- 上下文压缩时操作字典比操作对象灵活
 
-**为什么配置不做成环境变量优先？** `FrameworkConfig.from_env()` 存在，
-但显式构造 `AgentConfig(framework=...)` 永远优先于环境——库不该让
-进程里的两个 Agent 因为共享环境变量而互相污染（playground 给每个示例
-注入带独立 namespace 的 config，正是为了这个）。
+---
+
+## 容易混淆的点
+
+### Q: Step 和 Turn 有什么区别？
+
+**A: Turn 是模型的一次输出，Step 是"一次输出 + 工具执行"的完整原子。** 一个 Step 包含一个 Turn。你可以理解为：Turn 是模型的"思考结果"，Step 是"思考 + 行动"的完整一轮。
+
+### Q: Run 和 Session 有什么区别？
+
+**A: Run 是一次任务执行，Session 是跨多次 Run 的持久上下文。** 比如你和客服聊了 3 天，每天的对话是一个 Run，但它们共享同一个 Session（记住你的订单信息、偏好）。
+
+### Q: 为什么预算检查在 Step 的开头和结尾各做一次？
+
+**A: 开头检查是"这一轮还能不能开始"，结尾检查是"这一轮做完后还能不能继续"。** 中间的模型调用可能消耗了大量 token/cost，所以执行完工具后必须再查一次。如果只在开头检查，可能出现"这一轮开始时预算够，但做完后已经超了"的情况。
+
+---
+
+## 代码定位
+
+| 概念 | 源码位置 |
+|------|---------|
+| Agent | `runtime/agent.py` |
+| AgentRun | `kernel/state.py` |
+| Step | `kernel/step.py` |
+| LLMResponse / Message | `kernel/types.py` |
+| RunState / StopReason | `kernel/types.py` |
+
+---
+
+## 下一步
+
+👉 **[第 ② 站：端口与契约 →](02-ports.md)** — 为什么用 Protocol 而不是继承？14 个端口怎么分工？

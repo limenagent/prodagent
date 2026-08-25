@@ -6,10 +6,11 @@ from prodagent.coordination.spawn import (
     short_result,
 )
 from prodagent.kernel.state import AgentRun
-from prodagent.kernel.types import ErrorSeverity, ToolOutcome, ToolResult
+from prodagent.kernel.types import ErrorSeverity, ToolOutcome
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.parent_runtime import ParentRuntime, SpawnAccumulator
 from prodagent.runtime.runner import RunContext, RunLoop
+from prodagent.tooling.base import coerce_result
 
 
 async def test_spawn_timeout_returns_permanent_error(monkeypatch) -> None:
@@ -40,7 +41,7 @@ async def test_spawn_timeout_returns_permanent_error(monkeypatch) -> None:
 
     result = await pipeline.spawn("blocker", "do something")
 
-    tr = ToolResult.from_raw(result, tool="spawn_agent")
+    tr = coerce_result(result, tool="spawn_agent")
     assert tr.outcome is ToolOutcome.ABORT, (
         f"timeout must be RED/permanent (ABORT), not YELLOW/transient — got {tr.outcome}"
     )

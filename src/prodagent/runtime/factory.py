@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from prodagent.core.config import ContextConfig
 from prodagent.core.exceptions import PermissionDenied
 from prodagent.kernel.budget import SAFETY_NET_BUDGET
 from prodagent.kernel.bus import Gate, HookEvent
@@ -80,6 +81,19 @@ class LeafExecutorFactory:
             skills=agent.skills,
             agent_id=agent.name,
             agent_name=agent.name,
+        )
+        # Both execution modes share this dispatcher, so both get spill
+        # truncation — PLAN_FIRST tool results must not accumulate raw in the
+        # transcript either. (ReactiveLoop re-configures later to attach its
+        # progress monitor; the context values are identical.)
+        dispatcher.configure_batch(
+            loop_config=fw.loop,
+            context_config=(
+                ctx_manager.config
+                if ctx_manager is not None
+                else (ContextConfig() if ctx.spill_store is not None else None)
+            ),
+            spill_store=ctx.spill_store,
         )
 
         # 3. executor: PLAN_FIRST (dynamic or preset DAG) vs REACTIVE loop

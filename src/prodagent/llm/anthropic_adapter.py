@@ -6,7 +6,11 @@ from typing import TYPE_CHECKING, Any, cast
 from prodagent.core.exceptions import ToolCallParseError
 from prodagent.kernel.types import LLMResponse, MessageList, StopReason, ToolCall
 from prodagent.llm import ChunkCallback, LLMConfig, normalise_content
-from prodagent.llm.http_retry import DeliveryGuard, with_http_retry
+from prodagent.llm.http_retry import (
+    DeliveryGuard,
+    register_retryable_exceptions,
+    with_http_retry,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -50,6 +54,9 @@ class AnthropicAdapter:
             client_kwargs["api_key"] = resolved_key or "dummy"
 
         self._client = anthropic.AsyncAnthropic(**client_kwargs)
+        # The SDK's transport failures (APIConnectionError ⊃ APITimeoutError)
+        # don't subclass httpx errors — register them or they never retry.
+        register_retryable_exceptions(anthropic.APIConnectionError)
         self._default_config = default_config or LLMConfig()
 
     async def complete(

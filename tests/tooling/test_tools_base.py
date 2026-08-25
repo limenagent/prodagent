@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from prodagent import SideEffectLevel, ToolMeta
+from prodagent.tooling.base import coerce_result
 from prodagent.tooling.decorator import _infer_schema, tool
 
 
@@ -220,34 +221,32 @@ def test_tool_error_from_reason_honours_explicit_severity_override():
 
 
 def test_tool_result_from_raw_lifts_tool_error():
-    from prodagent import ToolError, ToolResult
+    from prodagent import ToolError
     from prodagent.core.error_reason import ErrorReason
     from prodagent.kernel.types import ToolOutcome
 
     err = ToolError.from_reason(ErrorReason.UNKNOWN, code="boom", message="failed")
-    tr = ToolResult.from_raw(err, tool="t")
+    tr = coerce_result(err, tool="t")
     assert tr.outcome is ToolOutcome.ABORT
     assert tr.error is not None
     assert tr.error.code == "boom"
 
 
 def test_tool_result_from_raw_ignores_business_reason_key_without_error_flag():
-    from prodagent import ToolResult
     from prodagent.kernel.types import ToolOutcome
 
     raw = {"service": "payment-service", "rolled_back_to": "f8c01d4", "reason": "audit note"}
-    tr = ToolResult.from_raw(raw, tool="rollback")
+    tr = coerce_result(raw, tool="rollback")
     assert tr.outcome is ToolOutcome.OK
     assert tr.value == raw
 
 
 def test_tool_result_from_raw_falls_back_to_unknown_on_invalid_reason_value():
-    from prodagent import ToolResult
     from prodagent.core.error_reason import ErrorReason
     from prodagent.kernel.types import ToolOutcome
 
     raw = {"error": True, "reason": "not a real reason", "code": "boom"}
-    tr = ToolResult.from_raw(raw, tool="t")
+    tr = coerce_result(raw, tool="t")
     assert tr.outcome is ToolOutcome.ABORT
     assert tr.error is not None
     assert tr.error.reason is ErrorReason.UNKNOWN
@@ -256,14 +255,13 @@ def test_tool_result_from_raw_falls_back_to_unknown_on_invalid_reason_value():
 
 def test_tool_result_from_raw_uses_string_error_as_message():
     """Tools commonly return ``{"error": "msg", ...}`` (string, not bool) —
-    ``from_raw`` must lift that string into ``ToolError.message`` instead of
+    ``coerce_result`` must lift that string into ``ToolError.message`` instead of
     discarding it for the generic ``"invalid ErrorReason: ''"`` fallback."""
-    from prodagent import ToolResult
     from prodagent.core.error_reason import ErrorReason
     from prodagent.kernel.types import ToolOutcome
 
     raw = {"placed": False, "error": "proposal PROP-0001 not found"}
-    tr = ToolResult.from_raw(raw, tool="place_order")
+    tr = coerce_result(raw, tool="place_order")
     assert tr.outcome is ToolOutcome.ABORT
     assert tr.error is not None
     assert tr.error.reason is ErrorReason.UNKNOWN
@@ -271,12 +269,12 @@ def test_tool_result_from_raw_uses_string_error_as_message():
 
 
 def test_tool_result_from_raw_round_trips_tool_error_as_dict_wire_format():
-    from prodagent import ToolError, ToolResult
+    from prodagent import ToolError
     from prodagent.core.error_reason import ErrorReason
     from prodagent.kernel.types import ToolOutcome
 
     wire = ToolError.from_reason(ErrorReason.CONNECTION, code="mcp_transport_error").as_dict()
-    tr = ToolResult.from_raw(wire, tool="t")
+    tr = coerce_result(wire, tool="t")
     assert tr.outcome is ToolOutcome.RETRY
     assert tr.error is not None
     assert tr.error.reason is ErrorReason.CONNECTION
@@ -286,7 +284,7 @@ def test_tool_result_from_raw_round_trips_tool_error_as_dict_wire_format():
 def test_tool_returning_tool_error_propagates_through_dispatcher():
     import asyncio
 
-    from prodagent import ToolError, ToolResult, tool
+    from prodagent import ToolError, tool
     from prodagent.core.error_reason import ErrorReason
     from prodagent.kernel.types import ToolOutcome
     from prodagent.tooling.dispatcher import ToolDispatcher
@@ -301,14 +299,13 @@ def test_tool_returning_tool_error_propagates_through_dispatcher():
     from prodagent.kernel.types import ToolCall
 
     raw = asyncio.run(disp.dispatch(ToolCall(name="fail_permanently", params={})))
-    tr = ToolResult.from_raw(raw, tool="fail_permanently")
+    tr = coerce_result(raw, tool="fail_permanently")
     assert tr.outcome is ToolOutcome.ABORT
 
 
 def test_tool_result_from_raw_normalizes_resource_busy_to_retry():
     """A bare resource_busy dict (no explicit severity) stays YELLOW/RETRY —
     severity is derived from the reason, mirroring ToolError.from_reason."""
-    from prodagent import ToolResult
     from prodagent.core.error_reason import ErrorReason
     from prodagent.kernel.types import ErrorSeverity, ToolOutcome
 
@@ -319,7 +316,7 @@ def test_tool_result_from_raw_normalizes_resource_busy_to_retry():
         "message": "Resource 'orders' is busy (held by another agent).",
         "hint": "Try an alternative task or retry later.",
     }
-    tr = ToolResult.from_raw(raw, tool="place_order")
+    tr = coerce_result(raw, tool="place_order")
     assert tr.outcome is ToolOutcome.RETRY
     assert tr.error is not None
     assert tr.error.reason is ErrorReason.RESOURCE_BUSY
@@ -328,7 +325,6 @@ def test_tool_result_from_raw_normalizes_resource_busy_to_retry():
 
 
 def test_tool_result_from_raw_explicit_severity_wins_over_reason_default():
-    from prodagent import ToolResult
     from prodagent.kernel.types import ToolOutcome
 
     raw = {
@@ -337,17 +333,16 @@ def test_tool_result_from_raw_explicit_severity_wins_over_reason_default():
         "error_severity": "red",
         "message": "busy",
     }
-    tr = ToolResult.from_raw(raw, tool="t")
+    tr = coerce_result(raw, tool="t")
     assert tr.outcome is ToolOutcome.ABORT
 
 
 def test_tool_result_from_raw_reason_derived_severity_for_retryable_reason():
-    from prodagent import ToolResult
     from prodagent.core.error_reason import ErrorReason
     from prodagent.kernel.types import ErrorSeverity, ToolOutcome
 
     raw = {"error": True, "reason": "connection", "message": "conn refused"}
-    tr = ToolResult.from_raw(raw, tool="t")
+    tr = coerce_result(raw, tool="t")
     assert tr.outcome is ToolOutcome.RETRY
     assert tr.error is not None
     assert tr.error.reason is ErrorReason.CONNECTION

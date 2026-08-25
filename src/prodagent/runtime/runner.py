@@ -14,21 +14,22 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from prodagent.coordination.messaging.envelope import Crossing, CrossingKind, Direction
-from prodagent.coordination.messaging.idempotency import IdempotentMessageHandler
-from prodagent.coordination.messaging.packet import HandoffPacket
-from prodagent.coordination.messaging.pipeline import Pipeline, assembly_pipeline
-from prodagent.core.exceptions import BudgetExceeded
 from prodagent.kernel.budget import BudgetLedger
 from prodagent.kernel.bus import HookEvent
 from prodagent.kernel.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
-from prodagent.kernel.state import AgentRun, child_run_id, is_child_subordinate, make_failed_run
-from prodagent.runtime.compose import find_suspended_peer, hop_tool_assemblers
+from prodagent.kernel.state import AgentRun, is_child_subordinate, make_failed_run
+from prodagent.runtime.compose import (
+    find_suspended_peer,
+    hop_tool_assemblers,
+    make_settler,
+    peer_relay,
+)
 from prodagent.runtime.factory import LeafExecutorFactory
 from prodagent.runtime.parent_runtime import SpawnAccumulator
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
+    from typing import Protocol
 
     from pydantic import BaseModel
 
@@ -40,6 +41,19 @@ if TYPE_CHECKING:
     from prodagent.ports.llm import LLMClient
     from prodagent.runtime.agent import Agent
     from prodagent.runtime.parent_runtime import SpawnAccumulator
+
+    class _Relay(Protocol):
+        """What the loop needs from a peer relay — implemented by
+        coordination/relay.py, named only through the compose seam."""
+
+        async def next_context(
+            self,
+            ctx: RunContext,
+            run: AgentRun,
+            spawn_acc: SpawnAccumulator | None = None,
+            ledger: BudgetLedger | None = None,
+        ) -> RunContext | None: ...
+
 
 logger = logging.getLogger(__name__)
 
@@ -265,46 +279,7 @@ class RunLoop:
         self._ledger: BudgetLedger | None = budget_ledger or (
             BudgetLedger(max=root_agent.budget_config) if root_agent.budget_config else None
         )
-        self._relay_dedupe: IdempotentMessageHandler | None = None
-        self._relay_pipe: Pipeline | None = None
-
-    def _relay_pipeline(self) -> Pipeline:
-        """Assembly pipeline for peer relays, built on first handoff.
-
-        Dedupe is shared across the whole chain (one handler per RunLoop);
-        hooks are read at first relay, when executor preparation has attached
-        them. The PEER_HANDOFF audit event fires from the pipeline's last
-        slot — only for crossings that were actually delivered.
-        """
-        if self._relay_pipe is None:
-            fw = self._ctx.agent.framework_config
-            orch = fw.orchestration if fw is not None else None
-            ttl = orch.handoff_idempotency_ttl_s if orch is not None else 600.0
-            self._relay_dedupe = IdempotentMessageHandler(ttl_seconds=ttl)
-            self._relay_pipe = assembly_pipeline(
-                dedupe=self._relay_dedupe,
-                hooks=self._ctx.agent.hooks,
-                audit_event=self._relay_audit_event,
-            )
-        return self._relay_pipe
-
-    @staticmethod
-    def _relay_audit_event(
-        crossing: Crossing[Any],
-    ) -> tuple[HookEvent, dict[str, Any]] | None:
-        packet = crossing.payload
-        task = getattr(packet, "task_description", "")
-        return (
-            HookEvent.PEER_HANDOFF,
-            {
-                "from_agent": crossing.from_agent,
-                "to_agent": crossing.to,
-                "task": task[:120] if task else "",
-                "depth": crossing.meta.get("depth", 0),
-                "parent_run_id": crossing.meta.get("parent_run_id"),
-                "child_run_id": crossing.meta.get("child_run_id"),
-            },
-        )
+        self._relay: _Relay | None = None  # built lazily via the compose seam
 
     async def run(self) -> AsyncGenerator[AgentEvent, None]:
         overall_final_run: AgentRun | None = None
@@ -374,103 +349,17 @@ class RunLoop:
         ctx: RunContext,
         spawn_acc: SpawnAccumulator | None = None,
     ) -> RunContext | None:
+        """Hand off to the next peer hop via the relay (compose seam).
+
+        The relay itself — budget settle-at-handoff, dedupe pipeline,
+        checkpoint persistence, peer fork — lives with the peer primitive in
+        ``coordination/relay.py``; runtime stays blind to coordination."""
         if run is None or run.pending_handoff is None:
             return None
-        handoff = run.pending_handoff
-        fw = self._ctx.agent.framework_config
-        if self._ctx.depth >= fw.orchestration.max_peer_chain:
-            return None
-
-        peer_name = handoff.peer_name
-        peer_spec = self._ctx.agent.peer_named(peer_name)
-        if peer_spec is None:
-            logger.error(
-                "[orchestrator] peer %r not found on agent %r — chain stops",
-                peer_name,
-                self._ctx.agent.name,
-            )
-            return None
-
-        if self._ledger is not None:
-            # Commit only this hop's OWN share: children already committed
-            # live, and the fold folded their totals into run.metrics —
-            # committing the post-fold numbers would count them twice.
-            child_turns = spawn_acc.turns if spawn_acc is not None else 0
-            child_tokens = (
-                spawn_acc.input_tokens + spawn_acc.output_tokens if spawn_acc is not None else 0
-            )
-            child_cost = spawn_acc.cost_usd if spawn_acc is not None else 0.0
-            await self._ledger.commit(
-                member=self._ctx.agent.name,
-                turns=max(0, run.turn_count - child_turns),
-                tokens=max(0, run.input_tokens + run.output_tokens - child_tokens),
-                cost_usd=max(0.0, run.cost_usd - child_cost),
-            )
-            try:
-                await self._ledger.check(member=peer_name)
-            except BudgetExceeded as exc:
-                logger.warning(
-                    "[orchestrator] peer chain budget exhausted before handoff %s → %s: %s",
-                    self._ctx.agent.name,
-                    peer_name,
-                    exc,
-                )
-                return None
-
-        prior_output = run.final_output or ""
-        packet = HandoffPacket(
-            task_description=handoff.task,
-            constraints=list(self._ctx.agent.constraints),
-            available_tools=[t.name for t in peer_spec.inline_tools],
-            input_refs=handoff.input_refs or {},
-            prior_output=prior_output,
-        )
-        if not handoff.message_id:
-            handoff.message_id = str(uuid.uuid4())  # checkpoint written pre-migration
-        peer_run_id = child_run_id(self._root_run_id, peer_name)
-        handoff.peer_run_id = peer_run_id  # persist on the run before save below
-
-        delivery = await self._relay_pipeline().process(
-            Crossing.mint(
-                direction=Direction.DOWNSTREAM,
-                kind=CrossingKind.HANDOFF,
-                from_agent=self._ctx.agent.name,
-                to=peer_name,
-                payload=packet,
-                trace_id=self._root_run_id,
-                message_id=handoff.message_id,
-                depth=self._ctx.depth + 1,
-                parent_run_id=self._ctx.run_id,
-                child_run_id=peer_run_id,
-            )
-        )
-        if delivery.status != "delivered":
-            # A duplicate relay (checkpointed handoff replayed in-process) or a
-            # gate veto — the chain stops here and the current run settles.
-            logger.warning(
-                "[orchestrator] handoff %s → %s not delivered (%s): %s",
-                self._ctx.agent.name,
-                peer_name,
-                delivery.status,
-                delivery.reason,
-            )
-            return None
-
-        if ctx.checkpoint is not None:
-            await ctx.checkpoint.save(run, expected_version=run.checkpoint_version)
-
-        return RunContext(
-            agent=peer_spec.fork_as_peer(
-                self._ctx.agent,
-                self._ctx.run_id,
-                checkpoint=ctx.checkpoint,
-                event_log=ctx.event_log,
-            ),
-            task=packet.to_task_prompt(),
-            run_id=peer_run_id,
-            depth=self._ctx.depth + 1,
-            parent_run_id=self._ctx.run_id,
-        )
+        if self._relay is None:
+            self._relay = peer_relay(self._root_run_id)
+        relay = self._relay
+        return await relay.next_context(ctx, run, spawn_acc, self._ledger)
 
     async def _settle(
         self,
@@ -478,14 +367,13 @@ class RunLoop:
         ctx: RunContext,
         hooks: HookRegistry | None,
     ) -> None:
-        from prodagent.coordination.settle import Settler
-
-        await Settler(
+        settler = make_settler(
             agent_name=self._root_agent.name,
             root_run_id=self._root_run_id,
             output_schema=self._output_schema,
             output_contract=self._root_agent.config.output_contract,
-        ).settle(run, ctx, hooks)
+        )
+        await settler.settle(run, ctx, hooks)
 
     async def _finalize_run(
         self,

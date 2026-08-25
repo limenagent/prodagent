@@ -10,9 +10,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from prodagent.core.io import safe_filename_component
 from prodagent.kernel.types import GET_SKILL_TOOL_NAME
 
 logger = logging.getLogger(__name__)
+
+
+def _is_disk_safe(name: str) -> bool:
+    """True when ``skills_dir / f"{name}.md"`` cannot escape the skills dir."""
+    try:
+        safe_filename_component(name)
+        return True
+    except ValueError:
+        return False
+
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
@@ -138,7 +149,7 @@ class SkillRegistry:
         return None
 
     def _history_dir(self, name: str) -> Path | None:
-        if self._skills_dir is None:
+        if self._skills_dir is None or not _is_disk_safe(name):
             return None
         return self._skills_dir / ".history" / name
 
@@ -179,6 +190,14 @@ class SkillRegistry:
     def _persist(self, content: SkillContent) -> Path | None:
         """Write a synthesised skill to disk as a Markdown file with YAML front-matter."""
         if self._skills_dir is None:
+            return None
+        if not _is_disk_safe(content.card.name):
+            # Defence in depth: the synthesizer sanitizes names, but the
+            # registry must not trust its input — a name carrying a path
+            # separator would write outside the skills directory.
+            logger.error(
+                "SkillRegistry: refusing to persist skill %r — unsafe name", content.card.name
+            )
             return None
         skills_dir = self._skills_dir
         try:

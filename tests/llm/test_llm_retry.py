@@ -354,3 +354,52 @@ class TestWithLlmRetryDefaultPolicy:
             assert call_count == 2
         finally:
             retry_mod.asyncio.sleep = original_sleep  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# SDK exception registration — provider transport failures must retry
+# ---------------------------------------------------------------------------
+
+
+class _FakeTransportError(Exception):
+    """Stands in for an SDK connection family (no status_code, not httpx)."""
+
+
+class TestRegisterRetryableExceptions:
+    async def test_registered_family_retries(self) -> None:
+        from prodagent.llm import http_retry
+
+        http_retry.register_retryable_exceptions(_FakeTransportError)
+        assert issubclass(_FakeTransportError, http_retry.RETRYABLE_EXC)
+
+        calls = 0
+
+        async def flaky() -> str:
+            nonlocal calls
+            calls += 1
+            if calls < 3:
+                raise _FakeTransportError("connection reset by peer")
+            return "ok"
+
+        policy = RetryPolicy(max_attempts=4, base_delay=0.0, backoff=Backoff.FIXED)
+        assert await with_http_retry(flaky, policy=policy) == "ok"
+        assert calls == 3
+
+    async def test_registration_is_idempotent_for_subclasses(self) -> None:
+        from prodagent.llm import http_retry
+
+        before = http_retry.RETRYABLE_EXC
+        http_retry.register_retryable_exceptions(_FakeTransportError)  # already registered
+        assert before == http_retry.RETRYABLE_EXC
+
+    async def test_constructing_adapters_registers_real_sdk_families(self) -> None:
+        """openai.APIConnectionError is not an httpx error — before the
+        registration hook it never retried at the framework layer."""
+        import openai
+
+        from prodagent.llm import http_retry
+        from prodagent.llm.openai_adapter import OpenAIAdapter
+
+        OpenAIAdapter(api_key="test-key")
+        assert issubclass(openai.APIConnectionError, http_retry.RETRYABLE_EXC)
+        assert issubclass(openai.APITimeoutError, http_retry.RETRYABLE_EXC)

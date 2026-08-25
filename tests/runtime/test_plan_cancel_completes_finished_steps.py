@@ -41,7 +41,7 @@ class _CancellableExecutor:
         self.calls: list[str] = []
         self.work_b_started = asyncio.Event()
 
-    async def __call__(self, call) -> dict:
+    async def __call__(self, call, *, run_id: str = "") -> dict:
         self.calls.append(call.name)
         if call.name == "work_b":
             self.work_b_started.set()

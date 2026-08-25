@@ -120,8 +120,10 @@ class BudgetLedger:
     concurrent spawns), pass to every spender. Call :meth:`reserve` before a
     unit of work starts (optional — skip if the spender can't estimate ahead),
     :meth:`commit` after it finishes with the real cost, :meth:`release` if a
-    reservation never turned into real work. ``seconds`` is wall-clock since
-    construction — never reserved/committed/released like the other three axes.
+    reservation never turned into real work. Reservations are tracked per
+    member — :meth:`release` can only give back what the named member itself
+    reserved. ``seconds`` is wall-clock since construction — never
+    reserved/committed/released like the other three axes.
     """
 
     max: HardBudget
@@ -132,6 +134,9 @@ class BudgetLedger:
 
     _reserved: _Spend = field(default_factory=_Spend)
     """Transient — moved by reserve()/release(), reconciled away by commit()."""
+
+    _reserved_by: dict[str, _Spend] = field(default_factory=dict)
+    """Per-member reservation buckets — sum never exceeds ``_reserved``."""
 
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _start_monotonic: float = field(default_factory=time.monotonic)
@@ -154,6 +159,15 @@ class BudgetLedger:
             turns=self._committed.turns + self._reserved.turns,
             tokens=self._committed.tokens + self._reserved.tokens,
             cost_usd=self._committed.cost_usd + self._reserved.cost_usd,
+        )
+
+    def member_reserved(self, member: str) -> _Spend:
+        """Read-only snapshot of one member's outstanding reservation."""
+        bucket = self._reserved_by.get(member)
+        return (
+            _Spend(turns=bucket.turns, tokens=bucket.tokens, cost_usd=bucket.cost_usd)
+            if bucket
+            else _Spend()
         )
 
     def elapsed_seconds(self) -> float:
@@ -188,6 +202,10 @@ class BudgetLedger:
             self._reserved.turns += turns
             self._reserved.tokens += tokens
             self._reserved.cost_usd += cost_usd
+            bucket = self._reserved_by.setdefault(member, _Spend())
+            bucket.turns += turns
+            bucket.tokens += tokens
+            bucket.cost_usd += cost_usd
             logger.debug(
                 "[budget_ledger] reserved for %s: +turns=%d +tokens=%d +cost=%.4f → %s",
                 member,
@@ -206,18 +224,29 @@ class BudgetLedger:
         reserved_cost_usd: float = 0.0,
     ) -> None:
         """Give back a reservation that never became real spend (losing lock-race
-        bid, requeued task). Never touches ``_committed``; can only reduce
-        outstanding reserved spend, so it can only help a subsequent :meth:`check`."""
+        bid, requeued task). Never touches ``_committed``; can only reduce the
+        named member's *own* outstanding reservation — one member must not be
+        able to free another's spoken-for share — and can only help a
+        subsequent :meth:`check`."""
         async with self._lock:
-            self._reserved.turns = max(0, self._reserved.turns - reserved_turns)
-            self._reserved.tokens = max(0, self._reserved.tokens - reserved_tokens)
-            self._reserved.cost_usd = max(0.0, self._reserved.cost_usd - reserved_cost_usd)
+            bucket = self._reserved_by.get(member)
+            if bucket is None:
+                return
+            d_turns = min(reserved_turns, bucket.turns)
+            d_tokens = min(reserved_tokens, bucket.tokens)
+            d_cost = min(reserved_cost_usd, bucket.cost_usd)
+            bucket.turns -= d_turns
+            bucket.tokens -= d_tokens
+            bucket.cost_usd -= d_cost
+            self._reserved.turns = max(0, self._reserved.turns - d_turns)
+            self._reserved.tokens = max(0, self._reserved.tokens - d_tokens)
+            self._reserved.cost_usd = max(0.0, self._reserved.cost_usd - d_cost)
             logger.debug(
                 "[budget_ledger] released for %s: -turns=%d -tokens=%d -cost=%.4f → %s",
                 member,
-                reserved_turns,
-                reserved_tokens,
-                reserved_cost_usd,
+                d_turns,
+                d_tokens,
+                d_cost,
                 self._snapshot_locked(),
             )
 
@@ -236,11 +265,17 @@ class BudgetLedger:
         Removes the reservation (no double-count) and adds actual deltas to
         ``_committed``. If the overshoot came from *other* outstanding
         reservations rather than this commit's actual spend, a later
-        :meth:`release` can bring the total back under cap (self-heal)."""
+        :meth:`release` by the reserving member can bring the total back under
+        cap (self-heal)."""
         async with self._lock:
             self._reserved.turns = max(0, self._reserved.turns - reserved_turns)
             self._reserved.tokens = max(0, self._reserved.tokens - reserved_tokens)
             self._reserved.cost_usd = max(0.0, self._reserved.cost_usd - reserved_cost_usd)
+            bucket = self._reserved_by.get(member)
+            if bucket is not None:
+                bucket.turns = max(0, bucket.turns - reserved_turns)
+                bucket.tokens = max(0, bucket.tokens - reserved_tokens)
+                bucket.cost_usd = max(0.0, bucket.cost_usd - reserved_cost_usd)
             self._committed.turns += turns
             self._committed.tokens += tokens
             self._committed.cost_usd += cost_usd

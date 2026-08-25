@@ -7,7 +7,11 @@ from typing import TYPE_CHECKING, Any
 from prodagent.core.exceptions import ToolCallParseError
 from prodagent.kernel.types import LLMResponse, MessageList, StopReason, ToolCall
 from prodagent.llm import LLMConfig, normalise_content
-from prodagent.llm.http_retry import DeliveryGuard, with_http_retry
+from prodagent.llm.http_retry import (
+    DeliveryGuard,
+    register_retryable_exceptions,
+    with_http_retry,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -37,6 +41,9 @@ class OpenAIAdapter:
             ) from exc
 
         self._client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
+        # The SDK's transport failures (APIConnectionError ⊃ APITimeoutError)
+        # don't subclass httpx errors — register them or they never retry.
+        register_retryable_exceptions(openai.APIConnectionError)
         if default_config is not None:
             self._default_config = default_config
         else:

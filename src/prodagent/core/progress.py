@@ -9,7 +9,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from prodagent.core.exceptions import InfiniteLoopDetected
-from prodagent.kernel.types import stable_serialize
+from prodagent.core.types import stable_serialize
 
 if TYPE_CHECKING:
     from prodagent.kernel.state import AgentRun

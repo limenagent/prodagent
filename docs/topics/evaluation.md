@@ -1,29 +1,226 @@
-# 评估
+# 评估与回归：怎么知道改了一版是变好还是变差
 
-改了一版 prompt，怎么知道是变好还是变差？新加的工具，怎么知道没有把原来对的改错？
+> Agent 系统最难的不是写出来，是持续迭代。这一站讲清楚离线评测、线上 Trace 打分、LLM-as-judge 校准、评测集污染检测。
 
-这两个问题的答案分两层：**机制层**（怎么让 Agent 的行为可复现、可比对）和**方法层**（用什么标准判定好坏）。这一章讲机制层——它们全在这个仓库里，而且你已经见过；方法层（评测集构建、LLM-as-judge 校准、线上 Trace 自动打分）的完整设计在专栏的评估部分展开。
+---
 
-## 可复现是一切评估的前提
+## 问题：改了一版 prompt，怎么知道变好还是变差？
 
-评估的第一步不是打分，是**让同一次输入产生同一次行为**。做不到可复现，任何对比都是噪声。这个仓库的答案你已经见过：
+```mermaid
+graph TD
+    CHANGE["改了 prompt / 模型 / 工具"] --> TEST{"效果变好了吗？"}
+    TEST -->|凭感觉| GUESS["可能变好也可能变差<br/>无法量化"]
+    TEST -->|跑几个例子| ANECDOTE["个例不能代表整体<br/>可能过拟合这几个例子"]
+    TEST -->|没有评测| REGRESS["回归了也不知道<br/>线上出问题才发现"]
+```
 
-- `script()`（`llm/fake.py:70`）把一次轨迹写成字面量——第二步调什么工具、第三步说什么话，全部钉死；
-- `RoutingFakeLLM`（`llm/fake.py:140`）让多 Agent 共享一个实例而轨迹互不串扰；
-- 九个示例的离线剧本（`examples/*/fake_llm.py`）全部建立在这两个原语上。
+传统软件有单元测试和集成测试，改了代码跑一遍就知道有没有回归。Agent 系统的输出是自然语言，"对不对"没有标准答案，评估要难得多。
 
-于是“改了 prompt/工具/循环逻辑之后行为有没有变”变成了一个可以 git diff 的问题。
+prodagent 的解法：**离线评测 + 线上 Trace 自动打分 + 回归对比，三位一体。**
 
-## 回归：1,182 个断言
+---
 
-`tests/` 里 1,182 个测试离线跑完（CI 三个 Python 版本），本质上是**行为的回归基线**：审批挂起后恢复重放的是同一个调用、预算触顶落成 FAILED 不是静默、消息平面的死信恰好记一次——每个机制的行为都被钉成断言。改代码跑一遍 `make test`，就是在做最严格意义上的评估。
+## 一、离线评测
 
-你给自己的 Agent 写测试时抄这个模式：FakeLLM 钉轨迹 → 断言工具调用序列和终态 → 离线进 CI。这一套不需要任何评测基础设施，却是回归的地基。
+### 评测集结构
 
-## 轨迹即数据
+```python
+@dataclass
+class EvalCase:
+    case_id: str
+    task: str                    # 给 Agent 的任务
+    expected: str | None         # 期望输出（可选，有些任务没有标准答案）
+    reference_tools: list[str]   # 期望调用的工具（可选）
+    constraints: list[str]       # 必须满足的约束
+    difficulty: str              # easy / medium / hard
+    tags: list[str]              # 分类标签
+```
 
-真跑起来的轨迹本身就是评测素材：`chat_stream()` 吐出的 `AgentEvent` 流（[可观测](observability.md)）加上 checkpoint 落盘的完整状态，就是一条可回放的记录。人工评估在 playground 里看事件卡片；自动化评估把事件流喂给 judge。存哪、怎么采样、judge 怎么校准不漂移——方法层的功课，专栏评估部分逐讲拆。
+评测集是结构化的，不是一堆散乱的 prompt。每个 case 有明确的评估维度。
 
-## 取舍
+### 评估维度
 
-**评估不进内核。** 评测集、judge、回归基线是应用和团队的资产，随业务演化；框架的职责是提供可复现的原语（FakeLLM）和可回放的数据（事件流 + checkpoint），让评估体系有地基可站。曾经有一个评测框架住在这仓库里，因为没有真实消费者被删掉了——地基和房子，框架只造地基。
+| 维度 | 评估方式 | 说明 |
+|------|---------|------|
+| **任务完成度** | LLM-as-judge / 人工 | 最终输出是否完成了任务 |
+| **工具使用正确性** | 代码规则 | 是否调用了正确的工具、参数是否正确 |
+| **约束满足** | 代码规则 / LLM-as-judge | 是否遵守了用户的约束（预算、格式等） |
+| **效率** | 自动指标 | 用了多少轮、多少 token、多少钱 |
+| **安全性** | 代码规则 | 是否有越权操作、是否触发了审批 |
+| **恢复能力** | 代码规则 | 遇到错误是否能自我修正 |
+
+### 运行评测
+
+```bash
+# 跑全部评测集
+prodagent eval run --suite v1.0 --config agent_config.yaml
+
+# 只跑某个分类
+prodagent eval run --suite v1.0 --tags research
+
+# 对比两个配置
+prodagent eval compare --baseline config_v1.yaml --candidate config_v2.yaml
+```
+
+输出：
+```
+评测结果: suite=v1.0, cases=120
+  任务完成度: 87.5% (baseline: 82.1%) ↑
+  工具正确率: 94.2% (baseline: 91.7%) ↑
+  平均轮数: 8.3 (baseline: 10.1) ↓ (更好)
+  平均成本: $0.042 (baseline: $0.058) ↓ (更好)
+  回归用例: 2 (需要关注)
+  提升用例: 15
+```
+
+---
+
+## 二、线上 Trace 自动打分
+
+离线评测覆盖不了所有场景。线上的真实流量更有价值。
+
+```mermaid
+graph TD
+    ONLINE["线上 Run"] --> TRACE["Trace 落盘<br/>完整调用链"]
+    TRACE --> AUTO["自动打分<br/>LLM-as-judge + 代码规则"]
+    AUTO --> SCORE["分数 + 维度评分"]
+    SCORE --> DATASET["加入评测集<br/>人工抽检确认"]
+    SCORE --> ALERT{"低分告警?"}
+    ALERT -->|是| NOTIFY["通知开发者"]
+```
+
+### 打分方式
+
+1. **代码规则**（确定性，零成本）：
+   - 工具调用是否成功
+   - 是否触发了预算耗尽
+   - 最终输出是否为空
+   - 是否有越权操作被拦截
+
+2. **LLM-as-judge**（需要模型调用，有成本）：
+   - 任务完成度评分（1-5 分）
+   - 输出质量评分
+   - 是否遵守了约束
+
+3. **人工标注**（最高质量，最高成本）：
+   - 抽样人工审核
+   - 用于校准 LLM-as-judge
+
+---
+
+## 三、LLM-as-judge 校准
+
+LLM-as-judge 不是完美的。它有偏差：
+
+| 偏差类型 | 表现 | 校准方法 |
+|---------|------|---------|
+| **位置偏差** | 更喜欢第一个选项 | 随机化顺序，多次打分取平均 |
+| **宽松偏差** | 倾向于给高分 | 用校准集调整评分阈值 |
+| **冗长偏差** | 更喜欢长答案 | 明确评分标准，不看长度看质量 |
+| **自我偏好** | 更喜欢和自己风格像的答案 | 用不同模型做 judge，交叉验证 |
+
+### 校准流程
+
+```mermaid
+graph TD
+    ANNOTATE["人工标注 N 个 case 的分数"] --> JUDGE["LLM-as-judge 打同样的 case"]
+    JUDGE --> COMPARE["对比人工分 vs LLM分"]
+    COMPARE --> METRICS["计算相关性/准确率"]
+    METRICS -->|达标| USE["使用 LLM-as-judge"]
+    METRICS -->|不达标| ADJUST["调整 prompt / 换模型 / 增加规则"]
+    ADJUST --> JUDGE
+```
+
+**经验值**：LLM-as-judge 与人工评分的 Spearman 相关性 > 0.7 才可以用于自动打分。低于这个值需要调整。
+
+---
+
+## 四、评测集污染检测
+
+最大的风险：评测集的内容泄露到了训练/微调数据中，导致分数虚高。
+
+检测方法：
+
+1. **n-gram 重叠检测** — 评测集的 task 和模型训练数据的重叠率
+2. **保留集** — 永远保留一个"从未见过"的秘密评测集，只在最终发布前用
+3. **时间分割** — 评测集用最近的案例，模型训练数据用更早的
+4. **对抗样本** — 定期生成新的评测 case，替换旧的
+
+```python
+# 污染检测
+contamination = check_contamination(
+    eval_suite="v1.0",
+    training_data_corpus="model_training_data/",
+    threshold=0.3,  # n-gram 重叠超过 30% 标记为可能污染
+)
+# 输出: 120 个 case 中，3 个可能被污染，建议替换
+```
+
+---
+
+## 五、回归对比
+
+每次改动后，跑评测集，和 baseline 对比：
+
+```
+回归对比报告:
+  Baseline: config_v1.yaml (commit abc123)
+  Candidate: config_v2.yaml (commit def456)
+
+  总体:
+    完成度: 82.1% → 87.5% (+5.4%) ✅
+    平均轮数: 10.1 → 8.3 (-1.8) ✅
+    平均成本: $0.058 → $0.042 (-27.6%) ✅
+
+  回归用例 (2):
+    - case_042 (research/deep): 完成度 5→3 ❌ 原因: 新 prompt 导致过早停止
+    - case_078 (tool/complex): 工具正确率 100%→80% ❌ 原因: 参数格式变化
+
+  显著提升 (5):
+    - case_015, case_023, case_056, case_089, case_112
+
+  结论: 整体提升，但有 2 个回归需要修复后再合并。
+```
+
+**回归用例必须修复才能合并**——这和传统软件的"测试不过不能合并"是一个道理。
+
+---
+
+## 六、评估与可观测性的打通
+
+评估不是独立的系统，它和可观测性打通：
+
+```mermaid
+graph LR
+    TRACE["线上 Trace"] --> AUTO["自动打分"]
+    AUTO --> DATASET["高质量 case<br/>加入评测集"]
+    DATASET --> OFFLINE["离线评测"]
+    OFFLINE --> REPORT["回归报告"]
+    REPORT --> DEPLOY["决定是否部署"]
+    DEPLOY --> TRACE
+```
+
+线上的真实 case 经过自动打分 + 人工抽检后，加入离线评测集。离线评测的结果指导部署决策。部署后又产生新的 Trace——形成闭环。
+
+---
+
+## 代码定位
+
+| 内容 | 源码位置 |
+|------|---------|
+| EvalCase 结构 | `evaluation/case.py` |
+| 评测运行器 | `evaluation/runner.py` |
+| LLM-as-judge | `evaluation/judge.py` |
+| 校准工具 | `evaluation/calibration.py` |
+| 污染检测 | `evaluation/contamination.py` |
+| 回归对比 | `evaluation/compare.py` |
+| 线上打分 | `evaluation/online_scoring.py` |
+| 评测集格式 | `evaluation/suite.py` |
+
+---
+
+## 下一步
+
+- 评估数据从哪来？→ [全链路可观测专题 →](observability.md)
+- 评估怎么指导迭代？→ [技能闭环专题 →](skills.md)
+- 想回到 tour？→ [第 ⑦ 站：多 Agent 协作 →](../tour/07-multiagent.md)

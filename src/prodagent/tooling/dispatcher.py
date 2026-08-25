@@ -27,6 +27,7 @@ from prodagent.kernel.types import (
     ToolOutcome,
     ToolResult,
 )
+from prodagent.tooling.base import coerce_result
 from prodagent.tooling.skill_resolver import SkillResolver
 
 TRANSIENT_EXC: tuple[type[BaseException], ...] = (
@@ -119,6 +120,7 @@ class ToolDispatcher:
         readonly_calls: list[tuple[int, ToolCall]] = []
         serial_calls: list[tuple[int, ToolCall]] = []
         deferred_injections: list[str] = []
+        emitted: set[str] = set()
 
         for i, call in enumerate(calls):
             if self._progress is not None:
@@ -152,15 +154,19 @@ class ToolDispatcher:
             )
             for (_, call), outcome in zip(readonly_calls, raw, strict=True):
                 result = self._coerce_outcome(outcome, call, run)
-                if self._emit_result(result, call, run, deferred_injections):
+                if self._emit_result(result, call, run, deferred_injections, emitted):
                     yield ToolResultEvent(name=call.name, result=result, run_id=run.run_id)
+                    self._balance_batch(run, calls, emitted, keep=call)
+                    self._flush_injections(run, deferred_injections)
                     return
                 yield ToolResultEvent(name=call.name, result=result, run_id=run.run_id)
 
         for _, call in serial_calls:
             result = await self.dispatch_with_retry(call, run)
-            if self._emit_result(result, call, run, deferred_injections):
+            if self._emit_result(result, call, run, deferred_injections, emitted):
                 yield ToolResultEvent(name=call.name, result=result, run_id=run.run_id)
+                self._balance_batch(run, calls, emitted, keep=call)
+                self._flush_injections(run, deferred_injections)
                 return
             yield ToolResultEvent(name=call.name, result=result, run_id=run.run_id)
 
@@ -173,6 +179,7 @@ class ToolDispatcher:
         call: ToolCall,
         run: AgentRun,
         deferred_injections: list[str],
+        emitted: set[str] | None = None,
     ) -> bool:
         if self._is_handoff(result, call, run):
             return True
@@ -180,12 +187,49 @@ class ToolDispatcher:
             return True
         wire = result.to_wire()
         injection = wire.pop(SKILL_INJECTION_KEY, None) if isinstance(wire, dict) else None
-        run.messages.append(self._build_tool_message(wire, call, run))
+        run.messages.append(self.build_tool_message(wire, call, run))
+        if emitted is not None:
+            emitted.add(call.call_id)
         if injection:
             deferred_injections.append(injection)
         return False
 
-    def _build_tool_message(self, wire: dict[str, Any], call: ToolCall, run: AgentRun) -> Message:
+    @staticmethod
+    def _balance_batch(
+        run: AgentRun, calls: list[ToolCall], emitted: set[str], *, keep: ToolCall
+    ) -> None:
+        """Keep the transcript wire-valid when a batch ends early (suspend/handoff).
+
+        The assistant message already carries all N tool_calls, but only the
+        emitted ones got results. Providers reject a request whose tool_use
+        blocks lack tool_results, so every never-dispatched sibling gets an
+        explicit skip marker; the early-terminating call itself (``keep``) is
+        excluded — a suspended call is replayed on resume and a handoff call
+        is answered by the handoff path. Skipped calls also leave
+        ``tool_history``: history records what actually ran."""
+        for call in calls:
+            if call is keep or call.call_id in emitted:
+                continue
+            run.messages.append(
+                Message(
+                    role="tool",
+                    tool_call_id=call.call_id,
+                    content=f"skipped: run ended before '{call.name}' was dispatched",
+                )
+            )
+            run.tool_history = [c for c in run.tool_history if c is not call]
+
+    @staticmethod
+    def _flush_injections(run: AgentRun, deferred_injections: list[str]) -> None:
+        """Don't drop already-collected skill injections when a batch ends early."""
+        for injection in deferred_injections:
+            run.messages.append(Message(role="user", content=injection))
+
+    def build_tool_message(self, wire: dict[str, Any], call: ToolCall, run: AgentRun) -> Message:
+        """The one way a tool result becomes a transcript message — shared by
+        both execution modes so spill truncation and ``max_result_chars``
+        behave identically whether the batch came from a REACTIVE turn or a
+        PLAN_FIRST step."""
         if self._context_config is None:
             return Message(role="tool", tool_call_id=call.call_id, content=json.dumps(wire))
         from prodagent.cognition.context.tool_results import reduce_on_append
@@ -243,7 +287,7 @@ class ToolDispatcher:
             )
         if isinstance(outcome, ToolResult):
             return outcome
-        return ToolResult.from_raw(outcome, tool=call.name)
+        return coerce_result(outcome, tool=call.name)
 
     def configure_batch(
         self,
@@ -371,7 +415,14 @@ class ToolDispatcher:
         for _attempt in range(policy.max_attempts):
             result = await self.dispatch(call, run_id=run.run_id)
 
-            if result.outcome in (ToolOutcome.OK, ToolOutcome.BLOCKED, ToolOutcome.SUSPENDED):
+            if result.outcome in (
+                ToolOutcome.OK,
+                ToolOutcome.BLOCKED,
+                ToolOutcome.SUSPENDED,
+                ToolOutcome.HANDOFF,
+            ):
+                # HANDOFF is terminal too — retrying it would re-fire a
+                # handoff that already succeeded.
                 return result
 
             assert result.error is not None

@@ -49,7 +49,7 @@ class _RecordingExecutor:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    async def __call__(self, call) -> dict:
+    async def __call__(self, call, *, run_id: str = "") -> dict:
         self.calls.append(call.name)
         return {"status": "green", "action": call.name}
 

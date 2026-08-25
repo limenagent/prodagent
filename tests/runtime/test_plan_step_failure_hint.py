@@ -31,7 +31,7 @@ class _StubEventLog:
         return 0
 
 
-async def _busy_executor(call: ToolCall) -> dict:
+async def _busy_executor(call: ToolCall, *, run_id: str = "") -> dict:
     return _BUSY_RAW
 
 
@@ -55,7 +55,7 @@ async def test_resource_busy_failure_message_includes_hint_for_replan():
 async def test_failure_message_without_hint_stays_clean():
     raw = {"error": True, "reason": "format_error", "message": "bad payload"}
 
-    async def executor(call: ToolCall) -> dict:
+    async def executor(call: ToolCall, *, run_id: str = "") -> dict:
         return raw
 
     plan = Plan(plan_id="p-plain")

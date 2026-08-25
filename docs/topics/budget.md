@@ -1,78 +1,316 @@
-# 预算
+# 四轴预算：怎么让 Agent 不烧钱、不死循环
 
-模型在两个工具之间反复横跳，token 一分钟烧一百块。怎么在 turns /
-seconds / tokens / cost 四个维度同时设硬上限，让循环在任何方向失控
-都撞墙？这是 `HardBudget` 的全部工作。它和记账机制一起住在
-`kernel/budget.py`——预算属于内核，能力包都来对账。
+> 这是 prodagent 最有特色的机制。一个 `while True` 调模型的循环，没有预算就是定时炸弹。
 
-## 四个轴，任一触顶即停
+---
+
+## 问题：Agent 的成本为什么总是失控？
+
+```mermaid
+graph LR
+    A["Agent 开始任务"] --> B["调用模型"]
+    B --> C["模型决定调用工具"]
+    C --> D["工具返回结果"]
+    D --> B
+    B -->|某一轮| E["模型输出最终答案"]
+
+    style B fill:#ffebee,stroke:#c62828
+```
+
+这个循环有三个失控风险：
+
+1. **死循环** — 模型反复调用同一个工具，永远不输出答案
+2. **烧 token** — 上下文越来越长，每轮 token 成本指数增长
+3. **超时间** — 模型卡住了，请求挂着不返回
+
+大多数框架的解法是一个 `max_iterations=10`。这够吗？远远不够。
+
+---
+
+## prodagent 的解法：四轴硬预算
 
 ```python
-# src/prodagent/kernel/budget.py:18
 @dataclass
 class HardBudget:
-    max_turns: int = 20
-    max_seconds: float = 120.0
-    max_tokens: int = 100_000
-    max_cost_usd: float = 1.0
+    max_turns: int = 20        # 最多多少轮
+    max_seconds: float = 120.0 # 最多跑多久
+    max_tokens: int = 100_000  # 最多消耗多少 billable token
+    max_cost_usd: float = 1.0  # 最多花多少钱
 ```
 
-`check_budget`（`kernel/budget.py`）在循环的每个关键点被调：think 前、
-decide 后、execute 后。触顶抛 `BudgetExceeded`，循环以 FAILED 落账——
-带着已发生的全部记账，不是静默消失。
+**四轴同时生效，任一触顶即停。**
 
-四个轴为什么缺一不可：turns 防循环、seconds 防挂死、tokens/cost 防
-**单轮巨贵**（一次 100 万 token 的上下文，20 轮限制救不了你）。cost 轴
-开箱即准——`llm/pricing.py` 的目录在 `LLMConfig` 初始化时自动填价
-（查不到的模型计零价，宁可免费也不谎报）。
+```mermaid
+graph TD
+    CHECK["每轮检查"] --> T{"turns > max?"}
+    T -->|是| STOP1["BudgetExceeded<br/>axis=turns"]
+    T -->|否| S{"seconds > max?"}
+    S -->|是| STOP2["BudgetExceeded<br/>axis=seconds"]
+    S -->|否| TK{"billable_tokens > max?"}
+    TK -->|是| STOP3["BudgetExceeded<br/>axis=tokens"]
+    TK -->|否| C{"cost_usd > max?"}
+    C -->|是| STOP4["BudgetExceeded<br/>axis=cost"]
+    C -->|否| CONTINUE["继续执行"]
+```
 
-## 安全网：防跑飞 ≠ 你的预算
+---
+
+## 逐轴拆解
+
+### 第一轴：turns — 轮数上限
+
+最简单也最必要。`max_turns=20` 意味着最多调用 20 次模型。
+
+**为什么不能只靠这个？** 因为 20 轮可能只花了 $0.01（短任务），也可能花了 $50（每轮都是 100k token 的长上下文）。轮数不能反映真实成本。
+
+### 第二轴：seconds — 时间上限
 
 ```python
-# src/prodagent/kernel/budget.py:27
-SAFETY_NET_BUDGET = HardBudget()
+llm_timeout = max(0.1, self._budget.max_seconds - run.elapsed_seconds())
+response = await asyncio.wait_for(coro, timeout=llm_timeout)
 ```
 
-裸核不配 `budget=` 时跑在这份默认上。注意它是什么、不是什么：
-**是**循环的防跑飞底线（没有它，一个坏掉的 FakeLLM 死循环可以烧穿
-任何真实账号）、四轴全执行、也是 LLM 调用超时的推导基准；**不是**
-用户配置——不挂 `AgentConfig`、不出现在你的配置里。给了 `budget=`
-就全轴覆盖。一个能无限烧钱的裸循环是 bug，不是"给用户自由"。
+**关键点**：时间预算不是"跑完了再看超没超"，而是给每次模型调用设**硬超时**。剩余时间 = 总预算 - 已用时间，到点直接 `asyncio.wait_for` 掐断。
 
-## 一链一本账：并发花费的实时汇总
+这防止了"模型 API 卡住了，Agent 挂了 10 分钟"的情况。
 
-spawn 出去的子 Agent 花的钱算谁的？算链的。`RunLoop` 在链的起点建
-**一本** `BudgetLedger`（`kernel/budget.py`），从此链上所有花钱方共享
-这一个引用：
+### 第三轴：tokens — billable token 上限
 
-- spawn 启动子 Agent 前 `reserve`（在途的预留也占额度，并发兄弟
-  无法靠竞态越过上限），子 run 结束后 `commit` 真实花销；
-- peer 接力前 commit 当前成员的花销、交接前 check 下家余量——链上
-  任何一环超限，链条在那里停下；
-- 叶子执行器每轮把"账本已落账 + 自己已花"一起对账（在途预留只在 spawn 的 reserve 门口把门——为自己预留的额度不能反过来封锁自己）
-  （`check_spawn_budget`，同样在 `kernel/budget.py`）。
+注意是 **billable tokens**，不是总 tokens：
 
-另有 `SpawnAccumulator`（`runtime/parent_runtime.py`）做**终局折账**：
-子 run 的 turns/tokens/cost/tool_history 在 hop 结束时折进父 run 的
-持久化 metrics——执法归账本（实时），报表归累加器（一次性）。曾经
-两条机制各自为政、还有一个 80 行的桥接文件协调它们；现在桥接文件
-删了，账本成了唯一的执法源。
+```python
+total_tokens = run.input_tokens + run.output_tokens + extra_tokens
+billable_tokens = total_tokens - run.cache_read_tokens
+```
 
-于是预算天然是**层级**的：父的 `max_cost_usd` 是整棵树的封顶，子可以
-有自己的更小预算，但不能突破父的。多 Agent 系统的成本失控多数不是
-单个 Agent 贵，是**没人看着总量**——链式账本就是那个看总量的人。
+**为什么减去 cache_read？**
+- Anthropic 的 cache_read 只收 10% 费用
+- OpenAI 的 cached input 只收 50% 费用
+- 如果把 cache_read 全额计入预算，会出现"用了缓存反而更快耗尽预算"的反直觉行为
 
-## 时间轴怎么执行
+`cache_write` 呢？它是正常计费的（甚至有溢价），所以不减。
 
-`max_seconds` 不是事后统计：`Step._call_llm`（`kernel/step.py`）把
-"剩余时间"直接设为该次 LLM 调用的 `asyncio.wait_for` 超时。时间预算
-触顶的形态是那一次调用被掐断，然后统一落成 `BudgetExceeded(axis=
-"seconds")`。工具超时则是 `ToolMeta.timeout_seconds` 的事——粒度
-不同，各管各的。
+### 第四轴：cost — 真实美元成本
 
-## 取舍
+```python
+def token_cost_usd(response, pricing):
+    cache_read = response.cache_read_tokens or 0
+    cache_write = response.cache_write_tokens or 0
+    input_billed = max(0, response.input_tokens - cache_read - cache_write)
+    return (
+        input_billed / 1e6 * pricing.input_rate
+        + response.output_tokens / 1e6 * pricing.output_rate
+        + cache_read / 1e6 * pricing.input_rate * pricing.cache_read_discount   # 0.1x
+        + cache_write / 1e6 * pricing.input_rate * pricing.cache_write_premium  # 1.25x
+    )
+```
 
-**为什么不用"预算用尽先警告再停"？** 因为警告是给人的，Agent 没有
-看警告的循环。预算的全部价值在于**不可协商**；一旦存在"再跑一轮"
-的余地，失控路径就重新打开。需要软限制的话，监听 `TOKEN_UPDATE`
-事件（hook 总线每轮都发）自己做——框架提供硬闸，软策略是你的。
+这是最精确的轴。直接算美元，不同模型的费率差异自动体现。
+
+**定价表从哪来？** `LLMConfig.__post_init__` 自动从模型名查定价表：
+```python
+if self.cost_per_million_input == 0.0 and self.cost_per_million_output == 0.0:
+    from prodagent.llm.pricing import pricing_for_model
+    table = pricing_for_model(self.model)
+    if table is not None:
+        self.cost_per_million_input = table.input_rate_per_million
+        self.cost_per_million_output = table.output_rate_per_million
+```
+
+未知模型（包括 FakeLLM）定价为 0，cost 轴自动失效，不影响其他三轴。
+
+---
+
+## 检查时机：不是只查一次
+
+```
+Step.run()
+├── _prepare()
+│   └── _check_budget()  ← ① 这一轮还能不能开始？
+├── _call_llm()
+│   └── asyncio.wait_for  ← ② 时间硬截止
+├── _account()           ← 记账
+├── _end_turn()?
+└── runner.run_batch()
+    └── _check_budget()  ← ③ 工具执行完还超不超？
+```
+
+**为什么查两次？**
+
+| 检查点 | 防什么 |
+|--------|--------|
+| Step 开头 | 上一轮已经把预算花完了，这一轮不该开始 |
+| 工具执行后 | 这一轮的模型调用可能消耗了大量 token，做完工具后可能已经超了 |
+
+如果只在开头查，可能出现"开始时预算够，但这一轮模型调用花了 80k token，直接超了"的情况。
+
+---
+
+## 多 Agent 预算：BudgetLedger
+
+单 Agent 的预算很简单。多 Agent 呢？如果父 Agent spawn 了 5 个子 Agent，每个子 Agent 各花各的预算，总预算怎么控制？
+
+prodagent 的解法是 **BudgetLedger**——一个共享的账本，所有子 Agent 往里面记账。
+
+```mermaid
+graph TD
+    Parent["父 Agent<br/>预算: $1.0"] --> Ledger["BudgetLedger<br/>共享账本"]
+    Parent --> Child1["子 Agent A"]
+    Parent --> Child2["子 Agent B"]
+    Parent --> Child3["子 Agent C"]
+
+    Child1 -->|commit $0.3| Ledger
+    Child2 -->|commit $0.5| Ledger
+    Child3 -->|reserve $0.3| Ledger
+
+    Ledger -->|已花 $0.8 + 预占 $0.3 = $1.1 > $1.0| REJECT["拒绝子 Agent C<br/>spawn_budget_exhausted"]
+
+    style Ledger fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style REJECT fill:#ffebee,stroke:#c62828
+```
+
+### 三阶段记账：reserve / commit / release
+
+```python
+class BudgetLedger:
+    async def reserve(self, *, member, turns=1, tokens=0, cost_usd=0):
+        """预占——开始工作前先占位，让兄弟 Agent 看到这笔钱已经被预定了"""
+
+    async def commit(self, *, member, turns, tokens, cost_usd,
+                     reserved_turns=0, reserved_tokens=0, reserved_cost_usd=0):
+        """实扣——工作完成后用真实花费替换预占"""
+
+    async def release(self, *, member, reserved_turns=0, reserved_tokens=0, reserved_cost_usd=0):
+        """退还——预占了但没实际花（比如锁竞争失败、任务重新入队）。
+        只能退自己名下的预占：一个成员不能替别人释放额度"""
+```
+
+**为什么需要 reserve？**
+
+想象 3 个子 Agent 并发执行，每个预计花 $0.4，总预算 $1.0：
+- 没有 reserve：3 个同时开始，各花 $0.4，总共 $1.2 → 超预算了才发现
+- 有 reserve：第 1 个 reserve $0.4（剩 $0.6），第 2 个 reserve $0.4（剩 $0.2），第 3 个 reserve $0.4 → 被拒绝
+
+**reserve 是并发安全的闸门。**
+
+### 数据结构
+
+```python
+@dataclass
+class _Spend:
+    turns: int = 0
+    tokens: int = 0
+    cost_usd: float = 0.0
+
+@dataclass
+class BudgetLedger:
+    max: HardBudget
+    _committed: _Spend = field(default_factory=_Spend)  # 永久实扣，只增不减
+    _reserved: _Spend = field(default_factory=_Spend)   # 临时预占，commit 时冲销
+    _reserved_by: dict[str, _Spend] = field(default_factory=dict)  # 按成员的预占明细
+    _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+```
+
+- `_committed` — 已经实际花掉的，只增不减
+- `_reserved` — 预占的，commit 时冲销，release 时退还
+- `_reserved_by` — 按成员记账的预占明细，release 按持有者校验（账本不只是两个全局计数器）
+- 检查时用 `committed + reserved` 与上限比较
+- `seconds` 轴不参与 reserve/commit，直接用 wall-clock 时间
+- 一个成员的执行中途崩溃：它占用的 turn 照记为已花（tokens/cost 无法得知记 0），而不是释放——否则崩溃循环的成员在 turns 轴上永远隐形
+
+### 一个完整的生命周期
+
+```
+1. 子 Agent A 开始工作
+   → ledger.reserve(member="A", cost_usd=0.3)
+   → reserved: $0.3, committed: $0
+
+2. 子 Agent B 开始工作
+   → ledger.reserve(member="B", cost_usd=0.3)
+   → reserved: $0.6, committed: $0
+
+3. 子 Agent A 完成，实际花了 $0.25
+   → ledger.commit(member="A", cost_usd=0.25, reserved_cost_usd=0.3)
+   → reserved: $0.3（冲销了 A 的预占）, committed: $0.25
+
+4. 子 Agent C 想开始，预计 $0.6
+   → ledger.reserve(member="C", cost_usd=0.6)
+   → 检查: committed $0.25 + reserved $0.3 + 新预占 $0.6 = $1.15 > $1.0
+   → 拒绝，返回 spawn_budget_exhausted
+```
+
+---
+
+## 预算耗尽时发生什么？
+
+```python
+except BudgetExceeded as exc:
+    yield await self._settle_terminated(run, exc)
+
+async def _settle_terminated(self, run, exc):
+    run.state = RunState.FAILED
+    run.last_error = str(exc)
+    run.error = classify_error(exc, layer=ErrorLayer.RUNTIME)
+    await self._end_run_span(run, error=str(exc))
+    return RunFailedEvent(run=run, error=str(exc))
+```
+
+- Run 标记为 `FAILED`
+- 错误信息包含具体哪个轴超了、数值是多少、上限是多少
+- span 追踪记录错误
+- checkpoint 保存最终状态（可以事后分析为什么超预算）
+
+**不会**：静默截断、丢失已完成的工作、影响其他并发的 Agent。
+
+---
+
+## 默认值的设计哲学
+
+```python
+SAFETY_NET_BUDGET = HardBudget(
+    max_turns=20,
+    max_seconds=120.0,
+    max_tokens=100_000,
+    max_cost_usd=1.0,
+)
+```
+
+默认值偏保守。注释写得很清楚：
+
+> *Conservative defaults: unattended runs fail fast rather than burning quota.*
+
+**无人值守的任务应该快速失败，而不是慢慢烧钱。** 用户需要更大预算时显式配置，而不是反过来——默认无限、用户忘了配就烧 $100。
+
+---
+
+## 与其他框架的对比
+
+| 框架 | 预算维度 | 多 Agent 共享 | 时间硬截止 | 缓存感知 |
+|------|---------|-------------|-----------|---------|
+| **prodagent** | turns/seconds/tokens/cost 四轴 | BudgetLedger reserve/commit | asyncio.wait_for | billable = total - cache_read |
+| LangChain | max_iterations 单轴 | 无 | 无 | 无 |
+| LangGraph | recursion_limit 单轴 | 无 | 无 | 无 |
+| AutoGen | max_rounds 单轴 | 无 | 无 | 无 |
+| CrewAI | max_iterations + 超时 | 部分 | 有 | 无 |
+
+---
+
+## 代码定位
+
+| 内容 | 源码位置 |
+|------|---------|
+| HardBudget 定义 | `kernel/budget.py` |
+| 单 Agent 预算检查 | `kernel/budget.py::check_budget` |
+| BudgetLedger | `kernel/budget.py::BudgetLedger` |
+| 四轴评估函数 | `core/budget_axes.py::evaluate_axes` |
+| 预算异常 | `core/exceptions.py::BudgetExceeded` |
+| 定价表 | `llm/pricing.py` |
+| 成本计算 | `ports/llm.py::token_cost_usd` |
+
+---
+
+## 下一步
+
+- 想看崩溃恢复怎么和预算配合？→ [崩溃恢复专题](recovery.md)
+- 想看审批挂起时预算怎么计时？→ [HITL 审批专题](approval.md)
+- 想回到生命周期 tour？→ [第 ⑤ 站：循环内核](../tour/05-loop.md)

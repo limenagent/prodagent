@@ -1,131 +1,207 @@
-# 上手
+# 5 分钟上手
 
-零 API key、零外部服务，全程离线。目标：30 分钟内跑通裸核、
-打开生产开关、看着 Agent 在 playground 里跑。
-
-## 1 · 安装
-
-```bash
-pip install prodagent
-```
-
-发布核心刻意做薄——4 个依赖（anyio / httpx / pydantic / typing-extensions）。
-按需加装：
-
-```bash
-pip install "prodagent[openai]"        # OpenAI 及兼容端点（DeepSeek/Qwen/Moonshot/Zhipu…）
-pip install "prodagent[anthropic]"     # Anthropic
-pip install "prodagent[playground]"    # 本地可视化 playground
-pip install "prodagent[postgres,redis,neo4j]"  # 生产后端驱动
-```
-
-## 2 · 第一个 Agent：零文件
-
-```python
-import asyncio
-
-from prodagent import Agent, AgentConfig, ExecutionMode, tool
-
-@tool(name="greet", readonly=True)
-async def greet(name: str) -> str:
-    """按名字打招呼。"""
-    return f"Hello, {name}!"
-
-agent = Agent(
-    "greeter",
-    system_prompt="你是友好的 greeter。用 greet 工具按名字跟用户打招呼。",
-    tools=[greet],
-    mode=ExecutionMode.REACTIVE,
-)
-
-asyncio.run(agent.chat("跟 Alice 打个招呼。"))
-```
-
-跑之前先 `cd` 到一个空目录——跑完你会发现目录**还是空的**。这不是省略：
-`tests/core/test_bare_kernel.py` 把它作为契约断言（`list(tmp_path.rglob("*")) == []`）。
-裸核的 `None` 就是 `None`：不配 session store 就没有会话落盘，不配 checkpoint
-就没有断点文件，`submit_approval()` 会直接告诉你没接审批门。
-
-没有配任何 LLM 时，框架按环境变量解析 provider：`USE_FAKE_LLM=1` 离线；
-或 `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` 指向任意 OpenAI 兼容端点；
-或 `ANTHROPIC_API_KEY`。
-
-## 3 · 打开生产开关
-
-裸核跑通了，把同一个 agent 换到生产形态——只换 `framework=`：
-
-```python
-from prodagent import Agent, AgentConfig, ExecutionMode, tool
-from prodagent.core.config import production
-
-agent = Agent(
-    "greeter",
-    system_prompt="你是友好的 greeter。用 greet 工具按名字跟用户打招呼。",
-    tools=[greet],
-    mode=ExecutionMode.REACTIVE,
-    config=AgentConfig(name="greeter", framework=production()),
-)
-
-asyncio.run(agent.chat("跟 Alice 打个招呼。"))
-# 这次 `.prodagent/` 下会出现 runs / sessions / events / spans
-```
-
-`production()` 做了什么？把 `FrameworkConfig.profile` 翻到 `"production"`
-并打开压缩与工具结果外溢。此后每个默认解析点都会变：
-session/checkpoint/event log 解析为 file 后端、挂上 span 导出与 HIGH
-工具审批门、LLM 包上响应缓存。这些分支**只存在于一个文件**——
-`runtime/compose.py`（组装根），"生产形态到底打开了什么"在那里是一份
-能从头读到尾的清单，且有测试保证 profile 判断不会散落到别处。
-
-## 4 · 一个带刹车和门的 Agent
-
-```python
-from prodagent import Agent, AgentConfig, ExecutionMode, HardBudget, SideEffectLevel, ToolMeta, tool
-from prodagent.core.config import production
-
-@tool(name="place_order", meta=ToolMeta(
-    name="place_order", side_effect_level=SideEffectLevel.HIGH))
-async def place_order(item: str, qty: int) -> dict:
-    return {"ordered": item, "qty": qty}
-
-agent = Agent(
-    "shopper",
-    system_prompt="帮用户下单。确认后调 place_order。",
-    tools=[place_order],
-    mode=ExecutionMode.REACTIVE,
-    budget=HardBudget(max_turns=10, max_cost_usd=0.5, max_seconds=300.0),
-    config=AgentConfig(name="shopper", framework=production()),
-)
-
-run = asyncio.run(agent.chat("买两杯奶茶"))
-print(run.state)                 # RunState.SUSPENDED —— HIGH 工具在等人审
-print(run.pending_approval_id)   # 拿着它去批准或拒绝
-asyncio.run(agent.submit_approval(run.pending_approval_id, "approve"))
-run = asyncio.run(agent.chat(resume=True, session_id=...))
-```
-
-注意三件事：预算是你给的就真停（`HardBudget` 四轴任一触顶即 `BudgetExceeded`）；
-HIGH 副作用工具把整个 run 挂起成一个可恢复的 SUSPENDED 状态；恢复靠
-`session_id`——同一会话续跑。[预算](topics/budget.md) 和
-[审批](topics/approval.md) 两章展开。
-
-## 5 · Playground：看着它跑
-
-```bash
-make playground     # 自动装 uv、首跑弹配置向导、开浏览器
-```
-
-向导二选一：FakeLLM（离线，直接体验全部 9 个示例）或 OpenAI 兼容端点。
-Playground 注入的是 production 形态——事件卡片、DAG 图、审批按钮都是真
-框架行为，不是演示特效。9 个示例讲什么，见[示例地图](examples.md)。
-
-## 然后去哪
-
-- 读代码：[第一部分 · 一次调用的生命周期](tour/index.md)，七站读完内核。
-- 按问题域深入：[第二部分 · 专题](topics/recovery.md)，七个独立专题。
-- 跑示例：[示例地图](examples.md)，九个可运行的教材。
+> 零文件、零旁路、零配置——跑通你的第一个 prodagent Agent。
 
 ---
 
-> 十分钟跑通只是起点。每个机制背后的推理链——为什么这样设计、失败模式
-> 是什么——在专栏[《生产级 Agent 排雷实战》](http://gk.link/a/12L6Q)里逐讲展开。
+## 最小可跑示例
+
+```python
+import asyncio
+from prodagent import Agent, ExecutionMode, tool
+
+@tool(name="search", readonly=True)
+async def search(query: str) -> str:
+    """搜索网络信息。"""
+    return f"results for: {query}"
+
+agent = Agent(
+    "demo",
+    system_prompt="你是一个 helpful assistant，使用工具回答问题。",
+    tools=[search],
+    mode=ExecutionMode.REACTIVE,
+)
+
+asyncio.run(agent.chat("巴黎今天天气如何？"))
+```
+
+就这么多。没有配置文件，没有环境变量，没有外部服务。
+
+---
+
+## 发生了什么？
+
+让我们拆开这 10 行代码背后发生的完整链路：
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant A as Agent
+    participant L as ReactiveLoop
+    participant S as Step
+    participant M as LLM
+    participant T as ToolDispatcher
+
+    U->>A: chat("巴黎今天天气如何？")
+    A->>L: stream(task)
+    L->>L: _resolve_run() 创建 AgentRun
+    loop 每一轮
+        L->>S: step.run(run)
+        S->>S: _prepare() 预算检查 + 死循环检测
+        S->>M: complete(messages, tools)
+        M-->>S: LLMResponse(tool_calls=[search])
+        S->>S: _account() 记账 token/cost
+        S->>T: run_batch([search])
+        T->>T: 权限校验 → 审批门 → 执行
+        T-->>S: ToolResult
+        S-->>L: events
+    end
+    M-->>S: LLMResponse(content="巴黎今天...", stop_reason=end_turn)
+    S->>S: _end_turn() → COMPLETED
+    L-->>U: RunCompletedEvent
+```
+
+**关键观察**：即使是最简单的调用，也经过了预算检查、死循环检测、工具调度、权限校验——这些不是可选的，是默认开启的安全网。
+
+---
+
+## 一键上生产全套
+
+当你准备好上生产时，不需要重写代码，只需要换一个配置：
+
+```python
+from prodagent import Agent, AgentConfig
+from prodagent.core.config import production
+
+agent = Agent(
+    "demo",
+    tools=[search],
+    config=AgentConfig(
+        name="demo",
+        framework=production(),  # ← 一键开启全套护甲
+    ),
+)
+```
+
+`production()` 开启了什么？
+
+| 护甲 | 作用 |
+|------|------|
+| **落盘恢复** | 每轮 checkpoint 写入磁盘，进程被杀后从断点续跑 |
+| **span 追踪** | 每轮推理、工具调用、消息穿越自动埋点 |
+| **HIGH 工具审批门** | 有副作用的工具挂起等人确认 |
+| **权限策略** | RBAC + 操作级授权，越权操作拦截并审计 |
+| **LLM 缓存** | 语义缓存，重复请求不花钱 |
+| **上下文压缩** | token 超阈值时自动分级压缩 |
+
+---
+
+## 三种执行模式
+
+prodagent 不是"一种循环走天下"，它根据任务复杂度提供三种模式：
+
+### 1. REACTIVE — 边走边想
+
+```python
+agent = Agent("demo", mode=ExecutionMode.REACTIVE)
+```
+
+- 每轮：想一步 → 做一步 → 看结果 → 再想
+- 适合：探索式任务、不确定路径、需要根据中间结果调整
+- 类比：开车去陌生地方，走一步看一步导航
+
+### 2. PLAN_FIRST — 先规划后执行
+
+```python
+agent = Agent("demo", mode=ExecutionMode.PLAN_FIRST)
+```
+
+- 先让模型输出一个 DAG 计划，再按依赖关系执行
+- 执行中可以增量重规划（审批被拒、步骤失败时）
+- 适合：有明确步骤的复杂任务、需要并行执行的子任务
+- 类比：装修前先出施工图，再按图施工
+
+### 3. Workflow — 静态 DAG
+
+```python
+from prodagent.plan import Workflow, workflow_step
+
+@workflow_step
+def fetch_data(): ...
+
+@workflow_step(depends_on=[fetch_data])
+def analyze(): ...
+
+workflow = Workflow([fetch_data, analyze])
+```
+
+- 完全预定义的 DAG，模型不参与规划
+- 适合：确定性流程、合规要求固定路径的场景
+- 类比：工厂流水线，每一步都是固定的
+
+---
+
+## 工具的副作用等级
+
+不是所有工具都一样危险。prodagent 用 `SideEffectLevel` 区分：
+
+```python
+from prodagent import tool, SideEffectLevel
+
+@tool(name="read_file", readonly=True)
+async def read_file(path: str) -> str:
+    """只读工具——可以并行执行，不需要审批。"""
+    ...
+
+@tool(name="send_email", side_effect=SideEffectLevel.HIGH)
+async def send_email(to: str, body: str) -> str:
+    """高副作用工具——执行前挂起等人审批。"""
+    ...
+
+@tool(name="delete_record", side_effect=SideEffectLevel.CRITICAL)
+async def delete_record(id: str) -> str:
+    """关键操作——需要二次确认 + 审计日志。"""
+    ...
+```
+
+| 等级 | 并行 | 审批 | 审计 | 典型场景 |
+|------|------|------|------|---------|
+| READONLY | ✅ 并行 | 不需要 | 可选 | 查询、搜索、读取 |
+| LOW | 串行 | 不需要 | 记录 | 缓存写入、临时文件 |
+| HIGH | 串行 | **挂起等人** | 强制 | 发邮件、下单、调用外部 API |
+| CRITICAL | 串行 | **二次确认** | 强制+告警 | 删除、转账、权限变更 |
+
+---
+
+## 离线运行：FakeLLM
+
+学习和测试时，你不需要真实的 API key。prodagent 内置了精确可复现的 FakeLLM：
+
+```python
+from prodagent import FakeLLMAdapter, script
+from prodagent.kernel.types import LLMResponse
+
+# 方式 1：预设响应序列
+fake_llm = FakeLLMAdapter(responses=[
+    LLMResponse(content="", tool_calls=[{"name": "search", "args": {"query": "巴黎天气"}}]),
+    LLMResponse(content="巴黎今天晴，25°C。", stop_reason="end_turn"),
+])
+
+# 方式 2：用 script 装饰器写可复现的多轮脚本
+@script
+def my_scenario():
+    yield LLMResponse(tool_calls=[...])  # 第 1 轮
+    yield LLMResponse(content="...")      # 第 2 轮
+
+agent = Agent("demo", llm=fake_llm, tools=[search])
+```
+
+**为什么这很重要？** 因为 1,182 个测试全部用 FakeLLM，零 API key、零网络、零 flaky。你也可以用它精确复现某个 bug 场景。
+
+---
+
+## 下一步
+
+- 想理解底层机制？→ [第一部分 · 一次调用的生命周期](tour/index.md)
+- 想看真实场景？→ [9 个端到端示例](examples.md)
+- 想深入某个生产问题？→ [第二部分 · 生产问题域](../index.md)

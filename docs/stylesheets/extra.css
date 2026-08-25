@@ -1,44 +1,124 @@
-/* prodagent docs — 克制优先：系统中文字体栈、引用条、表格斑马。
-   只覆盖必要的少量变量，不与主题争抢。 */
+/* prodagent 文档自定义样式 */
 
+/* 配色变量 */
 :root {
-  --md-text-font: -apple-system, "PingFang SC", "Hiragino Sans GB",
-    "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
-  --md-code-font: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --pa-primary: #4f46e5;
+  --pa-primary-light: #eef2ff;
+  --pa-accent: #0ea5e9;
+  --pa-success: #10b981;
+  --pa-warning: #f59e0b;
+  --pa-danger: #ef4444;
+  --pa-code-bg: #f8fafc;
 }
 
-/* 中文正文行高与段距 */
-.md-typeset {
-  line-height: 1.75;
-}
-.md-typeset p,
-.md-typeset li {
-  margin-block: 0.6em;
-}
-
-/* 引用条：页尾专栏卡片与正文引文共用 */
-.md-typeset blockquote {
-  border-left: 3px solid var(--md-primary-fg-color--light);
-  padding-left: 1em;
-  color: var(--md-default-fg-color--light);
-  font-size: 0.92em;
+/* 标题样式 */
+h1 {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  border-bottom: 3px solid var(--pa-primary);
+  padding-bottom: 0.5em;
 }
 
-/* 表格斑马纹 + 紧凑字号 */
-.md-typeset table:not([class]) {
-  font-size: 0.88em;
-  line-height: 1.5;
-}
-.md-typeset table:not([class]) tbody tr:nth-child(even) {
-  background-color: rgba(120, 120, 120, 0.06);
+h2 {
+  font-weight: 700;
+  margin-top: 2em;
+  border-left: 4px solid var(--pa-primary);
+  padding-left: 0.75em;
 }
 
-/* 行内代码在中文正文里的呼吸感 */
-.md-typeset code {
-  word-break: break-all;
+h3 {
+  font-weight: 600;
+  margin-top: 1.5em;
 }
 
-/* mermaid 居中 */
-.md-typeset .mermaid {
+/* 引用块美化 */
+blockquote {
+  border-left: 4px solid var(--pa-accent);
+  background: linear-gradient(90deg, var(--pa-primary-light) 0%, transparent 100%);
+  padding: 1em 1.25em;
+  border-radius: 0 8px 8px 0;
+  font-style: normal;
+}
+
+blockquote p {
+  margin: 0;
+}
+
+/* 表格美化 */
+table {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+thead th {
+  background: var(--pa-primary);
+  color: white !important;
+  font-weight: 600;
+  border: none !important;
+}
+
+tbody tr:nth-child(even) {
+  background: #f8fafc;
+}
+
+tbody tr:hover {
+  background: var(--pa-primary-light);
+}
+
+/* 代码块 */
+pre {
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+code {
+  border-radius: 4px;
+}
+
+/* Mermaid 图居中 */
+.mermaid {
   text-align: center;
+  margin: 1.5em 0;
+}
+
+/* 提示框 */
+.admonition {
+  border-radius: 8px;
+}
+
+/* 列表间距 */
+li {
+  margin: 0.3em 0;
+}
+
+/* 首页特色卡片 */
+.feature-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.25em;
+  margin: 1em 0;
+  transition: box-shadow 0.2s;
+}
+
+.feature-card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+/* 深色模式适配 */
+[data-md-color-scheme="slate"] {
+  --pa-primary-light: #1e1b4b;
+  --pa-code-bg: #1e293b;
+}
+
+[data-md-color-scheme="slate"] thead th {
+  background: #4338ca;
+}
+
+[data-md-color-scheme="slate"] tbody tr:nth-child(even) {
+  background: #1e293b;
+}
+
+[data-md-color-scheme="slate"] blockquote {
+  background: linear-gradient(90deg, #1e1b4b 0%, transparent 100%);
 }

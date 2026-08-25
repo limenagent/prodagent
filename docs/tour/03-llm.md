@@ -1,72 +1,286 @@
-# ③ 模型 llm
+# 第 ③ 站：模型层
 
-没有 API key 的机器上，这个框架能跑通全部 9 个示例和 1,182 个测试。
-这不是附赠功能，是 `llm/` 包的第一设计约束：
+> Agent 的所有智能都来自模型调用。这一站讲清楚 LLMClient 端口怎么设计、流式回调怎么工作、缓存边界是什么、定价模型怎么算。
 
-```python
-# src/prodagent/llm/providers.py:22
-def use_fake_llm() -> bool:
-    return os.getenv("USE_FAKE_LLM", "").lower() in ("1", "true", "yes")
+---
+
+## 问题：模型调用为什么需要抽象？
+
+```mermaid
+graph LR
+    A["核心循环"] --> B["直接调 OpenAI SDK"]
+    A --> C["直接调 Anthropic SDK"]
+    A --> D["直接调本地模型"]
 ```
 
-解析顺序在 `create_llm_client`（`llm/factory` 经 `llm/__init__.py` 懒导出）
-里是一条直线：**Fake 显式要求 → OpenAI 兼容端点 → Anthropic → Fake 兜底**。
-没有 key 时不报错、不要求配置——静默落到 Fake。于是“克隆仓库五分钟后
-跑起第一个 Agent”和“CI 里三 个 Python 版本全离线测试”是同一条路径。
+如果核心循环直接调各个 SDK：
+- 换模型要改核心代码
+- 测试要连真实 API
+- 每个 SDK 的接口格式不同，适配逻辑散落在各处
+- 流式输出、工具调用、缓存的处理方式各不相同
 
-## FakeLLM 是一等公民
+prodagent 的解法：**一个 LLMClient Protocol，所有模型适配器实现它。**
 
-`llm/fake.py` 有两件工具，值得认真看：
+---
 
-**`script()`（`llm/fake.py:70`）——把一次轨迹写成字面量：**
+## LLMClient 端口
 
 ```python
-from prodagent.llm.fake import script
-
-llm = script(
-    {"tool": "search", "params": {"query": "weather paris"}},
-    {"content": "Paris: 18°C, rain in the afternoon."},
-)
+@runtime_checkable
+class LLMClient(Protocol):
+    async def complete(
+        self,
+        messages: MessageList,
+        *,
+        system: str | list[dict[str, Any]] = "",
+        tools: list[dict[str, Any]] | None = None,
+        config: LLMConfig | None = None,
+        on_chunk: Callable[[str], Awaitable[None]] | None = None,
+    ) -> LLMResponse: ...
 ```
 
-九个示例的离线剧本全是它写的。测试断言因此可以精确到“模型第二步
-调了什么工具”——行为可复现，才谈得上回归。
+**就一个方法：`complete`。** 所有模型适配器（OpenAI、Anthropic、Fake、本地模型）都实现这个接口。
 
-**`RoutingFakeLLM`（`llm/fake.py:140`）——一个共享实例服务多个 Agent：**
+核心循环只知道"调用 `complete`，拿到 `LLMResponse`"，不知道底层是 OpenAI 还是 Anthropic。
 
-父 Agent 并行 spawn 三个子 Agent 时，单一响应队列会被并发弹空（弹出
-顺序不确定）。RoutingFakeLLM 按 system prompt 锚点分路由：`add(name, ...)`
-锚定 `# {name} Agent` 头，`add_route(marker, ...)` 锚任意子串；队列项
-可以是静态响应（FIFO 弹出）也可以是 `Callable[[MessageList], LLMResponse]`
-（常驻应答器，每次都应答，能看消息历史）。没有一个示例再需要手写
-这种机制——它们曾经各自复制过一份。
+---
 
-## 缓存与计价：两个透明装饰
+## LLMResponse：统一的返回格式
 
-- **`CachingLLMClient`（`llm/cache.py:75`）**——包在真客户端外的提示缓存。
-  命中返回 `from_cache=True` 的响应，循环记账时跳过计费。仅在
-  production 形态下由 `RunContext` 装配（`runtime/runner.py` 经
-  `_resolve_llm`）：裸核不做任何静默优化。
-- **`llm/pricing.py`**——`LLMConfig.__post_init__` 里，模型价格表查得到
-  就自动填入 `cost_per_million_*`。效果：`HardBudget` 的 cost 轴
-  开箱即准，不用手工抄价目。查不到的模型计零价——**宁可免费也不谎报**。
+不同模型的返回格式千差万别。prodagent 把它们统一成 `LLMResponse`：
 
-## 结构化输出
+```python
+@dataclass
+class LLMResponse:
+    content: str                          # 文本输出
+    tool_calls: list[ToolCall]            # 请求的工具调用
+    stop_reason: StopReason               # end_turn / tool_calls / max_tokens
+    input_tokens: int                     # 输入 token 数
+    output_tokens: int                    # 输出 token 数
+    total_tokens: int                     # 总计
+    cache_read_tokens: int = 0            # 缓存命中的 token
+    cache_write_tokens: int = 0           # 写入缓存的 token
+    reasoning_content: str = ""           # 思维链（如果模型支持）
+    model: str = ""                       # 实际使用的模型
+    from_cache: bool = False              # 是否来自语义缓存
+```
 
-`llm/structured_output.py` 的 `parse_json_as` 服务于框架内部所有
-“请模型回 JSON”的场景：planner 出 DAG、记忆分类、技能蒸馏、总结压缩。
-统一走一个解析器意味着统一的失败语义（重试/降级在一处定义），而不是
-六处各写一个 `json.loads` + 各自的 try/except。
+**适配器的工作**：把各 SDK 的原生返回转换成这个统一格式。比如：
+- OpenAI 的 `choices[0].message.tool_calls` → `tool_calls`
+- Anthropic 的 `content_blocks` 中的 `tool_use` → `tool_calls`
+- OpenAI 的 `usage.prompt_tokens_details.cached_tokens` → `cache_read_tokens`
 
-## 取舍
+这样核心循环不需要知道"OpenAI 的缓存字段叫什么、Anthropic 的叫什么"。
 
-**不用 LiteLLM/统一网关库做 provider 层？** 那是“快”的答案：
-一百个 provider 先接上。本框架只需要三个事实上的标准（fake / OpenAI
-兼容 / Anthropic），多一个依赖就多一层不可控的失败面；而且 FakeLLM
-作为一等公民的地位会被“provider 抽象”稀释——离线可跑是本框架的
-硬约束，不是配置项。
+---
 
-**为什么计价表放在框架里？** 因为预算的 cost 轴离开价格就是装饰。
-目录只有几十个模型前缀、错配即零价，维护成本接近零；换来的是
-`run.cost_usd` 这个数字在任何 Dashboard 上可直接信。
+## 流式回调：on_chunk
 
+```python
+async def _call_llm(self, run, system, messages, tools):
+    token_events = []
+    async def _on_chunk(text: str):
+        await _fire(self._bus, HookEvent.THINK, text=text, run_id=run.run_id)
+        token_events.append(ThinkTokenEvent(token=text, run_id=run.run_id))
+
+    response = await self._llm.complete(
+        messages, system=system, tools=tools, config=llm_config, on_chunk=_on_chunk
+    )
+    return response, token_events
+```
+
+`on_chunk` 是一个异步回调，每收到一个 token 就触发一次。用途：
+
+1. **实时输出** — 前端打字机效果，用户不用等完整响应
+2. **思维链记录** — 支持 reasoning 的模型（Claude、DeepSeek-R1），把思考过程实时记录到 span
+3. **事件驱动** — 触发 THINK 事件，可观测系统可以实时展示
+
+**为什么用回调而不是 async generator？**
+- `complete` 返回完整的 `LLMResponse`（包含 token 统计、工具调用），这是循环逻辑需要的
+- 流式 token 通过回调实时传出，不影响返回值的结构
+- 适配器可以自由选择是否实现流式（FakeLLM 可以一次性触发所有 chunk）
+
+---
+
+## LLMConfig：配置 + 定价
+
+```python
+@dataclass
+class LLMConfig:
+    model: str = ""
+    temperature: float = 0.0
+    max_tokens: int = 8_192
+    timeout_seconds: float = 60.0
+    enable_prompt_caching: bool = True
+    cost_per_million_input: float = 0.0
+    cost_per_million_output: float = 0.0
+    cache_read_discount: float = 0.1     # Anthropic 0.1, OpenAI 0.5
+    cache_write_premium: float = 1.25    # Anthropic 1.25
+    cache_boundary_index: int | None = None
+```
+
+### 自动填充定价
+
+```python
+def __post_init__(self):
+    if not self.model:
+        from prodagent.llm.providers import detect_default_model
+        self.model = detect_default_model()
+    if self.cost_per_million_input == 0.0 and self.cost_per_million_output == 0.0:
+        from prodagent.llm.pricing import pricing_for_model
+        table = pricing_for_model(self.model)
+        if table is not None:
+            self.cost_per_million_input = table.input_rate_per_million
+            self.cost_per_million_output = table.output_rate_per_million
+```
+
+**设计意图**：用户只需要指定模型名，定价自动从内置定价表填充。这样 cost 预算轴默认就是活的——不需要用户手动配置价格。
+
+显式设置的价格永远优先；未知模型（包括 FakeLLM）定价为 0，cost 轴自动失效，不影响其他三轴。
+
+### 成本计算
+
+```python
+def cost_for_response(self, response: LLMResponse) -> float:
+    pricing = PricingTable(
+        input_rate_per_million=self.cost_per_million_input,
+        output_rate_per_million=self.cost_per_million_output,
+        cache_read_discount=self.cache_read_discount,
+        cache_write_premium=self.cache_write_premium,
+    )
+    return token_cost_usd(response, pricing)
+```
+
+```python
+def token_cost_usd(response, pricing):
+    cache_read = response.cache_read_tokens or 0
+    cache_write = response.cache_write_tokens or 0
+    input_billed = max(0, response.input_tokens - cache_read - cache_write)
+    return (
+        input_billed / 1e6 * pricing.input_rate
+        + response.output_tokens / 1e6 * pricing.output_rate
+        + cache_read / 1e6 * pricing.input_rate * pricing.cache_read_discount
+        + cache_write / 1e6 * pricing.input_rate * pricing.cache_write_premium
+    )
+```
+
+**四类 token 四种价格**：
+- 普通输入：全价
+- 输出：全价（通常比输入贵）
+- cache_read：折扣价（Anthropic 0.1x，OpenAI 0.5x）
+- cache_write：溢价（Anthropic 1.25x）
+
+这就是为什么预算的 token 轴用 `billable_tokens = total - cache_read`——cache_read 几乎不花钱，不该占用预算额度。
+
+---
+
+## 缓存边界：cache_boundary_index
+
+```python
+if llm_config is not None and self._cache_boundary is not None:
+    llm_config = dataclasses.replace(
+        llm_config, cache_boundary_index=self._cache_boundary()
+    )
+```
+
+**这是什么？** Anthropic 的 prompt caching 需要在消息中标记"从这里开始可以缓存"。`cache_boundary_index` 告诉适配器在哪个消息位置插入 `cache_control` 标记。
+
+**为什么需要这个？** 因为系统提示和工具定义是每轮不变的，把它们标记为可缓存可以大幅降低成本。但缓存标记的位置需要动态计算（上下文压缩后消息列表会变），所以由 ContextManager 提供 `cache_boundary_index`，Step 在调用模型前注入。
+
+```
+messages = [
+    {"role": "system", "content": "..."},     ← cache_boundary 标记在这里
+    {"role": "user", "content": "任务..."},
+    {"role": "assistant", "content": "..."},
+    ...
+]
+```
+
+---
+
+## FakeLLM：精确可复现的测试模型
+
+这是 prodagent 工程化的关键。1,182 个测试全部用 FakeLLM，零 API key、零网络。
+
+```python
+# 方式 1：预设响应序列
+fake_llm = FakeLLMAdapter(responses=[
+    LLMResponse(tool_calls=[{"name": "search", "params": {"query": "..."}}]),
+    LLMResponse(content="最终答案", stop_reason="end_turn"),
+])
+
+# 方式 2：script 装饰器
+@script
+def my_scenario():
+    yield LLMResponse(tool_calls=[...])  # 第 1 轮
+    yield LLMResponse(content="...")      # 第 2 轮
+```
+
+**FakeLLM 能模拟什么？**
+- 多轮工具调用序列
+- 流式输出（逐 token 触发 on_chunk）
+- 缓存命中（`from_cache=True`）
+- 错误响应（超时、格式错误）
+- 推理内容（`reasoning_content`）
+
+**为什么这很重要？** 因为 Agent 的行为是多轮的、有状态的。用真实 API 测试会遇到：
+- 非确定性（同样的输入可能得到不同输出）
+- 速率限制
+- 成本（1,182 个测试跑一次可能花几十美元）
+- 慢（每个测试等几秒到几十秒）
+
+FakeLLM 让测试**确定性、零成本、毫秒级完成**。
+
+---
+
+## 模型路由：按需选择
+
+```python
+# 环境变量配置，代码零修改
+# USE_FAKE_LLM=1 → 用 FakeLLM
+# LLM_BASE_URL + LLM_API_KEY + LLM_MODEL → 任意 OpenAI 兼容端点
+# ANTHROPIC_API_KEY → Anthropic 原生
+```
+
+prodagent 不绑定特定模型。你可以：
+- 开发时用 FakeLLM，完全离线
+- 测试时用 FakeLLM，确定性可复现
+- 生产时用 DeepSeek/Qwen/Moonshot（OpenAI 兼容），便宜
+- 需要高质量时用 Claude/GPT-4
+
+核心代码不需要任何改动，只改环境变量或配置。
+
+---
+
+## 适配器的工作量
+
+实现一个新模型适配器需要做什么？
+
+1. 实现 `LLMClient.complete()` 一个方法
+2. 把 SDK 的返回转换成 `LLMResponse`
+3. 处理流式输出（如果 SDK 支持）
+4. 处理工具调用格式转换
+5. 处理 token 统计和缓存字段
+
+通常 100-200 行代码。不需要继承任何基类，不需要导入框架的任何东西（除了类型定义）。
+
+---
+
+## 代码定位
+
+| 内容 | 源码位置 |
+|------|---------|
+| LLMClient 端口 | `ports/llm.py` |
+| LLMConfig / PricingTable | `ports/llm.py` |
+| 成本计算 | `ports/llm.py::token_cost_usd` |
+| OpenAI 适配器 | `llm/openai.py` |
+| Anthropic 适配器 | `llm/anthropic.py` |
+| FakeLLM | `llm/fake.py` |
+| 定价表 | `llm/pricing.py` |
+| 模型自动检测 | `llm/providers.py` |
+
+---
+
+## 下一步
+
+👉 **[第 ④ 站：工具系统 →](04-tools.md)** — `@tool` 装饰器怎么工作？参数校验、工具幻觉防御、只读并行/写串行。

@@ -13,7 +13,7 @@ from prodagent.plan.executor import PlanExecutor
 
 
 class _RecordingExecutor:
-    async def __call__(self, call) -> dict:
+    async def __call__(self, call, *, run_id: str = "") -> dict:
         return {"status": "green", "action": call.name}
 
 

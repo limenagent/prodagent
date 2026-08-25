@@ -46,7 +46,7 @@ def _basic_plan() -> dict:
     }
 
 
-async def _noop_executor(call) -> dict:
+async def _noop_executor(call, *, run_id: str = "") -> dict:
     return {"status": "ok", "action": call.name}
 
 

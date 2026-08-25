@@ -59,7 +59,9 @@ def _plan_with_step(action: str = "refund_order") -> tuple[Plan, PlanStep]:
 
 def _step_runner(fn) -> StepRunner:
     dispatcher = ToolDispatcher({fn.name: fn})
-    return StepRunner(lambda call: _execute(fn, call), _StubEventLog(), dispatcher=dispatcher)
+    return StepRunner(
+        lambda call, run_id="": _execute(fn, call), _StubEventLog(), dispatcher=dispatcher
+    )
 
 
 async def _execute(fn, call: ToolCall):
