@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from prodagent.core.pipeline import Pipeline, Stage, StageMode
+from prodagent.kernel.pipeline import Pipeline, Stage, StageMode
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +140,7 @@ class HookRegistry:
     """Three-protocol event bus: event / check / inject.
 
     Mount/dispatch plumbing (priority ordering, sync-or-async normalization,
-    concurrent vs. sequential running) lives in :mod:`prodagent.core.pipeline`;
+    concurrent vs. sequential running) lives in :mod:`prodagent.kernel.pipeline`;
     this class owns only the domain interpretation of each protocol — what a
     veto looks like, how a failed checker degrades, how a failed injector is
     traced."""

@@ -15,7 +15,7 @@ the kernel import chain turns this red first.
 
 Why this size and not smaller: kernel (10 — includes core.budget_axes, the
 shared turns/seconds/tokens/cost precedence check used by both check_budget()
-and BudgetLedger, and core.pipeline, the generic mount/dispatch plumbing
+and BudgetLedger, and kernel.pipeline, the generic mount/dispatch plumbing
 behind kernel/bus.py's HookRegistry), ports (15 — tiny Protocol
 files that ARE the kernel's vocabulary), tooling (10 — the @tool/dispatch
 spine), the messaging plane (7 — the driver's shared data structures),
@@ -49,7 +49,7 @@ KERNEL_EXPECTED = frozenset(
         "prodagent.core",
         "prodagent.core.budget_axes",
         "prodagent.core.lazy",
-        "prodagent.core.pipeline",
+        "prodagent.kernel.pipeline",
         "prodagent.kernel.budget",
         "prodagent.core.config",
         "prodagent.core.error_classifier",

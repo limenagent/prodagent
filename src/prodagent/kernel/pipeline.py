@@ -109,6 +109,16 @@ class Pipeline:
     def has_stages(self, point: Any) -> bool:
         return bool(self._stages.get(point))
 
+    def _require_mode(self, point: Any, stages: list[Stage], mode: StageMode) -> None:
+        # A point has one dispatch semantic; a mismatched mount is a wiring bug
+        # that would otherwise run a veto-checker as fire-and-forget (or worse).
+        for stage in stages:
+            if stage.mode is not mode:
+                raise TypeError(
+                    f"stage {stage.name!r} at {point!r} mounted as "
+                    f"{stage.mode.value} but dispatched as {mode.value}"
+                )
+
     async def observe(
         self,
         point: Any,
@@ -120,6 +130,7 @@ class Pipeline:
         stages = self.stages(point)
         if not stages:
             return
+        self._require_mode(point, stages, StageMode.OBSERVE)
 
         async def run(stage: Stage) -> None:
             try:
@@ -151,6 +162,7 @@ class Pipeline:
         stages = self.stages(point)
         if not stages:
             return []
+        self._require_mode(point, stages, StageMode.GATHER)
 
         async def run(stage: Stage) -> Any:
             try:
@@ -176,7 +188,9 @@ class Pipeline:
     ) -> Any | None:
         """VETO: sequential, first non-``None`` outcome (from ``interpret`` or ``on_error``)
         short-circuits and is returned. ``None`` after every stage means no veto."""
-        for stage in self.stages(point):
+        stages = self.stages(point)
+        self._require_mode(point, stages, StageMode.VETO)
+        for stage in stages:
             try:
                 result = await stage.fn(**payload)
             except Exception as exc:

@@ -1,7 +1,7 @@
 """Phase 7 safety gate: version history/rollback, tag-overlap fix, correctness
 gate, and rate limiting for the skill self-evolution loop.
 
-See design.md §3.7 — the loop could silently overwrite a live skill file with
+The loop could silently overwrite a live skill file with
 no way back, no correctness check beyond "the run completed", and a
 mismatched tag-overlap threshold that let unrelated skills get merged.
 """
@@ -110,7 +110,7 @@ def test_rollback_false_for_in_memory_registry_without_skills_dir():
     assert reg.rollback("oom", "1.0") is False
 
 
-# -- Tag-overlap threshold fix (design.md §3.7) -----------------------------
+# -- Tag-overlap threshold fix ----------------------------------------------
 
 
 @pytest.mark.asyncio

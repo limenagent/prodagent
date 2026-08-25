@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from prodagent.core.pipeline import Pipeline, Stage, StageMode
+from prodagent.kernel.pipeline import Pipeline, Stage, StageMode
 
 
 class _Veto(Exception):
@@ -214,3 +214,15 @@ def test_has_stages_false_for_unmounted_point():
     pipeline = Pipeline()
     assert not pipeline.has_stages("nothing-here")
     assert pipeline.stages("nothing-here") == []
+
+
+async def _noop(**kw: object) -> None:
+    return None
+
+
+@pytest.mark.asyncio
+async def test_mode_mismatch_is_a_wiring_error() -> None:
+    pipe = Pipeline()
+    pipe.mount("gate.x", Stage(name="checker", fn=_noop, mode=StageMode.VETO))
+    with pytest.raises(TypeError, match="mounted as veto but dispatched as observe"):
+        await pipe.observe("gate.x", {})

@@ -3,16 +3,16 @@
 
 This repo's recurring defect isn't missing abstractions — it's abstractions
 that get designed, written, fully tested, and then never wired to the call
-sites they were meant to replace, while a docstring elsewhere keeps claiming
-they're already unified (see docs/refactor/design.md §1, "Ghost Abstraction").
+sites they were meant to replace ("ghost abstractions": ActivationPolicy sat
+dead for months while a package docstring called activation an axis).
 
 MANIFEST below is the explicit, hand-curated list of symbols this applies to.
 Each entry has a `status`:
 
 - "orphan": known half-wired abstraction, currently below `min_hits` on
-  purpose (tracked debt from docs/refactor/implementation-plan.md). Failing
-  to meet `min_hits` is expected and does NOT fail CI — but exceeding it
-  print a hint to flip the status once the wiring PR lands.
+  purpose (tracked debt). Failing to meet `min_hits` is expected and does
+  NOT fail CI — but exceeding it prints a hint to flip the status once the
+  wiring lands.
 - "wired": the abstraction has been connected to its real caller(s). CI FAILS
   if hits drop below `min_hits` — this is the regression guard. Do not add an
   entry as "wired" without confirming the caller exists outside tests/.
@@ -48,17 +48,15 @@ MANIFEST: list[Entry] = [
         defining_file="src/prodagent/core/budget_axes.py",
         min_hits=1,
         status="wired",
-        note="called from kernel/budget.py's check_budget() and BudgetLedger "
-        "(docs/refactor/implementation-plan.md Phase 1, completed)",
+        note="called from kernel/budget.py's check_budget() and BudgetLedger",
     ),
     Entry(
-        name="core.pipeline.Pipeline",
-        pattern=r"from prodagent\.core\.pipeline import|from prodagent\.core import pipeline",
-        defining_file="src/prodagent/core/pipeline.py",
+        name="kernel.pipeline.Pipeline",
+        pattern=r"from prodagent\.kernel\.pipeline import|from prodagent\.kernel import pipeline",
+        defining_file="src/prodagent/kernel/pipeline.py",
         min_hits=1,
         status="wired",
-        note="used by kernel/bus.py's HookRegistry "
-        "(docs/refactor/implementation-plan.md Phase 2, completed)",
+        note="used by kernel/bus.py's HookRegistry",
     ),
     Entry(
         name="coordination.activation.ActivationPolicy (Blackboard)",
@@ -66,8 +64,7 @@ MANIFEST: list[Entry] = [
         defining_file="src/prodagent/coordination/activation.py",
         min_hits=1,
         status="wired",
-        note="implemented by BlackboardPolicy and consumed by Blackboard._rounds "
-        "(docs/refactor/implementation-plan.md Phase 4, completed)",
+        note="implemented by BlackboardPolicy and consumed by Blackboard._rounds",
         scope_file="src/prodagent/coordination/blackboard.py",
     ),
 ]

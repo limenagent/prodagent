@@ -40,7 +40,7 @@
 | Step 是原子，循环是策略 | REACTIVE = while 迭代原子；PLAN_FIRST = for-each-DAG 迭代原子——两种执行器共享同一个原子的纪律 | [⑤ 循环](tour/05-loop.md) |
 | profile 只允许出现在 compose.py | "production() 打开什么"是一个文件里的清单，不是散落消费现场的 if | [上手](start.md) |
 | 能力槽 provide/require 取代扩展扫描 | 插件声明它携带什么，消费者按类型索取——isinstance/hasattr 扫描是字符串协议 | [专题](topics/approval.md) |
-| 总线 ≠ 管线（两个原语） | fire/collect 是扇出，Pipeline 是链式短路——对偶不是同一机制；只共享 60 行助手 | [⑦ 协作](tour/07-multiagent.md) |
+| 总线 ≠ 管线（两个概念，共享机械） | fire/collect 扇出与链式短路是对偶不合并；挂载/优先级/三种分发形状（observe/veto/gather）收敛在 kernel/pipeline.py，领域解释以回调注入，messaging 管线独立保留 | [⑦ 协作](tour/07-multiagent.md) |
 | AgentRun 不分解成扩展组合 | 全库被读得最多的对象碎片化换不来任何行为；挂起字段簇才是真内聚 | [⑤ 循环](tour/05-loop.md) |
 | AgentConfig 保持扁平不分组 | 分组的动因（新能力加字段）已随插件插槽消失；分组是 churn 换美观 | [⑤ 循环](tour/05-loop.md) |
 | 不引入统一 Plugin/Kit 协议类 | 三插槽已各有其位（端口/总线/执行器）；再造一个统一 Plugin 接口是给三种合法签名改名，不是新能力 | [⑤ 循环](tour/05-loop.md) |

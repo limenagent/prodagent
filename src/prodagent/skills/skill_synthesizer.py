@@ -36,7 +36,7 @@ _SKILL_SECTIONS: tuple[tuple[str, str], ...] = (
 
 # Matches SkillRegistry.find_similar's default — previously 1 here vs 2 there,
 # which let two skills sharing a single incidental tag get silently merged
-# into one file (design.md §3.7).
+# into one file.
 _TAG_OVERLAP = 2
 
 _SYNTHESIS_SYSTEM = """\
