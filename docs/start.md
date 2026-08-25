@@ -204,4 +204,4 @@ agent = Agent("demo", llm=fake_llm, tools=[search])
 
 - 想理解底层机制？→ [第一部分 · 一次调用的生命周期](tour/index.md)
 - 想看真实场景？→ [9 个端到端示例](examples.md)
-- 想深入某个生产问题？→ [第二部分 · 生产问题域](../index.md)
+- 想深入某个生产问题？→ [第二部分 · 生产问题域](index.md)
