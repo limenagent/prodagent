@@ -16,9 +16,12 @@ the kernel import chain turns this red first.
 Why this size and not smaller: kernel (10 — includes core.budget_axes, the
 shared turns/seconds/tokens/cost precedence check used by both check_budget()
 and BudgetLedger, and kernel.pipeline, the generic mount/dispatch plumbing
-behind kernel/bus.py's HookRegistry), ports (15 — tiny Protocol
-files that ARE the kernel's vocabulary), tooling (10 — the @tool/dispatch
-spine), plus runtime core (agent/config/runner/factory/compose/parent_runtime).
+behind kernel/bus.py's HookRegistry), ports (17 — tiny Protocol
+files that ARE the kernel's vocabulary; #14 Transport and #15 BudgetLedgerPort
+joined in the G0 pre-work: annotation-only contracts, the message plane's
+in-process implementation stays behind the compose seam), tooling (10 — the
+@tool/dispatch spine), plus runtime core
+(agent/config/runner/factory/compose/parent_runtime).
 The peer relay moved to coordination/relay.py behind the compose seam, so
 the messaging plane left this chain entirely — spawn/peers, the stage
 primitives AND the relay load lazily via compose. Importing an Agent pulls
@@ -70,6 +73,7 @@ KERNEL_EXPECTED = frozenset(
         "prodagent.kernel.step",
         "prodagent.ports",
         "prodagent.ports.approval",
+        "prodagent.ports.budget_ledger",
         "prodagent.ports.cache",
         "prodagent.ports.checkpoint",
         "prodagent.ports.dead_letter",
@@ -83,6 +87,7 @@ KERNEL_EXPECTED = frozenset(
         "prodagent.ports.session",
         "prodagent.ports.span",
         "prodagent.ports.tool",
+        "prodagent.ports.transport",
         "prodagent.runtime",
         "prodagent.runtime._tool_merge",
         "prodagent.runtime.agent",

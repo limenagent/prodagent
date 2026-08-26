@@ -71,7 +71,11 @@ class AnthropicAdapter:
         cfg = config or self._default_config
         normalised = cast(
             "MessageList",
-            self._normalise_messages(messages, cache_boundary_index=cfg.cache_boundary_index),
+            self._normalise_messages(
+                messages,
+                cache_boundary_index=cfg.cache_boundary_index,
+                include_thinking=cfg.thinking_budget_tokens > 0,
+            ),
         )
         guard = DeliveryGuard()
         safe_chunk = on_chunk
@@ -107,8 +111,20 @@ class AnthropicAdapter:
         return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
 
     def _normalise_messages(
-        self, messages: MessageList, *, cache_boundary_index: int | None = None
+        self,
+        messages: MessageList,
+        *,
+        cache_boundary_index: int | None = None,
+        include_thinking: bool = False,
     ) -> list[dict[str, Any]]:
+        """Canonical (OpenAI-shaped) history → Anthropic wire.
+
+        ``include_thinking`` re-sends the raw thinking blocks carried on
+        assistant tool turns — the API requires the final assistant message's
+        thinking blocks to come back on a tool-use continuation. Left off
+        otherwise, so a session that disabled thinking mid-run never sends
+        stale blocks the API would reject.
+        """
         import json as _json
 
         result: list[dict[str, Any]] = []
@@ -144,6 +160,12 @@ class AnthropicAdapter:
 
             if role == "assistant" and msg.get("tool_calls"):
                 content_blocks: list[dict[str, Any]] = []
+                if include_thinking:
+                    content_blocks.extend(
+                        dict(b)
+                        for b in msg.get("thinking", [])
+                        if isinstance(b, dict) and b.get("type") == "thinking"
+                    )
                 if content:
                     content_blocks.append({"type": "text", "text": content})
                 for tc in msg["tool_calls"]:
@@ -175,10 +197,13 @@ class AnthropicAdapter:
             normalised_content = normalise_content(content)
             if at_boundary:
                 normalised_content = self._tag_cache_boundary(normalised_content)
+            # "thinking" is framework vocabulary, not a wire field — plain
+            # messages never re-send their blocks (only tool turns must).
+            payload = {k: v for k, v in msg.items() if k != "thinking"}
             result.append(
-                {**msg, "content": normalised_content}
+                {**payload, "content": normalised_content}
                 if normalised_content is not content
-                else dict(msg)
+                else payload
             )
 
         _flush_tool_results()
@@ -210,6 +235,23 @@ class AnthropicAdapter:
             "temperature": cfg.temperature,
             "messages": messages,
         }
+        if cfg.thinking_budget_tokens > 0:
+            kwargs["thinking"] = {"type": "enabled", "budget_tokens": cfg.thinking_budget_tokens}
+            # The API pins temperature to 1 while thinking is enabled —
+            # sending any other value is a 400, so send nothing and let the
+            # default apply.
+            del kwargs["temperature"]
+            # max_tokens must strictly exceed the thinking budget; a config
+            # that forgets gets bumped (with a trace) rather than rejected
+            # mid-run.
+            if kwargs["max_tokens"] <= cfg.thinking_budget_tokens:
+                logger.warning(
+                    "LLMConfig.max_tokens=%s <= thinking_budget_tokens=%s — raising "
+                    "max_tokens to budget+1024 (the API requires max_tokens > budget)",
+                    kwargs["max_tokens"],
+                    cfg.thinking_budget_tokens,
+                )
+                kwargs["max_tokens"] = cfg.thinking_budget_tokens + 1024
         if cfg.timeout_seconds is not None:
             kwargs["timeout"] = cfg.timeout_seconds
         sys_val = self._build_system(system, cfg)
@@ -245,12 +287,23 @@ class AnthropicAdapter:
         tool_calls: list[ToolCall] = []
         text_parts: list[str] = []
         thinking_parts: list[str] = []
+        thinking_blocks: list[dict[str, Any]] = []
 
         for block in raw.content:
             if block.type == "text":
                 text_parts.append(block.text)
             elif block.type == "thinking":
-                thinking_parts.append(getattr(block, "thinking", "") or "")
+                thinking_text = getattr(block, "thinking", "") or ""
+                thinking_parts.append(thinking_text)
+                # Verbatim incl. the signature — re-sending a thinking block
+                # without its original signature is an API error.
+                thinking_blocks.append(
+                    {
+                        "type": "thinking",
+                        "thinking": thinking_text,
+                        "signature": getattr(block, "signature", "") or "",
+                    }
+                )
             elif block.type == "tool_use":
                 tool_calls.append(
                     ToolCall(
@@ -273,4 +326,5 @@ class AnthropicAdapter:
             cache_read_tokens=cache_read,
             cache_write_tokens=cache_write,
             reasoning_content="\n".join(thinking_parts),
+            thinking_blocks=thinking_blocks,
         )

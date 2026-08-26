@@ -58,6 +58,41 @@
 
 ---
 
+## 模型层
+
+### 为什么 Message 以 OpenAI 线格式为规范格式？
+
+框架内部流转的消息（`core/types.py` 的 `Message`）长成 OpenAI 的样子：
+`role / content / tool_calls / tool_call_id`。Anthropic 适配器负责双向翻译。
+
+**为什么不是自创中立格式？**
+
+| | 自创中立格式 | OpenAI 形态为规范 |
+|---|---|---|
+| 第三方工具兼容 | 都要翻译 | LangChain/observability 工具链直接认 |
+| 适配器数量 | 每家进出都要转 | OpenAI 直通，Anthropic 单点翻译 |
+| 概念负担 | 多一层"框架语" | 全行业已熟悉这套词表 |
+
+**代价与对策**：中立格式的座位问题真实存在——Anthropic 的 thinking
+块在 OpenAI 形态里没有位置。对策是 `Message.thinking` 扩展键：原始块
+（含签名）挂在 assistant 消息上原样往返，不翻译、不投影；`reasoning_content`
+只是它的纯文本投影视图，给展示和记账用。
+
+> 注意一个不对称：**消息格式以 OpenAI 为规范，停止原因以 Anthropic
+> 为规范**（`kernel/types.py` 的 `StopReason` 注释明说）。两边各取事实
+> 上的业界 lingua franca，而不是单选一家。
+
+### 为什么 thinking 块原样往返而不是只存纯文本？
+
+Anthropic 的规则：工具调用续轮必须把最后一条 assistant 消息的 thinking
+块**带签名**重发，否则 API 直接拒绝。纯文本（`reasoning_content`）丢了
+签名，等于丢了重发的资格。所以存储的是原始块，文本只是视图。
+
+启用方式：`LLMConfig(thinking_budget_tokens=2048)`。适配器会同时停发
+`temperature`（thinking 期间 API 把它钉在 1）并保证 `max_tokens` 大于预算。
+
+---
+
 ## 预算层
 
 ### 为什么是四轴而不是一轴？
@@ -268,6 +303,10 @@ test_work_queue_lease_timeout_requeue
 | 工具错误处理 | `tooling/base.py` |
 | 消息平面 | `coordination/messaging/` |
 | FakeLLM | `llm/fake.py` |
+| 消息格式宪法 | `core/types.py` `kernel/types.py` |
+| thinking 往返 | `llm/anthropic_adapter.py` |
+| 结算信封 | `kernel/budget.py` |
+| Transport 端口 | `ports/transport.py` |
 
 ---
 

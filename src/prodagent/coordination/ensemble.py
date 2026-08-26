@@ -24,6 +24,7 @@ from prodagent.coordination.messaging.envelope import (
     Direction,
 )
 from prodagent.coordination.messaging.interceptors import ProjectionInterceptor
+from prodagent.coordination.messaging.limits import PUBLIC_TURN_TEXT_MAX_CHARS
 from prodagent.coordination.messaging.pipeline import (
     Pipeline,
     Slot,
@@ -51,7 +52,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_TURN_TEXT_MAX_CHARS = 4000
+_TURN_TEXT_MAX_CHARS = PUBLIC_TURN_TEXT_MAX_CHARS
 """Admission bound for a floor turn's text — mirrors PublicTextOnly's
 per-view cap so the transcript itself (not just its projections) is bounded."""
 

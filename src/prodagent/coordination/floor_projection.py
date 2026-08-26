@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from prodagent.coordination.floor import FloorTurn
+from prodagent.coordination.messaging.limits import PUBLIC_TURN_TEXT_MAX_CHARS
 from prodagent.core.text import bound_text
 
 if TYPE_CHECKING:
@@ -51,9 +52,10 @@ class PublicTextOnly:
     never appear in another member's view.
     """
 
-    max_chars: int = 4000
-    """Per-turn text cap. Mirrors HandoffPacket.prior_output_max_chars — one
-    long-winded member shouldn't blow another's context window."""
+    max_chars: int = PUBLIC_TURN_TEXT_MAX_CHARS
+    """Per-turn text cap. Must stay equal to the floor's admission bound
+    (``PUBLIC_TURN_TEXT_MAX_CHARS``) — transcript and projection are bounded
+    the same, so one long-winded member can't blow another's context window."""
 
     def project(self, turn: FloorTurn, *, viewer: str) -> FloorTurn:
         # Speaker sees its own turn verbatim — no point truncating your own words.

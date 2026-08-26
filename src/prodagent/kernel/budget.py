@@ -18,7 +18,10 @@ from prodagent.core.budget_axes import evaluate_axes
 from prodagent.core.exceptions import BudgetExceeded
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from prodagent.kernel.state import AgentRun
+    from prodagent.ports.budget_ledger import BudgetLedgerPort
 
 logger = logging.getLogger(__name__)
 
@@ -336,6 +339,62 @@ def spent_to_dict(spend: _Spend, *, elapsed: float) -> dict[str, float | int]:
         "tokens": spend.tokens,
         "cost_usd": round(spend.cost_usd, 6),
     }
+
+
+async def run_enveloped(
+    ledger: BudgetLedgerPort | None,
+    *,
+    member: str,
+    act: Callable[[], Awaitable[tuple[int, int, float] | None]],
+) -> tuple[int, int, float] | None:
+    """Reserve one turn → run ``act`` → commit the actuals — the one
+    settlement envelope every per-unit spender shares.
+
+    ``ledger`` is the port type (:class:`prodagent.ports.budget_ledger.BudgetLedgerPort`):
+    the kernel's in-process ``BudgetLedger`` satisfies it structurally today;
+    a distributed runtime swaps the implementation without touching this
+    policy.
+
+    ``act`` returns ``(turns, tokens, cost_usd)`` — the actuals to commit —
+    or ``None`` ("the unit ran but produced nothing measurable"), which still
+    commits the reserved turn slot at zero: a turn was consumed whether or not
+    anything came of it. If ``act`` *raises*, the reservation is still
+    **committed** (actuals unknown → zeros) rather than released: a crashed
+    attempt consumed a real turn slot, and releasing would let a crash-looping
+    member spend forever while the turns axis shows zero. The exception
+    propagates to the caller, which decides how to isolate the member.
+
+    A member that can't reserve (over cap) never acts — ``None`` comes back
+    with no budget movement, and callers translate that into their own
+    "exhausted" outcome. ``ledger=None`` runs ``act`` bare (no budget wiring)
+    and returns its actuals unchanged.
+
+    This is the single home for the reserve/commit invariants; stage drivers
+    (:meth:`StageDriver._run_enveloped
+    <prodagent.coordination._stage.StageDriver._run_enveloped>`) and spawn
+    both delegate here so the policy cannot drift between them.
+    """
+    if ledger is None:
+        return await act()
+    try:
+        await ledger.reserve(member=member, turns=1)
+    except BudgetExceeded:
+        return None
+    try:
+        actuals = await act()
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        # The attempt crashed mid-turn — the turn slot is gone even though
+        # tokens/cost are unknowable. Commit it; releasing here would make
+        # crash-looping members invisible to the turns axis.
+        await ledger.commit(member=member, turns=1, tokens=0, cost_usd=0.0, reserved_turns=1)
+        raise
+    turns, tokens, cost_usd = actuals if actuals is not None else (1, 0, 0.0)
+    await ledger.commit(
+        member=member, turns=turns, tokens=tokens, cost_usd=cost_usd, reserved_turns=1
+    )
+    return actuals
 
 
 SharedBudget = BudgetLedger

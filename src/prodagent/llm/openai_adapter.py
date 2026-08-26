@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from prodagent.core.exceptions import ToolCallParseError
-from prodagent.kernel.types import LLMResponse, MessageList, StopReason, ToolCall
+from prodagent.kernel.types import LLMResponse, Message, MessageList, StopReason, ToolCall
 from prodagent.llm import LLMConfig, normalise_content
 from prodagent.llm.http_retry import (
     DeliveryGuard,
@@ -98,7 +98,17 @@ class OpenAIAdapter:
         for msg in messages:
             content = msg.get("content")
             normalised = normalise_content(content, join_text_blocks=True)
-            full.append({**msg, "content": normalised} if normalised is not content else msg)
+            # "thinking" is framework vocabulary for the Anthropic round-trip,
+            # not an OpenAI wire field — never let it leak onto the request.
+            # The comprehension widens the TypedDict to a plain dict; the cast
+            # just re-narrows it to what it still is — a Message minus one key.
+            payload = {k: v for k, v in msg.items() if k != "thinking"}
+            full.append(
+                cast(
+                    "Message",
+                    {**payload, "content": normalised} if normalised is not content else payload,
+                )
+            )
         return full
 
     @staticmethod

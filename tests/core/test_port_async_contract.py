@@ -24,6 +24,7 @@ from prodagent.ports import (
     SessionStore,
     SpanExporter,
     Tool,
+    Transport,
 )
 
 STORE_PORTS = [
@@ -40,6 +41,7 @@ STORE_PORTS = [
     SessionStore,
     SpanExporter,
     Tool,
+    Transport,
 ]
 
 
@@ -63,9 +65,12 @@ def test_every_store_port_method_is_async() -> None:
 
 
 def test_port_count_is_stable() -> None:
-    """Adding a 14th port (blueprint G0 will add Transport) is a deliberate act —
-    update this count and the suite above in the same commit."""
-    assert len(STORE_PORTS) == 13, (
+    """Changing the port roster is a deliberate act — update this count and
+    the suite above in the same commit. Transport joined as #14 (G0 seam);
+    BudgetLedgerPort (#15) is deliberately not here — it is a coordination
+    port with sync read views, not an I/O store, and has its own conformance
+    suite in tests/runtime/test_transport_and_ledger_ports.py."""
+    assert len(STORE_PORTS) == 14, (
         "store-port roster changed; update test_every_store_port_method_is_async "
         "and this count together"
     )

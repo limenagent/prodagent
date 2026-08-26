@@ -112,6 +112,14 @@ class LLMResponse:
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
     reasoning_content: str = ""
+    """Plain-text view of the model's reasoning (for display, hooks, and
+    accounting) — a projection, not the carrier. The raw provider blocks
+    live in :attr:`thinking_blocks`."""
+    thinking_blocks: list[JsonDict] = field(default_factory=list)
+    """Raw reasoning blocks verbatim (Anthropic thinking blocks incl. their
+    ``signature``). They ride on the assistant message so a tool-use
+    continuation can re-send them — the Anthropic API rejects a tool-result
+    turn whose preceding assistant message dropped its thinking blocks."""
     from_cache: bool = False  # skip cost billing when served by CachingLLMClient
 
     @property
@@ -129,6 +137,7 @@ class LLMResponse:
             "cache_write_tokens": self.cache_write_tokens,
             "model": self.model,
             "reasoning_content": self.reasoning_content,
+            "thinking_blocks": [dict(b) for b in self.thinking_blocks],
         }
 
     @classmethod
@@ -143,6 +152,7 @@ class LLMResponse:
             cache_write_tokens=d.get("cache_write_tokens", 0),
             model=d.get("model", ""),
             reasoning_content=d.get("reasoning_content", ""),
+            thinking_blocks=[dict(b) for b in d.get("thinking_blocks", [])],
         )
 
 

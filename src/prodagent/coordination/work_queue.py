@@ -32,13 +32,14 @@ from prodagent.coordination.messaging.envelope import (
     CrossingKind,
     Direction,
 )
+from prodagent.coordination.messaging.limits import CROSSING_OUTPUT_MAX_CHARS
 from prodagent.coordination.messaging.pipeline import admission_pipeline
 from prodagent.coordination.termination import (
     MaxRounds,
     TerminationPolicy,
     TerminationReason,
 )
-from prodagent.core.event_log import Event
+from prodagent.core.event_log import Event, append_expected
 from prodagent.core.text import bound_text
 
 if TYPE_CHECKING:
@@ -272,15 +273,17 @@ class SharedQueue(RoundedLockableStore):
         )
 
     async def _record(self, event_type: QueueEventType, **data: Any) -> int:
-        """Append a durable event under ``run_id`` (mirrors ``PlanEventLog._record``:
-        the optimistic ``expected_seq`` tail-check serializes appends under this
-        store's lock). No-op when no event log is attached. Returns the assigned
-        seq and advances ``_last_seq``."""
+        """Append a durable event under ``run_id`` via the shared optimistic
+        tail-check (``core.event_log.append_expected`` — the same discipline
+        ``PlanEventLog._record`` uses, serialized here by this store's lock).
+        No-op when no event log is attached. Returns the assigned seq and
+        advances ``_last_seq``."""
         if self._event_log is None:
             return 0
-        seq = await self._event_log.append(
+        seq = await append_expected(
+            self._event_log,
             Event.make(event_type, self._run_id, version=0, **data),
-            expected_seq=self._last_seq,
+            tail_seq=self._last_seq,
         )
         self._last_seq = seq
         return seq
@@ -506,8 +509,12 @@ class WorkQueue(StageDriver[WorkQueueEvent]):
     def _bound_error(payload: Any) -> Any:
         """Cap a worker's error text — one verbose crash must not flood every
         consumer of the queue's events."""
-        if payload is not None and payload.error is not None and len(payload.error) > 2000:
-            payload.error = bound_text(payload.error, 2000)
+        if (
+            payload is not None
+            and payload.error is not None
+            and len(payload.error) > CROSSING_OUTPUT_MAX_CHARS
+        ):
+            payload.error = bound_text(payload.error, CROSSING_OUTPUT_MAX_CHARS)
         return payload
 
     async def _open(self) -> None:

@@ -15,16 +15,20 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from prodagent.coordination.messaging.envelope import Crossing, CrossingKind, Direction
-from prodagent.coordination.messaging.idempotency import IdempotentMessageHandler
 from prodagent.coordination.messaging.packet import HandoffPacket
-from prodagent.coordination.messaging.pipeline import Pipeline, assembly_pipeline
+from prodagent.coordination.messaging.transport import (
+    PipelineTransport,
+    TransportSpec,
+    build_transport,
+)
 from prodagent.core.exceptions import BudgetExceeded
-from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.bus import HookEvent, save_and_fire_checkpoint
 from prodagent.kernel.state import AgentRun, child_run_id
+from prodagent.runtime.parent_runtime import hop_own_share
 from prodagent.runtime.runner import RunContext
 
 if TYPE_CHECKING:
-    from prodagent.kernel.budget import BudgetLedger
+    from prodagent.ports.budget_ledger import BudgetLedgerPort
 
 if TYPE_CHECKING:
     from prodagent.runtime.parent_runtime import SpawnAccumulator
@@ -40,15 +44,14 @@ class PeerRelay:
 
     def __init__(self, root_run_id: str) -> None:
         self._root_run_id = root_run_id
-        self._dedupe: IdempotentMessageHandler | None = None
-        self._pipe: Pipeline | None = None
+        self._transport: PipelineTransport | None = None
 
     async def next_context(
         self,
         ctx: RunContext,
         run: AgentRun,
         spawn_acc: SpawnAccumulator | None = None,
-        ledger: BudgetLedger | None = None,
+        ledger: BudgetLedgerPort | None = None,
     ) -> RunContext | None:
         """The next hop's RunContext, or ``None`` when the chain stops here."""
         if run.pending_handoff is None:
@@ -72,16 +75,12 @@ class PeerRelay:
             # Commit only this hop's OWN share: children already committed
             # live, and the fold folded their totals into run.metrics —
             # committing the post-fold numbers would count them twice.
-            child_turns = spawn_acc.turns if spawn_acc is not None else 0
-            child_tokens = (
-                spawn_acc.input_tokens + spawn_acc.output_tokens if spawn_acc is not None else 0
-            )
-            child_cost = spawn_acc.cost_usd if spawn_acc is not None else 0.0
+            own_turns, own_tokens, own_cost = hop_own_share(run, spawn_acc)
             await ledger.commit(
                 member=ctx.agent.name,
-                turns=max(0, run.turn_count - child_turns),
-                tokens=max(0, run.input_tokens + run.output_tokens - child_tokens),
-                cost_usd=max(0.0, run.cost_usd - child_cost),
+                turns=own_turns,
+                tokens=own_tokens,
+                cost_usd=own_cost,
             )
             try:
                 await ledger.check(member=peer_name)
@@ -107,7 +106,7 @@ class PeerRelay:
         peer_run_id = child_run_id(self._root_run_id, peer_name)
         handoff.peer_run_id = peer_run_id  # persist on the run before save below
 
-        delivery = await self._pipeline(ctx).process(
+        delivery = await self._transport_for(ctx).send(
             Crossing.mint(
                 direction=Direction.DOWNSTREAM,
                 kind=CrossingKind.HANDOFF,
@@ -134,7 +133,7 @@ class PeerRelay:
             return None
 
         if ctx.checkpoint is not None:
-            await ctx.checkpoint.save(run, expected_version=run.checkpoint_version)
+            await save_and_fire_checkpoint(ctx.checkpoint, run, ctx.agent.hooks)
 
         return RunContext(
             agent=peer_spec.fork_as_peer(
@@ -149,25 +148,28 @@ class PeerRelay:
             parent_run_id=ctx.run_id,
         )
 
-    def _pipeline(self, ctx: RunContext) -> Pipeline:
-        """Assembly pipeline for peer relays, built on first handoff.
+    def _transport_for(self, ctx: RunContext) -> PipelineTransport:
+        """The relay's DOWNSTREAM transport, built on first handoff.
 
         Dedupe is shared across the whole chain (one handler per relay);
         hooks are read at first relay, when executor preparation has attached
-        them. The PEER_HANDOFF audit event fires from the pipeline's last
+        them. Built through the shared transport factory like every other
+        boundary; the PEER_HANDOFF audit event fires from the pipeline's last
         slot — only for crossings that were actually delivered.
         """
-        if self._pipe is None:
+        if self._transport is None:
             fw = ctx.agent.framework_config
             orch = fw.orchestration if fw is not None else None
             ttl = orch.handoff_idempotency_ttl_s if orch is not None else 600.0
-            self._dedupe = IdempotentMessageHandler(ttl_seconds=ttl)
-            self._pipe = assembly_pipeline(
-                dedupe=self._dedupe,
-                hooks=ctx.agent.hooks,
-                audit_event=self._audit_event,
+            self._transport = build_transport(
+                TransportSpec(
+                    direction=Direction.DOWNSTREAM,
+                    dedupe_ttl_s=ttl,
+                    hooks=ctx.agent.hooks,
+                    audit_event=self._audit_event,
+                )
             )
-        return self._pipe
+        return self._transport
 
     @staticmethod
     def _audit_event(

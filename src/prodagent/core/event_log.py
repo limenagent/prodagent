@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
     from prodagent.ports import CheckpointStore, EventLog
 
-__all__ = ["Event", "PlanEventType", "RunEventType", "hybrid_restore"]
+__all__ = ["Event", "PlanEventType", "RunEventType", "append_expected", "hybrid_restore"]
 
 
 class PlanEventType(StrEnum):
@@ -63,6 +63,22 @@ class Event:
             timestamp=time.time(),
             data=data,
         )
+
+
+async def append_expected(event_log: EventLog, event: Event, *, tail_seq: int) -> int:
+    """Optimistic append: attach ``event`` after ``tail_seq``, return the seq
+    the store assigned.
+
+    The ``expected_seq`` tail-check is the discipline that makes an
+    ``EventLog`` a single-writer stream: a concurrent appender (or a stale
+    replay) moves the tail, the store raises ``VersionConflict``, and the
+    caller finds out at the seam instead of interleaving two histories. This
+    is the one home for that pattern — plan execution
+    (``plan/event_log.py::PlanEventLog._record``) and the WorkQueue's durable
+    projection (``work_queue.py::SharedQueue._record``) both delegate here,
+    each advancing its own tail field with the returned seq.
+    """
+    return await event_log.append(event, expected_seq=tail_seq)
 
 
 async def hybrid_restore(

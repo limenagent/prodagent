@@ -63,6 +63,14 @@ class LLMConfig:
     max_tokens: int = 8_192
     timeout_seconds: float = 60.0
     enable_prompt_caching: bool = True
+    thinking_budget_tokens: int = 0
+    """Extended-reasoning budget — Anthropic ``thinking.budget_tokens``;
+    ``0`` disables it. When > 0 the Anthropic adapter enables thinking, stops
+    sending ``temperature`` (the API pins it to 1 while thinking is on), and
+    keeps ``max_tokens`` above the budget. Providers without a reasoning
+    budget ignore it. The reasoning itself round-trips: raw thinking blocks
+    (with their signatures) ride on the assistant message so a tool-use
+    continuation can re-send them, which the Anthropic API requires."""
     cost_per_million_input: float = 0.0
     cost_per_million_output: float = 0.0
     cache_read_discount: float = 0.1

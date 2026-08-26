@@ -16,6 +16,7 @@ from prodagent.coordination.messaging.envelope import (
     CrossingKind,
     Direction,
 )
+from prodagent.coordination.messaging.limits import CROSSING_OUTPUT_MAX_CHARS
 from prodagent.coordination.messaging.pipeline import (
     Pipeline,
     Slot,
@@ -50,7 +51,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_VALUE_MAX_CHARS_DEFAULT = 2000
+_VALUE_MAX_CHARS_DEFAULT = CROSSING_OUTPUT_MAX_CHARS
 """Admission bound for free-text board values — mirrors
 ``OrchestrationConfig.handoff_output_max_chars``; override per board via
 ``BlackboardSpec.value_max_chars``."""

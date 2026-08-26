@@ -25,18 +25,11 @@ from prodagent.coordination.messaging.envelope import (
     CrossingKind,
     Direction,
 )
-from prodagent.coordination.messaging.idempotency import IdempotentMessageHandler
 from prodagent.coordination.messaging.packet import HandoffPacket
-from prodagent.coordination.messaging.pipeline import (
-    admission_pipeline,
-    assembly_pipeline,
-)
+from prodagent.coordination.messaging.transport import TransportSpec, build_transport
 from prodagent.core.error_reason import ErrorReason
-from prodagent.core.exceptions import (
-    SECURITY_VETO_EXCEPTIONS,
-    BudgetExceeded,
-)
-from prodagent.kernel.budget import BudgetLedger
+from prodagent.core.exceptions import SECURITY_VETO_EXCEPTIONS
+from prodagent.kernel.budget import BudgetLedger, run_enveloped
 from prodagent.kernel.bus import HookEvent
 from prodagent.kernel.types import (
     ErrorSeverity,
@@ -189,19 +182,27 @@ class Spawn:
         self._budget_ledger = ctx.budget_ledger or (
             BudgetLedger(max=ctx.budget) if ctx.budget is not None else None
         )
-        self._idempotency = IdempotentMessageHandler(ttl_seconds=orch.handoff_idempotency_ttl_s)
-        self._dispatch_pipeline = assembly_pipeline(
-            dedupe=self._idempotency,
-            hooks=self._hooks,
-            dead_letter=self.dlq,
+        # Both boundary directions of the spawn primitive, built through the
+        # shared transport factory — preset selection and dedupe policy live
+        # once there, not per primitive.
+        self._dispatch_transport = build_transport(
+            TransportSpec(
+                direction=Direction.DOWNSTREAM,
+                dead_letter=self.dlq,
+                dedupe_ttl_s=orch.handoff_idempotency_ttl_s,
+                hooks=self._hooks,
+            )
         )
-        self._result_pipeline = admission_pipeline(
-            contract=self._contract_for,
-            trim=self._bound_result,
-            hooks=self._hooks,
-            dead_letter=self.dlq,
-            audit_event=self._result_audit_event,
-            max_chars=self._handoff_output_max_chars,
+        self._result_transport = build_transport(
+            TransportSpec(
+                direction=Direction.UPSTREAM,
+                dead_letter=self.dlq,
+                contract=self._contract_for,
+                trim=self._bound_result,
+                hooks=self._hooks,
+                audit_event=self._result_audit_event,
+                max_chars=self._handoff_output_max_chars,
+            )
         )
 
     def _contract_for(self, crossing: Crossing[Any]) -> MessageContract | None:
@@ -281,12 +282,10 @@ class Spawn:
             child_run_id=child_run_id,
         )
 
-        exhausted = await self._reserve(name)
-        if exhausted is not None:
+        exhausted = await self._run_enveloped(name, spec, task, packet, child_run_id)
+        if isinstance(exhausted, dict):
             return exhausted
-
-        result = await self._run_with_timeout(spec, task, packet, child_run_id)
-        await self._commit(name, result)
+        result = exhausted
 
         if result.state == STATE_TIMEOUT:
             return ToolError.from_reason(
@@ -346,7 +345,7 @@ class Spawn:
         self, packet: HandoffPacket, name: str, child_run_id: str | None
     ) -> dict[str, Any] | None:
         """Dispatch the packet DOWNSTREAM; a dict means the spawn ends here."""
-        dispatch = await self._dispatch_pipeline.process(
+        dispatch = await self._dispatch_transport.send(
             Crossing.mint(
                 direction=Direction.DOWNSTREAM,
                 kind=CrossingKind.DISPATCH,
@@ -378,31 +377,35 @@ class Spawn:
             ).as_dict()
         return None
 
-    async def _reserve(self, name: str) -> dict[str, Any] | None:
-        if self._budget_ledger is None:
-            return None
-        try:
-            await self._budget_ledger.reserve(member=name, turns=1)
-        except BudgetExceeded as exc:
+    async def _run_enveloped(
+        self,
+        name: str,
+        spec: Agent,
+        task: str,
+        packet: HandoffPacket,
+        child_run_id: str | None,
+    ) -> ChildResult | dict[str, Any]:
+        """Run the child inside the shared settlement envelope
+        (:func:`prodagent.kernel.budget.run_enveloped`) — the same
+        reserve → act → commit policy the stage drivers use. A dict back means
+        the ledger rejected the reservation before the child started."""
+        box: list[ChildResult] = []
+
+        async def _act() -> tuple[int, int, float]:
+            result = await self._run_with_timeout(spec, task, packet, child_run_id)
+            box.append(result)
+            return (result.turns, result.input_tokens + result.output_tokens, result.cost_usd)
+
+        settled = await run_enveloped(self._budget_ledger, member=name, act=_act)
+        if settled is None:
             return ToolError.from_reason(
                 ErrorReason.BUDGET_EXCEEDED,
                 code="spawn_budget_exhausted",
-                message=f"Cannot spawn {name!r}: {exc.message}",
+                message=f"Cannot spawn {name!r}: shared budget ceiling reached for this chain.",
                 hint="Concurrent sub-agent spend has hit the shared budget ceiling.",
                 severity=ErrorSeverity.RED,
             ).as_dict()
-        return None
-
-    async def _commit(self, name: str, result: ChildResult) -> None:
-        if self._budget_ledger is None:
-            return
-        await self._budget_ledger.commit(
-            member=name,
-            turns=result.turns,
-            tokens=result.input_tokens + result.output_tokens,
-            cost_usd=result.cost_usd,
-            reserved_turns=1,
-        )
+        return box[0]
 
     async def _admit(
         self,
@@ -416,7 +419,7 @@ class Spawn:
         Same message_id as the dispatch — one logical crossing, two
         directions. Rejections are dead-lettered at the pipeline boundary;
         strict contract violations never reach the parent."""
-        delivery = await self._result_pipeline.process(
+        delivery = await self._result_transport.send(
             Crossing.mint(
                 direction=Direction.UPSTREAM,
                 kind=CrossingKind.RESULT,

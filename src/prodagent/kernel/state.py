@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any, Generic
@@ -19,9 +20,18 @@ from prodagent.kernel.types import (
 if TYPE_CHECKING:
     from prodagent.core.aliases import JsonDict
 
+logger = logging.getLogger(__name__)
+
 CHILD_SEPARATOR = "::"
 
 _TERMINAL_ERROR = "run ended without a terminal event"
+
+AGENT_RUN_SCHEMA_VERSION = 1
+"""Serialization format of ``AgentRun.to_dict``. Bumped when the dict shape
+changes in a way old loaders would misread. A checkpoint written by a newer
+schema loads best-effort (fields it doesn't know are ignored); readers warn
+on a higher version rather than refusing — a checkpoint that loads wrong is
+recoverable, one that refuses to load is not."""
 
 
 def is_child_run_id(run_id: str) -> bool:
@@ -244,6 +254,7 @@ class AgentRun(Generic[_RunT]):
         effects / lost approval / lost loop memory), and error/last_error
         (crash scene)."""
         return {
+            "schema_version": AGENT_RUN_SCHEMA_VERSION,
             "run_id": self.run_id,
             "task": self.task,
             "state": self.state.value,
@@ -279,6 +290,14 @@ class AgentRun(Generic[_RunT]):
 
     @classmethod
     def from_dict(cls, d: JsonDict) -> AgentRun[Any]:
+        stored_schema = d.get("schema_version", AGENT_RUN_SCHEMA_VERSION)
+        if stored_schema > AGENT_RUN_SCHEMA_VERSION:
+            logger.warning(
+                "AgentRun.from_dict: checkpoint schema v%s is newer than this "
+                "loader (v%s) — loading best-effort; unknown fields ignored",
+                stored_schema,
+                AGENT_RUN_SCHEMA_VERSION,
+            )
         return cls(
             run_id=d["run_id"],
             task=d["task"],

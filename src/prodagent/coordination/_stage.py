@@ -40,7 +40,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from prodagent.coordination.activation import Activation
 from prodagent.coordination.termination import TerminationReason
-from prodagent.core.exceptions import BudgetExceeded
+from prodagent.kernel.budget import run_enveloped
 
 
 class ViewInjector:
@@ -153,55 +153,29 @@ class StageDriver(Generic[E]):
         self,
         member: str,
         act: Callable[[], Awaitable[tuple[int, float] | None]],
-    ) -> Any | None:
+    ) -> tuple[int, float] | None:
         """Reserve → act → commit for one unit of work against ``self._budget``.
 
-        ``act`` runs the unit and returns either ``None`` ("nothing happened —
-        no claim, no contribution") or ``(tokens, cost_usd)`` — the actuals to
-        commit against the reserved turn. The reservation is reconciled away by
-        the commit; if ``act`` *raises*, the reserved turn is still **committed**
-        (tokens/cost unknown → 0) rather than released: a crashed attempt
-        consumed a real turn slot, and releasing would let a crash-looping
-        member speak forever while the turns axis shows zero. The exception
-        propagates to the caller, which decides how to isolate the member. A
-        member that can't reserve (over cap) never acts — ``None`` comes back
-        with no budget movement.
+        A stage unit is always **one turn slot** (an expert's contribution, a
+        worker's claim), so ``act`` returns ``(tokens, cost_usd)`` — or
+        ``None`` ("no claim, no contribution") — and this wrapper pins the
+        turn count at 1 before delegating to the kernel's settlement envelope
+        (:func:`prodagent.kernel.budget.run_enveloped`), where the
+        reserve/crash-commits-don't-release invariants live once for every
+        spender. Spawn delegates to the same envelope with the child's real
+        turn count, so the policy cannot drift between them.
 
-        This is the one envelope Blackboard and WorkQueue share; hoisting it
-        here means the reserve/release/commit invariants live once.
+        A member that can't reserve (over cap) never acts — ``None`` comes
+        back with no budget movement. The exception propagates to the caller,
+        which decides how to isolate the member.
         """
-        if self._budget is not None:
-            try:
-                await self._budget.reserve(member=member, turns=1)
-            except BudgetExceeded:
-                return None
-        try:
-            actuals = await act()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            if self._budget is not None:
-                # The attempt crashed mid-turn — the turn slot is gone even
-                # though tokens/cost are unknowable. Commit it; releasing here
-                # would make crash-looping members invisible to the turns axis.
-                await self._budget.commit(
-                    member=member,
-                    turns=1,
-                    tokens=0,
-                    cost_usd=0.0,
-                    reserved_turns=1,
-                )
-            raise
-        if self._budget is not None:
-            tokens, cost_usd = actuals if actuals is not None else (0, 0.0)
-            await self._budget.commit(
-                member=member,
-                turns=1,
-                tokens=tokens,
-                cost_usd=cost_usd,
-                reserved_turns=1,
-            )
-        return actuals
+
+        async def _unit_act() -> tuple[int, int, float] | None:
+            unit = await act()
+            return None if unit is None else (1, unit[0], unit[1])
+
+        settled = await run_enveloped(self._budget, member=member, act=_unit_act)
+        return None if settled is None else (settled[1], settled[2])
 
     async def _dispatch(
         self,

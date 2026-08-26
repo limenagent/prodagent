@@ -223,6 +223,10 @@ class Step:
 
         if response.content or response.tool_calls:
             msg: Message = {"role": "assistant", "content": response.content}
+            if response.thinking_blocks:
+                # Raw blocks ride on the message so a tool-use continuation can
+                # re-send them (Anthropic rejects the turn without them).
+                msg["thinking"] = [dict(b) for b in response.thinking_blocks]
             if response.tool_calls:
                 msg["tool_calls"] = [
                     {

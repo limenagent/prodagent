@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from prodagent.core.event_log import (
     Event,
     PlanEventType,
+    append_expected,
     hybrid_restore,
 )
 from prodagent.hooks import save_and_fire_checkpoint
@@ -217,9 +218,10 @@ class PlanEventLog:
         **data: Any,
     ) -> int:
         async with self._lock:
-            seq = await self._events.append(
+            seq = await append_expected(
+                self._events,
                 Event.make(event_type, stream_id=run.run_id, version=version, **data),
-                expected_seq=run.plan_last_seq,
+                tail_seq=run.plan_last_seq,
             )
             run.plan_last_seq = seq
             if checkpoint_plan is not None:

@@ -31,6 +31,10 @@ class Message(TypedDict, total=False):
     content: str | list[JsonDict]
     tool_calls: list[JsonDict]
     tool_call_id: str
+    thinking: list[JsonDict]
+    """Raw reasoning blocks carried on an assistant message (OpenAI-shaped
+    wire has no seat for them; the Anthropic adapter re-emits them when a
+    tool-use continuation must re-send the final assistant turn's thinking)."""
 
 
 MessageList: TypeAlias = list[Message]

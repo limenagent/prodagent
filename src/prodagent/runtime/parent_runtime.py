@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from prodagent.core.config import FrameworkConfig
     from prodagent.kernel.budget import BudgetLedger, HardBudget
     from prodagent.kernel.bus import HookRegistry
+    from prodagent.kernel.state import AgentRun
     from prodagent.kernel.types import ToolCall
     from prodagent.llm import LLMClient
     from prodagent.ports import CheckpointStore, EventLog
@@ -38,6 +39,27 @@ def fold_spawn_fields(target: Any, source: Any) -> None:
         target.tool_history.extend(source.tool_history)
 
 
+def hop_own_share(run: AgentRun, acc: SpawnAccumulator | None) -> tuple[int, int, float]:
+    """(turns, tokens, cost_usd) the hop itself spent, children excluded.
+
+    By relay time ``RunLoop._finalize_run`` has already folded the
+    accumulator's child totals into ``run.metrics`` (via
+    :meth:`SpawnAccumulator.fold_into`), so the run's totals are
+    *hop + children*. Children committed their own spend to the ledger live
+    when they finished; committing the post-fold numbers at handoff would
+    count them twice. This subtraction — the only place that knows the fold
+    happened — recovers the hop's own share for the settle-at-boundary commit.
+    """
+    child_turns = acc.turns if acc is not None else 0
+    child_tokens = acc.input_tokens + acc.output_tokens if acc is not None else 0
+    child_cost = acc.cost_usd if acc is not None else 0.0
+    return (
+        max(0, run.turn_count - child_turns),
+        max(0, run.input_tokens + run.output_tokens - child_tokens),
+        max(0.0, run.cost_usd - child_cost),
+    )
+
+
 @dataclass
 class SpawnAccumulator:
     """Shared sink for sub-agent spend so parent runs can reconcile cost.
@@ -58,6 +80,32 @@ class SpawnAccumulator:
         fold_spawn_fields(self, result)
         self.turns += result.turns
         self.spawn_count += 1
+
+    def fold_into(self, run: AgentRun) -> None:
+        """Fold accumulator totals onto a run's persisted metrics, in place.
+
+        The single home for the accumulator→metrics arithmetic (the other
+        direction — child result→accumulator — is :func:`fold_spawn_fields`);
+        ``RunLoop._finalize_run`` calls this at hop end so child spend lands
+        on the parent's persisted ``AgentRun.metrics``. No-op when nothing
+        was spawned.
+        """
+        if self.spawn_count == 0:
+            return
+        m = run.metrics
+        m.cost_usd += self.cost_usd
+        m.input_tokens += self.input_tokens
+        m.output_tokens += self.output_tokens
+        m.turn_count += self.turns
+        if self.tool_history:
+            run.tool_history.extend(self.tool_history)
+        logger.debug(
+            "[spawn] folded %d sub-agent spawns: +$%.4f, +%d turns, +%d tools",
+            self.spawn_count,
+            self.cost_usd,
+            self.turns,
+            len(self.tool_history),
+        )
 
 
 @dataclass

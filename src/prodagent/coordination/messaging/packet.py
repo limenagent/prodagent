@@ -16,9 +16,8 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
+from prodagent.coordination.messaging.limits import CROSSING_OUTPUT_MAX_CHARS
 from prodagent.core.text import bound_text
-
-_DEFAULT_PRIOR_OUTPUT_MAX_CHARS = 2000
 
 
 @dataclass
@@ -30,7 +29,7 @@ class HandoffPacket:
     message_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     input_refs: dict[str, str] = field(default_factory=dict)
     prior_output: str = ""
-    prior_output_max_chars: int = _DEFAULT_PRIOR_OUTPUT_MAX_CHARS
+    prior_output_max_chars: int = CROSSING_OUTPUT_MAX_CHARS
 
     def to_task_prompt(self) -> str:
         lines = [self.task_description.strip(), ""]

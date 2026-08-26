@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from prodagent.kernel.events import AgentEvent
     from prodagent.kernel.types import ExecutionMode, MessageList
     from prodagent.ports import CheckpointStore, EventLog
+    from prodagent.ports.budget_ledger import BudgetLedgerPort
     from prodagent.ports.llm import LLMClient
     from prodagent.runtime.agent import Agent
     from prodagent.runtime.parent_runtime import SpawnAccumulator
@@ -51,7 +52,7 @@ if TYPE_CHECKING:
             ctx: RunContext,
             run: AgentRun,
             spawn_acc: SpawnAccumulator | None = None,
-            ledger: BudgetLedger | None = None,
+            ledger: BudgetLedgerPort | None = None,
         ) -> RunContext | None: ...
 
 
@@ -119,26 +120,6 @@ class RunContext:
 
 
 # ── Run entry points — drive a fresh or resumed run to terminal state ─────────
-
-
-def _fold_spawn_accounting(run: Any, accumulator: SpawnAccumulator | None) -> None:
-    """Fold accumulator totals onto a run's persisted metrics. No-op if nothing was spawned."""
-    if accumulator is None or accumulator.spawn_count == 0:
-        return
-    m = run.metrics
-    m.cost_usd += accumulator.cost_usd
-    m.input_tokens += accumulator.input_tokens
-    m.output_tokens += accumulator.output_tokens
-    m.turn_count += accumulator.turns
-    if accumulator.tool_history:
-        run.tool_history.extend(accumulator.tool_history)
-    logger.debug(
-        "[spawn] folded %d sub-agent spawns: +$%.4f, +%d turns, +%d tools",
-        accumulator.spawn_count,
-        accumulator.cost_usd,
-        accumulator.turns,
-        len(accumulator.tool_history),
-    )
 
 
 async def drive_stream(
@@ -385,7 +366,8 @@ class RunLoop:
         if run is None:
             run = make_failed_run(ctx.run_id, ctx.task)
 
-        _fold_spawn_accounting(run, spawn_acc)
+        if spawn_acc is not None:
+            spawn_acc.fold_into(run)
 
         if not hooks:
             return

@@ -11,7 +11,12 @@ from prodagent.kernel.types import LLMResponse, ToolCall
 from prodagent.llm import LLMConfig
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.parent_runtime import SpawnAccumulator
-from prodagent.runtime.runner import _fold_spawn_accounting as fold_spawn_accounting
+
+
+def fold_spawn_accounting(run: AgentRun, accumulator: SpawnAccumulator | None) -> None:
+    """The runner-side entry: hop-end fold, no-op when nothing was spawned."""
+    if accumulator is not None:
+        accumulator.fold_into(run)
 
 
 def _reactive_agent(name: str, *, context: str = "") -> Agent:
