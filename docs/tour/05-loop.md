@@ -11,7 +11,7 @@
 ```python
 while True:
     response = llm.complete(messages)
-    if response.stop_reason == "end_turn":
+    if response.stop_reason == StopReason.END_TURN:
         return response.content
     for tool_call in response.tool_calls:
         result = execute(tool_call)
@@ -22,31 +22,30 @@ while True:
 
 ---
 
-## prodagent 的循环加了多少层？
+## prodagent 的一个 Step 经历了什么
 
 ```mermaid
 graph TD
-    START["进入循环"] --> CHECK1["① 预算检查<br/>turns/tokens/cost/seconds"]
+    START["进入 Step"] --> CHECK1["① 预算检查<br/>turns/tokens/cost/seconds 四轴"]
     CHECK1 --> GUARD["② 死循环检测<br/>fingerprint 窗口比对"]
-    GUARD --> ASSEMBLE["③ 上下文组装<br/>system + messages + 记忆召回"]
-    ASSEMBLE --> FIRE1["④ 事件埋点<br/>TURN_START / LLM_REQUEST"]
-    FIRE1 --> CALL["⑤ 调用模型<br/>硬超时 + 流式 + 缓存边界"]
+    GUARD --> ASSEMBLE["③ 上下文组装<br/>记忆召回 + 压缩 + 技能注入"]
+    ASSEMBLE --> FIRE1["④ 事件通知<br/>turn.start / llm.request"]
+    FIRE1 --> CALL["⑤ 调用模型<br/>硬超时 + 流式 chunk + 缓存边界"]
     CALL --> ACCOUNT["⑥ 记账<br/>token/cost + assistant 消息写回"]
     ACCOUNT --> STOP{"⑦ 终止判断<br/>stop_reason?"}
-    STOP -->|end_turn| COMPLETE["RunState.COMPLETED"]
-    STOP -->|tool_calls| CHECK2["⑧ 再次预算检查"]
+    STOP -->|END_TURN| COMPLETE["RunState.COMPLETED"]
+    STOP -->|TOOL_USE| CHECK2["⑧ 再次预算检查"]
     CHECK2 --> DISPATCH["⑨ 工具调度<br/>只读并行 / 写串行"]
-    DISPATCH --> AUTH["⑩ 权限校验<br/>RBAC + 操作级"]
-    AUTH --> APPROVE["⑪ 审批门<br/>HIGH 工具挂起"]
-    APPROVE --> EXEC["⑫ 执行工具"]
+    DISPATCH --> GATE["⑩ 权限 gate<br/>check_blocking(TOOL_CALL)"]
+    GATE --> APPROVE["⑪ 审批门<br/>HIGH 工具挂起"]
+    APPROVE --> EXEC["⑫ 执行工具<br/>超时 + 异常捕获"]
     EXEC --> RESULT["⑬ 结果写回 messages"]
     RESULT --> CHECKPOINT["⑭ checkpoint 落盘"]
     CHECKPOINT --> CHECK1
-
     COMPLETE --> END["返回"]
 ```
 
-**14 层护甲。** 每一层都对应一个真实的生产事故。下面逐层拆解。
+这不是文档作者编的数字——每一步都对应 `kernel/step.py` 和 `kernel/loop.py` 中的真实代码路径。下面逐层拆解。
 
 ---
 
@@ -54,7 +53,7 @@ graph TD
 
 ```python
 def _check_budget(self, run: AgentRun) -> None:
-    check_spawn_budget(run, self._budget, self._budget_ledger)
+    check_budget(run, self._budget, self._budget_ledger)
 ```
 
 在 Step 的**开头**和**工具执行后**各检查一次。
@@ -62,7 +61,7 @@ def _check_budget(self, run: AgentRun) -> None:
 四轴：
 - **turns** — 最多多少轮（防死循环）
 - **seconds** — 最多跑多久（防卡死）
-- **tokens** — 最多消耗多少 token（防烧钱）
+- **tokens** — 最多消耗多少 billable token（防烧 token）
 - **cost** — 最多花多少钱（防超预算）
 
 任一触顶即抛 `BudgetExceeded`，循环终止。
@@ -83,11 +82,13 @@ self._progress = ProgressMonitor(
 )
 ```
 
-**原理**：记录最近 N 轮的"指纹"（工具名 + 参数哈希 + 输出摘要），如果发现：
+**原理**：记录最近 N 轮的"指纹"（工具名 + 参数哈希），如果发现：
 - **重复模式** — 连续 K 轮调用相同工具、相同参数 → `InfiniteLoopDetected`
-- **停滞模式** — 连续 N 轮没有新信息产出 → 触发警告或终止
+- **停滞模式** — 连续 N 轮上下文哈希不变（Ghost loop）→ `InfiniteLoopDetected`
 
-这比单纯的"max_turns"更智能：max_turns=20 可能在第 5 轮就进入死循环但还要白跑 15 轮。fingerprint 检测能在第 7-8 轮就发现。
+这比单纯的"max_turns"更智能：max_turns=20 可能在第 5 轮就进入死循环但还要白跑 15 轮。fingerprint 检测能提前发现。
+
+指纹存在 `AgentRun.fingerprints` 上，随 checkpoint 持久化——恢复后死循环检测的历史不丢。
 
 ---
 
@@ -103,14 +104,14 @@ async def _assemble(run: AgentRun) -> tuple[str, MessageList]:
 ```
 
 ContextManager 做的事情：
-1. **记忆召回** — 根据当前任务从四通道记忆（规则/实体/精确/语义）中召回相关内容
+1. **记忆召回** — 通过 `collect(INJECTION_POINT)` 从注册的 injector 获取记忆内容
 2. **上下文压缩** — 如果 token 超阈值，按五级策略压缩历史消息
-3. **技能注入** — 把已调用技能的 runbook 注入 system prompt
+3. **技能注入** — 把已加载技能的 runbook 注入 system prompt
 4. **spill 处理** — 超长工具结果溢出到外部存储，只保留摘要
 
 组装后返回 `(system_prompt, messages)`，传给模型。
 
-> 关键点：模型看到的不是原始 messages，而是经过"召回 + 压缩 + 注入"处理后的视图。这是 Agent 能处理长任务的核心。
+> 关键点：模型看到的不是原始 messages，而是经过"召回 + 压缩 + 注入"处理后的视图。原始消息完整保存在 Run 里，checkpoint 落盘的是完整历史。
 
 ---
 
@@ -118,7 +119,8 @@ ContextManager 做的事情：
 
 ```python
 llm_timeout = max(0.1, self._budget.max_seconds - run.elapsed_seconds())
-coro = self._llm.complete(messages, system=system, tools=tools, config=llm_config, on_chunk=_on_chunk)
+coro = self._llm.complete(messages, system=system, tools=tools,
+                          config=llm_config, on_chunk=_on_chunk)
 try:
     response = await asyncio.wait_for(coro, timeout=llm_timeout)
 except TimeoutError as exc:
@@ -134,8 +136,8 @@ except TimeoutError as exc:
 
 **流式回调**：`on_chunk` 每收到一个 token 就触发，用于：
 - 实时输出到前端（打字机效果）
-- 记录思维链（CoT）到 span
-- 触发 THINK 事件
+- 记录思维链（reasoning_content）
+- 触发 `llm.think` 事件
 
 **缓存边界**：`cache_boundary_index` 告诉模型哪些消息可以做 prompt caching（Anthropic 的 cache_control），哪些不能。
 
@@ -153,44 +155,41 @@ async def _account(self, run: AgentRun, response: LLMResponse) -> None:
         )
 ```
 
-`cost_for_response` 的计算：
-```python
-def token_cost_usd(response, pricing):
-    cache_read = response.cache_read_tokens or 0
-    cache_write = response.cache_write_tokens or 0
-    input_billed = max(0, response.input_tokens - cache_read - cache_write)
-    return (
-        input_billed / 1e6 * pricing.input_rate
-        + response.output_tokens / 1e6 * pricing.output_rate
-        + cache_read / 1e6 * pricing.input_rate * pricing.cache_read_discount   # 0.1x
-        + cache_write / 1e6 * pricing.input_rate * pricing.cache_write_premium  # 1.25x
-    )
-```
+`cost_for_response` 的计算区分四类 token：
+- 普通输入：全价
+- 输出：全价（通常比输入贵）
+- cache_read：折扣价（Anthropic 0.1x，OpenAI 0.5x）
+- cache_write：溢价（Anthropic 1.25x）
 
-**为什么 cache_read 不计入 token 预算？** 因为 cache_read 几乎不花钱（Anthropic 是 0.1x），如果计入预算会导致"明明很便宜但预算先耗尽"的反直觉行为。预算的 token 轴用的是 `billable_tokens = total - cache_read`。
+**为什么 cache_read 不计入 token 预算？** 因为 cache_read 几乎不花钱，如果计入预算会导致"明明很便宜但预算先耗尽"的反直觉行为。预算的 token 轴用的是 `billable_tokens = total - cache_read`。
 
 ---
 
-## ⑩ 权限校验：三层策略
+## ⑩ 权限 gate：check_blocking
 
-工具执行前，经过权限策略引擎：
+工具执行前，通过三协议总线的 VETO 通道执行权限检查：
 
+```python
+veto = await self._hooks.check_blocking(
+    Gate.TOOL_CALL,
+    call=call,
+    tool=tool,
+    run=run,
+)
+if veto.blocked:
+    return ToolResult.blocked_by(veto.reason, tool=call.name)
 ```
-请求 → ① Agent 身份校验 → ② 工具权限校验 → ③ 数据访问校验 → 执行
-```
 
-- **Agent 身份** — 这个 Agent 角色能不能调用这类工具？
-- **工具权限** — 这个具体工具在当前上下文中是否被允许？
-- **数据访问** — 工具参数里的资源（文件路径、数据库 ID）是否在授权范围内？
+任何注册到 `Gate.TOOL_CALL` 的 checker 都可以拦截工具调用。checker 返回 `BlockingResult(blocked=True, reason="...")` 即可。
 
-越权操作不抛异常打断循环，而是返回结构化的 `ToolError`，让模型知道"这个操作被拒绝了，换个方式"。
+**fail-closed**：如果 checker 抛异常，默认策略是 fail-closed（拦截），而不是 fail-open（放行）。这是安全优先的设计。
 
 ---
 
 ## ⑪ 审批门：HIGH 工具挂起
 
 ```python
-if tool.meta.side_effect == SideEffectLevel.HIGH:
+if tool.meta.side_effect_level == SideEffectLevel.HIGH:
     run.pending_tool_call = tool_call
     run.state = RunState.SUSPENDED
     yield RunSuspendedEvent(run=run)
@@ -202,7 +201,7 @@ if tool.meta.side_effect == SideEffectLevel.HIGH:
 - 审批通过后，恢复时**直接执行这个 tool_call**，不重新问 LLM
 - 审批拒绝后，把拒绝原因作为 tool result 写回，让模型**增量重规划**（不是从头开始）
 
-这避免了"审批等了 10 分钟，通过后模型已经忘了之前在做什么"的问题。
+这避免了"审批等了 10 分钟，通过后模型已经忘了之前在做什么"的问题。详见 [HITL 审批专题 →](../topics/approval.md)。
 
 ---
 
@@ -214,16 +213,19 @@ finally:
         await save_and_fire_checkpoint(self._checkpoint_store, run, self._hooks)
 ```
 
-每一轮 Step 结束后（无论成功、失败、挂起），都保存 checkpoint。用 `expected_version` 做乐观并发控制。
+每一轮 Step 结束后（无论成功、失败、挂起），都在 `finally` 块中保存 checkpoint。用 `expected_version` 做乐观并发控制。
 
 **恢复时**：
 ```python
 if self._checkpoint_store is not None and run_id:
     existing = await self._checkpoint_store.load(run_id)
     if existing is not None:
-        existing.state = RunState.RUNNING
-        return existing  # 从断点继续
+        # SUSPENDED 状态 → 直接执行 pending_tool_call
+        # 其他状态 → prune 未完成的 tool call，重新 RUNNING
+        return existing
 ```
+
+详见 [崩溃恢复专题 →](../topics/recovery.md)。
 
 ---
 
@@ -233,7 +235,7 @@ if self._checkpoint_store is not None and run_id:
 stateDiagram-v2
     [*] --> RUNNING
     RUNNING --> RUNNING: 每轮 Step 后 checkpoint
-    RUNNING --> COMPLETED: stop_reason=end_turn
+    RUNNING --> COMPLETED: stop_reason=END_TURN / HANDOFF
     RUNNING --> SUSPENDED: HIGH 工具等待审批
     SUSPENDED --> RUNNING: 审批通过 → 直接执行 pending_tool_call
     SUSPENDED --> RUNNING: 审批拒绝 → 结果写回 → 增量重规划
@@ -242,7 +244,6 @@ stateDiagram-v2
     RUNNING --> FAILED: 未捕获异常
     COMPLETED --> [*]
     FAILED --> [*]
-    SUSPENDED --> [*]: 用户放弃
 ```
 
 ---
@@ -256,7 +257,6 @@ stateDiagram-v2
 | **职责** | 循环策略（什么时候停、怎么恢复、怎么结算） | 一轮的原子执行（想→做→记账） |
 | **状态** | 管理 Run 的生命周期 | 无状态，每次 run() 处理一个 Run |
 | **可替换** | 换执行模式（PLAN_FIRST）时替换 | 所有模式共用同一个 Step |
-| **代码量** | ~200 行 | ~200 行 |
 
 > 这个拆分很关键。PLAN_FIRST 模式的循环逻辑完全不同（要管理 DAG 依赖、并行执行、断点续跑），但每一步的"想→做→记账"是一样的。把 Step 抽出来，两种模式共享同一段经过充分测试的原子代码。
 
@@ -268,15 +268,16 @@ stateDiagram-v2
 |------|---------|
 | ReactiveLoop | `kernel/loop.py` |
 | Step | `kernel/step.py` |
-| 预算 | `kernel/budget.py` |
-| 事件总线 | `kernel/bus.py` |
-| 状态定义 | `kernel/state.py` `kernel/types.py` |
-| 进度监控（死循环检测） | `kernel/progress.py` |
+| HardBudget / BudgetLedger | `kernel/budget.py` |
+| 三协议总线 HookRegistry | `kernel/bus.py` |
+| AgentRun 状态 | `kernel/state.py` |
+| 类型定义 | `kernel/types.py` |
+| ProgressMonitor（死循环检测） | `kernel/progress.py` |
 
 ---
 
 ## 下一步
 
-👉 **[第 ⑥ 站：规划与 DAG →](06-plan.md)** — 三种执行模式怎么选？动态 DAG 怎么做断点续跑？
+👉 **[第 ⑥ 站：规划与 DAG →](06-plan.md)** — PLAN_FIRST 模式怎么工作？动态 DAG 怎么做断点续跑？Workflow 怎么手写确定性计划？
 
 或者深入 [预算专题 →](../topics/budget.md)，看四轴预算和 BudgetLedger 的完整设计。

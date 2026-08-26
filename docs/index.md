@@ -1,8 +1,8 @@
 # prodagent — 一份你真的能读完的工业级 Agent 实现
 
-> **25,000 行 · 14 个包 · 1,182 个离线测试 · 核心仅 4 个依赖**
+> **25,000 行 · 14 个包 · 1,000+ 个离线测试 · 核心仅 4 个依赖**
 >
-> 循环、预算、恢复、审批、权限、可观测、评估、多 Agent 协作——每个机制都小到一次读懂，完整到能上生产。
+> 循环、预算、恢复、审批、权限、可观测、测试、多 Agent 协作——每个机制都小到一次读懂，完整到能上生产。
 
 ---
 
@@ -15,7 +15,7 @@
 | 功能完整度 | 高 | 低 | **高** |
 | 代码可读性 | 抽象层厚，改不动核心 | 清晰但缺生产机制 | **25,000 行，按学习顺序排列** |
 | 预算 / 恢复 / 审批 | 无或绑死云上 | 无 | **内建，默认开启** |
-| 企业级特性 | 绑死它们的云 | 无 | **权限 / 可观测 / 评估，可拆解搬运** |
+| 企业级特性 | 绑死它们的云 | 无 | **权限 / 可观测 / 多 Agent，可拆解搬运** |
 | 你学会的是 | 它的 API | ReAct 概念 | **一套能上生产的 Agent 设计心智模型** |
 
 **prodagent 卡在中间。** 它是一个可以上生产的库，同时整个代码库小到你可以从头读到尾，在脑子里建立完整的心智模型。
@@ -65,12 +65,12 @@ graph LR
 | 站 | 主题 | 解决什么问题 | 源码包 |
 |----|------|-------------|--------|
 | ① | [核心词汇](tour/01-core.md) | Agent、Run、Step、Turn、Message 到底是什么关系 | `kernel/types` |
-| ② | [端口与契约](tour/02-ports.md) | 为什么用 Protocol 而不是继承？14 个端口怎么分工 | `ports/` |
+| ② | [端口与契约](tour/02-ports.md) | 为什么用 Protocol 而不是继承？16 个端口怎么分工 | `ports/` |
 | ③ | [模型层](tour/03-llm.md) | LLMClient 端口、流式回调、缓存边界、定价模型 | `llm/` |
 | ④ | [工具系统](tour/04-tools.md) | `@tool` 装饰器、参数校验、只读并行/写串行、工具幻觉防御 | `tooling/` |
-| ⑤ | [循环内核](tour/05-loop.md) | think→decide→execute 原子、死循环检测、终止与恢复 | `kernel/` |
-| ⑥ | [规划与 DAG](tour/06-plan.md) | REACTIVE vs PLAN_FIRST vs Workflow，动态 DAG 断点续跑 | `plan/` `runtime/` |
-| ⑦ | [多 Agent 协作](tour/07-multiagent.md) | 委派/接力/投票/黑板/队列五种拓扑，统一消息平面 | `coordination/` |
+| ⑤ | [循环内核](tour/05-loop.md) | think→act 原子、死循环检测、终止与恢复 | `kernel/` |
+| ⑥ | [规划与 DAG](tour/06-plan.md) | REACTIVE vs PLAN_FIRST + Workflow，动态 DAG 断点续跑 | `plan/` `runtime/` |
+| ⑦ | [多 Agent 协作](tour/07-multiagent.md) | 委派/接力/Ensemble/黑板/队列五种原语，统一消息平面 | `coordination/` |
 
 ### 🔧 第二部分：生产问题域
 
@@ -82,9 +82,9 @@ graph LR
 | 上下文与记忆 | [五级压缩](topics/compression.md) | 按 token 占比分级牺牲，关键约束不被压缩掉 |
 | | [四通道记忆](topics/memory.md) | 规则/实体/精确/语义并行召回 + 冲突裁决 |
 | | [技能闭环](topics/skills.md) | 成功 run 蒸馏成 runbook，越用越稳 |
-| 多 Agent 治理 | [策略与治理](topics/governance.md) | 死循环兜底、消息不丢不重不乱序、权限策略引擎 |
-| 可观测与评估 | [全链路追踪](topics/observability.md) | OpenTelemetry 兼容 span，CoT 思维链落盘 |
-| | [评估与回归](topics/evaluation.md) | 离线评测 + 线上 Trace 自动打分，LLM-as-judge 校准 |
+| 多 Agent 治理 | [策略与治理](topics/governance.md) | 死循环兜底、消息不丢不重不乱序、Gate 权限拦截 |
+| 可观测与测试 | [全链路追踪](topics/observability.md) | Span 决策快照 + 29 个 HookEvent + EventLog |
+| | [测试与回归](topics/evaluation.md) | FakeLLM 驱动的 1,000+ 确定性离线测试 |
 
 ### 🎯 实战：[9 个端到端示例](examples.md)
 
@@ -94,7 +94,7 @@ graph LR
 
 - [设计取舍](decisions.md) — 每个关键决策的"为什么不选另一种"
 - [术语表](glossary.md) — 快速查阅
-- [API 参考](reference.md) — 自动生成的接口文档
+- [API 参考](reference.md) — 核心 API 速查
 
 ---
 
@@ -106,15 +106,15 @@ graph LR
 | **四轴硬预算** | 任一轴触顶即停，子 Agent 花销实时汇总到总账 | `kernel/budget.py` |
 | **崩溃恢复** | checkpoint + 乐观并发，断点续跑不重复执行 | `ports/checkpoint.py` |
 | **HITL 审批** | HIGH 工具挂起等人，拒绝→增量重规划 | `hooks/approval/` |
-| **权限策略** | RBAC + 操作级授权，三层策略越权拦截 | `hooks/authorization/` |
-| **三执行模式** | REACTIVE / PLAN_FIRST / Workflow 按复杂度选 | `runtime/` `plan/` |
-| **五协作原语** | 委派/接力/投票/黑板/队列覆盖主流拓扑 | `coordination/` |
-| **统一消息平面** | 去重→契约→安全→审计→死信，不丢不重不乱序 | `coordination/messaging/` |
+| **Gate 权限** | 9 个拦截点，check_blocking fail-closed | `kernel/bus.py` `hooks/bundles/security/` |
+| **两种模式 + Workflow** | REACTIVE / PLAN_FIRST 按复杂度选，Workflow 手写确定性 DAG | `runtime/` `plan/` |
+| **五协作原语** | 委派/接力/Ensemble/黑板/队列覆盖主流拓扑 | `coordination/` |
+| **统一消息平面** | 去重→契约→截断→Gate→死信，不丢不重不乱序 | `coordination/messaging/` |
 | **五级上下文压缩** | 按 token 占比分级牺牲，语义损失有明确边界 | `cognition/context/` |
 | **四通道记忆** | 规则/实体/精确/语义并行召回 + 冲突裁决 | `cognition/memory/` |
-| **全链路可观测** | span 追踪 + CoT 落盘 + Trace/Log/Metrics 联动 | `hooks/observability/` |
-| **评估回归** | 离线数据集 + 线上 Trace 打分，改动可跑回归对比 | `evaluation/` |
-| **可替换后端** | 14 个 Protocol 端口，file+memory 零依赖起步 | `ports/` `backends/` |
+| **全链路可观测** | AgentSpan + 29 个 HookEvent + EventLog 事件溯源 | `hooks/bundles/observability.py` |
+| **确定性测试** | FakeLLM 预设脚本，1,000+ 测试全离线零 flaky | `llm/fake.py` `tests/` |
+| **可替换后端** | 16 个 Protocol 端口，file+memory 零依赖起步 | `ports/` `backends/` |
 | **MCP 桥接** | 外部工具经 stdio/HTTP 接入，不用逐个写适配 | `mcp/` |
 
 ---
@@ -123,18 +123,17 @@ graph LR
 
 ```
 src/prodagent/
-├── core/          ← 基础工具：配置、异常、重试、事件日志
-├── ports/         ← 14 个 Protocol 端口（六边形架构的"左"侧）
-├── llm/           ← 模型适配器：OpenAI/Anthropic/Fake + 定价
-├── tooling/       ← 工具系统：装饰器、调度、注册、可靠性
+├── base/          ← 基础工具：配置、异常、类型、事件模型
+├── ports/         ← 16 个 Protocol 端口（六边形架构）
+├── llm/           ← 模型适配器：OpenAI/Anthropic/Fake + 定价 + 缓存
+├── tooling/       ← 工具系统：装饰器、调度、注册、可靠性、技能解析
 ├── kernel/        ← 内核：循环、步骤、预算、事件总线、状态
 ├── runtime/       ← 运行时：Agent 装配、工厂、父运行时
 ├── plan/          ← 规划：动态 DAG、PlanExecutor、Workflow
-├── coordination/  ← 多 Agent：spawn/peer/ensemble/board/queue
+├── coordination/  ← 多 Agent：spawn/peer/ensemble/blackboard/work_queue
 ├── cognition/     ← 认知：上下文压缩、四通道记忆
-├── hooks/         ← 横切：审批、权限、可观测、审计
+├── hooks/         ← 横切：审批、安全 bundle、可观测 bundle、审计
 ├── skills/        ← 技能：runbook 蒸馏与召回
-├── evaluation/    ← 评估：数据集、打分、回归对比
 ├── backends/      ← 端口实现：file/memory/postgres/redis/neo4j
 ├── mcp/           ← MCP 桥接：stdio/HTTP 外部工具
 └── playground/    ← 可视化（叶子节点，被 import-linter 隔离）
@@ -147,7 +146,6 @@ src/prodagent/
 ```bash
 pip install prodagent
 # 核心仅 4 个依赖：anyio / httpx / pydantic / typing-extensions
-
 # 按需加装：
 pip install "prodagent[openai,anthropic]"   # 模型 provider
 pip install "prodagent[playground]"          # 可视化

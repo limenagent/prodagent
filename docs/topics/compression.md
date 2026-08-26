@@ -1,6 +1,6 @@
 # 五级上下文压缩：让长任务不爆 token
 
-> Agent 跑久了，上下文越来越长，每轮成本指数增长。这一站讲清楚为什么需要压缩、五级策略怎么分级、关键约束怎么保证不被压缩掉。
+> Agent 跑久了，上下文越来越长，每轮成本超线性增长。这一站讲清楚为什么需要压缩、五级策略怎么分级、关键约束怎么保证不被压缩掉。
 
 ---
 
@@ -27,98 +27,110 @@ graph TD
 
 ```mermaid
 graph LR
-    subgraph "L0: <30%"
+    subgraph "L0: NONE < 25%"
         L0["不压缩<br/>全部保留"]
     end
-    subgraph "L1: 30-50%"
-        L1["压缩旧工具结果<br/>保留摘要"]
+    subgraph "L1: TOOL_COMPRESS 25-70%"
+        L1["压缩超长工具结果<br/>规则式截断"]
     end
-    subgraph "L2: 50-70%"
-        L2["压缩旧推理过程<br/>保留关键结论"]
+    subgraph "L2: HISTORY_SUMMARY 70-85%"
+        L2["摘要旧轮次<br/>保留最近 6 条原文"]
     end
-    subgraph "L3: 70-85%"
-        L3["压缩较早对话轮次<br/>保留约束+最新轮次"]
+    subgraph "L3: TOPIC_SUMMARY 85-92%"
+        L3["主题摘要<br/>保留最近 4 条原文"]
     end
-    subgraph "L4: >85%"
-        L4["极限压缩<br/>只留系统提示+当前任务"]
+    subgraph "L4: EMERGENCY > 92%"
+        L4["紧急压缩<br/>只留最后 2 条 + 最近摘要"]
     end
-
     L0 --> L1 --> L2 --> L3 --> L4
 ```
+
+**触发阈值**（`ContextConfig` 默认值）：
+
+| 级别 | 阈值（token / max_context） | 触发条件 |
+|------|---------------------------|---------|
+| NONE | < 25% | 上下文充裕，不压缩 |
+| TOOL_COMPRESS | ≥ 25% | 工具结果开始挤占空间 |
+| HISTORY_SUMMARY | ≥ 70% | 历史太长，需要摘要 |
+| TOPIC_SUMMARY | ≥ 85% | 接近上下文窗口 |
+| EMERGENCY | ≥ 92% | 极限情况，保命模式 |
 
 ---
 
 ## 五级策略详解
 
-### L0：不压缩（< 30% 上下文）
+### L0：NONE — 不压缩（< 25%）
 
 ```
-系统提示 + 完整消息历史 + 工具结果 + 推理过程
+系统提示 + 完整消息历史 + 工具结果
 ```
 
-上下文充裕时，什么都不压缩。模型看到完整的信息。
+上下文充裕时，什么都不压缩。但仍然会做 `fit_budget`——确保消息总量不超过分配给历史层的 token 预算（保留最长尾部）。
 
-### L1：压缩旧工具结果（30-50%）
+### L1：TOOL_COMPRESS — 压缩超长工具结果（25%-70%）
 
-**牺牲**：较早轮次的工具结果详情
-**保留**：工具结果的摘要（前 N 行或关键信息）
+**牺牲**：超长工具结果的详情
+**保留**：工具结果的关键字段（规则式提取，不调 LLM）
 
 ```
-原始: search("巴黎天气") → "巴黎今天晴，25°C，湿度60%，风速10km/h，..." (500 token)
-压缩后: search("巴黎天气") → "[工具结果摘要] 巴黎今天晴，25°C" (20 token)
+原始: search("巴黎天气") → "巴黎今天晴，25°C，湿度60%，风速10km/h，气压1013hPa，..." (500 token)
+压缩后: search("巴黎天气") → "[工具结果摘要] 巴黎今天晴，25°C，湿度60%..." (50 token)
 ```
 
-**为什么先压缩工具结果？** 因为工具结果通常最长（搜索结果、文件内容可能几千 token），但模型通常只需要关键信息，不需要完整原文。
+**为什么先压缩工具结果？** 因为工具结果通常最长（搜索结果、文件内容可能几千 token），但模型通常只需要关键信息。这一步是**纯规则式**的（`compress_tool_result`），不调用 LLM，零额外成本和延迟。
 
-### L2：压缩旧推理过程（50-70%）
+### L2：HISTORY_SUMMARY — 历史摘要（70%-85%）
 
-**牺牲**：较早轮次的 reasoning_content（思维链）
-**保留**：模型的最终结论和决策
+**牺牲**：较早轮次的完整对话
+**保留**：最近 6 条消息原文 + 旧消息的 LLM 生成摘要
 
-推理过程可能很长（特别是 R1 类模型），但对后续轮次来说，"模型是怎么想通的"不重要，"模型得出了什么结论"才重要。
+```
+[HISTORY SUMMARY]
+用户要求调研 X 技术。第1-3轮搜索了官方文档和社区评价，
+发现 X 适用于 Y 场景但不适合 Z。第4-8轮对比了3个替代方案...
 
-### L3：压缩较早对话轮次（70-85%）
+[最近 6 条消息原文保留]
+```
 
-**牺牲**：较早的完整对话轮次（user + assistant + tool）
+摘要是通过 LLM 调用生成的（`Summariser.summarise`），把旧消息压缩成一段连贯的摘要。`safe_tail_start` 确保尾部不会从 tool_result 中间切开（保持 tool_use/tool_result 配对完整）。
+
+### L3：TOPIC_SUMMARY — 主题摘要（85%-92%）
+
+**牺牲**：更多旧轮次
+**保留**：最近 4 条消息原文 + 更激进的主题级摘要
+
+和 L2 类似，但保留窗口更短（4 条 vs 6 条），摘要更凝练。这是"模型只能看到最近几轮 + 高度压缩的历史"的级别。
+
+### L4：EMERGENCY — 紧急压缩（> 92%）
+
+**牺牲**：除最后 2 条消息和最近摘要外的几乎所有内容
 **保留**：
-- 系统提示（永远保留）
-- 当前任务（第一轮 user 消息，永远保留）
-- 关键约束（用户说过的"预算 20 元"、"不要用 XX"等）
-- 最近 N 轮的完整对话
+- 最后 2 条消息原文
+- 最近的一条 HISTORY/TOPIC SUMMARY（如果存在）
 
 ```
-[系统提示] ← 永远保留
-[任务: 帮我规划巴黎旅行，预算 20 元] ← 永远保留
-[第1-5轮: 已压缩为摘要] ← 牺牲
-[第6-10轮: 完整保留] ← 保留
+[HISTORY SUMMARY]
+...（之前的摘要保留）...
+
+[最后 2 条消息原文]
 ```
-
-### L4：极限压缩（> 85%）
-
-**牺牲**：除系统提示和当前任务外的几乎所有内容
-**保留**：
-- 系统提示
-- 当前任务
-- 不可丢失的约束（从历史中提取的关键规则）
-- 最近 1-2 轮
 
 这是最后的安全网。到了这个级别，说明任务已经非常长了，模型只能基于最近的上下文继续工作。
 
 ---
 
-## 关键约束：什么绝对不能压缩？
+## 上下文分层：L0-L3 不是压缩级别
 
-不是所有内容都可以压缩。有些信息丢了会导致 Agent 行为异常：
+容易混淆的是：源码中还有 `Layer` 枚举（L0/L1/L2/L3），但这是**上下文窗口的分层预算**，不是压缩级别：
 
-| 不可压缩内容 | 原因 |
-|-------------|------|
-| 系统提示 | Agent 的行为准则，丢了就不知道自己该做什么 |
-| 当前任务（第一条 user 消息） | 丢了就不知道自己在做什么 |
-| 用户明确的约束和偏好 | "预算 20 元"、"不要发邮件"等，丢了会违反用户意愿 |
-| 最近 1-2 轮完整对话 | 模型需要最近的上下文继续推理 |
-| pending_tool_call 相关消息 | 审批挂起恢复时需要完整的工具调用信息 |
+| 层 | 占比 | 内容 |
+|---|---|---|
+| L0 | 8% | 系统提示（永远保留） |
+| L1 | 15% | 状态信息（当前任务、待办等） |
+| L2 | 35% | 记忆注入 + 技能 + Floor/Board 视图 |
+| L3 | 42% | 对话历史（压缩作用在这一层） |
 
-ContextManager 在压缩时会识别并保留这些内容。**约束提取**是关键——从历史消息中识别出"用户说过的硬约束"，单独保存，不被压缩掉。
+ContextBudget 按层分配 token 预算，压缩器只处理 L3（历史层）。L0 的系统提示永远不会被压缩。
 
 ---
 
@@ -127,23 +139,24 @@ ContextManager 在压缩时会识别并保留这些内容。**约束提取**是�
 ```mermaid
 graph TD
     STEP["Step._prepare()"] --> CM["ContextManager.prepare()"]
-    CM --> COUNT["统计当前 token 数"]
-    COUNT --> RATIO{"token / max_context"}
-    RATIO -->|<30%| L0["L0: 不压缩"]
-    RATIO -->|30-50%| L1["L1: 压缩旧工具结果"]
-    RATIO -->|50-70%| L2["L2: 压缩旧推理"]
-    RATIO -->|70-85%| L3["L3: 压缩旧轮次"]
-    RATIO -->|>85%| L4["L4: 极限压缩"]
-    L0 --> RETURN["返回 (system, messages)"]
-    L1 --> RETURN
-    L2 --> RETURN
-    L3 --> RETURN
-    L4 --> RETURN
+    CM --> BUDGET["ContextBudget 分层记账"]
+    BUDGET --> COUNT["统计当前 token 数"]
+    COUNT --> RATIO{"ratio = spent / max_tokens"}
+    RATIO -->|< 25%| NONE["NONE: fit_budget"]
+    RATIO -->|25-70%| TOOL["TOOL_COMPRESS: 压缩工具结果"]
+    RATIO -->|70-85%| HIST["HISTORY_SUMMARY: 摘要旧轮次"]
+    RATIO -->|85-92%| TOPIC["TOPIC_SUMMARY: 主题摘要"]
+    RATIO -->|> 92%| EMER["EMERGENCY: 紧急压缩"]
+    NONE --> RETURN["返回 (system, messages)"]
+    TOOL --> RETURN
+    HIST --> RETURN
+    TOPIC --> RETURN
+    EMER --> RETURN
 ```
 
-每轮 Step 开始前，ContextManager 计算当前 token 占比，决定压缩级别，然后返回压缩后的 `(system, messages)`。
+每轮 Step 开始前，`HistoryCompressor.run()` 从最温和的级别开始检查，选择第一个 `should_skip()` 返回 False 的级别执行。
 
-**注意**：压缩只影响"模型看到的视图"，不修改 `run.messages` 原始历史。原始消息完整保存在 Run 里，checkpoint 落盘的是完整历史。这样：
+**关键特性**：压缩只影响"模型看到的视图"，**不修改 `run.messages` 原始历史**。原始消息完整保存在 Run 里，checkpoint 落盘的是完整历史。这样：
 - 恢复时可以重新压缩（可能用不同的策略）
 - 事后分析可以看到完整的对话
 - 压缩是无副作用的只读操作
@@ -157,7 +170,7 @@ graph TD
 `ToolResultSpillStore` 处理这种情况：
 - 工具结果超过阈值时，完整内容存到外部存储（文件/数据库）
 - 消息历史里只保留摘要 + spill_id
-- 模型需要详情时，可以通过"读取 spill"工具获取完整内容
+- 模型需要详情时，可以通过内置的 `read_tool_result` 工具获取完整内容
 
 ```
 原始: read_file("big.log") → "10000 行日志..." (50k token)
@@ -178,6 +191,7 @@ Spill后: read_file("big.log") → "[结果已溢出，spill_id=abc123，摘要:
 | **范围** | 当前 Run 的消息历史 | 所有 Run 的经验和知识 |
 | **目标** | 控制当前上下文长度 | 跨任务复用经验 |
 | **存储** | 不存储，只修改视图 | 持久化到记忆存储 |
+| **注入层** | L3（历史层） | L2（记忆层） |
 
 两者配合：压缩保证当前 Run 不爆 token，记忆保证跨 Run 不丢失重要信息。
 
@@ -187,12 +201,14 @@ Spill后: read_file("big.log") → "[结果已溢出，spill_id=abc123，摘要:
 
 | 内容 | 源码位置 |
 |------|---------|
+| CompressionLevel 枚举 / TokenCounter / fit_within_budget | `cognition/context/budget.py` |
+| Layer 枚举 / ContextBudget | `cognition/context/budget.py` |
 | ContextManager | `cognition/context/manager.py` |
-| 五级压缩策略 | `cognition/context/compression/pipeline.py` |
-| 摘要与约束提取 | `cognition/context/compression/summarizer.py` |
+| 五级压缩管道（HistoryCompressor + 各 Stage） | `cognition/context/compression/pipeline.py` |
+| 工具结果压缩（规则式） | `cognition/context/compression/formatting.py` |
+| LLM 摘要器 | `cognition/context/compression/summarizer.py` |
 | Spill 存储 | `cognition/context/spill.py` |
-| ContextConfig | `base/config.py` |
-| Step 中的调用 | `kernel/step.py::_prepare` |
+| ContextConfig（阈值配置） | `base/config.py` |
 
 ---
 

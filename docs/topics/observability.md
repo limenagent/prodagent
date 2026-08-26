@@ -1,203 +1,252 @@
-# 全链路可观测：出了问题能回放
+# 全链路可观测：Span、事件、指标
 
-> Agent 系统最难调试的地方是"模型在想什么"。这一站讲清楚 span 追踪、事件日志、思维链落盘、Trace/Log/Metrics 三位一体。
+> Agent 跑起来后，你怎么知道它在干什么？出了问题怎么定位？这一站讲清楚三协议总线的事件流、Span 追踪、指标采集。
 
 ---
 
-## 问题：Agent 出了问题怎么排查？
+## 问题：Agent 是黑盒吗？
+
+```mermaid
+graph LR
+    U["用户"] --> A["Agent"]
+    A --> L["LLM"]
+    A --> T1["工具1"]
+    A --> T2["工具2"]
+    A --> M["记忆"]
+    style A fill:#ffebee,stroke:#c62828
+```
+
+一个 Agent 可能跑 20 轮，每轮调一次模型、执行多个工具。出了问题：
+- 它为什么做了这个决策？
+- 哪一步花了最多时间？
+- 哪个工具失败了？
+- token 花在哪了？
+- 多 Agent 场景下，消息在哪丢了？
+
+prodagent 的可观测性建立在三协议总线上——**所有状态变更都通过事件发出，不依赖 print 或日志猜测。**
+
+---
+
+## 三层可观测体系
 
 ```mermaid
 graph TD
-    BUG["Agent 行为异常"] --> Q1{"为什么这么做？"}
-    Q1 -->|看日志| LOG["只有工具调用记录<br/>不知道模型为什么选这个"]
-    Q1 -->|看 trace| TRACE["没有 trace<br/>不知道调用链"]
-    Q1 -->|看思维链| COT["CoT 没保存<br/>不知道模型的推理过程"]
-    LOG --> STUCK["无法定位根因"]
-    TRACE --> STUCK
-    COT --> STUCK
-```
-
-传统应用的可观测性（日志、指标、追踪）对 Agent 不够。因为 Agent 的核心决策是"模型想了什么"，如果不记录思维链，出了问题只能猜。
-
----
-
-## 三位一体：Trace / Log / Metrics
-
-```mermaid
-graph TB
-    subgraph "可观测性"
-        TRACE["Trace<br/>分布式追踪<br/>一次 Run 的完整调用链"]
-        LOG["Log<br/>事件日志<br/>每个关键节点的结构化记录"]
-        METRICS["Metrics<br/>指标聚合<br/>token/cost/延迟/成功率"]
+    subgraph "事件层（Event）"
+        E1["HookEvent 枚举<br/>29 个事件点"]
+        E2["fire / collect<br/>OBSERVE + GATHER 通道"]
     end
-
-    TRACE --> DEBUG["事后回放<br/>一步步看发生了什么"]
-    LOG --> DEBUG
-    METRICS --> MONITOR["实时监控<br/>告警和趋势"]
+    subgraph "追踪层（Span）"
+        S1["AgentSpan<br/>决策快照"]
+        S2["SpanExporter 端口<br/>file / postgres / OTel"]
+    end
+    subgraph "指标层（Metrics）"
+        M1["RunMetrics<br/>token/cost/turns/latency"]
+        M2["BudgetLedger<br/>多 Agent 花费"]
+    end
+    E1 --> S1
+    E1 --> M1
+    S1 --> S2
 ```
-
-| 维度 | 回答什么问题 | 典型用途 |
-|------|------------|---------|
-| Trace | 这次 Run 经历了什么？ | 事后排查、性能分析 |
-| Log | 某个时刻发生了什么？ | 实时调试、审计 |
-| Metrics | 整体表现如何？ | 监控告警、成本分析 |
 
 ---
 
-## 一、Span 追踪
+## 一、事件层：29 个 HookEvent
 
-### OpenTelemetry 兼容
+所有关键节点都有事件。`HookEvent` 枚举定义在 `kernel/bus.py`：
 
-prodagent 的追踪系统兼容 OpenTelemetry 语义，可以接入 Jaeger、Zipkin、Datadog 等标准工具。
+### 生命周期事件
 
-### 一次 Run 的 Span 树
+| 事件 | 触发时机 |
+|------|---------|
+| `session.start` / `session.end` | 会话开始/结束 |
+| `loop.start` / `loop.end` | 循环开始/结束 |
+| `turn.start` | 每轮 Step 开始 |
+| `run.complete` / `run.failed` | Run 完成/失败 |
+
+### 模型与工具事件
+
+| 事件 | 触发时机 |
+|------|---------|
+| `llm.request` | 调用模型前 |
+| `llm.think` | 流式 token 到达（思维链/打字机） |
+| `tool.call` | 工具执行前 |
+| `tool.result` | 工具执行后 |
+| `approval.request` | 审批挂起 |
+
+### 规划与步骤事件
+
+| 事件 | 触发时机 |
+|------|---------|
+| `plan.ready` | 计划生成完成 |
+| `plan.replanned` | 增量重规划 |
+| `step.started` / `step.completed` / `step.failed` | DAG 步骤状态变更 |
+
+### 多 Agent 事件
+
+| 事件 | 触发时机 |
+|------|---------|
+| `agent.spawn` / `agent.result` | 子 Agent 委派/返回 |
+| `peer.handoff` | Peer 接力 |
+| `skill.load` / `skills.ready` | 技能加载 |
+
+### 上下文与记忆事件
+
+| 事件 | 触发时机 |
+|------|---------|
+| `context.build` | 上下文组装 |
+| `memory.recall` / `memory.classify` | 记忆召回/分类 |
+| `learning.synthesize` | 经验合成 |
+| `budget.token_update` | token 记账更新 |
+
+### 异常事件
+
+| 事件 | 触发时机 |
+|------|---------|
+| `injection.failed` | 注入器失败 |
+| `checkpoint.failed` | checkpoint 落盘失败 |
+
+---
+
+## 二、追踪层：AgentSpan
+
+Span 是**决策快照**——记录"在什么上下文下做了什么决策、结果如何"。
+
+```python
+# base/observability.py
+@dataclass
+class AgentSpan:
+    span_id: str
+    run_id: str
+    parent_span_id: str | None    # 支持嵌套（spawn 子 Agent）
+    agent_name: str
+    event: str                    # 对应的 HookEvent
+    timestamp: float
+    data: dict[str, Any]          # 事件数据（工具名、参数、结果摘要等）
+    duration_ms: float | None     # 耗时
+    status: str                   # ok / error / blocked / suspended
+```
+
+### SpanExporter 端口
+
+```python
+@runtime_checkable
+class SpanExporter(Protocol):
+    async def export(self, span: AgentSpan) -> None: ...
+    async def shutdown(self) -> None: ...
+```
+
+内置实现：
+- **file** — 写入 JSONL 文件（默认，production profile）
+- **postgres** — 写入数据库，支持查询
+- 自定义实现可以对接 OpenTelemetry、Jaeger、LangSmith 等
+
+### Span 的生命周期
 
 ```mermaid
-graph TD
-    RUN["Run (root span)<br/>run_id, task, state"] --> LOOP["Loop span<br/>turn_count, elapsed"]
-    LOOP --> STEP1["Step 1 span"]
-    LOOP --> STEP2["Step 2 span"]
-    LOOP --> STEPN["Step N span"]
-
-    STEP1 --> THINK1["LLM call span<br/>input_tokens, output_tokens, latency"]
-    STEP1 --> TOOL1["Tool dispatch span<br/>tool_name, params, result"]
-    TOOL1 --> AUTH1["Auth check span"]
-    TOOL1 --> APPR1["Approval span<br/>status: approved/rejected"]
-
-    STEP2 --> THINK2["LLM call span"]
-    STEP2 --> TOOL2["Tool dispatch span"]
+sequenceDiagram
+    participant L as Loop
+    participant H as HookRegistry
+    participant O as SpanObserverHooks
+    participant E as SpanExporter
+    L->>H: fire(loop.start)
+    H->>O: on_loop_start()
+    O->>O: 创建 root span
+    L->>H: fire(tool.call, call=...)
+    H->>O: on_tool_call()
+    O->>O: 创建 child span
+    L->>H: fire(tool.result, result=...)
+    H->>O: on_tool_result()
+    O->>O: 完成 child span
+    O->>E: export(child_span)
+    L->>H: fire(loop.end)
+    H->>O: on_loop_end()
+    O->>O: 完成 root span
+    O->>E: export(root_span)
 ```
 
-每个 Span 记录：
-- `span_id` / `parent_span_id` — 层级关系
-- `name` — 操作名称（llm.call、tool.execute、approval.request）
-- `start_time` / `end_time` — 耗时
-- `attributes` — 结构化属性（token 数、工具名、参数摘要）
-- `status` — OK / ERROR
-
-### 关键 Span 类型
-
-| Span | 属性 | 作用 |
-|------|------|------|
-| `agent.run` | run_id, task, mode, state | 整个 Run 的根 span |
-| `agent.step` | turn, elapsed_seconds | 一轮 Step |
-| `llm.call` | model, input_tokens, output_tokens, cache_read, cache_write, cost_usd, latency | 模型调用 |
-| `llm.chunk` | token_length | 流式 chunk（可选，量大时采样） |
-| `tool.execute` | tool_name, side_effect, params_hash, result_length, latency | 工具执行 |
-| `tool.auth` | allowed, reason | 权限校验 |
-| `tool.approval` | approval_id, status, approver | 审批 |
-| `budget.check` | axis, value, limit | 预算检查 |
-| `checkpoint.save` | version, size_bytes | checkpoint 落盘 |
-| `memory.recall` | channel, count | 记忆召回 |
-| `context.compress` | level, before_tokens, after_tokens | 上下文压缩 |
+`SpanObserverHooks`（`hooks/bundles/observability.py`）自动把事件转换为 Span，用户不需要手动埋点。
 
 ---
 
-## 二、事件总线：HookEvent
+## 三、指标层：RunMetrics
 
-内核在关键节点触发事件，可观测系统通过订阅事件收集数据：
+每个 Run 维护一个 `RunMetrics` 对象：
 
 ```python
-class HookEvent(Enum):
-    LOOP_START = "loop_start"
-    LOOP_END = "loop_end"
-    TURN_START = "turn_start"
-    LLM_REQUEST = "llm_request"
-    THINK = "think"                    # 思维链 token
-    TOKEN_UPDATE = "token_update"      # token/cost 统计
-    TOOL_CALL = "tool_call"
-    TOOL_RESULT = "tool_result"
-    APPROVAL_REQUEST = "approval_request"
-    APPROVAL_RESOLVED = "approval_resolved"
-    CHECKPOINT_SAVE = "checkpoint_save"
-    BUDGET_EXCEEDED = "budget_exceeded"
-    # ...
+@dataclass
+class RunMetrics:
+    turn_count: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    cost_usd: float = 0.0
+    started_at: float = ...
+    completed_at: float | None = None
 ```
 
-**为什么用事件总线而不是直接调用可观测 API？**
-- 核心不依赖可观测系统（可观测是可选的）
-- 多个订阅者可以同时监听（一个写日志，一个写 span，一个发告警）
-- 测试时可以不注册任何订阅者，零开销
+每轮 Step 结束后更新，通过 `budget.token_update` 事件发出。前端可以实时展示：
+- 已用轮次 / 预算轮次
+- 已用 token / 预算 token
+- 已花费 / 预算金额
+- 已用时间 / 预算时间
+
+多 Agent 场景下，`BudgetLedger` 汇总所有子 Agent 的花费，父 Agent 的预算检查包含子 Agent 的已提交花费。
 
 ---
 
-## 三、思维链落盘
+## 四、事件日志：EventLog
 
-这是 Agent 可观测性最关键也最容易被忽略的部分。
+除了 Span（决策快照），还有 EventLog（状态变更日志）：
 
 ```python
-async def _on_chunk(text: str):
-    await _fire(self._bus, HookEvent.THINK, text=text, run_id=run.run_id)
-    token_events.append(ThinkTokenEvent(token=text, run_id=run.run_id))
+@runtime_checkable
+class EventLog(Protocol):
+    async def append(self, event: Event, expected_seq: int | None = None) -> int: ...
+    async def get_events(self, stream_id: str) -> list[Event]: ...
+    async def get_after(self, stream_id: str, seq: int) -> list[Event]: ...
 ```
 
-模型的每一个输出 token（包括 reasoning_content）都通过 THINK 事件发出。可观测系统可以：
-- 实时展示思维链（playground 的调试视图）
-- 落盘保存（事后回放模型的完整思考过程）
-- 分析（"模型在第 3 轮为什么改变了策略"）
+- **append-only** — 只追加，不修改不删除
+- **单调 LSN** — 每个事件有全局递增的日志序列号
+- **乐观并发** — `expected_seq` 防止并发写入冲突
+- **事件溯源** — Plan 状态可以通过重放事件重建
 
-**支持 reasoning 的模型**（Claude、DeepSeek-R1 等）的 `reasoning_content` 也会被记录。这是排查"模型为什么做出这个决策"的最直接证据。
+EventLog 和 SpanExporter 的区别：
+- SpanExporter 导出的是**决策快照**（发生了什么、耗时多久），适合追踪和分析
+- EventLog 记录的是**状态变更**（状态从 A 变成 B），适合审计和事件溯源重建
 
 ---
 
-## 四、Metrics：聚合指标
+## 五、控制台观察者
 
-从 Span 和事件中聚合出的指标：
+`hooks/observers/` 提供了开发时用的控制台输出：
 
-| 指标 | 类型 | 标签 | 用途 |
-|------|------|------|------|
-| `agent_runs_total` | Counter | mode, state, agent_name | Run 数量、成功率 |
-| `agent_run_duration_seconds` | Histogram | mode, agent_name | 延迟分布 |
-| `agent_tokens_total` | Counter | model, type(input/output/cache_read/cache_write) | token 消耗 |
-| `agent_cost_usd_total` | Counter | model, agent_name | 成本 |
-| `agent_tool_calls_total` | Counter | tool_name, side_effect, result(success/error) | 工具调用统计 |
-| `agent_approvals_total` | Counter | tool_name, status(approved/rejected/expired) | 审批统计 |
-| `agent_budget_exceeded_total` | Counter | axis(turns/seconds/tokens/cost) | 预算耗尽统计 |
-| `agent_context_compression_level` | Gauge | level | 压缩级别分布 |
-
-这些指标可以接入 Prometheus / Grafana，做实时监控和告警。
-
----
-
-## 五、事后回放：从 Trace 重建完整过程
-
-有了 Span + 事件 + 思维链，可以完整回放一次 Run：
-
-```
-时间线回放:
-  T+0.0s  Run 开始: task="调研 prodagent"
-  T+0.1s  记忆召回: 规则通道 2 条, 语义通道 3 条
-  T+0.2s  上下文组装: 1200 token, 压缩级别 L0
-  T+0.5s  LLM 调用开始: model=claude-3-5, input=1200 token
-  T+0.5s  [CoT] "我需要先搜索 prodagent 的基本信息..."
-  T+2.1s  LLM 返回: output=150 token, tool_calls=[search("prodagent github")]
-  T+2.1s  工具调用: search, params={"query":"prodagent github"}
-  T+2.2s  权限校验: allowed (readonly)
-  T+2.5s  工具返回: 5000 token 结果
-  T+2.6s  记账: total_tokens=6350, cost=$0.012
-  T+2.7s  预算检查: turns=1/20, tokens=6350/100000, cost=$0.012/$1.0 ✓
-  ...
-```
-
-这比"看日志猜发生了什么"高效得多。
-
----
-
-## 六、可观测性是可选的护甲
-
-和审批、权限一样，可观测性是可选的 hook：
+| 观察者 | 作用 |
+|--------|------|
+| `ConsoleHooks` | 彩色打印事件流（Agent 名、工具调用、结果） |
+| `CacheMonitorHooks` | 监控 LLM 缓存命中率 |
 
 ```python
-# 裸核：零可观测开销
-agent = Agent("demo", tools=[search])
+from prodagent.hooks.observers.console import ConsoleHooks
 
-# 生产：全套可观测
-from prodagent.base.config import production
-agent = Agent("demo", tools=[search], config=AgentConfig(framework=production()))
-# production() 自动注册 span 追踪、事件日志、指标收集
+hooks = HookRegistry()
+ConsoleHooks().attach(hooks)
 ```
 
-裸核模式下，事件总线没有订阅者，`_fire` 直接返回，零开销。生产模式下注册订阅者，全链路追踪。
+开发时可以实时看到 Agent 的每一步操作，不需要打开调试器。
+
+---
+
+## 六、审计
+
+`hooks/audit.py` 提供审计日志：
+- 所有工具调用（参数、结果、耗时、是否被拦截）
+- 所有审批决定（通过/拒绝、审批人）
+- 所有 Agent 间交接（spawn/peer/handoff）
+- 所有权限拦截
+
+审计日志通过 SpanExporter 持久化，支持事后追溯。
 
 ---
 
@@ -205,20 +254,22 @@ agent = Agent("demo", tools=[search], config=AgentConfig(framework=production())
 
 | 内容 | 源码位置 |
 |------|---------|
-| HookEvent 定义 | `kernel/events.py` |
-| 事件总线 | `kernel/bus.py` |
-| SpanStore 端口 | `ports/span.py` |
+| HookEvent / Gate / HookRegistry | `kernel/bus.py` |
+| AgentSpan | `base/observability.py` |
+| SpanExporter 端口 | `ports/span.py` |
+| SpanObserverHooks | `hooks/bundles/observability.py` |
+| 控制台观察者 | `hooks/observers/console.py` |
+| 缓存监控 | `hooks/observers/cache_monitor.py` |
+| 审计 | `hooks/audit.py` |
 | EventLog 端口 | `ports/event_log.py` |
-| 可观测 hooks | `hooks/observers/` |
-| Span 实现 | `backends/file/span.py` `backends/postgres/span.py` |
-| 事件日志实现 | `backends/file/event_log.py` |
-| CoT 记录 | `kernel/step.py::_call_llm` |
-| 缓存指标聚合 | `hooks/observers/cache_monitor.py` |
+| Event 数据模型 | `base/event_log.py` |
+| RunMetrics | `kernel/state.py` |
+| BudgetLedger | `kernel/budget.py` |
 
 ---
 
 ## 下一步
 
-- 可观测数据怎么用于评估？→ [评估与回归专题 →](evaluation.md)
-- 治理事件怎么接入可观测？→ [多 Agent 治理专题 →](governance.md)
+- 想知道事件怎么驱动扩展？→ [架构详解 →](../architecture.md)
+- 多 Agent 治理事件怎么用？→ [多 Agent 治理专题 →](governance.md)
 - 想回到 tour？→ [第 ⑤ 站：循环内核 →](../tour/05-loop.md)

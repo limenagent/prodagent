@@ -1,0 +1,94 @@
+site_name: prodagent
+site_description: 一份读得完的工业级 LLM Agent 实现——循环、预算、恢复、审批、协作、治理，每个机制小到一次读懂，完整到能上生产
+site_url: https://limenagent.github.io/prodagent/
+repo_url: https://github.com/limenagent/prodagent
+repo_name: limenagent/prodagent
+edit_uri: edit/main/docs/
+copyright: AGPL-3.0
+
+theme:
+  name: material
+  language: zh
+  features:
+    - content.code.copy
+    - navigation.instant
+    - navigation.tracking
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle: { icon: material/weather-night, name: 切换到深色 }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle: { icon: material/weather-sunny, name: 切换到浅色 }
+
+markdown_extensions:
+  - attr_list
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            show_source: false
+            separate_signature: true
+            merge_init_into_class: true
+
+exclude_docs: |
+  internal/
+
+extra_css:
+  - stylesheets/extra.css
+
+nav:
+  - 学习路线: index.md
+  - 上手: start.md
+  - 第一部分 · 一次调用的生命周期:
+      - 总览: tour/index.md
+      - ① 词汇: tour/01-core.md
+      - ② 契约: tour/02-ports.md
+      - ③ 模型: tour/03-llm.md
+      - ④ 工具: tour/04-tools.md
+      - ⑤ 循环: tour/05-loop.md
+      - ⑥ 规划: tour/06-plan.md
+      - ⑦ 协作: tour/07-multiagent.md
+  - 第二部分 · 生产问题域:
+      - 运行时稳定性:
+          - 崩溃恢复: topics/recovery.md
+          - 预算: topics/budget.md
+          - 审批: topics/approval.md
+      - 上下文与记忆:
+          - 压缩: topics/compression.md
+          - 记忆: topics/memory.md
+          - 技能: topics/skills.md
+      - 多 Agent 治理:
+          - 策略与治理: topics/governance.md
+      - 可观测与评估:
+          - 可观测: topics/observability.md
+          - 评估: topics/evaluation.md
+  - 深度阅读:
+      - 架构全景: architecture.md
+      - 设计哲学: design-philosophy.md
+      - 心智模型: mental-model.md
+  - 实践 · 示例地图: examples.md
+  - 附录:
+      - 取舍: decisions.md
+      - 术语表: glossary.md
+      - API 参考: reference.md
+  - 社区:
+      - 贡献指南: https://github.com/limenagent/prodagent/blob/main/CONTRIBUTING.md
+      - 路线图: https://github.com/limenagent/prodagent/blob/main/ROADMAP.md
+      - 常见问题: https://github.com/limenagent/prodagent/blob/main/FAQ.md

@@ -214,7 +214,7 @@ return ToolResult.from_error(
 
 ```python
 # ToolDispatcher 的策略
-if all(tool.meta.readonly for tool in batch):
+if all(tool.meta.is_readonly for tool in batch):
     await asyncio.gather(*[execute(t) for t in batch])  # 并行
 else:
     for tool in batch:
@@ -248,7 +248,7 @@ else:
 
 **理由**：
 - "不丢不重不乱序"是所有多 Agent 系统的共同需求
-- 在一个地方解决五道关卡（去重/契约/安全/审计/死信），比在五个拓扑里各写一遍更可靠
+- 在一个地方解决五道关卡（去重/契约/截断/Gate/死信），比在五个拓扑里各写一遍更可靠
 - 统一的可观测性——所有消息都有 trace，不需要为每种拓扑单独加埋点
 
 ---

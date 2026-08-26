@@ -1,6 +1,6 @@
 # 多 Agent 治理：防止互相甩锅和死循环
 
-> 多 Agent 不是"人多力量大"，搞不好就是"三个和尚没水喝"。这一站讲清楚权限策略、死循环兜底、消息可靠性、多租户隔离。
+> 多 Agent 不是"人多力量大"，搞不好就是"三个和尚没水喝"。这一站讲清楚权限策略、死循环兜底、消息可靠性、预算隔离。
 
 ---
 
@@ -11,90 +11,66 @@ graph TD
     A["Agent A"] -->|"这个我做不了，你来吧"| B["Agent B"]
     B -->|"我也做不了，还是你来吧"| A
     A -->|无限循环| LOOP["💥 死循环<br/>预算耗尽"]
-
     C["Agent C"] -->|越权操作| D["敏感数据泄露"]
     E["消息"] --> F["网络抖动"] --> G["消息丢失"]
-    H["租户A的任务"] --> I["被租户B的Worker领走"] --> J["数据隔离失败"]
 ```
 
-多 Agent 系统有四类典型故障：
+多 Agent 系统有三类典型故障：
 1. **死循环** — A 推给 B，B 推回 A
 2. **越权** — Agent 做了它不该做的操作
 3. **消息丢失/重复/乱序** — 通信不可靠
-4. **租户隔离失败** — 多租户时数据串了
 
-治理就是针对这四类故障的防护机制。
+治理就是针对这些故障的防护机制。
 
 ---
 
-## 一、权限策略引擎
+## 一、权限策略：Gate 检查器
 
-### 三层授权
-
-```mermaid
-graph LR
-    REQ["工具调用请求"] --> L1["① Agent 身份层<br/>这个角色能调用这类工具吗？"]
-    L1 --> L2["② 工具权限层<br/>这个具体工具允许吗？"]
-    L2 --> L3["③ 数据访问层<br/>参数中的资源在授权范围内吗？"]
-    L3 --> EXEC["执行"]
-```
-
-#### ① Agent 身份层（RBAC）
-
-每个 Agent 有角色，角色有权限组：
+prodagent 没有内建 RBAC 系统，而是通过三协议总线的 **VETO 通道**提供通用的权限拦截机制：
 
 ```python
-agent = Agent(
-    "researcher",
-    role="researcher",  # 角色
-    tools=[search, read_file, send_email],
-)
+from prodagent.kernel.bus import Gate, BlockingResult
 
-# 角色权限定义
-role_permissions = {
-    "researcher": {
-        "allowed_tools": ["search", "read_file"],  # send_email 不在列表里
-        "max_side_effect": "READONLY",  # 只能调用只读工具
-    }
-}
+async def my_auth_checker(call, tool, run):
+    """工具调用前的权限检查。返回 BlockingResult(blocked=True) 拦截。"""
+    if tool.meta.domain == "finance" and run.agent_name != "accountant":
+        return BlockingResult(
+            blocked=True,
+            reason=f"Agent '{run.agent_name}' 不允许调用财务工具 {call.name}",
+        )
+    return BlockingResult(blocked=False)
+
+hooks.register_checker(Gate.TOOL_CALL, my_auth_checker)
 ```
 
-即使 Agent 配置了 `send_email`，如果角色不允许，调用时会被拦截。
+### 可用的 Gate 拦截点
 
-#### ② 工具权限层
+| Gate | 拦截时机 |
+|------|---------|
+| `TOOL_CALL` | 工具执行前 |
+| `PLAN_APPROVAL` | 计划审批 |
+| `SESSION_START` | 会话启动 |
+| `CONTEXT_BUILD` | 上下文组装 |
+| `TOOL_RESULT` | 工具结果返回后 |
+| `RUN_COMPLETE` | Run 完成前 |
+| `APPROVAL_REQUEST` | 审批请求（HIGH 副作用工具） |
+| `AGENT_HANDOFF` | Agent 间交接（spawn/peer） |
+| `DOCUMENT_ADD` | 文档写入记忆前 |
 
-更细粒度的工具级控制：
-- 某个工具在特定上下文中禁用
-- 某个工具的调用频率限制
-- 某个工具需要特定条件才能用
+### 安全 bundle
 
-#### ③ 数据访问层
-
-最细粒度——检查工具参数中的资源：
-
-```python
-# Agent 调用 read_file("/etc/passwd")
-# 权限引擎检查：这个 Agent 允许访问 /etc/passwd 吗？
-if not policy.can_access(agent_id, resource="/etc/passwd", action="read"):
-    return ToolResult.from_error(SecurityViolation(...))
-```
-
-这一层防止"Agent 有 read_file 权限，但读了不该读的文件"。
+`hooks/bundles/security/` 提供了预构建的安全检查 bundle，包括审批门集成。`production()` profile 自动挂载。
 
 ### 越权处理
 
-越权不抛异常，返回结构化错误：
+越权不抛异常，返回 `ToolResult.blocked_by(reason)`：
+
 ```python
-ToolResult.from_error(
-    ToolError.from_reason(
-        ErrorReason.SECURITY_VIOLATION,
-        message="Agent 'researcher' 不允许调用 send_email",
-        hint="请使用允许的工具，或请求管理员提升权限"
-    )
-)
+# 工具被拦截后，模型看到的是结构化错误
+{"blocked": true, "reason": "Agent 'researcher' 不允许调用 send_email"}
 ```
 
-模型看到错误后可以自己调整（换个工具、或者放弃）。同时所有越权尝试记录审计日志。
+模型看到错误后可以自己调整（换个工具、或者放弃）。同时所有拦截通过事件总线记录，可审计。
 
 ---
 
@@ -104,19 +80,19 @@ ToolResult.from_error(
 
 ```mermaid
 graph TD
-    L1["① 预算硬上限<br/>总预算耗尽全部停止"] --> L2["② 接力深度限制<br/>PeerChain 最大跳数"]
-    L2 --> L3["③ 发言次数限制<br/>每个 Agent 最多发言 N 次"]
-    L3 --> L4["④ 消息去重<br/>相同消息不重复处理"]
-    L4 --> L5["⑤ 终止策略<br/>MaxRounds/Consensus/预算"]
+    L1["① 预算硬上限<br/>总预算耗尽全部停止"] --> L2["② 终止策略<br/>MaxRounds/terminal_check"]
+    L2 --> L3["③ 消息去重<br/>Crossing 管道幂等去重"]
+    L3 --> L4["④ 无进展检测<br/>fingerprint 不变时主动终止"]
+    L4 --> L5["⑤ 进度守卫<br/>单 Agent 内 fingerprint 窗口"]
 ```
 
 | 层级 | 机制 | 作用 |
 |------|------|------|
 | ① | 四轴预算 | 最后一道防线，钱花完了必须停 |
-| ② | 接力深度 | PeerChain 最多 N 跳，防止无限接力 |
-| ③ | 发言次数 | Ensemble 中每个 Agent 最多发言 N 次 |
-| ④ | 消息去重 | Crossing 管道的 idempotency key，相同消息不循环 |
-| ⑤ | 终止策略 | Ensemble 的 MaxRounds、Consensus 等主动终止 |
+| ② | 终止策略 | Ensemble 的 MaxRounds、Blackboard 的 terminal_check、WorkQueue 的 drained |
+| ③ | 消息去重 | Crossing 管道的 idempotency key，相同消息不循环 |
+| ④ | 无进展检测 | Blackboard/WorkQueue 检测 fingerprint 一轮不变时终止 |
+| ⑤ | 进度守卫 | 单 Agent 内 ProgressMonitor 检测重复工具调用模式 |
 
 **设计哲学**：不依赖单一机制防死循环，而是多层兜底。即使某一层失效，下一层还能拦住。
 
@@ -124,97 +100,75 @@ graph TD
 
 ## 三、消息可靠性：Crossing 管道
 
-所有多 Agent 通信走统一的 Crossing 管道，五道关卡：
+所有多 Agent 通信走统一的消息平面——`Crossing` 信封 + `Pipeline` 拦截器链：
 
 ```mermaid
 graph LR
-    SEND["发送方"] --> DEDUP["① 去重<br/>idempotency key"]
-    DEDUP --> CONTRACT["② 契约校验<br/>schema 验证"]
-    CONTRACT --> SEC["③ 安全<br/>权限/脱敏"]
-    SEC --> AUDIT["④ 审计<br/>记录日志"]
-    AUDIT --> DLQ{"⑤ 处理失败?"}
-    DLQ -->|是| DEAD["死信队列"]
+    SEND["发送方"] --> DEDUP["① 去重<br/>message_id 幂等"]
+    DEDUP --> CONTRACT["② 契约校验<br/>MessageContract"]
+    CONTRACT --> TRIM["③ 截断<br/>超长文本边界"]
+    TRIM --> GATE["④ Gate 检查<br/>check_blocking"]
+    GATE --> DLQ{"⑤ 处理失败?"}
+    DLQ -->|是| DEAD["DeadLetterStore"]
     DLQ -->|否| RECV["接收方"]
 ```
 
 ### ① 去重
 
-每条消息有稳定的 idempotency key（基于发送方 + 时间 + 内容哈希）。接收方维护已处理消息 ID 集合，重复消息直接丢弃。
+每条消息有稳定的 `message_id`。接收方通过 `admission_pipeline` 的去重拦截器判断是否重复，重复消息标记为 `"duplicate"` 不重复处理。
 
 **解决**：网络重试导致的消息重复。
 
 ### ② 契约校验
 
-消息必须符合预定义的 schema（HandoffPacket、BoardWrite、WorkItem 等）。格式错误的消息直接拒绝，不进入处理流程。
+消息必须符合预定义的 `MessageContract`（如 `DEFAULT_CHILD_CONTRACT`）。格式错误的消息直接拒绝，不进入处理流程。
 
 **解决**：版本不兼容、格式错误的消息。
 
-### ③ 安全
+### ③ 截断
 
-- 权限检查：接收方是否有权接收这类消息
-- 敏感信息脱敏：消息中的密钥、个人信息自动脱敏
+自由文本字段有长度上限（`CROSSING_OUTPUT_MAX_CHARS`、`PUBLIC_TURN_TEXT_MAX_CHARS`），一个冗长的成员不能撑爆其他成员的上下文。
 
-**解决**：越权通信、数据泄露。
+### ④ Gate 检查
 
-### ④ 审计
-
-所有消息（包括成功和失败的）记录审计日志，包含：
-- 发送方、接收方
-- 消息类型、时间戳
-- 处理结果（成功/失败/拒绝）
-
-**解决**：事后追溯、问题排查。
+通过 `check_blocking(Gate.AGENT_HANDOFF)` 执行交接权限检查。checker 抛异常时默认 fail-closed（拦截）。
 
 ### ⑤ 死信队列
 
-处理失败的消息（接收方报错、超时）不丢弃，进入死信队列。可以：
-- 人工查看失败原因
-- 手动重试
-- 分析失败模式
+处理失败的消息（被契约拒绝、Gate 拦截、版本冲突）进入 `DeadLetterStore`，不阻塞其他消息。支持 memory 和 redis 后端。
 
 **解决**：消息不丢失。
 
 ---
 
-## 四、多租户隔离
+## 四、预算隔离
 
-WorkQueue 等场景支持多租户。隔离机制：
+多 Agent 场景下，预算通过 `BudgetLedger` 共享：
 
-| 维度 | 隔离方式 |
+| 场景 | 隔离方式 |
 |------|---------|
-| 任务隔离 | 每个租户的任务有独立的命名空间，Worker 只能领本租户的任务 |
-| 数据隔离 | 黑板、记忆、checkpoint 按租户分目录/分表 |
-| 预算隔离 | 每个租户有独立的 BudgetLedger，一个租户超预算不影响其他 |
-| 权限隔离 | 租户间不可见彼此的 Agent 和任务 |
+| spawn 子 Agent | 子 Agent 的 reserve/commit 计入父的共享账本 |
+| Ensemble | 所有成员共享一个 BudgetLedger，一个成员超预算不影响已完成的发言 |
+| WorkQueue | 可选传入 BudgetLedger；不传入时无预算限制 |
+| Blackboard | 可选传入 BudgetLedger |
 
-```mermaid
-graph TB
-    subgraph "租户 A"
-        WA["Worker A1"] --> QA["队列 A"]
-        WA2["Worker A2"] --> QA
-    end
-    subgraph "租户 B"
-        WB["Worker B1"] --> QB["队列 B"]
-    end
-    QA -.->|不可见| QB
-    QB -.->|不可见| QA
-```
+reserve 机制保证并发安全：多个子 Agent 同时开始工作时，预占机制防止总花费超预算。详见 [四轴预算专题 →](budget.md)。
 
 ---
 
 ## 五、治理的可观测性
 
-治理不是"设了规则就不管了"。所有治理事件都可观测：
+治理不是"设了规则就不管了"。所有治理事件都通过事件总线发出：
 
 | 事件 | 记录内容 |
 |------|---------|
-| 越权拦截 | Agent ID、工具名、参数、时间 |
-| 审批挂起/通过/拒绝 | 审批 ID、工具、审批人、原因 |
+| 工具拦截 | Agent ID、工具名、拦截原因、时间 |
+| 审批挂起/通过/拒绝 | 审批 ID、工具、审批人 |
 | 死循环终止 | 终止原因、涉及的 Agent、最后 N 轮消息 |
-| 消息死信 | 消息内容、失败原因、重试次数 |
+| 消息死信 | 消息内容、失败原因 |
 | 预算耗尽 | 哪个轴超了、数值、涉及的 Agent |
 
-这些事件通过事件总线触发，可观测系统可以实时展示和告警。
+这些事件通过 `HookEvent` 触发，可观测系统可以实时展示和告警。审计日志通过 `hooks/audit.py` 记录。
 
 ---
 
@@ -222,14 +176,16 @@ graph TB
 
 | 内容 | 源码位置 |
 |------|---------|
-| 权限策略引擎 | `hooks/authorization/` |
-| 审批 hooks | `hooks/approval/` |
+| Gate 枚举 / BlockingResult | `kernel/bus.py` |
+| 安全 bundle | `hooks/bundles/security/` |
 | 审计 | `hooks/audit.py` |
 | Crossing 消息平面 | `coordination/messaging/` |
+| 消息契约 | `coordination/messaging/contract.py` |
+| 管道拦截器 | `coordination/messaging/pipeline.py` |
 | 死信队列端口 | `ports/dead_letter.py` |
 | 终止策略 | `coordination/termination.py` |
-| 多租户隔离 | `coordination/work_queue.py` |
-| 锁/幂等键 | `ports/lock.py` |
+| 预算账本 | `kernel/budget.py::BudgetLedger` |
+| 进度守卫 | `kernel/progress.py` |
 
 ---
 

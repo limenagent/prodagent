@@ -55,7 +55,7 @@ class AgentRun:
     metrics: RunMetrics            # token/cost/turns 统计
     pending_tool_call: ToolCall | None  # 审批挂起时的待执行调用
     pending_approval_id: str | None     # 关联的审批请求 ID
-    pending_handoff: HandoffPacket | None  # 多 Agent 接力的待交接包
+    pending_handoff: PendingHandoff | None  # 多 Agent 接力的待交接包
     checkpoint_version: int        # 乐观并发版本号
     last_error: str | None
     error: ClassifiedError | None

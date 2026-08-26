@@ -1,206 +1,215 @@
-# 评估与回归：怎么知道改了一版是变好还是变差
+# 测试与评估：用 FakeLLM 做确定性回归
 
-> Agent 系统最难的不是写出来，是持续迭代。这一站讲清楚离线评测、线上 Trace 打分、LLM-as-judge 校准、评测集污染检测。
-
----
-
-## 问题：改了一版 prompt，怎么知道变好还是变差？
-
-```mermaid
-graph TD
-    CHANGE["改了 prompt / 模型 / 工具"] --> TEST{"效果变好了吗？"}
-    TEST -->|凭感觉| GUESS["可能变好也可能变差<br/>无法量化"]
-    TEST -->|跑几个例子| ANECDOTE["个例不能代表整体<br/>可能过拟合这几个例子"]
-    TEST -->|没有评测| REGRESS["回归了也不知道<br/>线上出问题才发现"]
-```
-
-传统软件有单元测试和集成测试，改了代码跑一遍就知道有没有回归。Agent 系统的输出是自然语言，"对不对"没有标准答案，评估要难得多。
-
-prodagent 的解法：**离线评测 + 线上 Trace 自动打分 + 回归对比，三位一体。**
+> Agent 的行为是非确定性的，怎么测试？prodagent 的答案是：用 FakeLLM 把模型输出变成预设脚本，让 1,000+ 个测试全离线、全确定性、毫秒级完成。
 
 ---
 
-## 一、离线评测
+## 问题：Agent 怎么测试？
 
-### 评测集结构
+传统软件的测试是确定性的：给定输入，断言输出。但 Agent 依赖 LLM，而 LLM 的输出是非确定性的——同样的输入可能得到不同的输出。
+
+常见的错误做法：
+- 用真实 API 跑测试 → 慢、贵、flaky、有速率限制
+- 只测工具函数，不测 Agent 循环 → 核心逻辑没有覆盖
+- mock 整个 LLM 调用 → mock 太脆弱，和真实行为脱节
+
+prodagent 的解法：**FakeLLM——一个精确可复现的假模型，让你像写普通单元测试一样测 Agent。**
+
+---
+
+## FakeLLM：确定性的模型替身
 
 ```python
-@dataclass
-class EvalCase:
-    case_id: str
-    task: str                    # 给 Agent 的任务
-    expected: str | None         # 期望输出（可选，有些任务没有标准答案）
-    reference_tools: list[str]   # 期望调用的工具（可选）
-    constraints: list[str]       # 必须满足的约束
-    difficulty: str              # easy / medium / hard
-    tags: list[str]              # 分类标签
+from prodagent.kernel.types import LLMResponse, StopReason, ToolCall
+from prodagent.llm.fake import FakeLLMAdapter, script
+
+# 预设响应序列：每轮 complete() 消费一个
+fake_llm = FakeLLMAdapter(responses=[
+    # 第 1 轮：模型决定调用 search
+    LLMResponse(
+        content="",
+        tool_calls=[ToolCall(name="search", params={"query": "巴黎天气"})],
+        stop_reason=StopReason.TOOL_USE,
+    ),
+    # 第 2 轮：模型给出最终答案
+    LLMResponse(
+        content="巴黎今天晴，25°C。",
+        stop_reason=StopReason.END_TURN,
+    ),
+])
 ```
 
-评测集是结构化的，不是一堆散乱的 prompt。每个 case 有明确的评估维度。
-
-### 评估维度
-
-| 维度 | 评估方式 | 说明 |
-|------|---------|------|
-| **任务完成度** | LLM-as-judge / 人工 | 最终输出是否完成了任务 |
-| **工具使用正确性** | 代码规则 | 是否调用了正确的工具、参数是否正确 |
-| **约束满足** | 代码规则 / LLM-as-judge | 是否遵守了用户的约束（预算、格式等） |
-| **效率** | 自动指标 | 用了多少轮、多少 token、多少钱 |
-| **安全性** | 代码规则 | 是否有越权操作、是否触发了审批 |
-| **恢复能力** | 代码规则 | 遇到错误是否能自我修正 |
-
-### 运行评测
-
-```bash
-# 跑全部评测集
-prodagent eval run --suite v1.0 --config agent_config.yaml
-
-# 只跑某个分类
-prodagent eval run --suite v1.0 --tags research
-
-# 对比两个配置
-prodagent eval compare --baseline config_v1.yaml --candidate config_v2.yaml
-```
-
-输出：
-```
-评测结果: suite=v1.0, cases=120
-  任务完成度: 87.5% (baseline: 82.1%) ↑
-  工具正确率: 94.2% (baseline: 91.7%) ↑
-  平均轮数: 8.3 (baseline: 10.1) ↓ (更好)
-  平均成本: $0.042 (baseline: $0.058) ↓ (更好)
-  回归用例: 2 (需要关注)
-  提升用例: 15
-```
-
----
-
-## 二、线上 Trace 自动打分
-
-离线评测覆盖不了所有场景。线上的真实流量更有价值。
-
-```mermaid
-graph TD
-    ONLINE["线上 Run"] --> TRACE["Trace 落盘<br/>完整调用链"]
-    TRACE --> AUTO["自动打分<br/>LLM-as-judge + 代码规则"]
-    AUTO --> SCORE["分数 + 维度评分"]
-    SCORE --> DATASET["加入评测集<br/>人工抽检确认"]
-    SCORE --> ALERT{"低分告警?"}
-    ALERT -->|是| NOTIFY["通知开发者"]
-```
-
-### 打分方式
-
-1. **代码规则**（确定性，零成本）：
-   - 工具调用是否成功
-   - 是否触发了预算耗尽
-   - 最终输出是否为空
-   - 是否有越权操作被拦截
-
-2. **LLM-as-judge**（需要模型调用，有成本）：
-   - 任务完成度评分（1-5 分）
-   - 输出质量评分
-   - 是否遵守了约束
-
-3. **人工标注**（最高质量，最高成本）：
-   - 抽样人工审核
-   - 用于校准 LLM-as-judge
-
----
-
-## 三、LLM-as-judge 校准
-
-LLM-as-judge 不是完美的。它有偏差：
-
-| 偏差类型 | 表现 | 校准方法 |
-|---------|------|---------|
-| **位置偏差** | 更喜欢第一个选项 | 随机化顺序，多次打分取平均 |
-| **宽松偏差** | 倾向于给高分 | 用校准集调整评分阈值 |
-| **冗长偏差** | 更喜欢长答案 | 明确评分标准，不看长度看质量 |
-| **自我偏好** | 更喜欢和自己风格像的答案 | 用不同模型做 judge，交叉验证 |
-
-### 校准流程
-
-```mermaid
-graph TD
-    ANNOTATE["人工标注 N 个 case 的分数"] --> JUDGE["LLM-as-judge 打同样的 case"]
-    JUDGE --> COMPARE["对比人工分 vs LLM分"]
-    COMPARE --> METRICS["计算相关性/准确率"]
-    METRICS -->|达标| USE["使用 LLM-as-judge"]
-    METRICS -->|不达标| ADJUST["调整 prompt / 换模型 / 增加规则"]
-    ADJUST --> JUDGE
-```
-
-**经验值**：LLM-as-judge 与人工评分的 Spearman 相关性 > 0.7 才可以用于自动打分。低于这个值需要调整。
-
----
-
-## 四、评测集污染检测
-
-最大的风险：评测集的内容泄露到了训练/微调数据中，导致分数虚高。
-
-检测方法：
-
-1. **n-gram 重叠检测** — 评测集的 task 和模型训练数据的重叠率
-2. **保留集** — 永远保留一个"从未见过"的秘密评测集，只在最终发布前用
-3. **时间分割** — 评测集用最近的案例，模型训练数据用更早的
-4. **对抗样本** — 定期生成新的评测 case，替换旧的
+`script()` 工厂函数提供更简洁的写法：
 
 ```python
-# 污染检测
-contamination = check_contamination(
-    eval_suite="v1.0",
-    training_data_corpus="model_training_data/",
-    threshold=0.3,  # n-gram 重叠超过 30% 标记为可能污染
+fake_llm = script(
+    {"tool": "search", "params": {"query": "巴黎天气"}},
+    {"content": "巴黎今天晴，25°C。"},
 )
-# 输出: 120 个 case 中，3 个可能被污染，建议替换
+```
+
+**FakeLLM 能模拟什么？**
+- 多轮工具调用序列（FIFO 队列）
+- 流式输出（按词触发 on_chunk）
+- 延迟模拟（`latency_ms` 参数）
+- 基于消息历史的动态响应（队列中可以放 callable）
+- 推理内容（`reasoning_content`）
+- 多 Agent 路由（`RoutingFakeLLM` 按 Agent 名称路由不同脚本）
+
+---
+
+## 测试模式
+
+### 模式 1：断言最终输出
+
+```python
+@pytest.mark.asyncio
+async def test_agent_returns_answer():
+    fake_llm = script(
+        {"tool": "search", "params": {"query": "巴黎天气"}},
+        {"content": "巴黎今天晴，25°C。"},
+    )
+    agent = Agent(
+        "test",
+        tools=[search_tool],
+        config=AgentConfig(name="test", llm=fake_llm),
+    )
+    result = await agent.chat("巴黎天气如何？")
+    assert "晴" in result.final_text
+    assert result.state == RunState.COMPLETED
+```
+
+### 模式 2：断言工具调用
+
+```python
+@pytest.mark.asyncio
+async def test_agent_calls_search():
+    called_with = []
+    @tool(name="search", readonly=True)
+    async def search(query: str) -> str:
+        called_with.append(query)
+        return "晴，25°C"
+
+    fake_llm = script(
+        {"tool": "search", "params": {"query": "巴黎天气"}},
+        {"content": "晴"},
+    )
+    agent = Agent("test", tools=[search], config=AgentConfig(name="test", llm=fake_llm))
+    await agent.chat("巴黎天气？")
+    assert called_with == ["巴黎天气"]
+```
+
+### 模式 3：断言事件流
+
+```python
+@pytest.mark.asyncio
+async def test_agent_emits_events():
+    fake_llm = script({"content": "你好"})
+    agent = Agent("test", config=AgentConfig(name="test", llm=fake_llm))
+
+    events = []
+    async for event in agent.stream("你好"):
+        events.append(type(event).__name__)
+
+    assert "RunCompletedEvent" in events
+```
+
+### 模式 4：断言预算
+
+```python
+@pytest.mark.asyncio
+async def test_budget_exceeded():
+    # 每轮都调用工具，永不结束
+    fake_llm = FakeLLMAdapter(responses=[
+        LLMResponse(
+            tool_calls=[ToolCall(name="search", params={"query": "x"})],
+            stop_reason=StopReason.TOOL_USE,
+        )
+    ] * 100)  # 准备 100 轮响应
+
+    agent = Agent(
+        "test",
+        tools=[search],
+        budget=HardBudget(max_turns=3),  # 只允许 3 轮
+        config=AgentConfig(name="test", llm=fake_llm),
+    )
+    result = await agent.chat("...")
+    assert result.state == RunState.FAILED
+    assert "turns" in str(result.error).lower()
+```
+
+### 模式 5：多 Agent 路由
+
+```python
+from prodagent.llm.fake import RoutingFakeLLM
+
+fake = RoutingFakeLLM()
+fake.add("researcher", [LLMResponse(content="研究结果", stop_reason=StopReason.END_TURN)])
+fake.add("writer", [LLMResponse(content="写作结果", stop_reason=StopReason.END_TURN)])
 ```
 
 ---
 
-## 五、回归对比
+## 测试覆盖范围
 
-每次改动后，跑评测集，和 baseline 对比：
+框架的测试套件（173 个测试文件，1,000+ 测试用例）覆盖：
 
-```
-回归对比报告:
-  Baseline: config_v1.yaml (commit abc123)
-  Candidate: config_v2.yaml (commit def456)
+| 模块 | 测试内容 |
+|------|---------|
+| `kernel/` | Step 生命周期、预算检查、死循环检测、三协议总线 |
+| `tooling/` | 参数校验、工具幻觉、只读并行/写串行、超时 |
+| `cognition/` | 五级压缩、四通道记忆、冲突裁决、遗忘曲线 |
+| `plan/` | DAG 校验、依赖调度、增量重规划、Workflow 编译 |
+| `coordination/` | spawn/peer/ensemble/blackboard/work_queue、消息管道 |
+| `hooks/` | 审批门、安全 bundle、可观测 bundle |
+| `backends/` | file/memory/redis/postgres/neo4j 后端 |
+| `llm/` | FakeLLM、OpenAI/Anthropic 适配器、缓存 |
+| `runtime/` | Agent 装配、模式选择、checkpoint 恢复 |
+| `skills/` | 技能注册、合成、加载 |
+| `mcp/` | MCP 协议适配 |
+| `approval/` | 审批挂起/通过/拒绝、多副本恢复 |
 
-  总体:
-    完成度: 82.1% → 87.5% (+5.4%) ✅
-    平均轮数: 10.1 → 8.3 (-1.8) ✅
-    平均成本: $0.058 → $0.042 (-27.6%) ✅
-
-  回归用例 (2):
-    - case_042 (research/deep): 完成度 5→3 ❌ 原因: 新 prompt 导致过早停止
-    - case_078 (tool/complex): 工具正确率 100%→80% ❌ 原因: 参数格式变化
-
-  显著提升 (5):
-    - case_015, case_023, case_056, case_089, case_112
-
-  结论: 整体提升，但有 2 个回归需要修复后再合并。
-```
-
-**回归用例必须修复才能合并**——这和传统软件的"测试不过不能合并"是一个道理。
+**所有测试零 API key、零网络、毫秒级完成。**
 
 ---
 
-## 六、评估与可观测性的打通
+## 回归测试策略
 
-评估不是独立的系统，它和可观测性打通：
+当你修改框架代码时，FakeLLM 让回归测试变得简单：
 
-```mermaid
-graph LR
-    TRACE["线上 Trace"] --> AUTO["自动打分"]
-    AUTO --> DATASET["高质量 case<br/>加入评测集"]
-    DATASET --> OFFLINE["离线评测"]
-    OFFLINE --> REPORT["回归报告"]
-    REPORT --> DEPLOY["决定是否部署"]
-    DEPLOY --> TRACE
+1. **记录场景** — 用 FakeLLM 预设一个多轮对话脚本
+2. **断言关键行为** — 工具调用顺序、最终输出、状态转换、事件
+3. **修改代码后重跑** — 如果行为变了，测试会失败
+
+```python
+# 回归测试：确保审批拒绝后模型能增量重规划
+@pytest.mark.asyncio
+async def test_replan_after_rejection():
+    fake_llm = script(
+        # 第 1 轮：尝试发邮件（HIGH 副作用，会被拒）
+        {"tool": "send_email", "params": {"to": "a@b.com", "body": "x"}},
+        # 第 2 轮：被拒后改用站内信
+        {"tool": "send_message", "params": {"to": "a@b.com", "body": "x"}},
+        # 第 3 轮：完成
+        {"content": "已通过站内信发送"},
+    )
+    # ... 配置审批门为自动拒绝 ...
+    result = await agent.chat("通知 a@b.com")
+    assert result.state == RunState.COMPLETED
+    # 验证没有真正调用 send_email
 ```
 
-线上的真实 case 经过自动打分 + 人工抽检后，加入离线评测集。离线评测的结果指导部署决策。部署后又产生新的 Trace——形成闭环。
+---
+
+## 为什么不内建 evaluation 框架？
+
+prodagent 没有内建的 `evaluation/` 模块（没有 LLM-as-judge、没有指标聚合器）。原因：
+
+1. **评估需求高度场景化** — 客服 Agent 的评估标准和代码 Agent 完全不同，框架不该预设
+2. **FakeLLM 已经提供了测试基础** — 确定性回归是最有价值的测试，FakeLLM 让它变得简单
+3. **评估应该在框架之上构建** — 你可以用 FakeLLM + pytest + 自己的断言库构建评估体系，不需要框架内建
+
+如果你需要 LLM-as-judge 或 A/B 测试，可以在应用层实现：用 FakeLLM 跑确定性场景做回归，用真实模型跑少量场景做质量评估。
 
 ---
 
@@ -208,19 +217,16 @@ graph LR
 
 | 内容 | 源码位置 |
 |------|---------|
-| EvalCase 结构 | `evaluation/case.py` |
-| 评测运行器 | `evaluation/runner.py` |
-| LLM-as-judge | `evaluation/judge.py` |
-| 校准工具 | `evaluation/calibration.py` |
-| 污染检测 | `evaluation/contamination.py` |
-| 回归对比 | `evaluation/compare.py` |
-| 线上打分 | `evaluation/online_scoring.py` |
-| 评测集格式 | `evaluation/suite.py` |
+| FakeLLMAdapter / script / RoutingFakeLLM | `llm/fake.py` |
+| LLMResponse / ToolCall / StopReason | `kernel/types.py` |
+| 测试套件 | `tests/`（173 个文件） |
+| 测试 fixture（隔离临时目录） | `tests/conftest.py` |
+| Agent 入口（chat/stream） | `runtime/agent.py` |
 
 ---
 
 ## 下一步
 
-- 评估数据从哪来？→ [全链路可观测专题 →](observability.md)
-- 评估怎么指导迭代？→ [技能闭环专题 →](skills.md)
-- 想回到 tour？→ [第 ⑦ 站：多 Agent 协作 →](../tour/07-multiagent.md)
+- 想写自己的工具？→ [第 ④ 站：工具系统 →](../tour/04-tools.md)
+- 想理解预算怎么测？→ [四轴预算专题 →](budget.md)
+- 想贡献代码？→ [贡献指南 →](../../CONTRIBUTING.md)

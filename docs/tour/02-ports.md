@@ -31,27 +31,23 @@ graph TD
     subgraph "核心（不依赖任何外部服务）"
         K["kernel / runtime / coordination<br/>纯 Python，只有 4 个依赖"]
     end
-
     subgraph "端口（Protocol，只有接口定义）"
         P1["LLMClient"]
         P2["CheckpointStore"]
         P3["ApprovalStore"]
-        P4["SpanStore"]
-        P5["...共 14 个"]
+        P4["SpanExporter"]
+        P5["...共 16 个 Protocol"]
     end
-
     subgraph "适配器（实现端口，可以替换）"
         A1["OpenAI / Anthropic / Fake"]
         A2["File / Postgres"]
         A3["Memory / Redis"]
         A4["File / OTel"]
     end
-
     K -->|依赖| P1
     K -->|依赖| P2
     K -->|依赖| P3
     K -->|依赖| P4
-
     A1 -.->|实现| P1
     A2 -.->|实现| P2
     A3 -.->|实现| P3
@@ -69,14 +65,12 @@ Python 有两种定义接口的方式：
 ```python
 # 方式 1：抽象基类（ABC）
 from abc import ABC, abstractmethod
-
 class LLMClient(ABC):
     @abstractmethod
     async def complete(self, messages, ...): ...
 
 # 方式 2：结构类型（Protocol）
 from typing import Protocol, runtime_checkable
-
 @runtime_checkable
 class LLMClient(Protocol):
     async def complete(self, messages, ...): ...
@@ -95,48 +89,108 @@ prodagent 全部用 Protocol。原因：
 
 ---
 
-## 14 个端口全景
+## 16 个端口全景
 
-prodagent 定义了 14 个端口，按职责分组：
+prodagent 在 `ports/__init__.py` 中导出了 16 个 Protocol 端口（外加 `LockToken`、`SpendView` 两个辅助类型），按职责分组：
 
-### 模型与推理
+### 模型与执行
 
-| 端口 | 职责 | 默认实现 | 生产实现 |
-|------|------|---------|---------|
-| `LLMClient` | 调用大模型，支持流式 | FakeLLM | OpenAI / Anthropic |
-| `LLMConfig` | 模型配置 + 定价表 | 内置 | 按模型填充 |
+| 端口 | 职责 | 内置实现 |
+|------|------|---------|
+| `LLMClient` | 调用大模型，支持流式和思维链 | FakeLLM / OpenAI 兼容 / Anthropic |
+| `Tool` | 工具的统一接口（FunctionTool 是主要实现） | `@tool` 装饰器生成 |
+| `LeafExecutor` | DAG 中单个步骤的执行器 | 内置默认实现，可自定义 |
 
-### 持久化与恢复
+### 持久化与记忆
 
-| 端口 | 职责 | 默认实现 | 生产实现 |
-|------|------|---------|---------|
-| `CheckpointStore` | Run 状态快照，支持乐观并发 | FileCheckpoint | PostgresCheckpoint |
-| `SessionStore` | 跨 Run 的会话上下文 | FileSession | PostgresSession |
-| `DocumentStore` | RAG 文档存储 | MemoryDocument | Neo4jDocument |
-| `ExperienceStore` | 技能/经验存储 | FileExperience | PostgresExperience |
+| 端口 | 职责 | 支持的后端 |
+|------|------|-----------|
+| `CheckpointStore` | Run 状态快照，支持乐观并发和版本历史 | `file` / `postgres` |
+| `SessionStore` | 跨 Run 的会话上下文持久化 | `file` / `postgres` |
+| `DocumentStore` | RAG 文档存储（记忆的文档通道） | `file` / `postgres` |
+| `GraphStore` | 知识图谱存储（实体-关系） | `file` / `neo4j` |
+| `ExperienceStore` | 技能/经验存储 | `file` |
 
 ### 消息与协作
 
-| 端口 | 职责 | 默认实现 | 生产实现 |
-|------|------|---------|---------|
-| `MessageBus` | 跨 Agent 消息管道 | InMemory | Redis / NATS |
-| `DeadLetterStore` | 失败消息存档 | Memory | Postgres |
-| `Lock` | 分布式锁 | InMemory | Redis / Postgres advisory |
+| 端口 | 职责 | 支持的后端 |
+|------|------|-----------|
+| `Transport` | 多 Agent 消息平面（Crossing 管道） | 进程内实现（`coordination/messaging/`） |
+| `DeadLetterStore` | 失败消息/任务存档 | `memory` / `redis` |
+| `LockStore` | 分布式锁 + 幂等键（含 `LockToken`） | `memory` / `redis` |
 
 ### 可观测与治理
 
-| 端口 | 职责 | 默认实现 | 生产实现 |
-|------|------|---------|---------|
-| `SpanStore` | 链路追踪落盘 | FileSpan | OpenTelemetry |
-| `EventLog` | 事件日志 | MemoryEventLog | File / Postgres |
-| `ApprovalStore` | 审批请求持久化 | MemoryApproval | PostgresApproval |
-| `Cache` | LLM 语义缓存 | MemoryCache | Redis |
+| 端口 | 职责 | 支持的后端 |
+|------|------|-----------|
+| `SpanExporter` | 链路追踪导出 | `file` / `postgres` |
+| `EventLog` | 事件日志（追加写入，可回放） | `file` / `postgres` |
+| `ApprovalStore` | 审批请求持久化 | `memory` |
+| `CacheStore` | LLM 响应缓存 | `memory` / `redis` |
 
-### 执行
+### 预算
 
-| 端口 | 职责 | 默认实现 | 生产实现 |
-|------|------|---------|---------|
-| `LeafExecutor` | 单步执行器（用于 DAG） | 内置 | 可自定义 |
+| 端口 | 职责 | 内置实现 |
+|------|------|---------|
+| `BudgetLedgerPort` | 多 Agent 共享预算账本（含 `SpendView`） | 内核 `BudgetLedger` |
+
+> **注意**：`LLMConfig` 是和 `LLMClient` 定义在同一个文件里的 dataclass，不是 Protocol 端口。它是端口契约的一部分——配置即契约。
+
+---
+
+## 后端配置：BackendConfig
+
+所有后端通过 `BackendConfig` 选择，用字符串字面量类型约束可选值：
+
+```python
+@dataclass
+class BackendConfig:
+    # 持久化类 — file 或 postgres
+    document:   Literal["file", "postgres"] = "file"
+    checkpoint: Literal["file", "postgres"] = "file"
+    event_log:  Literal["file", "postgres"] = "file"
+    span:       Literal["file", "postgres"] = "file"
+    session:    Literal["file", "postgres"] = "file"
+    experience: Literal["file"] = "file"            # 目前仅 file
+
+    # 瞬时状态类 — memory 或 redis
+    cache:       Literal["memory", "redis"] = "memory"
+    lock:        Literal["memory", "redis"] = "memory"
+    dead_letter: Literal["memory", "redis"] = "memory"
+    approval:    Literal["memory"] = "memory"       # 目前仅 memory
+
+    # 图存储
+    graph: Literal["file", "neo4j"] = "file"
+```
+
+**为什么分两组？** 注释写得很清楚：
+- **持久化状态**（document/checkpoint/event_log/span/session）→ 关系型或文件，需要 durability
+- **瞬时状态**（cache/lock/approval/dead_letter）→ 单机 memory 或多副本 redis
+- **图结构**（graph）→ 天然适合图数据库 neo4j
+
+### 两种 profile
+
+```python
+from prodagent.base.config import bare, production
+
+# bare()：裸核 — 无持久化、无审批、无缓存、无压缩
+# 适合：单元测试、CLI 一次性任务
+config = FrameworkConfig(backend=bare())
+
+# production()：全套 — file 后端 + 压缩 + spill + 审批门 + 缓存
+# 适合：生产部署
+config = FrameworkConfig(backend=production())
+```
+
+| 能力 | bare() | production() |
+|------|--------|-------------|
+| checkpoint | 不开启（None） | file |
+| event_log | 不开启 | file |
+| session_store | memory | file |
+| span 导出 | 不开启 | file |
+| 审批门 | 不挂载 | 挂载 |
+| LLM 缓存 | 不开启 | 开启 |
+| 上下文压缩 | 不开启 | 开启 + spill |
 
 ---
 
@@ -147,6 +201,13 @@ prodagent 定义了 14 个端口，按职责分组：
 ```python
 @runtime_checkable
 class CheckpointStore(Protocol):
+    """Durable snapshot path — save and resume a run.
+
+    Capabilities:
+      BASE (required): save, load, list_run_ids
+      EXTENDED (optional): fork, list_versions
+    """
+
     # ── BASE（必须实现）──────────────────────────
     async def save(self, run: AgentRun, expected_version: int | None = None) -> None:
         """幂等原子持久化。expected_version 启用乐观并发。"""
@@ -172,39 +233,35 @@ class CheckpointStore(Protocol):
 
 **设计亮点：**
 
-1. **BASE / EXTENDED 分级** — 不是所有后端都支持版本历史（fork），但所有后端都必须支持基础的 save/load。这样 file 后端可以快速上线，postgres 后端可以提供完整能力。
-
+1. **BASE / EXTENDED 分级** — 不是所有后端都支持版本历史（fork），但所有后端都必须支持基础的 save/load。file 后端可以快速上线，postgres 后端可以提供完整能力。
 2. **`expected_version` 乐观并发** — 不是"加锁"，而是"我以为当前版本是 N，如果不是就报错"。这比分布式锁更轻量，也更适合云原生环境。
-
-3. **`load` 返回 `None` 而不是抛异常** — 不存在是正常情况，用 None 表示，调用方用 `if store is not None` 处理，比 try/except 更清晰。
-
+3. **`load` 返回 `None` 而不是抛异常** — 不存在是正常情况，用 None 表示，调用方用 `if run is not None` 处理，比 try/except 更清晰。
 4. **注释说明了契约** — "Idempotent atomic persist" 告诉实现者：save 必须是幂等的、原子的。这不是建议，是契约。
 
 ---
 
-## 后端工厂：按需装配
+## 后端工厂：resolve_* 系列
+
+后端通过 `backends/factory.py` 中的 `resolve_*` 函数按需装配：
 
 ```python
-# backends/factory.py
-def build_backends(config: FrameworkConfig) -> BackendBundle:
-    """根据配置装配所有后端。未配置的用默认实现。"""
-    return BackendBundle(
-        checkpoint=build_checkpoint(config.checkpoint),
-        session=build_session(config.session),
-        span=build_span(config.span),
-        # ...
-    )
-```
-
-用户只需要配置想用的后端，没配置的自动用 memory/file 默认值：
-
-```python
-# 只用 postgres 做 checkpoint，其他全默认
-config = FrameworkConfig(
-    checkpoint=PostgresConfig(dsn="..."),
-    # session、span、cache 等自动用 memory/file
+from prodagent.backends.factory import (
+    resolve_checkpoint,    # → CheckpointStore
+    resolve_session_store, # → SessionStore
+    resolve_event_log,     # → EventLog
+    resolve_span_exporter, # → SpanExporter
+    resolve_document,      # → DocumentStore
+    resolve_cache,         # → CacheStore
+    resolve_approval,      # → ApprovalStore
+    resolve_lock,          # → LockStore
+    resolve_dead_letter,   # → DeadLetterStore
+    resolve_graph,         # → GraphStore
+    resolve_experience,    # → ExperienceStore
+    resolve_llm,           # → LLMClient
 )
 ```
+
+每个函数接受 `FrameworkConfig | None`，未配置时返回合理的默认值。Agent 构造时自动调用这些函数，用户通常不需要直接接触。
 
 ---
 
@@ -212,15 +269,23 @@ config = FrameworkConfig(
 
 ### 场景 1：我想换向量数据库
 
-不需要改核心代码。实现 `DocumentStore` Protocol，注册到工厂，完事。核心循环根本不知道你用的是 Neo4j 还是 Milvus。
+实现 `DocumentStore` Protocol，在 `BackendConfig` 中注册，完事。核心循环根本不知道你用的是什么后端。
 
 ### 场景 2：我想接入公司内部的模型服务
 
 实现 `LLMClient` Protocol，只要有一个 `async def complete(...)` 方法。不需要继承任何基类，不需要导入框架的任何东西。
 
+```python
+class MyInternalLLM:
+    async def complete(self, messages, *, system="", tools=None,
+                       config=None, on_chunk=None) -> LLMResponse:
+        # 调用内部模型服务，返回标准化的 LLMResponse
+        ...
+```
+
 ### 场景 3：我想做单元测试
 
-用 FakeLLM + MemoryStore，零外部依赖，1,182 个测试全离线跑。这就是为什么 prodagent 的测试不 flaky。
+用 FakeLLM + memory 后端，零外部依赖，1,000+ 个测试全离线跑。这就是为什么 prodagent 的测试不 flaky。
 
 ---
 
@@ -240,9 +305,11 @@ config = FrameworkConfig(
 | 内容 | 源码位置 |
 |------|---------|
 | 所有端口定义 | `ports/` |
-| 后端实现 | `backends/file/` `backends/memory/` `backends/postgres/` 等 |
+| 端口导出汇总 | `ports/__init__.py` |
+| 后端实现 | `backends/file/` `backends/memory/` `backends/postgres/` `backends/redis/` `backends/neo4j/` |
 | 后端工厂 | `backends/factory.py` |
-| 后端注册表 | `backends/registry.py` |
+| BackendConfig | `base/config.py::BackendConfig` |
+| bare() / production() | `base/config.py` |
 
 ---
 

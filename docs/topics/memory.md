@@ -199,13 +199,14 @@ graph TD
 | 内容 | 源码位置 |
 |------|---------|
 | MemoryManager | `cognition/memory/manager.py` |
-| 规则通道 | `cognition/memory/channels.py`（RuleChannel） |
-| 实体通道 | `cognition/memory/channels.py`（EntityChannel） |
-| 精确通道 | `cognition/memory/channels.py`（ExactChannel） |
-| 语义通道 | `cognition/memory/channels.py`（SemanticChannel）`cognition/memory/embedder.py` |
+| 四通道（Rule/Entity/Exact/Semantic） | `cognition/memory/channels.py` |
+| 记忆分类 | `cognition/memory/classification.py` |
 | 冲突裁决 | `cognition/memory/conflict.py` |
+| 嵌入器 | `cognition/memory/embedder.py` |
+| 事实存储 | `cognition/memory/facts.py` |
 | 遗忘曲线 | `cognition/memory/forgetting.py` |
-| 记忆端口 | `ports/experience.py` |
+| 存储模型（MemoryRecord/MemoryType） | `ports/document.py` |
+| 记忆后端 | `backends/file/` `backends/postgres/`（DocumentStore） |
 
 ---
 

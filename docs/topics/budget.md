@@ -98,10 +98,10 @@ def token_cost_usd(response, pricing):
     cache_write = response.cache_write_tokens or 0
     input_billed = max(0, response.input_tokens - cache_read - cache_write)
     return (
-        input_billed / 1e6 * pricing.input_rate
-        + response.output_tokens / 1e6 * pricing.output_rate
-        + cache_read / 1e6 * pricing.input_rate * pricing.cache_read_discount   # 0.1x
-        + cache_write / 1e6 * pricing.input_rate * pricing.cache_write_premium  # 1.25x
+        input_billed / 1e6 * pricing.input_rate_per_million
+        + response.output_tokens / 1e6 * pricing.output_rate_per_million
+        + cache_read / 1e6 * pricing.input_rate_per_million * pricing.cache_read_discount   # 0.1x
+        + cache_write / 1e6 * pricing.input_rate_per_million * pricing.cache_write_premium  # 1.25x
     )
 ```
 
