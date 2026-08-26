@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 from prodagent.core.config import ContextConfig, LoopConfig
 from prodagent.core.error_classifier import classify_error
 from prodagent.core.error_reason import ErrorLayer
+from prodagent.core.event_log import Event, RunEventType
 from prodagent.core.exceptions import BudgetExceeded, InfiniteLoopDetected
 from prodagent.core.progress import ProgressMonitor
 from prodagent.kernel.budget import SAFETY_NET_BUDGET, check_spawn_budget
@@ -45,7 +46,7 @@ if TYPE_CHECKING:
     from prodagent.kernel.budget import BudgetLedger, HardBudget
     from prodagent.kernel.bus import HookRegistry
     from prodagent.llm import LLMClient
-    from prodagent.ports import CheckpointStore
+    from prodagent.ports import CheckpointStore, EventLog
     from prodagent.tooling.dispatcher import ToolDispatcher
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,7 @@ class ReactiveLoop:
         tools_schema: list[dict[str, Any]] | None = None,
         budget: HardBudget | None = None,
         checkpoint_store: CheckpointStore | None = None,
+        event_log: EventLog | None = None,
         context_manager: ContextManager | None = None,
         hooks: HookRegistry | None = None,
         loop_config: LoopConfig | None = None,
@@ -74,6 +76,7 @@ class ReactiveLoop:
         self._tools_schema = tools_schema or []
         self._budget = budget or SAFETY_NET_BUDGET
         self._checkpoint_store = checkpoint_store
+        self._event_log = event_log
         self._context_manager = context_manager
         self._initial_messages = list(initial_messages) if initial_messages else None
         self._hooks = hooks
@@ -146,6 +149,12 @@ class ReactiveLoop:
             raise
         else:
             await self._end_run_span(run)
+            await self._record_terminal(
+                run,
+                RunEventType.RUN_SUSPENDED
+                if run.state is RunState.SUSPENDED
+                else RunEventType.RUN_COMPLETED,
+            )
         finally:
             if self._checkpoint_store is not None:
                 await save_and_fire_checkpoint(self._checkpoint_store, run, self._hooks)
@@ -156,6 +165,7 @@ class ReactiveLoop:
         run.state = RunState.FAILED
         self._record_fault(run, exc)
         await self._end_run_span(run, error=str(exc))
+        await self._record_terminal(run, RunEventType.RUN_FAILED)
         logger.warning("ReactiveLoop[%s] terminated: %s", run.run_id, exc)
         return RunFailedEvent(run=run, error=str(exc))
 
@@ -163,6 +173,7 @@ class ReactiveLoop:
         run.state = RunState.FAILED
         self._record_fault(run, exc)
         await self._end_run_span(run, error=str(exc))
+        await self._record_terminal(run, RunEventType.RUN_FAILED)
         logger.exception("ReactiveLoop[%s] unexpected error", run.run_id)
 
     @staticmethod
@@ -194,6 +205,32 @@ class ReactiveLoop:
     def _check_budget(self, run: AgentRun) -> None:
         check_spawn_budget(run, self._budget, self._budget_ledger)
 
+    async def _record_turn(self, run: AgentRun) -> None:
+        """Per-turn event + checkpoint — REACTIVE's counterpart to PLAN_FIRST's
+        per-step ``_record``. A no-op unless both stores are configured, so an
+        unconfigured (or checkpoint-only) loop behaves exactly as it does
+        today: no per-turn writes, just the single checkpoint in ``stream()``'s
+        ``finally``."""
+        if self._event_log is None or self._checkpoint_store is None:
+            return
+        seq = await self._event_log.append(
+            Event.make(RunEventType.TURN_COMPLETED, stream_id=run.run_id, version=0),
+            expected_seq=run.last_event_seq,
+        )
+        run.last_event_seq = seq
+        await save_and_fire_checkpoint(self._checkpoint_store, run, self._hooks)
+
+    async def _record_terminal(self, run: AgentRun, event_type: RunEventType) -> None:
+        """Terminal marker mirroring PLAN_FIRST's STEP_COMPLETED/FAILED/SUSPENDED —
+        appended before ``stream()``'s ``finally`` writes the last checkpoint."""
+        if self._event_log is None:
+            return
+        seq = await self._event_log.append(
+            Event.make(event_type, stream_id=run.run_id, version=0),
+            expected_seq=run.last_event_seq,
+        )
+        run.last_event_seq = seq
+
     async def _loop_events(
         self,
         run: AgentRun,
@@ -207,6 +244,8 @@ class ReactiveLoop:
             async for batch_evt in self._dispatcher.run_batch(run, [resumed_call]):
                 yield batch_evt
 
+            await self._record_turn(run)
+
             self._check_budget(run)
 
             if run.state is RunState.SUSPENDED:
@@ -218,6 +257,8 @@ class ReactiveLoop:
                 run, system=self._system, tools=self._tools_schema or None
             ):
                 yield event
+
+            await self._record_turn(run)
 
             if run.pending_handoff is not None:
                 yield RunCompletedEvent(run=run)

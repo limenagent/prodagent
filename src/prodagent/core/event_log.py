@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
     from prodagent.ports import CheckpointStore, EventLog
 
-__all__ = ["Event", "PlanEventType", "hybrid_restore"]
+__all__ = ["Event", "PlanEventType", "RunEventType", "hybrid_restore"]
 
 
 class PlanEventType(StrEnum):
@@ -28,26 +28,37 @@ class PlanEventType(StrEnum):
     PLAN_REPLANNED = "PlanReplanned"
 
 
+class RunEventType(StrEnum):
+    """REACTIVE-mode counterpart to ``PlanEventType`` — one entry per turn,
+    plus terminal markers mirroring PLAN_FIRST's step lifecycle events."""
+
+    TURN_COMPLETED = "TurnCompleted"
+    RUN_COMPLETED = "RunCompleted"
+    RUN_FAILED = "RunFailed"
+    RUN_SUSPENDED = "RunSuspended"
+
+
 @dataclass
 class Event:
     # ``event_type`` is ``str`` (not ``PlanEventType``) so the log serves any
     # event-sourced domain — plan execution passes a ``PlanEventType``, the
-    # WorkQueue slice passes a ``QueueEventType``. Both are ``StrEnum`` <: ``str``.
+    # WorkQueue slice passes a ``QueueEventType``, REACTIVE passes a
+    # ``RunEventType``. All are ``StrEnum`` <: ``str``.
     seq: int
     event_id: str
     event_type: str
-    plan_id: str
+    stream_id: str
     version: int
     timestamp: float
     data: dict[str, Any]
 
     @classmethod
-    def make(cls, event_type: str, plan_id: str, version: int, **data: Any) -> Event:
+    def make(cls, event_type: str, stream_id: str, version: int, **data: Any) -> Event:
         return cls(
             seq=0,
             event_id=str(uuid.uuid4()),
             event_type=event_type,
-            plan_id=plan_id,
+            stream_id=stream_id,
             version=version,
             timestamp=time.time(),
             data=data,
@@ -58,17 +69,27 @@ async def hybrid_restore(
     run_id: str,
     event_log: EventLog,
     checkpoint_store: CheckpointStore,
-    reducer: Callable[[dict[str, Any], Event], None],
-) -> tuple[dict[str, Any], int, int]:
+    reducer: Callable[[Any, Event], None],
+    *,
+    extract_base: Callable[[Any], tuple[Any, int, int] | None],
+    empty_state: Callable[[], Any],
+) -> tuple[Any, int, int]:
+    """Checkpoint-as-base + exact tail replay, or full replay if no usable base.
+
+    ``extract_base`` pulls ``(base_state, checkpoint_version, last_seq)`` out of
+    a loaded checkpoint, or returns ``None`` if the checkpoint carries no
+    resumable state for this domain — keeps this module blind to what a
+    checkpoint's payload actually looks like (e.g. plan vs. run state).
+    """
     run = await checkpoint_store.load(run_id)
-    if run is not None and run.plan_state is not None:
-        state = run.plan_state
-        post = await event_log.get_after(run_id, since_seq=run.plan_last_seq)
+    base = extract_base(run) if run is not None else None
+    if base is not None:
+        state, checkpoint_version, last_seq = base
+        post = await event_log.get_after(run_id, since_seq=last_seq)
         for event in post:
             reducer(state, event)
-        last_seq = post[-1].seq if post else run.plan_last_seq
-        return state, run.checkpoint_version, last_seq
-    fresh_state: dict[str, Any] = {"steps": {}, "version": 0}
+        return state, checkpoint_version, post[-1].seq if post else last_seq
+    fresh_state = empty_state()
     events = await event_log.get_events(run_id)
     for event in events:
         reducer(fresh_state, event)

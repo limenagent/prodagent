@@ -16,7 +16,7 @@ __all__ = ["PostgresEventLog"]
 
 
 class PostgresEventLog:
-    """Durable, multi-replica ``EventLog`` — per-plan monotonic seq."""
+    """Durable, multi-replica ``EventLog`` — per-stream monotonic seq."""
 
     def __init__(self, pool: AsyncConnectionPool, *, namespace: str = "default") -> None:
         self._pool = pool
@@ -28,7 +28,7 @@ class PostgresEventLog:
             "seq": event.seq,
             "event_id": event.event_id,
             "event_type": str(event.event_type),
-            "plan_id": event.plan_id,
+            "stream_id": event.stream_id,
             "version": event.version,
             "timestamp": event.timestamp,
             "data": event.data,
@@ -37,21 +37,21 @@ class PostgresEventLog:
             async with conn.cursor() as cur:
                 current = await lock_and_check_version(
                     cur,
-                    f"{self._ns}:{event.plan_id}",
+                    f"{self._ns}:{event.stream_id}",
                     "SELECT COALESCE(MAX(seq), 0) FROM pa_event "
-                    "WHERE namespace = %s AND plan_id = %s",
-                    (self._ns, event.plan_id),
+                    "WHERE namespace = %s AND stream_id = %s",
+                    (self._ns, event.stream_id),
                     expected_seq,
-                    f"plan {event.plan_id}",
+                    f"stream {event.stream_id}",
                 )
                 new_seq = current + 1
                 event.seq = new_seq
                 record["seq"] = new_seq
                 blob = json.dumps(record, ensure_ascii=False)
                 await cur.execute(
-                    "INSERT INTO pa_event (namespace, plan_id, seq, payload) "
+                    "INSERT INTO pa_event (namespace, stream_id, seq, payload) "
                     "VALUES (%s, %s, %s, %s::jsonb)",
-                    (self._ns, event.plan_id, new_seq, blob),
+                    (self._ns, event.stream_id, new_seq, blob),
                 )
             await conn.commit()
         return new_seq
@@ -65,7 +65,7 @@ class PostgresEventLog:
                     seq=data["seq"],
                     event_id=data["event_id"],
                     event_type=data["event_type"],
-                    plan_id=data["plan_id"],
+                    stream_id=data["stream_id"],
                     version=data["version"],
                     timestamp=data["timestamp"],
                     data=data["data"],
@@ -73,24 +73,24 @@ class PostgresEventLog:
             )
         return out
 
-    async def get_events(self, plan_id: str) -> list[Event]:
+    async def get_events(self, stream_id: str) -> list[Event]:
         await ensure_schema_via_pool_async(self._pool)
         async with self._pool.connection() as conn, conn.cursor() as cur:
             await cur.execute(
                 "SELECT payload::text FROM pa_event "
-                "WHERE namespace = %s AND plan_id = %s ORDER BY seq",
-                (self._ns, plan_id),
+                "WHERE namespace = %s AND stream_id = %s ORDER BY seq",
+                (self._ns, stream_id),
             )
             rows = await cur.fetchall()
         return await self._decode_rows(rows)
 
-    async def get_after(self, plan_id: str, since_seq: int) -> list[Event]:
+    async def get_after(self, stream_id: str, since_seq: int) -> list[Event]:
         await ensure_schema_via_pool_async(self._pool)
         async with self._pool.connection() as conn, conn.cursor() as cur:
             await cur.execute(
                 "SELECT payload::text FROM pa_event "
-                "WHERE namespace = %s AND plan_id = %s AND seq > %s ORDER BY seq",
-                (self._ns, plan_id, since_seq),
+                "WHERE namespace = %s AND stream_id = %s AND seq > %s ORDER BY seq",
+                (self._ns, stream_id, since_seq),
             )
             rows = await cur.fetchall()
         return await self._decode_rows(rows)

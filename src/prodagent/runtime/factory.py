@@ -106,6 +106,10 @@ class LeafExecutorFactory:
         if effective_mode is ExecutionMode.PLAN_FIRST:
             from prodagent.plan.executor import PlanExecutor
 
+            # PLAN_FIRST's DAG state is only ever tracked in these two stores
+            # (unlike REACTIVE, which treats checkpointing as opt-in) — bare
+            # profile still needs a working pair. The fallback is cached on
+            # the agent so repeated hops/resumes share the same instance.
             executor: LeafExecutor = PlanExecutor(
                 ctx.llm,
                 dispatcher.dispatch,
@@ -114,8 +118,8 @@ class LeafExecutorFactory:
                 hooks=agent.hooks,
                 agent_name=agent.name,
                 tool_schemas=tool_schemas,
-                event_log=ctx.event_log,
-                checkpoint_store=ctx.checkpoint,
+                event_log=ctx.event_log or agent.ensure_plan_event_log_fallback(),
+                checkpoint_store=ctx.checkpoint or agent.ensure_plan_checkpoint_fallback(),
                 framework_config=fw,
                 budget=effective_budget,
                 initial_plan=agent.config.initial_plan,
@@ -134,6 +138,7 @@ class LeafExecutorFactory:
                 hooks=agent.hooks,
                 loop_config=fw.loop,
                 checkpoint_store=ctx.checkpoint,
+                event_log=ctx.event_log,
                 spill_store=ctx.spill_store,
                 initial_messages=initial_messages,
                 budget_ledger=ctx.budget_ledger,

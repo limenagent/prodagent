@@ -25,13 +25,13 @@ CREATE INDEX IF NOT EXISTS pa_checkpoint_versions_idx
 
 CREATE TABLE IF NOT EXISTS pa_event (
     namespace  text NOT NULL,
-    plan_id    text NOT NULL,
+    stream_id  text NOT NULL,
     seq        integer NOT NULL,
     payload    jsonb NOT NULL,
     appended_at timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (namespace, plan_id, seq)
+    PRIMARY KEY (namespace, stream_id, seq)
 );
-CREATE INDEX IF NOT EXISTS pa_event_plan_idx ON pa_event (namespace, plan_id, seq);
+CREATE INDEX IF NOT EXISTS pa_event_stream_idx ON pa_event (namespace, stream_id, seq);
 
 CREATE TABLE IF NOT EXISTS pa_memory (
     namespace  text NOT NULL,

@@ -167,6 +167,9 @@ class AgentRun(Generic[_RunT]):
     error: ClassifiedError | None = None
     plan_state: JsonDict | None = None
     plan_last_seq: int = 0
+    last_event_seq: int = 0
+    """Tail seq for REACTIVE's per-turn ``EventLog.append(..., expected_seq=...)`` —
+    the ``plan_last_seq`` counterpart for the non-plan execution mode."""
     checkpoint_version: int = 0
     checkpoint_failed: bool = False
 
@@ -270,6 +273,7 @@ class AgentRun(Generic[_RunT]):
             "error": self.error.to_dict() if self.error is not None else None,
             "plan_state": self.plan_state,
             "plan_last_seq": self.plan_last_seq,
+            "last_event_seq": self.last_event_seq,
             "is_peer_continuation": self.is_peer_continuation,
         }
 
@@ -303,5 +307,6 @@ class AgentRun(Generic[_RunT]):
             ),
             plan_state=d.get("plan_state"),
             plan_last_seq=d.get("plan_last_seq", 0),
+            last_event_seq=d.get("last_event_seq", 0),
             is_peer_continuation=d.get("is_peer_continuation", False),
         )

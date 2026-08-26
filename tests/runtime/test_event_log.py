@@ -13,8 +13,16 @@ from prodagent.kernel.state import AgentRun
 from prodagent.plan.event_log import apply_event
 
 
-def _make(event_type: PlanEventType, plan_id: str = "p1", version: int = 1, **data) -> Event:
-    return Event.make(event_type, plan_id, version, **data)
+def _make(event_type: PlanEventType, stream_id: str = "p1", version: int = 1, **data) -> Event:
+    return Event.make(event_type, stream_id, version, **data)
+
+
+def _extract_base(run: AgentRun) -> tuple[dict, int, int] | None:
+    return (run.plan_state, run.checkpoint_version, run.plan_last_seq) if run.plan_state else None
+
+
+def _empty_state() -> dict:
+    return {"steps": {}, "version": 0}
 
 
 def _simple_reducer(state: dict, event: Event) -> dict:
@@ -46,8 +54,8 @@ class TestEventSeq:
 
     async def test_seq_is_per_plan_isolated(self, tmp_path):
         log = FileEventLog(tmp_path)
-        e1 = _make(PlanEventType.PLAN_CREATED, plan_id="plan-A")
-        e2 = _make(PlanEventType.PLAN_CREATED, plan_id="plan-B")
+        e1 = _make(PlanEventType.PLAN_CREATED, stream_id="plan-A")
+        e2 = _make(PlanEventType.PLAN_CREATED, stream_id="plan-B")
 
         await log.append(e1)
         await log.append(e2)
@@ -91,12 +99,12 @@ class TestEventLogGetAfter:
 
     async def test_filters_by_plan_id(self, tmp_path):
         log = FileEventLog(tmp_path)
-        await log.append(_make(PlanEventType.PLAN_CREATED, plan_id="A"))
-        await log.append(_make(PlanEventType.PLAN_CREATED, plan_id="B"))
+        await log.append(_make(PlanEventType.PLAN_CREATED, stream_id="A"))
+        await log.append(_make(PlanEventType.PLAN_CREATED, stream_id="B"))
 
         result = await log.get_after("A", since_seq=0)
         assert len(result) == 1
-        assert result[0].plan_id == "A"
+        assert result[0].stream_id == "A"
 
     async def test_since_seq_zero_returns_all(self, tmp_path):
         log = FileEventLog(tmp_path)
@@ -129,7 +137,9 @@ class TestHybridRestore:
         log, plan_id = await self._build_log_with_plan(tmp_path)
         cs = FileCheckpointStore(directory=tmp_path / "ckpt")
 
-        state, _, _ = await hybrid_restore(plan_id, log, cs, _simple_reducer)
+        state, _, _ = await hybrid_restore(
+            plan_id, log, cs, _simple_reducer, extract_base=_extract_base, empty_state=_empty_state
+        )
 
         assert state["steps"]["s1"]["status"] == "completed"
         assert state["steps"]["s2"]["status"] == "completed"
@@ -156,7 +166,9 @@ class TestHybridRestore:
             reducer_calls.append(event)
             return _simple_reducer(state, event)
 
-        state, _, _ = await hybrid_restore(plan_id, log, cs, counting_reducer)
+        state, _, _ = await hybrid_restore(
+            plan_id, log, cs, counting_reducer, extract_base=_extract_base, empty_state=_empty_state
+        )
 
         assert reducer_calls == [], "no events should be replayed when checkpoint is current"
         assert state["steps"]["s2"]["status"] == "completed"
@@ -177,7 +189,9 @@ class TestHybridRestore:
         run.plan_last_seq = 1
         await cs.save(run)
 
-        state, _, _ = await hybrid_restore(plan_id, log, cs, _simple_reducer)
+        state, _, _ = await hybrid_restore(
+            plan_id, log, cs, _simple_reducer, extract_base=_extract_base, empty_state=_empty_state
+        )
 
         assert state["steps"]["s1"]["status"] == "completed", (
             "StepCompleted(s1) must be replayed — it shares plan version 1 with the checkpoint"
@@ -208,7 +222,9 @@ class TestHybridRestore:
             replayed.append(event.event_type)
             return _simple_reducer(state, event)
 
-        state, _, _ = await hybrid_restore(plan_id, log, cs, tracking_reducer)
+        state, _, _ = await hybrid_restore(
+            plan_id, log, cs, tracking_reducer, extract_base=_extract_base, empty_state=_empty_state
+        )
 
         assert replayed == [PlanEventType.STEP_COMPLETED], (
             "only s2's StepCompleted should be replayed"
@@ -243,8 +259,12 @@ class TestHybridRestore:
 
         cs = FileCheckpointStore(directory=tmp_path / "ckpt")
 
-        state_a, _, _ = await hybrid_restore("plan-A", log, cs, _simple_reducer)
-        state_b, _, _ = await hybrid_restore("plan-B", log, cs, _simple_reducer)
+        state_a, _, _ = await hybrid_restore(
+            "plan-A", log, cs, _simple_reducer, extract_base=_extract_base, empty_state=_empty_state
+        )
+        state_b, _, _ = await hybrid_restore(
+            "plan-B", log, cs, _simple_reducer, extract_base=_extract_base, empty_state=_empty_state
+        )
 
         assert "a1" in state_a["steps"]
         assert "b1" not in state_a["steps"]
@@ -351,4 +371,4 @@ class TestFileEventLogCrashDurability:
             d = json.loads(line)
             assert "seq" in d
             assert "event_type" in d
-            assert "plan_id" in d
+            assert "stream_id" in d

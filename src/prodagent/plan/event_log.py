@@ -60,21 +60,13 @@ class PlanEventLog:
 
     def __init__(
         self,
-        event_log: EventLog | None = None,
-        checkpoint_store: CheckpointStore | None = None,
+        event_log: EventLog,
+        checkpoint_store: CheckpointStore,
         *,
-        framework_config: Any = None,
         hooks: HookRegistry | None = None,
     ) -> None:
-        if framework_config is None and (event_log is None or checkpoint_store is None):
-            raise ValueError(
-                "PlanEventLog requires either explicit stores or a framework_config to resolve them"
-            )
-        from prodagent.backends.factory import resolve_checkpoint, resolve_event_log
-
-        self._events = event_log or resolve_event_log(framework_config)
-        self._checkpoints = checkpoint_store or resolve_checkpoint(framework_config)
-        self._framework_config = framework_config
+        self._events = event_log
+        self._checkpoints = checkpoint_store
         self._hooks = hooks
         self._lock = asyncio.Lock()
 
@@ -104,8 +96,18 @@ class PlanEventLog:
         ``idempotency_seq`` would re-derive keys already consumed before the
         suspend (INV-IDEM-03: anchors roll back WITH the checkpoint).
         """
+        state: dict[str, Any]
         state, ckpt_version, last_seq = await hybrid_restore(
-            run.run_id, self._events, self._checkpoints, apply_event
+            run.run_id,
+            self._events,
+            self._checkpoints,
+            apply_event,
+            extract_base=lambda r: (
+                (r.plan_state, r.checkpoint_version, r.plan_last_seq)
+                if r.plan_state is not None
+                else None
+            ),
+            empty_state=lambda: {"steps": {}, "version": 0},
         )
         run.checkpoint_version = max(run.checkpoint_version, ckpt_version)
         run.plan_last_seq = max(run.plan_last_seq, last_seq)
@@ -216,7 +218,7 @@ class PlanEventLog:
     ) -> int:
         async with self._lock:
             seq = await self._events.append(
-                Event.make(event_type, plan_id=run.run_id, version=version, **data),
+                Event.make(event_type, stream_id=run.run_id, version=version, **data),
                 expected_seq=run.plan_last_seq,
             )
             run.plan_last_seq = seq

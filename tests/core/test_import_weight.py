@@ -55,6 +55,7 @@ KERNEL_EXPECTED = frozenset(
         "prodagent.core.config",
         "prodagent.core.error_classifier",
         "prodagent.core.error_reason",
+        "prodagent.core.event_log",
         "prodagent.kernel.events",
         "prodagent.core.exceptions",
         "prodagent.core.progress",

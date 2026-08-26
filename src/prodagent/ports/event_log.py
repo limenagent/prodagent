@@ -24,10 +24,10 @@ class EventLog(Protocol):
         """
         ...
 
-    async def get_events(self, plan_id: str) -> list[Event]:
-        """Events for ``plan_id`` in append order."""
+    async def get_events(self, stream_id: str) -> list[Event]:
+        """Events for ``stream_id`` in append order."""
         ...
 
-    async def get_after(self, plan_id: str, since_seq: int) -> list[Event]:
-        """Events for ``plan_id`` with ``seq > since_seq`` (exact tail replay)."""
+    async def get_after(self, stream_id: str, since_seq: int) -> list[Event]:
+        """Events for ``stream_id`` with ``seq > since_seq`` (exact tail replay)."""
         ...

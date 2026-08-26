@@ -98,10 +98,17 @@ class PlanExecutor:
         self._budget = budget
         self._budget_ledger = budget_ledger
         self._max_replans = max_replans
+        if event_log is None:
+            from prodagent.backends.factory import in_memory_event_log
+
+            event_log = in_memory_event_log()
+        if checkpoint_store is None:
+            from prodagent.backends.factory import in_memory_checkpoint_store
+
+            checkpoint_store = in_memory_checkpoint_store()
         self._log = PlanEventLog(
             event_log=event_log,
             checkpoint_store=checkpoint_store,
-            framework_config=framework_config,
             hooks=hooks,
         )
         self._planner = Planner(

@@ -11,8 +11,8 @@ from prodagent.ports.event_log import EventLog
 Factory: TypeAlias = Callable[[], EventLog]
 
 
-def _event(plan_id: str, version: int, **data: object) -> Event:
-    return Event.make(PlanEventType.STEP_COMPLETED, plan_id, version, **data)
+def _event(stream_id: str, version: int, **data: object) -> Event:
+    return Event.make(PlanEventType.STEP_COMPLETED, stream_id, version, **data)
 
 
 async def run_event_log_conformance(make_store: Factory) -> None:
@@ -34,7 +34,7 @@ async def run_event_log_conformance(make_store: Factory) -> None:
 
 
 async def run_event_log_plan_isolation_conformance(make_store: Factory) -> None:
-    """Events for one plan_id do not leak into another."""
+    """Events for one stream_id do not leak into another."""
     store = make_store()
     await store.append(_event("pa", 1))
     await store.append(_event("pb", 1))
@@ -44,8 +44,8 @@ async def run_event_log_plan_isolation_conformance(make_store: Factory) -> None:
     pb = await store.get_events("pb")
     assert len(pa) == 2
     assert len(pb) == 1
-    assert {e.plan_id for e in pa} == {"pa"}
-    assert {e.plan_id for e in pb} == {"pb"}
+    assert {e.stream_id for e in pa} == {"pa"}
+    assert {e.stream_id for e in pb} == {"pb"}
 
 
 async def run_event_log_empty_plan_conformance(make_store: Factory) -> None:

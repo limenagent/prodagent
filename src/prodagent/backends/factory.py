@@ -69,6 +69,22 @@ def in_memory_session_store() -> SessionStore:
     return InMemorySessionStore()
 
 
+def in_memory_checkpoint_store() -> CheckpointStore:
+    """In-process checkpoint store — PLAN_FIRST's bare-profile default (no disk)."""
+
+    from prodagent.backends.memory.checkpoint import InMemoryCheckpointStore
+
+    return InMemoryCheckpointStore()
+
+
+def in_memory_event_log() -> EventLog:
+    """In-process event log — PLAN_FIRST's bare-profile default (no disk)."""
+
+    from prodagent.backends.memory.event_log import InMemoryEventLog
+
+    return InMemoryEventLog()
+
+
 __all__ = [
     "resolve_llm",
     "resolve_checkpoint",
@@ -86,6 +102,8 @@ __all__ = [
     "in_process_lock_store",
     "in_memory_dead_letter_queue",
     "in_memory_session_store",
+    "in_memory_checkpoint_store",
+    "in_memory_event_log",
 ]
 
 

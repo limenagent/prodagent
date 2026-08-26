@@ -10,7 +10,14 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class SessionStore(Protocol):
-    """Durable home for ``ConversationSession`` — mirrors ``CheckpointStore``."""
+    """Durable home for ``ConversationSession``.
+
+    Same optimistic-concurrency API shape as ``CheckpointStore``/``EventLog``,
+    but a different scope: a session spans many runs (one turn per
+    ``AgentRun``), while ``CheckpointStore``/``EventLog`` only ever track
+    state *within* a single run. Peers, not layers — neither wraps the
+    other.
+    """
 
     async def save(self, session: ConversationSession, expected_version: int | None = None) -> None:
         """Idempotent atomic persist under ``session.session_id``.

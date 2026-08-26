@@ -9,9 +9,9 @@ from prodagent.core.exceptions import VersionConflict
 
 
 def _make(
-    event_type: PlanEventType = PlanEventType.STEP_COMPLETED, plan_id: str = "p1", **data
+    event_type: PlanEventType = PlanEventType.STEP_COMPLETED, stream_id: str = "p1", **data
 ) -> Event:
-    return Event.make(event_type, plan_id, version=1, **data)
+    return Event.make(event_type, stream_id, version=1, **data)
 
 
 class TestConcurrentAppend:

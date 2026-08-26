@@ -171,6 +171,8 @@ class Agent:
 
         self._hooks_wired: bool = False
         self._session_store: SessionStore | None = None
+        self._plan_event_log: EventLog | None = None
+        self._plan_checkpoint_store: CheckpointStore | None = None
 
         # Resolve workflow eagerly
         if workflow is not None:
@@ -343,6 +345,26 @@ class Agent:
 
         self._session_store = resolve_session_store(self.framework_config, self._session_store)
         return self._session_store
+
+    def ensure_plan_event_log_fallback(self) -> EventLog:
+        """PLAN_FIRST's DAG state always needs a working event log — unlike
+        ``ctx.event_log`` (``None`` is a valid REACTIVE default), a bare
+        profile still gets a real (in-process) store here, cached on the
+        agent so repeated hops/resumes within the same process share it."""
+        if self._plan_event_log is None:
+            from prodagent.backends.factory import in_memory_event_log
+
+            self._plan_event_log = in_memory_event_log()
+        return self._plan_event_log
+
+    def ensure_plan_checkpoint_fallback(self) -> CheckpointStore:
+        """Counterpart to :meth:`ensure_plan_event_log_fallback` for the
+        checkpoint side of PLAN_FIRST's persistence pair."""
+        if self._plan_checkpoint_store is None:
+            from prodagent.backends.factory import in_memory_checkpoint_store
+
+            self._plan_checkpoint_store = in_memory_checkpoint_store()
+        return self._plan_checkpoint_store
 
     # -- Prompt & context -------------------------------------------------
 
