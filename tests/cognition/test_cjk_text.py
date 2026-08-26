@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from prodagent.core.text import _CJK, cjk_char_count, tokenize_cjk
+from prodagent.base.text import _CJK, cjk_char_count, tokenize_cjk
 
 
 class TestCJKBlockCoverage:

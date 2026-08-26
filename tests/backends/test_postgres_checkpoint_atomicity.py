@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from prodagent.backends.postgres.checkpoint import PostgresCheckpointStore
-from prodagent.core.exceptions import VersionConflict
+from prodagent.base.errors import VersionConflict
 from prodagent.kernel.state import AgentRun
 
 

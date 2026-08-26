@@ -18,8 +18,8 @@ from __future__ import annotations
 import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode
-from prodagent.core.config import FrameworkConfig
-from prodagent.core.exceptions import PlanAlreadyCompletedError
+from prodagent.base.config import FrameworkConfig
+from prodagent.base.errors import PlanAlreadyCompletedError
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import RunState
 from prodagent.llm.fake import script
@@ -27,7 +27,7 @@ from prodagent.plan.workflow import Workflow
 
 
 def _fw(tmp_path):
-    from prodagent.core.config import production
+    from prodagent.base.config import production
 
     fw = production(FrameworkConfig.default())
     fw.orchestration.runs_dir = str(tmp_path / "runs")
@@ -268,7 +268,7 @@ async def test_orphan_checkpoint_raises_run_id_collision(tmp_path):
     RunIdCollisionError instead of silently resuming or throwing a confusing
     VersionConflict mid-run.
     """
-    from prodagent.core.exceptions import RunIdCollisionError
+    from prodagent.base.errors import RunIdCollisionError
     from prodagent.kernel.types import RunState
 
     agent = _reactive_agent(tmp_path)
@@ -324,7 +324,7 @@ async def test_chat_stream_consumer_returns_on_terminal_event_persists_turn(tmp_
     so a consumer that returns on the terminal event skipped it. The fix wraps
     the finalize in a finally block gated on final_run.
     """
-    from prodagent.kernel.events import RunCompletedEvent
+    from prodagent.kernel.types import RunCompletedEvent
 
     agent = _reactive_agent(tmp_path)
 

@@ -156,7 +156,7 @@ def _extract_tags(text: str, *, max_tags: int = 8) -> list[str]:
     'reboot Pod' and 'reboot Deployment' share the reboot tag. ASCII words are
     split normally.
     """
-    from prodagent.core.text import tokenize_cjk
+    from prodagent.base.text import tokenize_cjk
 
     tokens = tokenize_cjk(text)
     seen: dict[str, None] = {}

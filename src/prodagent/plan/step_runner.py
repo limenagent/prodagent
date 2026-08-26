@@ -10,11 +10,11 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
-from prodagent.core.exceptions import SuspendPendingApproval, ToolAbortError, ToolBlockedError
+from prodagent.base.errors import SuspendPendingApproval, ToolAbortError, ToolBlockedError
 from prodagent.hooks import fire as _fire
 from prodagent.kernel.bus import HookEvent
 from prodagent.kernel.state import AgentRun, PendingHandoff
-from prodagent.kernel.types import Message, RunState, StepStatus, ToolCall, ToolOutcome, ToolResult
+from prodagent.kernel.types import Message, StepStatus, ToolCall, ToolOutcome, ToolResult
 from prodagent.tooling.base import coerce_result
 
 if TYPE_CHECKING:
@@ -274,21 +274,21 @@ class StepRunner:
         run: AgentRun,
     ) -> None:
         async with self._commit_lock:
-            # First handoff wins across concurrently gathered steps.
-            if run.pending_handoff is not None:
-                return
             h = result.handoff or {}
             peer = h.get("peer", "")
+            # First handoff wins across concurrently gathered steps — the
+            # park method owns that invariant (and finishes the run).
+            if not run.park_handoff(
+                PendingHandoff(
+                    peer_name=peer,
+                    task=h.get("task", ""),
+                    input_refs=dict(h.get("input_refs") or {}),
+                    message_id=str(uuid.uuid4()),
+                )
+            ):
+                return
             step.status = StepStatus.COMPLETED
             step.output_ref = result.to_wire()
-            run.state = RunState.COMPLETED
-            run.pending_handoff = PendingHandoff(
-                peer_name=peer,
-                task=h.get("task", ""),
-                input_refs=dict(h.get("input_refs") or {}),
-                message_id=str(uuid.uuid4()),
-            )
-            run.final_output = f"Handed off to {peer}" if peer else "Handed off"
             await self._log.record_step_completed(plan, run, step.step_id, step.output_ref)
             logger.info("[Plan] run handed off to peer=%s (step=%s)", peer, step.step_id)
 
@@ -303,12 +303,9 @@ class StepRunner:
         async with self._commit_lock:
             # A handoff wins over a suspension; and only the first suspension
             # parks its pending call, so a resumed run retries the right tool.
-            if run.pending_handoff is not None or run.state is RunState.SUSPENDED:
+            if not run.park_for_approval(call, result.approval_request_id or None):
                 return
             step.status = StepStatus.SUSPENDED
-            run.state = RunState.SUSPENDED
-            run.pending_approval_id = result.approval_request_id or None
-            run.pending_tool_call = call
             await self._log.record_step_suspended(plan, run, step.step_id)
             logger.info(
                 "[Plan] run suspended pending approval: %s (step=%s, request_id=%s)",

@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from prodagent.core.event_log import (
+from prodagent.base.event_log import (
     Event,
     PlanEventType,
     append_expected,

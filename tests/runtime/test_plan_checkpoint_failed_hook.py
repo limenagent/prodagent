@@ -54,7 +54,7 @@ async def test_plan_checkpoint_failure_fires_once_via_hooks(tmp_path, monkeypatc
     )
 
     final_run = None
-    from prodagent.kernel.events import RunCompletedEvent
+    from prodagent.kernel.types import RunCompletedEvent
 
     async for event in planner.stream("do the thing", run_id="R1"):
         if isinstance(event, RunCompletedEvent):

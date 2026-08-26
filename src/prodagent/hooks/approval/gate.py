@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from prodagent.kernel.types import ToolCall
 
-from prodagent.core.exceptions import SuspendPendingApproval
+from prodagent.base.errors import SuspendPendingApproval
 from prodagent.hooks.approval.formatter import ContextAwareApprovalFormatter
 from prodagent.ports.approval import ApprovalDecision, ApprovalRequest, ApprovalStore
 

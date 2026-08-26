@@ -78,7 +78,7 @@ def build_audit_workflow_agent(
     submit，改调只读的 ``draft_sar_for_review`` 草拟 SAR 转人工复核（复用已完成
     的分析步骤）。
     """
-    from prodagent.core.config import production
+    from prodagent.base.config import production
 
     fw = framework_config or production()
     return Agent(

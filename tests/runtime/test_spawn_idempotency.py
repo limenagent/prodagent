@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from prodagent.coordination.spawn import build_spawn_tools_for_agent
-from prodagent.kernel.events import ToolResultEvent
 from prodagent.kernel.state import AgentRun
-from prodagent.kernel.types import ToolCall
+from prodagent.kernel.types import ToolCall, ToolResultEvent
 from prodagent.llm.fake import script
 from prodagent.runtime.agent import Agent
 from prodagent.tooling.dispatcher import ToolDispatcher

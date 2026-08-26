@@ -12,7 +12,7 @@ from prodagent.coordination.ensemble import (
 )
 from prodagent.coordination.floor import FloorTurn
 from prodagent.coordination.termination import MaxRounds, TerminationPolicy
-from prodagent.kernel.budget import HardBudget, SharedBudget
+from prodagent.kernel.budget import BudgetLedger, HardBudget
 from prodagent.kernel.bus import BlockingResult, Gate, HookRegistry
 
 
@@ -42,7 +42,7 @@ def _two_member_spec(members, **kwargs) -> EnsembleSpec:
         members=members,
         topic="test",
         termination=TerminationPolicy(hard_cap=MaxRounds(max_rounds=1)),
-        budget=SharedBudget(
+        budget=BudgetLedger(
             max=HardBudget(max_turns=10, max_seconds=60.0, max_tokens=10_000, max_cost_usd=1.0)
         ),
         **kwargs,
@@ -125,7 +125,7 @@ async def test_budget_committed_even_when_turn_rejected():
         return BlockingResult(blocked=False)
 
     registry.register_checker(Gate.AGENT_HANDOFF, veto)
-    budget = SharedBudget(
+    budget = BudgetLedger(
         max=HardBudget(max_turns=10, max_seconds=60.0, max_tokens=10_000, max_cost_usd=1.0)
     )
     poisoned = _ScriptedMember("poisoned", ["leak"])

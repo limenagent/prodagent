@@ -9,7 +9,7 @@ import pytest
 from prodagent import ExecutionMode
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
-from prodagent.core.event_log import PlanEventType
+from prodagent.base.event_log import PlanEventType
 from prodagent.kernel.bus import HookRegistry
 from prodagent.kernel.types import LLMResponse, RunState
 from prodagent.llm.fake import FakeLLMAdapter
@@ -94,7 +94,7 @@ async def test_plan_crash_recovery_resumes_from_last_checkpoint(tmp_path):
         return {"report": f"{incident} resolved: pod restarted"}
 
     def _production_fw():
-        from prodagent.core.config import FrameworkConfig, production
+        from prodagent.base.config import FrameworkConfig, production
 
         return production(FrameworkConfig.default())
 

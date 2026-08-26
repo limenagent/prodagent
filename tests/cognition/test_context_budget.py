@@ -1,7 +1,7 @@
 import pytest
 
+from prodagent.base.config import ContextConfig
 from prodagent.cognition.context.budget import ContextBudget, Layer
-from prodagent.core.config import ContextConfig
 
 
 @pytest.fixture
@@ -130,8 +130,8 @@ class TestContextManagerL2Pruning:
 
     @pytest.mark.asyncio
     async def test_l2_over_budget_prunes_memory_snippets(self):
+        from prodagent.base.config import ContextConfig
         from prodagent.cognition.context.manager import ContextManager
-        from prodagent.core.config import ContextConfig
 
         cfg = ContextConfig(max_tokens=10_000)
         cm = ContextManager(config=cfg, system_prompt="sys", llm=None)

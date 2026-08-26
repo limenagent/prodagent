@@ -15,13 +15,13 @@ import logging
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
+from prodagent.base.errors import SECURITY_VETO_EXCEPTIONS
 from prodagent.coordination.messaging.envelope import (
     Crossing,
     CrossingKind,
     CrossingRejected,
     DuplicateCrossing,
 )
-from prodagent.core.exceptions import SECURITY_VETO_EXCEPTIONS
 from prodagent.kernel.bus import Gate
 
 if TYPE_CHECKING:

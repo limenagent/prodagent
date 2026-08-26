@@ -97,7 +97,7 @@ await ledger.commit(member="agent-a", cost_usd=0.25, reserved_cost_usd=0.3)
 ### production() 一键全套
 
 ```python
-from prodagent.core.config import production
+from prodagent.base.config import production
 
 config = AgentConfig(
     name="demo",
@@ -170,7 +170,7 @@ queue = WorkQueue(workers=[w1, w2, w3])
 ## 事件类型
 
 ```python
-from prodagent.kernel.events import (
+from prodagent.kernel.types import (
     RunCompletedEvent,
     RunFailedEvent,
     RunSuspendedEvent,

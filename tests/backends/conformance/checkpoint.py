@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TypeAlias
 
-from prodagent.core.exceptions import VersionConflict
+from prodagent.base.errors import VersionConflict
 from prodagent.kernel.state import AgentRun
 from prodagent.ports.checkpoint import CheckpointStore
 

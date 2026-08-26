@@ -30,6 +30,7 @@ import logging
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from prodagent.base.text import bound_text
 from prodagent.coordination.messaging.envelope import (
     Crossing,
     CrossingRejected,
@@ -43,7 +44,6 @@ from prodagent.coordination.messaging.interceptors import (
     GateInterceptor,
     TrimInterceptor,
 )
-from prodagent.core.text import bound_text
 
 if TYPE_CHECKING:
     from collections.abc import Callable

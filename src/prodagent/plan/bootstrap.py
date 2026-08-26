@@ -7,7 +7,7 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from prodagent.core.exceptions import LLMError, SuspendPendingApproval
+from prodagent.base.errors import LLMError, SuspendPendingApproval
 from prodagent.hooks import fire as _fire
 from prodagent.kernel.bus import Gate, HookEvent
 from prodagent.kernel.state import AgentRun

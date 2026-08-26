@@ -71,7 +71,7 @@ sequenceDiagram
 
 ```python
 from prodagent import Agent, AgentConfig
-from prodagent.core.config import production
+from prodagent.base.config import production
 
 agent = Agent(
     "demo",

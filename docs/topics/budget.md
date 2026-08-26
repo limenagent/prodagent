@@ -302,8 +302,8 @@ SAFETY_NET_BUDGET = HardBudget(
 | HardBudget 定义 | `kernel/budget.py` |
 | 单 Agent 预算检查 | `kernel/budget.py::check_budget` |
 | BudgetLedger | `kernel/budget.py::BudgetLedger` |
-| 四轴评估函数 | `core/budget_axes.py::evaluate_axes` |
-| 预算异常 | `core/exceptions.py::BudgetExceeded` |
+| 四轴评估函数 | `kernel/budget.py::evaluate_axes` |
+| 预算异常 | `base/errors.py::BudgetExceeded` |
 | 定价表 | `llm/pricing.py` |
 | 成本计算 | `ports/llm.py::token_cost_usd` |
 

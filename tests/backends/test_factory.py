@@ -34,7 +34,7 @@ from prodagent.backends.memory import (
     InMemoryDeadLetterQueue,
     InProcessLockStore,
 )
-from prodagent.core.config import BackendConfig, FrameworkConfig
+from prodagent.base.config import BackendConfig, FrameworkConfig
 from prodagent.ports import (
     ApprovalStore,
     CacheStore,

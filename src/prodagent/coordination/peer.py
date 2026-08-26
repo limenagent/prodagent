@@ -13,9 +13,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from prodagent.core.error_reason import ErrorReason
+from prodagent.base.errors import ErrorReason
 from prodagent.kernel.types import RunState, SideEffectLevel, ToolError, ToolMeta, ToolResult
-from prodagent.runtime._tool_merge import attach_tools
+from prodagent.runtime.factory import attach_tools
 from prodagent.runtime.parent_runtime import ParentRuntime, describe_agent
 from prodagent.tooling.base import FunctionTool
 

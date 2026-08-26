@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from prodagent.core.config import FrameworkConfig
+    from prodagent.base.config import FrameworkConfig
     from prodagent.kernel.budget import BudgetLedger, HardBudget
     from prodagent.kernel.bus import HookRegistry
     from prodagent.kernel.state import AgentRun

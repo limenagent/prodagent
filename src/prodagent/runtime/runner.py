@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING, Any
 
 from prodagent.kernel.budget import BudgetLedger
 from prodagent.kernel.bus import HookEvent
-from prodagent.kernel.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.kernel.state import AgentRun, is_child_subordinate, make_failed_run
+from prodagent.kernel.types import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.runtime.compose import (
     find_suspended_peer,
     hop_tool_assemblers,
@@ -35,8 +35,7 @@ if TYPE_CHECKING:
 
     from prodagent.cognition.context.spill import ToolResultSpillStore
     from prodagent.kernel.bus import HookRegistry
-    from prodagent.kernel.events import AgentEvent
-    from prodagent.kernel.types import ExecutionMode, MessageList
+    from prodagent.kernel.types import AgentEvent, ExecutionMode, MessageList
     from prodagent.ports import CheckpointStore, EventLog
     from prodagent.ports.budget_ledger import BudgetLedgerPort
     from prodagent.ports.llm import LLMClient

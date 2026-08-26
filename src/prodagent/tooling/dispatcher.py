@@ -7,25 +7,23 @@ import time
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
-from prodagent.core.config import ContextConfig, LoopConfig
-from prodagent.core.error_classifier import classify_error
-from prodagent.core.error_reason import ErrorLayer, ErrorReason
-from prodagent.core.exceptions import SECURITY_VETO_EXCEPTIONS
-from prodagent.core.retry import Backoff, RetryPolicy
+from prodagent.base.config import ContextConfig, LoopConfig
+from prodagent.base.errors import SECURITY_VETO_EXCEPTIONS, ErrorLayer, ErrorReason, classify_error
+from prodagent.base.retry import Backoff, RetryPolicy
 from prodagent.kernel.bus import Gate, HookEvent
-from prodagent.kernel.events import ToolCallStartEvent, ToolResultEvent
 from prodagent.kernel.types import (
     GET_SKILL_TOOL_NAME,
     SKILL_INJECTION_KEY,
     ErrorSeverity,
     Message,
-    RunState,
     SideEffectLevel,
     ToolCall,
+    ToolCallStartEvent,
     ToolError,
     ToolMeta,
     ToolOutcome,
     ToolResult,
+    ToolResultEvent,
 )
 from prodagent.tooling.base import coerce_result
 from prodagent.tooling.skill_resolver import SkillResolver
@@ -48,10 +46,10 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
 
     from prodagent.cognition.context.spill import ToolResultSpillStore
-    from prodagent.core.progress import ProgressMonitor
     from prodagent.kernel.bus import HookRegistry
-    from prodagent.kernel.events import AgentEvent
+    from prodagent.kernel.progress import ProgressMonitor
     from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.types import AgentEvent
     from prodagent.skills.registry import SkillRegistry
     from prodagent.tooling.base import FunctionTool
     from prodagent.tooling.registry import ToolRegistry
@@ -243,9 +241,9 @@ class ToolDispatcher:
     @staticmethod
     def _is_suspended(result: ToolResult, call: ToolCall, run: AgentRun) -> bool:
         if result.outcome is ToolOutcome.SUSPENDED:
-            run.state = RunState.SUSPENDED
-            run.pending_tool_call = call
-            run.pending_approval_id = result.approval_request_id or None
+            # Batch discipline guarantees a single park here (suspension stops
+            # the batch), so the bool is ignored — the method is the invariant.
+            run.park_for_approval(call, result.approval_request_id or None)
             run.tool_history = [c for c in run.tool_history if c is not call]
             return True
         return False
@@ -259,15 +257,14 @@ class ToolDispatcher:
         from prodagent.kernel.state import PendingHandoff
 
         h = result.handoff or {}
-        peer = h.get("peer", "")
-        run.state = RunState.COMPLETED
-        run.pending_handoff = PendingHandoff(
-            peer_name=peer,
-            task=h.get("task", ""),
-            input_refs=dict(h.get("input_refs") or {}),
-            message_id=str(uuid.uuid4()),
+        run.park_handoff(
+            PendingHandoff(
+                peer_name=h.get("peer", ""),
+                task=h.get("task", ""),
+                input_refs=dict(h.get("input_refs") or {}),
+                message_id=str(uuid.uuid4()),
+            )
         )
-        run.final_output = f"Handed off to {peer}" if peer else "Handed off"
         run.tool_history = [c for c in run.tool_history if c is not call]
         return True
 

@@ -16,8 +16,7 @@ from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
 from prodagent.hooks import HookRegistry
 from prodagent.kernel.bus import HookEvent
-from prodagent.kernel.events import RunCompletedEvent
-from prodagent.kernel.types import LLMResponse, ToolMeta
+from prodagent.kernel.types import LLMResponse, RunCompletedEvent, ToolMeta
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.plan.executor import PlanExecutor
 from prodagent.tooling.base import FunctionTool

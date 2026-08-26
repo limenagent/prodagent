@@ -4,10 +4,10 @@ import math
 
 import pytest
 
+from prodagent.base.config import ContextConfig
 from prodagent.cognition.context.budget import TokenCounter
 from prodagent.cognition.context.spill import ToolResultSpillStore
 from prodagent.cognition.context.tool_results import reduce_on_append
-from prodagent.core.config import ContextConfig
 from prodagent.kernel.types import Message, ToolCall
 
 

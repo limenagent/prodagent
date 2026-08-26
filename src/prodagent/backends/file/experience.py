@@ -7,7 +7,7 @@ import logging
 import threading
 from pathlib import Path
 
-from prodagent.core.io import read_jsonl
+from prodagent.base.io import read_jsonl
 from prodagent.ports.experience import ExperienceRecord
 
 logger = logging.getLogger(__name__)

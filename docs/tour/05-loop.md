@@ -271,7 +271,7 @@ stateDiagram-v2
 | 预算 | `kernel/budget.py` |
 | 事件总线 | `kernel/bus.py` |
 | 状态定义 | `kernel/state.py` `kernel/types.py` |
-| 进度监控（死循环检测） | `core/progress.py` |
+| 进度监控（死循环检测） | `kernel/progress.py` |
 
 ---
 

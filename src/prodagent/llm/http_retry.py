@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 import httpx
 
-from prodagent.core.error_classifier import (
+from prodagent.base.errors import (
     PERMANENT_STATUS_CODES,
     RETRYABLE_STATUS_CODES,
 )
-from prodagent.core.retry import Backoff, RetryPolicy
+from prodagent.base.retry import Backoff, RetryPolicy
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine

@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
+from prodagent.base.text import bound_text
 from prodagent.coordination._stage import StageDriver, ViewInjector
 from prodagent.coordination._store import RoundedLockableStore
 from prodagent.coordination.activation import Activation, ActivationContext, ActivationPolicy
@@ -28,7 +29,6 @@ from prodagent.coordination.termination import (
     TerminationPolicy,
     TerminationReason,
 )
-from prodagent.core.text import bound_text
 
 
 class BoardVersionConflict(Exception):

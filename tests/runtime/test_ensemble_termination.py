@@ -1,5 +1,5 @@
 """Ensemble — termination: MaxRounds hard cap, a business
-TerminationStrategy, and SharedBudget exhaustion each stop the floor
+TerminationStrategy, and BudgetLedger exhaustion each stop the floor
 independently, using hand-rolled FloorMembers (no real Agent/LLM)."""
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from prodagent.coordination.ensemble import (
 )
 from prodagent.coordination.floor import FloorTurn, SharedFloor
 from prodagent.coordination.termination import MaxRounds, TerminationPolicy
-from prodagent.kernel.budget import HardBudget, SharedBudget
+from prodagent.kernel.budget import BudgetLedger, HardBudget
 
 
 class _EchoMember:
@@ -35,7 +35,7 @@ async def test_max_rounds_hard_cap_stops_an_ever_speaking_floor():
         members=members,
         topic="t",
         termination=TerminationPolicy(hard_cap=MaxRounds(max_rounds=2)),
-        budget=SharedBudget(
+        budget=BudgetLedger(
             max=HardBudget(max_turns=1_000, max_cost_usd=100, max_tokens=1_000_000)
         ),
     )
@@ -77,7 +77,7 @@ async def test_business_strategy_stops_before_hard_cap():
         termination=TerminationPolicy(
             hard_cap=MaxRounds(max_rounds=100), business=_BusinessStopsAtTwoTurns()
         ),
-        budget=SharedBudget(
+        budget=BudgetLedger(
             max=HardBudget(max_turns=1_000, max_cost_usd=100, max_tokens=1_000_000)
         ),
     )
@@ -97,7 +97,7 @@ async def test_business_strategy_stops_before_hard_cap():
 
 
 class _CostlyMember:
-    """Every turn costs a fixed amount — used to exhaust a SharedBudget."""
+    """Every turn costs a fixed amount — used to exhaust a BudgetLedger."""
 
     def __init__(self, name: str, cost_usd: float) -> None:
         self.name = name
@@ -119,7 +119,7 @@ async def test_shared_budget_ceiling_stops_the_floor():
         members=members,
         topic="t",
         termination=TerminationPolicy(hard_cap=MaxRounds(max_rounds=100)),
-        budget=SharedBudget(
+        budget=BudgetLedger(
             max=HardBudget(max_turns=1_000, max_cost_usd=2.5, max_tokens=1_000_000)
         ),
     )

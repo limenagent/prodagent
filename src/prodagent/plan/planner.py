@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from importlib import resources
 from typing import TYPE_CHECKING, Any
 
-from prodagent.core.exceptions import SECURITY_VETO_EXCEPTIONS, LLMError
+from prodagent.base.errors import SECURITY_VETO_EXCEPTIONS, LLMError
 from prodagent.hooks import fire as _fire
 from prodagent.kernel.bus import HookEvent
 from prodagent.kernel.types import StepStatus

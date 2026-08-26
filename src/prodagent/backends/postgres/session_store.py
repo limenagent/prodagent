@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from prodagent.backends.postgres._versioned import lock_and_check_version
 from prodagent.backends.postgres.schema import ensure_schema_via_pool_async
-from prodagent.core.session import ConversationSession
+from prodagent.base.session import ConversationSession
 
 if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool

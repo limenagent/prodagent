@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from prodagent.core.io import safe_filename_component
+from prodagent.base.io import safe_filename_component
 from prodagent.kernel.types import GET_SKILL_TOOL_NAME
 
 logger = logging.getLogger(__name__)

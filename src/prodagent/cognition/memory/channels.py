@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from prodagent.base.text import tokenize_cjk
 from prodagent.cognition.memory.embedder import HashEmbedder, cosine
 from prodagent.cognition.memory.storage import MemoryType
-from prodagent.core.text import tokenize_cjk
 
 if TYPE_CHECKING:
     from prodagent.cognition.context.budget import TokenCounter

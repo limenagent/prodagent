@@ -42,22 +42,12 @@ class Entry:
 
 
 MANIFEST: list[Entry] = [
-    Entry(
-        name="core.budget_axes.evaluate_axes",
-        pattern=r"\bevaluate_axes\b",
-        defining_file="src/prodagent/core/budget_axes.py",
-        min_hits=1,
-        status="wired",
-        note="called from kernel/budget.py's check_budget() and BudgetLedger",
-    ),
-    Entry(
-        name="kernel.pipeline.Pipeline",
-        pattern=r"from prodagent\.kernel\.pipeline import|from prodagent\.kernel import pipeline",
-        defining_file="src/prodagent/kernel/pipeline.py",
-        min_hits=1,
-        status="wired",
-        note="used by kernel/bus.py's HookRegistry",
-    ),
+    # kernel.budget.evaluate_axes likewise left the manifest when its module
+    # merged into kernel/budget.py: both callers (check_budget and the
+    # BudgetLedger) live in the same file it is defined in.
+    # kernel.bus.Pipeline was removed from this manifest when pipeline.py
+    # merged into bus.py: the plumbing is now module-internal to its only
+    # consumer (HookRegistry), so there is no cross-module wiring to lose.
     Entry(
         name="coordination.activation.ActivationPolicy (Blackboard)",
         pattern=r"ActivationPolicy",

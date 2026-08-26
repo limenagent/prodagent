@@ -10,10 +10,10 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from prodagent.core.exceptions import VersionConflict
+from prodagent.base.errors import VersionConflict
 
 if TYPE_CHECKING:
-    from prodagent.core.session import ConversationSession
+    from prodagent.base.session import ConversationSession
 
 __all__ = ["InMemorySessionStore"]
 

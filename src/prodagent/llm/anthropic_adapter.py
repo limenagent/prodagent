@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
-from prodagent.core.exceptions import ToolCallParseError
+from prodagent.base.errors import ToolCallParseError
 from prodagent.kernel.types import LLMResponse, MessageList, StopReason, ToolCall
 from prodagent.llm import ChunkCallback, LLMConfig, normalise_content
 from prodagent.llm.http_retry import (

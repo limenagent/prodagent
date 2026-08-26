@@ -29,7 +29,7 @@ def _make_messages(content: str = "hi") -> list[dict]:
 
 class TestDefaultCacheWiring:
     def _agent(self, llm=None, *, profile: str = "bare") -> Agent:
-        from prodagent.core.config import FrameworkConfig
+        from prodagent.base.config import FrameworkConfig
 
         fw = FrameworkConfig.default()
         fw.profile = profile  # type: ignore[assignment]
@@ -62,7 +62,7 @@ class TestDefaultCacheWiring:
         assert llm is user_cached
 
     def _fw(self, profile: str):
-        from prodagent.core.config import FrameworkConfig
+        from prodagent.base.config import FrameworkConfig
 
         fw = FrameworkConfig.default()
         fw.profile = profile  # type: ignore[assignment]

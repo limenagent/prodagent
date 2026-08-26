@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 
-from prodagent.core.exceptions import SuspendPendingApproval
+from prodagent.base.errors import SuspendPendingApproval
 from prodagent.hooks.approval import ApprovalDecision, ApprovalGate
 from prodagent.hooks.bundles.security import ApprovalHooks
 from prodagent.kernel.bus import HookEvent, HookRegistry

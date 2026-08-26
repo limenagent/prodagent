@@ -5,9 +5,9 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from prodagent.base.time import now_timestamp
 from prodagent.cognition.memory.channels import top_k_by_cosine
 from prodagent.cognition.memory.storage import MemoryRecord, StoredMemory, mem_id
-from prodagent.core.time import now_timestamp
 from prodagent.llm import LLMConfig, stream_text
 from prodagent.llm.structured_output import extract_json_object
 

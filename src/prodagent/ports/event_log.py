@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from prodagent.core.event_log import Event
+    from prodagent.base.event_log import Event
 
 
 @runtime_checkable

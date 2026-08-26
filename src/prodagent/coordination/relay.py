@@ -14,6 +14,7 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from prodagent.base.errors import BudgetExceeded
 from prodagent.coordination.messaging.envelope import Crossing, CrossingKind, Direction
 from prodagent.coordination.messaging.packet import HandoffPacket
 from prodagent.coordination.messaging.transport import (
@@ -21,7 +22,6 @@ from prodagent.coordination.messaging.transport import (
     TransportSpec,
     build_transport,
 )
-from prodagent.core.exceptions import BudgetExceeded
 from prodagent.kernel.bus import HookEvent, save_and_fire_checkpoint
 from prodagent.kernel.state import AgentRun, child_run_id
 from prodagent.runtime.parent_runtime import hop_own_share

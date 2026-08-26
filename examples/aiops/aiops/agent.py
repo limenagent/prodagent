@@ -68,7 +68,7 @@ DEFAULT_TASK = "支付服务有告警。"
 
 
 def _production_fw() -> FrameworkConfig:
-    from prodagent.core.config import production
+    from prodagent.base.config import production
 
     return production(FrameworkConfig.default())
 

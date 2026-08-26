@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pytest
 
+from prodagent.base.errors import SecurityViolation
 from prodagent.coordination.messaging.contract import MessageContract
 from prodagent.coordination.messaging.envelope import (
     Crossing,
@@ -20,7 +21,6 @@ from prodagent.coordination.messaging.pipeline import (
     admission_pipeline,
     assembly_pipeline,
 )
-from prodagent.core.exceptions import SecurityViolation
 
 
 class _RecordingDeadLetter:

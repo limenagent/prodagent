@@ -11,9 +11,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from prodagent.base.errors import SECURITY_VETO_EXCEPTIONS
 from prodagent.coordination.messaging.envelope import Crossing, CrossingKind, Direction
 from prodagent.coordination.messaging.pipeline import admission_pipeline
-from prodagent.core.exceptions import SECURITY_VETO_EXCEPTIONS
 from prodagent.kernel.bus import Gate, HookEvent, save_and_fire_checkpoint
 from prodagent.kernel.bus import fire as _fire
 from prodagent.kernel.types import RunState

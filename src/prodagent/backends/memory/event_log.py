@@ -10,10 +10,10 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from prodagent.core.exceptions import VersionConflict
+from prodagent.base.errors import VersionConflict
 
 if TYPE_CHECKING:
-    from prodagent.core.event_log import Event
+    from prodagent.base.event_log import Event
 
 __all__ = ["InMemoryEventLog"]
 

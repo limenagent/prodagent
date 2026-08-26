@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from prodagent.base.config import ContextConfig
 from prodagent.cognition.context.budget import CompressionLevel, TokenCounter
 from prodagent.cognition.context.compression import (
     EmergencyStage,
@@ -15,7 +16,6 @@ from prodagent.cognition.context.compression import (
     fit_budget,
     safe_tail_start,
 )
-from prodagent.core.config import ContextConfig
 
 
 @pytest.fixture

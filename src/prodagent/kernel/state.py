@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Generic
 
 from typing_extensions import TypeVar
 
-from prodagent.core.error_classifier import ClassifiedError
+from prodagent.base.errors import ClassifiedError
 from prodagent.kernel.types import (
     LLMResponse,
     MessageList,
@@ -18,7 +18,7 @@ from prodagent.kernel.types import (
 )
 
 if TYPE_CHECKING:
-    from prodagent.core.aliases import JsonDict
+    from prodagent.base.types import JsonDict
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +84,34 @@ class PendingHandoff:
             peer_run_id=d.get("peer_run_id"),
             message_id=d.get("message_id", ""),
         )
+
+
+# ── Resume points — where a run is parked awaiting the world ─────────────────
+#
+# A run parks in exactly one of two situations: awaiting HITL approval
+# (retry this exact call once approved) or awaiting a peer relay (this run is
+# finished, control transfers). The storage is three nullable fields (kept
+# for checkpoint compatibility); the invariant — at most one logically
+# active park, handoff outranking approval — is enforced by the park methods
+# below and read through the typed :meth:`AgentRun.resume_point` view.
+
+
+@dataclass(frozen=True, slots=True)
+class AwaitingApproval:
+    """Paused mid-batch: retry this exact call once the decision arrives."""
+
+    call: ToolCall
+    request_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class AwaitingHandoff:
+    """Control transfers to a peer; this run is finished."""
+
+    handoff: PendingHandoff
+
+
+ResumePoint = AwaitingApproval | AwaitingHandoff | None
 
 
 def _toolcall_to_dict(call: ToolCall | JsonDict) -> JsonDict:
@@ -213,6 +241,57 @@ class AgentRun(Generic[_RunT]):
 
     def retry_count(self, tool_name: str) -> int:
         return self.retry_counter.get(tool_name, 0)
+
+    # ── Resume-point parking — the invariant's single home ──────────────────
+
+    def resume_point(self) -> ResumePoint:
+        """Typed view of where this run is parked, if anywhere.
+
+        A handoff outranks an approval: if a racing batch parked both (only
+        the plan executor can), the chain continues at the peer and the
+        parked call is abandoned.
+        """
+        if self.pending_handoff is not None:
+            return AwaitingHandoff(self.pending_handoff)
+        if self.pending_tool_call is not None:
+            return AwaitingApproval(self.pending_tool_call, self.pending_approval_id)
+        return None
+
+    def park_for_approval(self, call: ToolCall, request_id: str | None) -> bool:
+        """Park awaiting a HITL decision on ``call``. Refuses — ``False``,
+        nothing changes — when the run is already parked (a pending handoff
+        outranks an approval; a second suspension never moves the first
+        parked call). Callers keep their own bookkeeping (history pruning,
+        plan events) outside this method.
+        """
+        if self.pending_handoff is not None or self.state is RunState.SUSPENDED:
+            return False
+        self.state = RunState.SUSPENDED
+        self.pending_tool_call = call
+        self.pending_approval_id = request_id
+        return True
+
+    def park_handoff(self, handoff: PendingHandoff) -> bool:
+        """Park a peer transfer — first handoff wins. Overwrites an approval
+        park (a transfer outranks a pending decision) and finishes the run."""
+        if self.pending_handoff is not None:
+            return False
+        self.state = RunState.COMPLETED
+        self.pending_handoff = handoff
+        self.final_output = (
+            f"Handed off to {handoff.peer_name}" if handoff.peer_name else "Handed off"
+        )
+        return True
+
+    def clear_approval_park(self) -> AwaitingApproval | None:
+        """Consume the approval park — the resume path retries the returned
+        call once the decision is in. Handoff parks are consumed by the relay."""
+        if self.pending_tool_call is None:
+            return None
+        park = AwaitingApproval(self.pending_tool_call, self.pending_approval_id)
+        self.pending_tool_call = None
+        self.pending_approval_id = None
+        return park
 
     def increment_retry(self, tool_name: str) -> int:
         c = self.retry_counter.get(tool_name, 0) + 1

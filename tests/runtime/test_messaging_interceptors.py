@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pytest
 
+from prodagent.base.errors import SecurityViolation
 from prodagent.coordination.floor import FloorTurn
 from prodagent.coordination.floor_projection import PublicTextOnly
 from prodagent.coordination.messaging.envelope import (
@@ -23,7 +24,6 @@ from prodagent.coordination.messaging.interceptors import (
     handoff_data_for,
 )
 from prodagent.coordination.messaging.packet import HandoffPacket
-from prodagent.core.exceptions import SecurityViolation
 from prodagent.kernel.bus import BlockingResult, Gate, HookEvent, HookRegistry
 
 

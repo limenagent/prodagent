@@ -7,8 +7,14 @@ import pytest
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
-from prodagent.kernel.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
-from prodagent.kernel.types import LLMResponse, ToolOutcome, ToolResult
+from prodagent.kernel.types import (
+    LLMResponse,
+    RunCompletedEvent,
+    RunFailedEvent,
+    RunSuspendedEvent,
+    ToolOutcome,
+    ToolResult,
+)
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.plan.executor import PlanExecutor
 
@@ -43,7 +49,7 @@ class _SuspendOnCall:
     async def __call__(self, call, *, run_id: str = "") -> dict:
         self.calls.append(call.name)
         if call.name == self._trigger:
-            from prodagent.core.exceptions import SuspendPendingApproval
+            from prodagent.base.errors import SuspendPendingApproval
 
             raise SuspendPendingApproval(f"tool '{call.name}' suspended", tool=call.name)
         return {"status": "ok", "action": call.name}

@@ -81,7 +81,7 @@ DEFAULT_TASK = "tests/test_user.py::test_login 失败,帮我修。"
 
 
 def _production_fw() -> FrameworkConfig:
-    from prodagent.core.config import production
+    from prodagent.base.config import production
 
     return production(FrameworkConfig.default())
 

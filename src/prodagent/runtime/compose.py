@@ -23,14 +23,14 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from prodagent.core.config import FrameworkConfig
+    from prodagent.base.config import FrameworkConfig
     from prodagent.ports import CheckpointStore, EventLog, SessionStore
     from prodagent.ports.llm import LLMClient
 
 if TYPE_CHECKING:
+    from prodagent.base.config import FrameworkConfig
     from prodagent.coordination.relay import PeerRelay
     from prodagent.coordination.settle import Settler
-    from prodagent.core.config import FrameworkConfig
     from prodagent.hooks.bundles.base import HookBundle
 
 logger = logging.getLogger(__name__)

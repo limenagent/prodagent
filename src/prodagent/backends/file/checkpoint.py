@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from prodagent.backends.file._locking import _exclusive
-from prodagent.core.exceptions import CorruptedCheckpointError, VersionConflict
-from prodagent.core.io import safe_filename_component, write_atomic_json
+from prodagent.base.errors import CorruptedCheckpointError, VersionConflict
+from prodagent.base.io import safe_filename_component, write_atomic_json
 from prodagent.kernel.state import AgentRun
 
 logger = logging.getLogger(__name__)

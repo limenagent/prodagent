@@ -52,11 +52,11 @@ class FloorTurn:
     """Tools called this turn. Visibility is a FloorProjection call."""
 
     cost_usd: float = 0.0
-    """Spend attributed to this turn — folded into SharedBudget."""
+    """Spend attributed to this turn — folded into BudgetLedger."""
 
     tokens: int = 0
     """Token spend attributed to this turn (input + output) — folded into
-    SharedBudget alongside ``cost_usd``. Without it the budget's token axis is
+    BudgetLedger alongside ``cost_usd``. Without it the budget's token axis is
     silently unenforced for ensemble runs."""
 
     elapsed_s: float = 0.0

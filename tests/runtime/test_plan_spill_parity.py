@@ -15,11 +15,10 @@ import pytest
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
+from prodagent.base.config import ContextConfig
 from prodagent.cognition.context.budget import TokenCounter
 from prodagent.cognition.context.spill import ToolResultSpillStore
-from prodagent.core.config import ContextConfig
-from prodagent.kernel.events import RunCompletedEvent
-from prodagent.kernel.types import LLMResponse, SideEffectLevel, ToolMeta
+from prodagent.kernel.types import LLMResponse, RunCompletedEvent, SideEffectLevel, ToolMeta
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.plan.executor import PlanExecutor
 from prodagent.tooling.base import FunctionTool

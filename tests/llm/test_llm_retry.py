@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent.core.error_reason import ErrorReason
-from prodagent.core.retry import Backoff, RetryPolicy
+from prodagent.base.errors import ErrorReason
+from prodagent.base.retry import Backoff, RetryPolicy
 from prodagent.llm.http_retry import (
     CapacityError,
     _delay_for,
@@ -152,8 +152,7 @@ class TestHttpRetryClassifiesException:
         ],
     )
     def test_permanent_status_classifies_non_retryable(self, status, reason) -> None:
-        from prodagent.core.error_classifier import classify_error
-        from prodagent.core.error_reason import ErrorLayer
+        from prodagent.base.errors import ErrorLayer, classify_error
 
         exc = _FakeApiStatusError(f"HTTP {status}", status_code=status)
         classified = classify_error(exc, layer=ErrorLayer.HTTP)
@@ -161,8 +160,7 @@ class TestHttpRetryClassifiesException:
         assert classified.retryable is False
 
     def test_429_classifies_rate_limited_retryable(self) -> None:
-        from prodagent.core.error_classifier import classify_error
-        from prodagent.core.error_reason import ErrorLayer
+        from prodagent.base.errors import ErrorLayer, classify_error
 
         exc = _FakeApiStatusError("rate limited", status_code=429)
         classified = classify_error(exc, layer=ErrorLayer.HTTP)
@@ -170,8 +168,7 @@ class TestHttpRetryClassifiesException:
         assert classified.retryable is True
 
     def test_503_classifies_overloaded(self) -> None:
-        from prodagent.core.error_classifier import classify_error
-        from prodagent.core.error_reason import ErrorLayer
+        from prodagent.base.errors import ErrorLayer, classify_error
 
         exc = _FakeApiStatusError("service unavailable", status_code=503)
         classified = classify_error(exc, layer=ErrorLayer.HTTP)

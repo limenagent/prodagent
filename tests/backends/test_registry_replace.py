@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 
 from prodagent.backends.registry import BackendRegistry
-from prodagent.core.config import FrameworkConfig
+from prodagent.base.config import FrameworkConfig
 
 
 def test_replace_preserves_backend_registry() -> None:

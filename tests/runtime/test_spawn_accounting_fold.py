@@ -150,7 +150,7 @@ async def test_concurrent_spawns_fold_into_parent_run_end_to_end(monkeypatch):
 async def test_spawned_child_run_has_parent_run_id(tmp_path, monkeypatch):
     """A spawned child's AgentRun carries parent_run_id — the explicit field
     that replaces ::-string parsing in is_child_subordinate."""
-    from prodagent.core.config import FrameworkConfig
+    from prodagent.base.config import FrameworkConfig
     from prodagent.kernel.state import is_child_subordinate
 
     monkeypatch.setattr(
@@ -159,7 +159,7 @@ async def test_spawned_child_run_has_parent_run_id(tmp_path, monkeypatch):
         lambda self, response: 0.0,
     )
 
-    from prodagent.core.config import production
+    from prodagent.base.config import production
 
     fw = production(FrameworkConfig.default())
     fw.orchestration.runs_dir = str(tmp_path / "runs")

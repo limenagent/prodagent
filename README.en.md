@@ -74,7 +74,7 @@ asyncio.run(agent.chat("What's the weather in Paris?"))
 
 ```python
 from prodagent import Agent, AgentConfig
-from prodagent.core.config import production
+from prodagent.base.config import production
 
 agent = Agent("demo", tools=[search],
               config=AgentConfig(name="demo", framework=production()))

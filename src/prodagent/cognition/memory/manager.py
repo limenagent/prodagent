@@ -4,6 +4,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from prodagent.base.time import now_utc
 from prodagent.cognition.context.budget import BudgetTracker, TokenCounter
 from prodagent.cognition.memory.channels import (
     DEFAULT_MERGE_ORDER,
@@ -26,7 +27,6 @@ from prodagent.cognition.memory.facts import FactStore
 from prodagent.cognition.memory.forgetting import RECALL_FLOOR, activation
 from prodagent.cognition.memory.storage import MemoryRecord, MemoryType
 from prodagent.cognition.memory.touch_worker import TouchBackWorker
-from prodagent.core.time import now_utc
 from prodagent.kernel.bus import Gate, HookEvent
 from prodagent.kernel.state import is_child_subordinate
 from prodagent.kernel.types import RunState
@@ -34,8 +34,8 @@ from prodagent.kernel.types import RunState
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from prodagent.base.config import FrameworkConfig
     from prodagent.cognition.memory.classification import MemoryClassifier
-    from prodagent.core.config import FrameworkConfig
     from prodagent.kernel.state import AgentRun
     from prodagent.ports.document import DocumentStore
     from prodagent.ports.graph import GraphStore
@@ -335,7 +335,7 @@ def build_memory_manager(
             shutil.rmtree(memory_dir, ignore_errors=True)
         _Path(memory_dir).mkdir(parents=True, exist_ok=True)
         if framework_config is None:
-            from prodagent.core.config import FrameworkConfig as _FW
+            from prodagent.base.config import FrameworkConfig as _FW
 
             framework_config = _FW.default()
         framework_config = _dc_replace(

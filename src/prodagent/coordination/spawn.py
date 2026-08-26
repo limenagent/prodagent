@@ -16,6 +16,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
+from prodagent.base.errors import SECURITY_VETO_EXCEPTIONS, ErrorReason
 from prodagent.coordination.messaging.contract import (
     DEFAULT_CHILD_CONTRACT,
     MessageContract,
@@ -27,8 +28,6 @@ from prodagent.coordination.messaging.envelope import (
 )
 from prodagent.coordination.messaging.packet import HandoffPacket
 from prodagent.coordination.messaging.transport import TransportSpec, build_transport
-from prodagent.core.error_reason import ErrorReason
-from prodagent.core.exceptions import SECURITY_VETO_EXCEPTIONS
 from prodagent.kernel.budget import BudgetLedger, run_enveloped
 from prodagent.kernel.bus import HookEvent
 from prodagent.kernel.types import (
@@ -38,12 +37,12 @@ from prodagent.kernel.types import (
     ToolError,
     ToolMeta,
 )
-from prodagent.runtime._tool_merge import attach_tools
+from prodagent.runtime.factory import attach_tools
 from prodagent.runtime.parent_runtime import ParentRuntime, describe_agent
 from prodagent.tooling.base import FunctionTool
 
 if TYPE_CHECKING:
-    from prodagent.core.config import FrameworkConfig
+    from prodagent.base.config import FrameworkConfig
     from prodagent.kernel.bus import HookRegistry
     from prodagent.ports.dead_letter import DeadLetterStore
     from prodagent.ports.llm import LLMClient
@@ -162,7 +161,7 @@ class Spawn:
         dead_letter_queue: DeadLetterStore | None = None,
     ) -> None:
         from prodagent.backends.factory import resolve_dead_letter
-        from prodagent.core.config import FrameworkConfig
+        from prodagent.base.config import FrameworkConfig
 
         self._spec_map = {a.name: a for a in agents}
         self._llm = llm

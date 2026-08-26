@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from pydantic import Field
 
-from prodagent.core.error_reason import ErrorReason
+from prodagent.base.errors import ErrorReason
 from prodagent.kernel.types import SideEffectLevel, ToolError, ToolMeta
 from prodagent.tooling.decorator import tool
 

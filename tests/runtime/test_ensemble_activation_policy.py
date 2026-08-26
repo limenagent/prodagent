@@ -13,7 +13,7 @@ from prodagent.coordination.ensemble import (
 )
 from prodagent.coordination.floor import FloorTurn, SharedFloor
 from prodagent.coordination.termination import MaxRounds, TerminationPolicy
-from prodagent.kernel.budget import HardBudget, SharedBudget
+from prodagent.kernel.budget import BudgetLedger, HardBudget
 
 
 class _EchoMember:
@@ -47,7 +47,7 @@ async def test_raw_activation_policy_drives_the_floor():
         topic="custom policy",
         order=_SingleRoundAll(),  # type: ignore[arg-type]
         termination=TerminationPolicy(hard_cap=MaxRounds(max_rounds=5)),
-        budget=SharedBudget(
+        budget=BudgetLedger(
             max=HardBudget(max_turns=1_000, max_cost_usd=100, max_tokens=1_000_000)
         ),
     )

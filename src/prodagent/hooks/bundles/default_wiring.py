@@ -7,7 +7,7 @@ import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from prodagent.core.config import FrameworkConfig
+    from prodagent.base.config import FrameworkConfig
     from prodagent.kernel.bus import HookRegistry
     from prodagent.runtime.agent import Agent
 

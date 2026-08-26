@@ -6,7 +6,7 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from prodagent.core.config import FrameworkConfig
+    from prodagent.base.config import FrameworkConfig
 
 
 class BackendRegistry:

@@ -17,7 +17,7 @@ def _isolate_default_dirs(monkeypatch, tmp_path):
     on disk, which caused flaky run_id assertions and checkpoint-not-found
     failures whenever old session files lingered across test sessions.
     """
-    from prodagent.core.config import FrameworkConfig
+    from prodagent.base.config import FrameworkConfig
 
     _original_default = FrameworkConfig.default
 

@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from prodagent.base.config import ContextConfig
 from prodagent.cognition.context.budget import (
     CompressionLevel,
     ContextBudget,
@@ -22,7 +23,6 @@ from prodagent.cognition.context.compression import (
     ToolCompressStage,
     safe_tail_start,
 )
-from prodagent.core.config import ContextConfig
 from prodagent.kernel.bus import Gate, HookEvent, InjectionPoint
 
 if TYPE_CHECKING:

@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
+from prodagent.base.config import ContextConfig
 from prodagent.cognition.context.budget import TokenCounter
 from prodagent.cognition.context.manager import ContextManager
 from prodagent.cognition.context.spill import ToolResultSpillStore
-from prodagent.core.config import ContextConfig
 from prodagent.kernel.state import AgentRun
 from prodagent.tooling.builtin.read_tool_result import make_read_tool_result
 

@@ -14,27 +14,23 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from prodagent.core.config import ContextConfig, LoopConfig
-from prodagent.core.error_classifier import classify_error
-from prodagent.core.error_reason import ErrorLayer
-from prodagent.core.event_log import Event, RunEventType
-from prodagent.core.exceptions import BudgetExceeded, InfiniteLoopDetected
-from prodagent.core.progress import ProgressMonitor
+from prodagent.base.config import ContextConfig, LoopConfig
+from prodagent.base.errors import BudgetExceeded, ErrorLayer, InfiniteLoopDetected, classify_error
+from prodagent.base.event_log import Event, RunEventType
 from prodagent.kernel.budget import SAFETY_NET_BUDGET, check_spawn_budget
 from prodagent.kernel.bus import HookEvent, save_and_fire_checkpoint
 from prodagent.kernel.bus import fire as _fire
-from prodagent.kernel.events import (
-    AgentEvent,
-    RunCompletedEvent,
-    RunFailedEvent,
-    RunSuspendedEvent,
-)
+from prodagent.kernel.progress import ProgressMonitor
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.step import Step
 from prodagent.kernel.types import (
+    AgentEvent,
     Message,
     MessageList,
+    RunCompletedEvent,
+    RunFailedEvent,
     RunState,
+    RunSuspendedEvent,
 )
 from prodagent.ports.llm import LLMConfig
 
@@ -236,12 +232,10 @@ class ReactiveLoop:
         run: AgentRun,
     ) -> AsyncGenerator[AgentEvent, None]:
         # Resuming a SUSPENDED run: retry the exact call awaiting approval instead of asking the LLM again.
-        if run.pending_tool_call is not None:
-            resumed_call = run.pending_tool_call
-            run.pending_tool_call = None
-            self._dispatcher.set_pending_approval_id(run.pending_approval_id)
-            run.pending_approval_id = None
-            async for batch_evt in self._dispatcher.run_batch(run, [resumed_call]):
+        park = run.clear_approval_park()
+        if park is not None:
+            self._dispatcher.set_pending_approval_id(park.request_id)
+            async for batch_evt in self._dispatcher.run_batch(run, [park.call]):
                 yield batch_evt
 
             await self._record_turn(run)

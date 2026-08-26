@@ -5,7 +5,7 @@ import contextlib
 
 from prodagent import Agent, AgentConfig, ExecutionMode, RunState, SideEffectLevel, ToolMeta
 from prodagent.backends.file.checkpoint import FileCheckpointStore
-from prodagent.core.exceptions import SuspendPendingApproval
+from prodagent.base.errors import SuspendPendingApproval
 from prodagent.hooks.approval import (
     ApprovalDecision,
     ApprovalGate,
@@ -68,7 +68,7 @@ async def restart_pod(service: str) -> dict:
 
 
 def _production_fw():
-    from prodagent.core.config import FrameworkConfig, production
+    from prodagent.base.config import FrameworkConfig, production
 
     return production(FrameworkConfig.default())
 

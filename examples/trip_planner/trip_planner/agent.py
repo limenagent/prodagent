@@ -75,7 +75,7 @@ def build_trip_planner_agent(
         memory: 预 seeded 的 MemoryManager(demo 用)。playground 不传。
         framework_config: 父 fw;不传时用 default。playground 注入带独立 namespace 的 fw。
     """
-    from prodagent.core.config import production
+    from prodagent.base.config import production
 
     fw = framework_config or production()
     skills = SkillRegistry.from_dir(SKILLS_DIR)

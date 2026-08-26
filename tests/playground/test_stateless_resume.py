@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore  # noqa: E402
 from prodagent.backends.file.session_store import FileSessionStore  # noqa: E402
-from prodagent.core.session import ConversationSession, TurnRecord  # noqa: E402
+from prodagent.base.session import ConversationSession, TurnRecord  # noqa: E402
 from prodagent.kernel.state import AgentRun, PendingHandoff  # noqa: E402
 from prodagent.kernel.types import ExecutionMode, Message, RunState  # noqa: E402
 from prodagent.playground import server as server_mod  # noqa: E402
@@ -86,7 +86,7 @@ def _patch_example(
             self.approvals.append((request_id, decision, approver_id))
 
         async def stream(self, task: str, *, run_id: str):  # noqa: ARG002
-            from prodagent.kernel.events import RunCompletedEvent
+            from prodagent.kernel.types import RunCompletedEvent
 
             completed_run = AgentRun(run_id=run_id, task=task)
             completed_run.state = RunState.COMPLETED
@@ -94,7 +94,7 @@ def _patch_example(
             yield RunCompletedEvent(run=completed_run)
 
         async def chat_stream(self, message: str, *, session_id: str):  # noqa: ARG002
-            from prodagent.kernel.events import RunCompletedEvent
+            from prodagent.kernel.types import RunCompletedEvent
 
             completed_run = AgentRun(run_id=session_id, task=message)
             completed_run.state = RunState.COMPLETED
@@ -102,7 +102,7 @@ def _patch_example(
             yield RunCompletedEvent(run=completed_run)
 
         async def chat_resume_stream(self, *, session_id: str):  # noqa: ARG002
-            from prodagent.kernel.events import RunCompletedEvent
+            from prodagent.kernel.types import RunCompletedEvent
 
             completed_run = AgentRun(run_id=session_id, task="resumed")
             completed_run.state = RunState.COMPLETED

@@ -62,7 +62,7 @@
 
 ### 为什么 Message 以 OpenAI 线格式为规范格式？
 
-框架内部流转的消息（`core/types.py` 的 `Message`）长成 OpenAI 的样子：
+框架内部流转的消息（`base/types.py` 的 `Message`）长成 OpenAI 的样子：
 `role / content / tool_calls / tool_call_id`。Anthropic 适配器负责双向翻译。
 
 **为什么不是自创中立格式？**
@@ -303,7 +303,7 @@ test_work_queue_lease_timeout_requeue
 | 工具错误处理 | `tooling/base.py` |
 | 消息平面 | `coordination/messaging/` |
 | FakeLLM | `llm/fake.py` |
-| 消息格式宪法 | `core/types.py` `kernel/types.py` |
+| 消息格式宪法 | `base/types.py` `kernel/types.py` |
 | thinking 往返 | `llm/anthropic_adapter.py` |
 | 结算信封 | `kernel/budget.py` |
 | Transport 端口 | `ports/transport.py` |

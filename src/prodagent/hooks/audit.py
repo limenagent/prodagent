@@ -9,7 +9,7 @@ import uuid
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
-from prodagent.core.observability import AgentSpan as AgentSpan
+from prodagent.base.observability import AgentSpan as AgentSpan
 
 if TYPE_CHECKING:
     from prodagent.ports.span import SpanExporter

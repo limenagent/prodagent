@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from prodagent.core.exceptions import SuspendPendingApproval
+from prodagent.base.errors import SuspendPendingApproval
 from prodagent.kernel.bus import Gate, HookEvent
 from prodagent.kernel.types import SKILL_INJECTION_KEY, ToolCall, ToolOutcome, ToolResult
 

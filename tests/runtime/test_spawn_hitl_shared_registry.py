@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode, RunState, SideEffectLevel, ToolMeta
-from prodagent.core.config import FrameworkConfig
+from prodagent.base.config import FrameworkConfig
 from prodagent.hooks.approval import ApprovalDecision, ApprovalGate
 from prodagent.hooks.bundles.security import ApprovalHooks
 from prodagent.llm.fake import script

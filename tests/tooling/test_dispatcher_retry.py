@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 from prodagent import SideEffectLevel, ToolMeta
-from prodagent.core.error_reason import ErrorReason
-from prodagent.core.retry import Backoff, RetryPolicy
+from prodagent.base.errors import ErrorReason
+from prodagent.base.retry import Backoff, RetryPolicy
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import ErrorSeverity, ToolCall, ToolError, ToolOutcome
 from prodagent.tooling import tool

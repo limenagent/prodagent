@@ -69,9 +69,7 @@ def _raw_with_thinking() -> SimpleNamespace:
         content=[
             SimpleNamespace(type="thinking", thinking="hm, odd", signature="sig-1"),
             SimpleNamespace(type="text", text="Answer: 42"),
-            SimpleNamespace(
-                type="tool_use", id="tc-1", name="search", input={"q": "42"}
-            ),
+            SimpleNamespace(type="tool_use", id="tc-1", name="search", input={"q": "42"}),
         ],
         stop_reason="tool_use",
         usage=SimpleNamespace(

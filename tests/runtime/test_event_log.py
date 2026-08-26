@@ -4,7 +4,7 @@ import pytest
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
-from prodagent.core.event_log import (
+from prodagent.base.event_log import (
     Event,
     PlanEventType,
     hybrid_restore,

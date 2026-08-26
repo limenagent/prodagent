@@ -169,7 +169,7 @@ async def test_workflow_llm_step_binds_lazy_resolved_llm():
     Regression for the fluent.py bug where ``wf._llm = self._llm`` read the
     raw field instead of the property.
     """
-    from prodagent.core.config import FrameworkConfig
+    from prodagent.base.config import FrameworkConfig
 
     fw = FrameworkConfig.default()
     wf = Workflow()

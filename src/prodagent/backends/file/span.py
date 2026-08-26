@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from prodagent.core.observability import AgentSpan
+    from prodagent.base.observability import AgentSpan
 
 logger = logging.getLogger(__name__)
 

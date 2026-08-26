@@ -4,7 +4,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
-from prodagent.core.exceptions import ToolCallParseError
+from prodagent.base.errors import ToolCallParseError
 from prodagent.kernel.types import LLMResponse, Message, MessageList, StopReason, ToolCall
 from prodagent.llm import LLMConfig, normalise_content
 from prodagent.llm.http_retry import (

@@ -4,13 +4,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from prodagent.kernel.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
-from prodagent.kernel.types import RunState, StepStatus
+from prodagent.kernel.types import (
+    RunCompletedEvent,
+    RunFailedEvent,
+    RunState,
+    RunSuspendedEvent,
+    StepStatus,
+)
 from prodagent.plan.step_runner import format_step_output
 
 if TYPE_CHECKING:
-    from prodagent.kernel.events import AgentEvent
     from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.types import AgentEvent
     from prodagent.plan.dag import Plan, PlanStep
 
 

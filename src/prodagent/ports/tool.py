@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from prodagent.core.aliases import ToolSchema
+    from prodagent.base.types import ToolSchema
     from prodagent.kernel.types import ToolMeta, ToolName, ToolResult
 
 

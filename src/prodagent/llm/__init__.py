@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
-from prodagent.core.lazy import lazy_package
+from prodagent.base.lazy import lazy_package
 from prodagent.ports.llm import LLMClient as LLMClient  # noqa: TC001
 from prodagent.ports.llm import LLMConfig as LLMConfig  # noqa: TC001
 

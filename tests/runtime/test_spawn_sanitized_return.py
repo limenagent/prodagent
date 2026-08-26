@@ -9,9 +9,9 @@ from typing import TYPE_CHECKING
 
 from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
+from prodagent.base.config import FrameworkConfig
 from prodagent.coordination.messaging.contract import MessageContract
 from prodagent.coordination.spawn import Spawn
-from prodagent.core.config import FrameworkConfig
 from prodagent.kernel.bus import BlockingResult, Gate, HookRegistry
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter

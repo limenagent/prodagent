@@ -10,10 +10,10 @@ from prodagent.kernel.types import ExecutionMode
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from prodagent.base.config import FrameworkConfig
     from prodagent.cognition.context.spill import ToolResultSpillStore
     from prodagent.cognition.memory.manager import MemoryProvider
     from prodagent.coordination.messaging.contract import MessageContract
-    from prodagent.core.config import FrameworkConfig
     from prodagent.hooks.approval.gate import ApprovalProvider
     from prodagent.kernel.budget import HardBudget
     from prodagent.kernel.bus import Gate, HookEvent, HookRegistry, InjectionPoint

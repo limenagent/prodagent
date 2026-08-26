@@ -91,7 +91,7 @@ async def test_write_steps_never_overlap_and_readonly_parallelizes(tmp_path):
         dispatcher=dispatcher,
     )
 
-    from prodagent.kernel.events import RunCompletedEvent
+    from prodagent.kernel.types import RunCompletedEvent
 
     terminal = None
     async for event in executor.stream("do", run_id="r-ser"):

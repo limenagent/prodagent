@@ -297,7 +297,7 @@ class FileCheckpointStore:
 | Postgres 后端 | `backends/postgres/` |
 | 恢复逻辑 | `kernel/loop.py::_resolve_run` |
 | 挂起恢复 | `kernel/loop.py::_loop_events` |
-| 版本冲突异常 | `core/exceptions.py::VersionConflict` |
+| 版本冲突异常 | `base/errors.py::VersionConflict` |
 | 幂等键 | `ports/lock.py` |
 
 ---

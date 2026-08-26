@@ -3,9 +3,8 @@ from __future__ import annotations
 import pytest
 
 from prodagent import RunState, SideEffectLevel, ToolMeta
-from prodagent.kernel.events import ToolResultEvent
 from prodagent.kernel.state import AgentRun
-from prodagent.kernel.types import ToolCall
+from prodagent.kernel.types import ToolCall, ToolResultEvent
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -217,7 +216,7 @@ async def test_high_tool_first_still_allows_later_readonly():
 async def test_readonly_concurrency_cap_enforced():
     import asyncio
 
-    from prodagent.core.config import LoopConfig
+    from prodagent.base.config import LoopConfig
 
     in_flight = 0
     max_in_flight = 0
@@ -249,7 +248,7 @@ async def test_readonly_concurrency_cap_enforced():
 async def test_readonly_concurrency_default_8_when_no_loop_config():
     import asyncio
 
-    from prodagent.core.config import LoopConfig
+    from prodagent.base.config import LoopConfig
 
     in_flight = 0
     max_in_flight = 0

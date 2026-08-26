@@ -13,7 +13,7 @@ import asyncio
 import pytest
 
 from prodagent import SideEffectLevel, ToolMeta
-from prodagent.core.error_reason import ErrorReason
+from prodagent.base.errors import ErrorReason
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import ErrorSeverity, ToolCall, ToolOutcome
 from prodagent.tooling import tool
@@ -32,9 +32,11 @@ def _busy_dict(message: str) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_same_resource_id_calls_run_concurrently():
-    """The dispatcher is lock-agnostic: two non-readonly tools sharing a
-    resource_id run in parallel — serialisation is the tool's own job now."""
+async def test_two_write_tools_run_concurrently():
+    """The dispatcher is lock-agnostic: two non-readonly tools run in
+    parallel — serialisation is the tool's own job. (ToolMeta once carried a
+    ``resource_id`` for executor-level serialisation; it was removed after a
+    review confirmed nothing read it — locks are the tool's concern.)"""
     concurrent = 0
     max_concurrent = 0
 
@@ -45,7 +47,6 @@ async def test_same_resource_id_calls_run_concurrently():
                 name=name,
                 side_effect_level=SideEffectLevel.MEDIUM,
                 timeout_seconds=2.0,
-                resource_id="shared-resource",
             ),
         )
         async def fn() -> dict:
@@ -67,7 +68,7 @@ async def test_same_resource_id_calls_run_concurrently():
         dispatcher.dispatch(ToolCall(name="write_b", params={})),
     )
 
-    assert max_concurrent == 2, "same resource_id must NOT be serialised by the dispatcher"
+    assert max_concurrent == 2, "non-readonly tools must NOT be serialised by the dispatcher"
     assert all(r.outcome is ToolOutcome.OK for r in results)
 
 
@@ -163,7 +164,7 @@ async def test_yellow_non_busy_reason_still_retries(monkeypatch):
             "hint": "retry with backoff",
         }
 
-    from prodagent.core.retry import Backoff, RetryPolicy
+    from prodagent.base.retry import Backoff, RetryPolicy
 
     dispatcher = ToolDispatcher(
         {flaky_conn.name: flaky_conn},

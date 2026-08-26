@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from prodagent.core.observability import AgentSpan
+    from prodagent.base.observability import AgentSpan
 
 
 @runtime_checkable

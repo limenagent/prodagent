@@ -13,8 +13,8 @@ if TYPE_CHECKING:
 
 from prodagent.backends._shared.document_write import build_stored_memory
 from prodagent.backends.file._locking import _exclusive
-from prodagent.core.io import write_atomic_json
-from prodagent.core.time import now_timestamp
+from prodagent.base.io import write_atomic_json
+from prodagent.base.time import now_timestamp
 from prodagent.ports.document import (
     MAX_SOFT_MEMORIES,
     MemoryRecord,

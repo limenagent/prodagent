@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
 
-from prodagent.core.error_reason import NON_RETRYABLE_REASONS, ErrorReason
+from prodagent.base.errors import NON_RETRYABLE_REASONS, ErrorReason
 from prodagent.kernel.types import (
     ErrorSeverity,
     ToolError,
@@ -20,7 +20,7 @@ from prodagent.kernel.types import (
 if typing.TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-    from prodagent.core.aliases import ToolParams, ToolSchema
+    from prodagent.base.types import ToolParams, ToolSchema
 
 logger = logging.getLogger(__name__)
 

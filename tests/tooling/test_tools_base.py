@@ -197,7 +197,7 @@ def test_function_tool_schema_name_matches():
 
 def test_tool_error_from_reason_defaults_severity_from_reason_table():
     from prodagent import ToolError
-    from prodagent.core.error_reason import ErrorReason
+    from prodagent.base.errors import ErrorReason
     from prodagent.kernel.types import ErrorSeverity
 
     err = ToolError.from_reason(
@@ -211,7 +211,7 @@ def test_tool_error_from_reason_defaults_severity_from_reason_table():
 
 def test_tool_error_from_reason_honours_explicit_severity_override():
     from prodagent import ToolError
-    from prodagent.core.error_reason import ErrorReason
+    from prodagent.base.errors import ErrorReason
     from prodagent.kernel.types import ErrorSeverity
 
     err = ToolError.from_reason(
@@ -222,7 +222,7 @@ def test_tool_error_from_reason_honours_explicit_severity_override():
 
 def test_tool_result_from_raw_lifts_tool_error():
     from prodagent import ToolError
-    from prodagent.core.error_reason import ErrorReason
+    from prodagent.base.errors import ErrorReason
     from prodagent.kernel.types import ToolOutcome
 
     err = ToolError.from_reason(ErrorReason.UNKNOWN, code="boom", message="failed")
@@ -242,7 +242,7 @@ def test_tool_result_from_raw_ignores_business_reason_key_without_error_flag():
 
 
 def test_tool_result_from_raw_falls_back_to_unknown_on_invalid_reason_value():
-    from prodagent.core.error_reason import ErrorReason
+    from prodagent.base.errors import ErrorReason
     from prodagent.kernel.types import ToolOutcome
 
     raw = {"error": True, "reason": "not a real reason", "code": "boom"}
@@ -257,7 +257,7 @@ def test_tool_result_from_raw_uses_string_error_as_message():
     """Tools commonly return ``{"error": "msg", ...}`` (string, not bool) —
     ``coerce_result`` must lift that string into ``ToolError.message`` instead of
     discarding it for the generic ``"invalid ErrorReason: ''"`` fallback."""
-    from prodagent.core.error_reason import ErrorReason
+    from prodagent.base.errors import ErrorReason
     from prodagent.kernel.types import ToolOutcome
 
     raw = {"placed": False, "error": "proposal PROP-0001 not found"}
@@ -270,7 +270,7 @@ def test_tool_result_from_raw_uses_string_error_as_message():
 
 def test_tool_result_from_raw_round_trips_tool_error_as_dict_wire_format():
     from prodagent import ToolError
-    from prodagent.core.error_reason import ErrorReason
+    from prodagent.base.errors import ErrorReason
     from prodagent.kernel.types import ToolOutcome
 
     wire = ToolError.from_reason(ErrorReason.CONNECTION, code="mcp_transport_error").as_dict()
@@ -285,7 +285,7 @@ def test_tool_returning_tool_error_propagates_through_dispatcher():
     import asyncio
 
     from prodagent import ToolError, tool
-    from prodagent.core.error_reason import ErrorReason
+    from prodagent.base.errors import ErrorReason
     from prodagent.kernel.types import ToolOutcome
     from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -306,7 +306,7 @@ def test_tool_returning_tool_error_propagates_through_dispatcher():
 def test_tool_result_from_raw_normalizes_resource_busy_to_retry():
     """A bare resource_busy dict (no explicit severity) stays YELLOW/RETRY —
     severity is derived from the reason, mirroring ToolError.from_reason."""
-    from prodagent.core.error_reason import ErrorReason
+    from prodagent.base.errors import ErrorReason
     from prodagent.kernel.types import ErrorSeverity, ToolOutcome
 
     raw = {
@@ -338,7 +338,7 @@ def test_tool_result_from_raw_explicit_severity_wins_over_reason_default():
 
 
 def test_tool_result_from_raw_reason_derived_severity_for_retryable_reason():
-    from prodagent.core.error_reason import ErrorReason
+    from prodagent.base.errors import ErrorReason
     from prodagent.kernel.types import ErrorSeverity, ToolOutcome
 
     raw = {"error": True, "reason": "connection", "message": "conn refused"}

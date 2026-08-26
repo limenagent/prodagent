@@ -16,7 +16,7 @@ from prodagent.coordination.ensemble import (
 )
 from prodagent.coordination.floor import FloorTurn, SharedFloor
 from prodagent.coordination.termination import MaxRounds, TerminationPolicy
-from prodagent.kernel.budget import HardBudget, SharedBudget
+from prodagent.kernel.budget import BudgetLedger, HardBudget
 
 
 class _EchoMember:
@@ -27,8 +27,8 @@ class _EchoMember:
         return FloorTurn(speaker=self.name, round=round_num, text=f"turn from {self.name}")
 
 
-def _budget() -> SharedBudget:
-    return SharedBudget(max=HardBudget(max_turns=1_000, max_cost_usd=100, max_tokens=1_000_000))
+def _budget() -> BudgetLedger:
+    return BudgetLedger(max=HardBudget(max_turns=1_000, max_cost_usd=100, max_tokens=1_000_000))
 
 
 async def _run(spec: EnsembleSpec) -> tuple[list[FloorTurnEvent], EnsembleCompletedEvent]:

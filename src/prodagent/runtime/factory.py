@@ -9,18 +9,19 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from prodagent.core.config import ContextConfig
-from prodagent.core.exceptions import PermissionDenied
+from prodagent.base.config import ContextConfig
+from prodagent.base.errors import PermissionDenied
 from prodagent.kernel.budget import SAFETY_NET_BUDGET
 from prodagent.kernel.bus import Gate, HookEvent
 from prodagent.kernel.loop import ReactiveLoop
 from prodagent.kernel.types import ExecutionMode, MessageList
-from prodagent.runtime._tool_merge import merge_tools_by_name
 from prodagent.tooling.dispatcher import ToolDispatcher
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from prodagent.kernel.bus import HookRegistry
-    from prodagent.ports import LeafExecutor
+    from prodagent.ports import LeafExecutor, Tool
     from prodagent.runtime.agent import Agent
     from prodagent.runtime.parent_runtime import SpawnAccumulator
     from prodagent.runtime.runner import RunContext
@@ -184,3 +185,29 @@ class LeafExecutorFactory:
         if mcp_tools:
             logger.info("MCP tools attached: %s", ", ".join(t.name for t in mcp_tools))
         return mcp_tools
+
+
+# ── Tool merge — append without duplicating names ────────────────────────────
+
+
+def merge_tools_by_name(existing: list[Tool], new: Iterable[Tool]) -> list[Tool]:
+    """Append tools from ``new`` whose name isn't already in ``existing``. Returns what was added."""
+    names = {t.name for t in existing}
+    added: list[Tool] = []
+    for tool in new:
+        if tool.name not in names:
+            existing.append(tool)
+            names.add(tool.name)
+            added.append(tool)
+    return added
+
+
+def attach_tools(
+    active_tools: list[Tool],
+    tool_schemas: list[dict[str, Any]],
+    new_tools: Iterable[Tool],
+) -> list[Tool]:
+    """Merge ``new_tools`` into the hop's active tool list and schema list."""
+    added = merge_tools_by_name(active_tools, new_tools)
+    tool_schemas.extend(t.schema for t in added)
+    return added

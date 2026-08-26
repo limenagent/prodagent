@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from prodagent.base.time import now_timestamp
 from prodagent.cognition.memory.storage import MemoryType, StoredMemory, mem_id
-from prodagent.core.time import now_timestamp
 
 if TYPE_CHECKING:
     from prodagent.cognition.memory.storage import MemoryRecord

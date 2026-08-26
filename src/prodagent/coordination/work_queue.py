@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
+from prodagent.base.event_log import Event, append_expected
+from prodagent.base.text import bound_text
 from prodagent.coordination._stage import StageDriver
 from prodagent.coordination._store import RoundedLockableStore
 from prodagent.coordination.activation import Activation
@@ -39,8 +41,6 @@ from prodagent.coordination.termination import (
     TerminationPolicy,
     TerminationReason,
 )
-from prodagent.core.event_log import Event, append_expected
-from prodagent.core.text import bound_text
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator

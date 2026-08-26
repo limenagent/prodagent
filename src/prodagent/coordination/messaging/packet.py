@@ -16,8 +16,8 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
+from prodagent.base.text import bound_text
 from prodagent.coordination.messaging.limits import CROSSING_OUTPUT_MAX_CHARS
-from prodagent.core.text import bound_text
 
 
 @dataclass

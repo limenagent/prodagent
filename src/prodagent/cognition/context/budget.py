@@ -1,16 +1,29 @@
 from __future__ import annotations
 
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import TYPE_CHECKING, TypeVar
 
-from prodagent.core.text import cjk_char_count
-from prodagent.kernel.types import Layer
+from prodagent.base.text import cjk_char_count
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from prodagent.core.config import ContextConfig
+    from prodagent.base.config import ContextConfig
     from prodagent.kernel.types import Message
+
+
+class Layer(StrEnum):
+    """Context-window layering — L0 system / L1 state / L2 memory / L3 history.
+
+    Cognition vocabulary: the layers exist because the compressor budgets per
+    slice. Lived in kernel/types for historical reasons; its only consumers
+    have always been here and manager.py."""
+
+    L0 = "L0"
+    L1 = "L1"
+    L2 = "L2"
+    L3 = "L3"
+
 
 __all__ = [
     "Layer",

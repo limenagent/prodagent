@@ -5,8 +5,8 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from prodagent.base.config import ContextConfig
     from prodagent.cognition.context.spill import ToolResultSpillStore
-    from prodagent.core.config import ContextConfig
     from prodagent.kernel.types import Message, ToolCall
 
 logger = logging.getLogger(__name__)

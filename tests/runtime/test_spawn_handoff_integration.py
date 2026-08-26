@@ -149,8 +149,8 @@ async def test_spawn_aggregates_cost_into_accumulator():
 
 
 async def test_l7_handoff_rejection_dead_letters(monkeypatch=None):
+    from prodagent.base.errors import SecurityViolation
     from prodagent.coordination.spawn import build_spawn_tools_for_agent
-    from prodagent.core.exceptions import SecurityViolation
     from prodagent.kernel.bus import Gate, HookRegistry
 
     hooks = HookRegistry()
@@ -168,8 +168,8 @@ async def test_l7_handoff_rejection_dead_letters(monkeypatch=None):
 
 
 async def test_security_veto_from_child_propagates_not_swallowed():
+    from prodagent.base.errors import PermissionDenied
     from prodagent.coordination.spawn import build_spawn_tools_for_agent
-    from prodagent.core.exceptions import PermissionDenied
 
     class _VetoLLM:
         async def complete(self, *a, **k):

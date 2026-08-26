@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.backends.file import FileDocumentStore, FileGraphStore
+from prodagent.base.config import FrameworkConfig
 from prodagent.cognition.memory import MemoryProvider
 from prodagent.cognition.memory.manager import MemoryManager
-from prodagent.core.config import FrameworkConfig
 from prodagent.hooks.approval import ApprovalGate, ApprovalProvider
 from prodagent.hooks.bundles.memory import MemoryHooks
 from prodagent.hooks.bundles.security import ApprovalHooks

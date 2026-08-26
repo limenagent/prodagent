@@ -21,7 +21,7 @@ from prodagent.ports import (
 )
 
 if TYPE_CHECKING:
-    from prodagent.core.config import FrameworkConfig
+    from prodagent.base.config import FrameworkConfig
     from prodagent.llm import LLMConfig
     from prodagent.ports.llm import LLMClient
 
@@ -108,7 +108,7 @@ __all__ = [
 
 
 def _fw(framework_config: FrameworkConfig | None) -> FrameworkConfig:
-    from prodagent.core.config import FrameworkConfig
+    from prodagent.base.config import FrameworkConfig
 
     return framework_config or FrameworkConfig.default()
 

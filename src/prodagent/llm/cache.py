@@ -93,7 +93,7 @@ class CachingLLMClient:
     def _resolve_store(self) -> Any:
         if self._store is None:
             from prodagent.backends.factory import resolve_cache
-            from prodagent.core.config import FrameworkConfig
+            from prodagent.base.config import FrameworkConfig
 
             fw = self._framework_config or FrameworkConfig.default()
             self._store = resolve_cache(fw)

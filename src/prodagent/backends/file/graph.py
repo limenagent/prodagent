@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 from prodagent.backends._shared.graph_model import GraphModel
 from prodagent.backends.file._locking import _exclusive
-from prodagent.core.io import write_atomic_json
+from prodagent.base.io import write_atomic_json
 
 logger = logging.getLogger(__name__)
 

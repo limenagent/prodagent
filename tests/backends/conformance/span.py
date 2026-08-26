@@ -9,7 +9,7 @@ import time
 from collections.abc import Callable
 from typing import TypeAlias
 
-from prodagent.core.observability import AgentSpan
+from prodagent.base.observability import AgentSpan
 from prodagent.ports.span import SpanExporter
 
 Factory: TypeAlias = Callable[[], SpanExporter]

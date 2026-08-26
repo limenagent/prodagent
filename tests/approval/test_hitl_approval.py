@@ -20,7 +20,7 @@ async def restart_pod(service: str) -> dict:
 
 
 def _production_fw():
-    from prodagent.core.config import FrameworkConfig, production
+    from prodagent.base.config import FrameworkConfig, production
 
     return production(FrameworkConfig.default())
 
@@ -120,7 +120,7 @@ def test_no_bundle_suspends_high_tool():
 def test_gate_suspends_under_fail_open_policy():
     import pytest
 
-    from prodagent.core.exceptions import SuspendPendingApproval
+    from prodagent.base.errors import SuspendPendingApproval
     from prodagent.kernel.bus import FailurePolicy, Gate
 
     gate = ApprovalGate()

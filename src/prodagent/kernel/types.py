@@ -8,29 +8,30 @@ from typing import TYPE_CHECKING, Any, Generic, TypeAlias
 
 from typing_extensions import TypeVar
 
-from prodagent.core.error_reason import NON_RETRYABLE_REASONS, ErrorReason
+from prodagent.base.errors import NON_RETRYABLE_REASONS, ErrorReason
 
-# Vocabulary shared with core lives in core/types.py (core must not import
-# kernel); re-exported here so kernel consumers keep one import site. The
-# redundant `as` aliases mark the re-export explicitly (mypy strict reads it).
-from prodagent.core.types import (
+# Vocabulary shared with the base layer lives in base/types.py (base must not
+# import kernel); re-exported here so kernel consumers keep one import site.
+# The redundant `as` aliases mark the re-export explicitly (mypy strict reads it).
+from prodagent.base.types import (
     ExecutionMode as ExecutionMode,
 )
-from prodagent.core.types import (
+from prodagent.base.types import (
     Message as Message,
 )
-from prodagent.core.types import (
+from prodagent.base.types import (
     MessageList as MessageList,
 )
-from prodagent.core.types import (
+from prodagent.base.types import (
     RunState as RunState,
 )
-from prodagent.core.types import (
+from prodagent.base.types import (
     stable_serialize as stable_serialize,
 )
 
 if TYPE_CHECKING:
-    from prodagent.core.aliases import JsonDict, ToolParams
+    from prodagent.base.types import JsonDict, ToolParams
+    from prodagent.kernel.state import AgentRun
 
 ToolName: TypeAlias = str
 RunId: TypeAlias = str
@@ -165,13 +166,6 @@ class StepStatus(StrEnum):
     SUSPENDED = "suspended"
 
 
-class Layer(StrEnum):
-    L0 = "L0"
-    L1 = "L1"
-    L2 = "L2"
-    L3 = "L3"
-
-
 class SideEffectLevel(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
@@ -190,22 +184,13 @@ class ToolMeta:
     """Hard deadline — the dispatcher enforces it with ``asyncio.wait_for``.
     A deadline is a correctness bound, not a forecast; set it from p99.9 of
     the tool's real runtime, not from what you *expect* it to take."""
-    estimated_latency_ms: float = 1_000.0
-    """Typical latency, informational only — schedulers and planners may read
-    it to order work. It is NOT the deadline; ``timeout_seconds`` is."""
     domain: str = "general"
-    resource_id: str | None = None
     max_result_chars: float = 100_000
 
     def __post_init__(self) -> None:
         if self.timeout_seconds <= 0:
             raise ValueError(
                 f"ToolMeta {self.name!r}: timeout_seconds must be > 0 (got {self.timeout_seconds})"
-            )
-        if self.estimated_latency_ms < 0:
-            raise ValueError(
-                f"ToolMeta {self.name!r}: estimated_latency_ms must be >= 0 "
-                f"(got {self.estimated_latency_ms})"
             )
 
 
@@ -235,7 +220,7 @@ class ToolError:
 
     `reason` is the controlled vocabulary driving retry/severity decisions;
     `code` is a free-form identifier for logging/messaging — see
-    prodagent.core.error_classifier for the shared severity default table.
+    prodagent.base.errors for the shared severity default table.
     """
 
     reason: ErrorReason
@@ -367,3 +352,81 @@ class ToolResult(Generic[_T]):
             return wire
         assert self.error is not None
         return self.error.as_dict()
+
+
+# ── Streaming events — the discriminated union yielded by Agent.stream() ─────
+
+
+@dataclass(frozen=True, slots=True)
+class ThinkTokenEvent:
+    token: str
+    run_id: RunId
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallStartEvent:
+    call: ToolCall
+    run_id: RunId
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResultEvent:
+    name: ToolName
+    result: object
+    run_id: RunId
+
+
+@dataclass(frozen=True, slots=True)
+class StepStartedEvent:
+    step_id: str
+    action: ToolName
+    run_id: RunId
+
+
+@dataclass(frozen=True, slots=True)
+class StepCompletedEvent:
+    step_id: str
+    action: ToolName
+    result: object
+    run_id: RunId
+
+
+@dataclass(frozen=True, slots=True)
+class StepFailedEvent:
+    """Triggers replan."""
+
+    step_id: str
+    action: ToolName
+    error: str
+    run_id: RunId
+
+
+@dataclass(frozen=True, slots=True)
+class RunCompletedEvent:
+    run: AgentRun
+
+
+@dataclass(frozen=True, slots=True)
+class RunFailedEvent:
+    """Terminated due to budget, loop-detection, or abort."""
+
+    run: AgentRun
+    error: str
+
+
+@dataclass(frozen=True, slots=True)
+class RunSuspendedEvent:
+    run: AgentRun
+
+
+AgentEvent: TypeAlias = (
+    ThinkTokenEvent
+    | ToolCallStartEvent
+    | ToolResultEvent
+    | StepStartedEvent
+    | StepCompletedEvent
+    | StepFailedEvent
+    | RunCompletedEvent
+    | RunFailedEvent
+    | RunSuspendedEvent
+)

@@ -16,8 +16,8 @@ from prodagent.kernel.state import is_child_run_id
 from prodagent.kernel.types import RunState
 
 if TYPE_CHECKING:
-    from prodagent.core.config import FrameworkConfig
-    from prodagent.core.session import ConversationSession
+    from prodagent.base.config import FrameworkConfig
+    from prodagent.base.session import ConversationSession
     from prodagent.kernel.state import AgentRun
     from prodagent.ports import CheckpointStore, SessionStore
     from prodagent.runtime.agent import Agent
@@ -124,7 +124,7 @@ def _append_suffix(path: str, suffix: str) -> str:
 
 
 def _framework_config_for(name: str) -> FrameworkConfig:
-    from prodagent.core.config import FrameworkConfig, production
+    from prodagent.base.config import FrameworkConfig, production
 
     # The playground is the production cockpit: durability for stateless
     # resume, spans for the event cards, the HITL gate for approval UX.

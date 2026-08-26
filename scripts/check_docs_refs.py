@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check that every code-file reference in docs/ resolves to a real file.
 
-Docs cite code as `src/prodagent/.../x.py:123`, `tests/core/test_x.py`, or a
+Docs cite code as `src/prodagent/.../x.py:123`, `tests/base/test_x.py`, or a
 repo-relative `package/module.py` inside backticks. A stale reference turns a
 teaching doc into a lie; this script fails CI before that ships.
 
@@ -19,19 +19,40 @@ REPO = Path(__file__).resolve().parents[1]
 # explicit repo-rooted paths
 ROOTED = re.compile(r"(?:src/prodagent|tests|examples|scripts)/[\w/]+\.py")
 # backticked package-relative paths like `coordination/run_loop.py`
-BACKTICKED = re.compile(r"`((?:core|ports|llm|tooling|runtime|plan|coordination|cognition|hooks|skills|backends|mcp|playground)/[\w/]+\.py)`")
+BACKTICKED = re.compile(
+    r"`((?:core|ports|llm|tooling|runtime|plan|coordination|cognition|hooks|skills|backends|mcp|playground)/[\w/]+\.py)`"
+)
 # the 13-package guard: a backticked path whose first segment is not a package
 PACKAGES = {
-    "core", "ports", "llm", "tooling", "runtime", "plan", "coordination",
-    "cognition", "hooks", "skills", "backends", "mcp", "playground",
+    "core",
+    "ports",
+    "llm",
+    "tooling",
+    "runtime",
+    "plan",
+    "coordination",
+    "cognition",
+    "hooks",
+    "skills",
+    "backends",
+    "mcp",
+    "playground",
 }
 
 
 def main() -> int:
-    docs_dir = Path(sys.argv[sys.argv.index("--docs-dir") + 1]) if "--docs-dir" in sys.argv else REPO / "docs"
+    docs_dir = (
+        Path(sys.argv[sys.argv.index("--docs-dir") + 1])
+        if "--docs-dir" in sys.argv
+        else REPO / "docs"
+    )
     missing: list[tuple[Path, str]] = []
     checked = 0
     for md in sorted(docs_dir.rglob("*.md")):
+        # Archived point-in-time reviews describe the tree as it was when
+        # written — their code refs are history, not living documentation.
+        if "arch-review" in md.name:
+            continue
         text = md.read_text(encoding="utf-8")
         # strip fenced code blocks other than mermaid? keep them — paths inside
         # prose code (`pip install ...` etc.) never match the .py patterns.

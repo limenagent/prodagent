@@ -192,7 +192,7 @@ async def _on_chunk(text: str):
 agent = Agent("demo", tools=[search])
 
 # 生产：全套可观测
-from prodagent.core.config import production
+from prodagent.base.config import production
 agent = Agent("demo", tools=[search], config=AgentConfig(framework=production()))
 # production() 自动注册 span 追踪、事件日志、指标收集
 ```

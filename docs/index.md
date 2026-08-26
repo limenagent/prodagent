@@ -102,7 +102,7 @@ graph LR
 
 | 能力 | 一句话 | 关键源码 |
 |------|--------|---------|
-| **裸核默认** | `Agent()` 零文件起步；`production()` 一键全套护甲 | `core/config.py` |
+| **裸核默认** | `Agent()` 零文件起步；`production()` 一键全套护甲 | `base/config.py` |
 | **四轴硬预算** | 任一轴触顶即停，子 Agent 花销实时汇总到总账 | `kernel/budget.py` |
 | **崩溃恢复** | checkpoint + 乐观并发，断点续跑不重复执行 | `ports/checkpoint.py` |
 | **HITL 审批** | HIGH 工具挂起等人，拒绝→增量重规划 | `hooks/approval/` |

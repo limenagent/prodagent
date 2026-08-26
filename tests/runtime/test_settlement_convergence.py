@@ -116,9 +116,7 @@ def test_hop_own_share_subtracts_children_folded_into_run_totals():
     run.metrics.input_tokens = 100
     run.metrics.output_tokens = 40
     run.metrics.cost_usd = 1.5
-    acc = SpawnAccumulator(
-        cost_usd=0.5, turns=2, input_tokens=30, output_tokens=10, spawn_count=1
-    )
+    acc = SpawnAccumulator(cost_usd=0.5, turns=2, input_tokens=30, output_tokens=10, spawn_count=1)
 
     turns, tokens, cost = hop_own_share(run, acc)
 

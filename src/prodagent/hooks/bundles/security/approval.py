@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from prodagent.core.exceptions import SuspendPendingApproval
+from prodagent.base.errors import SuspendPendingApproval
 from prodagent.hooks.approval import ApprovalDecision, ApprovalProvider
 from prodagent.kernel.bus import BlockingResult, Gate, HookEvent
 from prodagent.kernel.types import ToolCall

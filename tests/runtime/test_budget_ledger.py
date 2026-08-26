@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent.core.exceptions import BudgetExceeded
+from prodagent.base.errors import BudgetExceeded
 from prodagent.kernel.budget import BudgetLedger, HardBudget
 
 

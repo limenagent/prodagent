@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from prodagent.core.exceptions import SuspendPendingApproval
+from prodagent.base.errors import SuspendPendingApproval
 from prodagent.hooks.approval import ApprovalDecision, ApprovalGate
 from prodagent.kernel.types import ToolCall
 

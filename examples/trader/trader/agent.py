@@ -136,7 +136,7 @@ def build_trader_agent(
         run_id: playground HITL 工厂注入;trader 走 chat 路径自己管
             session_id,这里收下但不使用。
     """
-    from prodagent.core.config import production
+    from prodagent.base.config import production
 
     fw = framework_config or production()
     resolved_memory = memory or _build_memory(fw)

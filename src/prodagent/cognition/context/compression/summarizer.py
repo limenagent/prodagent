@@ -8,7 +8,7 @@ from prodagent.kernel.types import StopReason
 from prodagent.llm import stream_text
 
 if TYPE_CHECKING:
-    from prodagent.core.config import ContextConfig
+    from prodagent.base.config import ContextConfig
     from prodagent.kernel.types import MessageList
     from prodagent.llm import LLMClient
 

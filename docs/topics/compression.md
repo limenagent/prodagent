@@ -191,7 +191,7 @@ Spill后: read_file("big.log") → "[结果已溢出，spill_id=abc123，摘要:
 | 五级压缩策略 | `cognition/context/compression/pipeline.py` |
 | 摘要与约束提取 | `cognition/context/compression/summarizer.py` |
 | Spill 存储 | `cognition/context/spill.py` |
-| ContextConfig | `core/config.py` |
+| ContextConfig | `base/config.py` |
 | Step 中的调用 | `kernel/step.py::_prepare` |
 
 ---

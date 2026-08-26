@@ -16,8 +16,6 @@ Two new ports from the G0 pre-work:
 
 from __future__ import annotations
 
-import pytest
-
 from prodagent.coordination.messaging.envelope import Crossing, CrossingKind, Direction
 from prodagent.coordination.messaging.transport import (
     PipelineTransport,
@@ -59,9 +57,7 @@ async def test_transport_send_returns_delivery_verdicts():
 
 
 async def test_transport_dedupe_ttl_suppresses_replays_by_message_id():
-    transport = build_transport(
-        TransportSpec(direction=Direction.DOWNSTREAM, dedupe_ttl_s=600.0)
-    )
+    transport = build_transport(TransportSpec(direction=Direction.DOWNSTREAM, dedupe_ttl_s=600.0))
 
     first = await transport.send(_crossing(message_id="mid-1"))
     replay = await transport.send(_crossing(message_id="mid-1"))

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TypeAlias
 
-from prodagent.core.event_log import Event, PlanEventType
+from prodagent.base.event_log import Event, PlanEventType
 from prodagent.ports.event_log import EventLog
 
 Factory: TypeAlias = Callable[[], EventLog]

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from prodagent.cognition.context.spill import extract_spilled_path
 
 if TYPE_CHECKING:
-    from prodagent.core.config import ContextConfig
+    from prodagent.base.config import ContextConfig
 
 CHARS_PER_TOKEN = 4
 _RESULT_HINT_CHARS = 60

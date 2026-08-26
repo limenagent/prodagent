@@ -33,7 +33,7 @@ _PLAN = (
 
 
 def _production_fw(tmp_path):
-    from prodagent.core.config import FrameworkConfig, production
+    from prodagent.base.config import FrameworkConfig, production
 
     fw = production(FrameworkConfig.default())
     fw.orchestration.runs_dir = str(tmp_path / "runs")

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from prodagent import Agent, AgentConfig, ExecutionMode
-from prodagent.core.config import FrameworkConfig
+from prodagent.base.config import FrameworkConfig
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
 

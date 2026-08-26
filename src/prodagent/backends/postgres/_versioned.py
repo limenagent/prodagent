@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from prodagent.core.exceptions import VersionConflict
+from prodagent.base.errors import VersionConflict
 
 if TYPE_CHECKING:
     from psycopg import AsyncCursor

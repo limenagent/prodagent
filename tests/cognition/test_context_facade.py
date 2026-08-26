@@ -2,8 +2,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from prodagent.base.config import ContextConfig
 from prodagent.cognition.context.manager import ContextManager
-from prodagent.core.config import ContextConfig
 
 
 def _make_run(messages=None, task="test task"):

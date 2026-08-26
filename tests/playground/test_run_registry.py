@@ -7,7 +7,7 @@ import pytest
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.session_store import FileSessionStore
-from prodagent.core.session import ConversationSession
+from prodagent.base.session import ConversationSession
 from prodagent.kernel.state import AgentRun, child_run_id
 from prodagent.kernel.types import RunState
 from prodagent.playground.registry import RunReconstructError, RunRegistry

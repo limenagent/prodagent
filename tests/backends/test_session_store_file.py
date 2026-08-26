@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from prodagent.backends.file.session_store import FileSessionStore
-from prodagent.core.session import ConversationSession
+from prodagent.base.session import ConversationSession
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import ExecutionMode, RunState
 
@@ -85,7 +85,7 @@ async def test_save_bumps_version_each_write(tmp_path):
 
 @pytest.mark.asyncio
 async def test_save_rejects_stale_expected_version(tmp_path):
-    from prodagent.core.exceptions import VersionConflict
+    from prodagent.base.errors import VersionConflict
 
     store = FileSessionStore(tmp_path / "sessions")
     s = await _load_or_create(store, "sess-A", agent_id="agent")

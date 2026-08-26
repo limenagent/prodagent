@@ -13,7 +13,7 @@ from prodagent.tooling.base import FunctionTool, _typed_params
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from prodagent.core.aliases import ToolSchema
+    from prodagent.base.types import ToolSchema
 
 logger = logging.getLogger(__name__)
 

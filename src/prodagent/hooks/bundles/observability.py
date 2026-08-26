@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, Any
 from prodagent.kernel.bus import HookEvent
 
 if TYPE_CHECKING:
-    from prodagent.core.config import FrameworkConfig
-    from prodagent.core.observability import AgentSpan
+    from prodagent.base.config import FrameworkConfig
+    from prodagent.base.observability import AgentSpan
     from prodagent.hooks.audit import AuditLogger
     from prodagent.kernel.bus import HookRegistry
     from prodagent.ports.span import SpanExporter

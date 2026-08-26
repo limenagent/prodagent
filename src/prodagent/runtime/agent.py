@@ -8,19 +8,25 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any, cast
 
-from prodagent.core.config import FrameworkConfig
-from prodagent.core.exceptions import (
+from prodagent.base.config import FrameworkConfig
+from prodagent.base.errors import (
     PlanAlreadyCompletedError,
     RunIdCollisionError,
     UnknownApprovalError,
 )
-from prodagent.core.session import ConversationSession
+from prodagent.base.session import ConversationSession
 from prodagent.kernel.bus import Gate, HookEvent, HookRegistry, InjectionPoint
-from prodagent.kernel.events import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.kernel.state import CHILD_SEPARATOR
-from prodagent.kernel.types import ExecutionMode, MessageList, RunState
-from prodagent.runtime._tool_merge import merge_tools_by_name
+from prodagent.kernel.types import (
+    ExecutionMode,
+    MessageList,
+    RunCompletedEvent,
+    RunFailedEvent,
+    RunState,
+    RunSuspendedEvent,
+)
 from prodagent.runtime.config import AgentConfig
+from prodagent.runtime.factory import merge_tools_by_name
 from prodagent.runtime.parent_runtime import ParentRuntime, SpawnAccumulator
 from prodagent.runtime.runner import collect_final_run, drive_stream
 
@@ -31,8 +37,8 @@ if TYPE_CHECKING:
     from prodagent.cognition.memory import MemoryProvider
     from prodagent.hooks.approval import ApprovalProvider
     from prodagent.kernel.budget import HardBudget
-    from prodagent.kernel.events import AgentEvent
     from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.types import AgentEvent
     from prodagent.mcp.config import MCPServerConfig
     from prodagent.plan.workflow import Workflow
     from prodagent.ports import CheckpointStore, EventLog, SessionStore, Tool
@@ -565,7 +571,7 @@ class Agent:
     @property
     def memory_manager(self) -> MemoryProvider | None:
         # lazy: keeps the memory bundle (and the kernel import chain) out of
-        # module-level imports — see tests/core/test_import_weight.py
+        # module-level imports — see tests/base/test_import_weight.py
         from prodagent.cognition.memory import MemoryProvider
 
         # Idempotent wire-first: what a probe sees is what a run would use.

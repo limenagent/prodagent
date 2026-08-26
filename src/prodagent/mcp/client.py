@@ -135,7 +135,7 @@ class MCPClient:
         text = "\n".join(parts) if parts else ""
 
         if result.get("isError"):
-            from prodagent.core.error_reason import ErrorReason
+            from prodagent.base.errors import ErrorReason
             from prodagent.kernel.types import ToolError
 
             logger.warning("MCP tool %r returned isError=true: %s", name, text[:200])

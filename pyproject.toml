@@ -151,7 +151,7 @@ root_packages = ["prodagent"]
 name = "Playground is a leaf — nothing else in prodagent depends on it"
 type = "forbidden"
 source_modules = [
-    "prodagent.core", "prodagent.kernel", "prodagent.runtime",
+    "prodagent.base", "prodagent.kernel", "prodagent.runtime",
     "prodagent.coordination", "prodagent.cognition", "prodagent.plan",
     "prodagent.ports", "prodagent.backends", "prodagent.llm",
     "prodagent.tooling", "prodagent.mcp", "prodagent.hooks", "prodagent.skills",

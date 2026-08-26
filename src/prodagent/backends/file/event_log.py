@@ -9,9 +9,9 @@ import os
 from pathlib import Path
 
 from prodagent.backends.file._locking import _exclusive
-from prodagent.core.event_log import Event
-from prodagent.core.exceptions import VersionConflict
-from prodagent.core.io import read_jsonl, safe_filename_component
+from prodagent.base.errors import VersionConflict
+from prodagent.base.event_log import Event
+from prodagent.base.io import read_jsonl, safe_filename_component
 
 logger = logging.getLogger(__name__)
 

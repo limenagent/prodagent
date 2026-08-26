@@ -15,9 +15,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from prodagent.base.text import bound_text
 from prodagent.coordination.floor import FloorTurn
 from prodagent.coordination.messaging.limits import PUBLIC_TURN_TEXT_MAX_CHARS
-from prodagent.core.text import bound_text
 
 if TYPE_CHECKING:
     from prodagent.coordination.floor import SharedFloor

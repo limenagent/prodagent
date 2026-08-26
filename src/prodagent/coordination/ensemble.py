@@ -7,6 +7,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
+from prodagent.base.errors import BudgetExceeded
+from prodagent.base.text import bound_text
 from prodagent.coordination._stage import StageDriver, ViewInjector
 from prodagent.coordination.activation import (
     Activation,
@@ -36,17 +38,14 @@ from prodagent.coordination.termination import (
     TerminationPolicy,
     TerminationReason,
 )
-from prodagent.core.exceptions import BudgetExceeded
-from prodagent.core.text import bound_text
-from prodagent.kernel.budget import HardBudget, SharedBudget
+from prodagent.kernel.budget import BudgetLedger, HardBudget
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
 
     from prodagent.coordination.messaging.pipeline import Interceptor
     from prodagent.kernel.bus import HookRegistry
-    from prodagent.kernel.events import AgentEvent
-    from prodagent.kernel.types import ToolCall
+    from prodagent.kernel.types import AgentEvent, ToolCall
     from prodagent.ports.dead_letter import DeadLetterStore
     from prodagent.runtime.agent import Agent
 
@@ -421,10 +420,10 @@ class EnsembleSpec:
     termination: TerminationPolicy = field(
         default_factory=lambda: TerminationPolicy(hard_cap=MaxRounds(max_rounds=10))
     )
-    budget: SharedBudget | None = None
+    budget: BudgetLedger | None = None
     """Cross-member ceiling. If None, the pipeline builds one from the members'
     own HardBudget summed (rough) — callers wanting real cost control should
-    pass an explicit SharedBudget."""
+    pass an explicit BudgetLedger."""
 
     session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
@@ -492,9 +491,9 @@ class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
 
     One round = one pass of the speaking order. Each member's ``speak()`` is
     awaited in turn (round-robin is inherently serial; concurrent orders are
-    deferred). Before each speak, the pipeline checks the SharedBudget and the
+    deferred). Before each speak, the pipeline checks the BudgetLedger and the
     TerminationPolicy — either can stop the floor. After each speak, actual
-    cost is committed to the SharedBudget.
+    cost is committed to the BudgetLedger.
 
     The crash→error-event guard and the finalize-to-``unknown`` backstop live
     in :class:`StageDriver`; this class owns only the round loop and the
@@ -507,7 +506,7 @@ class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
         self._floor = spec.build_floor()
         # Narrow the base's Optional attribute: Ensemble always has a budget
         # (unlike Blackboard/WorkQueue, where None means unbudgeted).
-        self._budget: SharedBudget = spec.budget or self._build_default_budget()
+        self._budget: BudgetLedger = spec.budget or self._build_default_budget()
         # Re-bind spec.budget to the resolved one so callers reading it after
         # the run see actuals.
         spec.budget = self._budget
@@ -557,12 +556,12 @@ class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
         )
         return activations[0] if activations else None
 
-    def _build_default_budget(self) -> SharedBudget:
+    def _build_default_budget(self) -> BudgetLedger:
         """Rough default: sum each member's own HardBudget into a floor cap.
 
-        Deliberately conservative — if no explicit SharedBudget is passed, the
+        Deliberately conservative — if no explicit BudgetLedger is passed, the
         floor doesn't run unbounded. Callers wanting real cost control should
-        pass an explicit ``SharedBudget`` tuned to the ensemble (not just the
+        pass an explicit ``BudgetLedger`` tuned to the ensemble (not just the
         sum of per-agent defaults, which can be surprisingly large)."""
         max_turns = 0
         max_seconds = 0.0
@@ -583,7 +582,7 @@ class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
             max_seconds = 600.0
             max_tokens = 200_000
             max_cost = 2.0
-        return SharedBudget(
+        return BudgetLedger(
             max=HardBudget(
                 max_turns=max_turns,
                 max_seconds=max_seconds,

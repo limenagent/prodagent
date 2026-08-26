@@ -7,8 +7,8 @@ from prodagent.cognition.context.budget import CompressionLevel, TokenCounter, f
 from prodagent.cognition.context.compression.formatting import compress_tool_result
 
 if TYPE_CHECKING:
+    from prodagent.base.config import ContextConfig
     from prodagent.cognition.context.compression.summarizer import Summariser
-    from prodagent.core.config import ContextConfig
     from prodagent.kernel.types import Message, MessageList
 
 __all__ = [
