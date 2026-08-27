@@ -16,6 +16,7 @@ from prodagent.kernel.bus import BlockingResult, Gate, HookRegistry
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.parent_runtime import ParentRuntime
+from prodagent.runtime.runner import InProcessRunner
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -57,12 +58,17 @@ def _pipeline(
     outputs = child_outputs or ["order #123 shipped"]
     return Spawn(
         [child],
-        llm=FakeLLMAdapter(
-            responses=[LLMResponse(content=o, stop_reason="end_turn") for o in outputs]
+        runner=InProcessRunner(
+            ParentRuntime(
+                parent_run_id="parent-test",
+                llm=FakeLLMAdapter(
+                    responses=[LLMResponse(content=o, stop_reason="end_turn") for o in outputs]
+                ),
+            )
         ),
         hooks=hooks,
         framework_config=_isolated_fw(tmp_path),
-        ctx=ParentRuntime(parent_run_id="parent-test"),
+        parent_run_id="parent-test",
         dead_letter_queue=dlq,
     )
 
@@ -133,10 +139,10 @@ async def test_gate_veto_on_dispatch_rejects_before_child_runs(tmp_path: Path):
     fw = _isolated_fw(tmp_path)
     pipeline = Spawn(
         [child],
-        llm=llm,
+        runner=InProcessRunner(ParentRuntime(parent_run_id="parent-test", llm=llm)),
         hooks=registry,
         framework_config=fw,
-        ctx=ParentRuntime(parent_run_id="parent-test"),
+        parent_run_id="parent-test",
         dead_letter_queue=InMemoryDeadLetterQueue(max_retries=3),
     )
 

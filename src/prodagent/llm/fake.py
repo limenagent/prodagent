@@ -21,15 +21,27 @@ class FakeLLMAdapter:
         responses: list[LLMResponse] | None = None,
         latency_ms: float = 0.0,
         default_content: str = "I have completed the task.",
+        default_config: LLMConfig | None = None,
     ) -> None:
         self._queue: deque[LLMResponse] = deque(responses or [])
         self._latency_ms = latency_ms
         self._default_content = default_content
         self._call_count = 0
+        self._default_config = default_config
 
     @property
     def call_count(self) -> int:
         return self._call_count
+
+    @property
+    def default_config(self) -> LLMConfig:
+        """The config Step accounts cost against — mirrors the real adapters,
+        so a fake-driven run bills (and can be monkeypatched) like a real one."""
+        from prodagent.llm import LLMConfig
+
+        if self._default_config is None:
+            self._default_config = LLMConfig()
+        return self._default_config
 
     async def complete(
         self,

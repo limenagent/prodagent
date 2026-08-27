@@ -9,12 +9,6 @@ from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 from prodagent.base.errors import BudgetExceeded
 from prodagent.base.text import bound_text
-from prodagent.coordination._stage import StageDriver, ViewInjector
-from prodagent.coordination.activation import (
-    Activation,
-    ActivationContext,
-    ActivationPolicy,
-)
 from prodagent.coordination.floor import FloorMember, FloorTurn, SharedFloor
 from prodagent.coordination.floor_projection import (
     FloorProjection,
@@ -33,18 +27,27 @@ from prodagent.coordination.messaging.pipeline import (
     admission_pipeline,
     assembly_pipeline,
 )
+from prodagent.coordination.stage import StageDriver, ViewInjector
 from prodagent.coordination.termination import (
     MaxRounds,
     TerminationPolicy,
     TerminationReason,
 )
 from prodagent.kernel.budget import BudgetLedger, HardBudget
+from prodagent.kernel.types import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
+from prodagent.ports.activation import (
+    Activation,
+    ActivationContext,
+    ActivationPolicy,
+)
+from prodagent.ports.runner import AgentActivation, InProcessChatRunner, RunnerPort
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
 
     from prodagent.coordination.messaging.pipeline import Interceptor
     from prodagent.kernel.bus import HookRegistry
+    from prodagent.kernel.state import AgentRun
     from prodagent.kernel.types import AgentEvent, ToolCall
     from prodagent.ports.dead_letter import DeadLetterStore
     from prodagent.runtime.agent import Agent
@@ -82,7 +85,7 @@ class SpeakingOrder(Protocol):
     members speak concurrently every round, no arbitration).
 
     The pipeline adapts whatever it gets to
-    :class:`~prodagent.coordination.activation.Activation`: an object
+    :class:`~prodagent.ports.activation.Activation`: an object
     with an async ``pick_speaker`` becomes a serial single-member activation
     per pick (Moderated); an object with ``activation()`` returns batches
     itself (FreeForAll); anything else is the classic sync ``next_speaker``
@@ -292,21 +295,30 @@ class AgentFloorMember:
 
     Registers a ``[FLOOR]`` injector so the projected transcript lands in L2
     alongside ``[MEMORY]``. Each ``speak()`` updates the injector's view slot,
-    runs ``agent.chat()``, folds the resulting :class:`AgentRun` into a
-    :class:`FloorTurn`. The agent keeps its own ``ConversationSession``,
-    ``MemoryManager``, L0 system prompt — personality doesn't bleed across
-    members. The floor is what they share; internals stay isolated."""
+    activates the member through the :class:`~prodagent.ports.runner.RunnerPort`
+    (a session-scoped chat turn — the local default executes it in-process),
+    and folds the resulting :class:`AgentRun` into a :class:`FloorTurn`. The
+    agent keeps its own ``ConversationSession``, ``MemoryManager``, L0 system
+    prompt — personality doesn't bleed across members. The floor is what they
+    share; internals stay isolated."""
 
-    def __init__(self, agent: Agent, *, session_id: str) -> None:
+    def __init__(
+        self,
+        agent: Agent,
+        *,
+        session_id: str,
+        runner: RunnerPort | None = None,
+    ) -> None:
         self._agent = agent
         self._session_id = session_id
+        self._runner = runner if runner is not None else InProcessChatRunner()
         self._slot = _FloorViewSlot()
         self._view_injector = ViewInjector(
             agent, block="FLOOR", render=lambda: _format_floor_block(self._slot)
         )
         self._view_pipe: Pipeline | None = None
         self.last_run_id: str = ""
-        """Run id of the most recent ``agent.chat()`` call — set after each
+        """Run id of the most recent member activation — set after each
         ``speak()``. Lets callers (e.g. turn-signal collectors) correlate hook
         events back to the floor turn."""
 
@@ -350,9 +362,13 @@ class AgentFloorMember:
         # is already in L2, the message just needs to prompt a response.
         prompt = self._build_prompt(floor)
 
+        run: AgentRun | None = None
         try:
-            run = await self._agent.chat(prompt, session_id=self._session_id)
-            self.last_run_id = getattr(run, "run_id", "")
+            async for event in self._runner.activate(
+                AgentActivation(agent=self._agent, task=prompt, session_id=self._session_id)
+            ):
+                if isinstance(event, (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)):
+                    run = event.run
         except Exception as exc:  # noqa: BLE001 — a member failing shouldn't kill the floor
             logger.warning(
                 "[ensemble] member %s speak() raised %s: %s — emitting pass turn",
@@ -366,6 +382,19 @@ class AgentFloorMember:
                 text="",
                 tool_calls=[],
             )
+        if run is None:
+            logger.warning(
+                "[ensemble] member %s activation ended without a terminal event — "
+                "emitting pass turn",
+                self.name,
+            )
+            return FloorTurn(
+                speaker=self.name,
+                round=round_num,
+                text="",
+                tool_calls=[],
+            )
+        self.last_run_id = getattr(run, "run_id", "")
 
         tool_calls: list[ToolCall] = list(getattr(run, "tool_history", []) or [])
         return FloorTurn(

@@ -13,12 +13,18 @@ from prodagent.base.errors import ClassifiedError
 from prodagent.kernel.types import (
     LLMResponse,
     MessageList,
+    RunCompletedEvent,
+    RunFailedEvent,
     RunState,
+    RunSuspendedEvent,
     ToolCall,
 )
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
     from prodagent.base.types import JsonDict
+    from prodagent.kernel.types import AgentEvent
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +48,24 @@ def is_child_run_id(run_id: str) -> bool:
 def make_failed_run(run_id: str, task: str, *, last_error: str = _TERMINAL_ERROR) -> AgentRun:
     """Synthetic FAILED run for a stream that ended without a terminal event."""
     return AgentRun(run_id=run_id, task=task, state=RunState.FAILED, last_error=last_error)
+
+
+async def collect_final_run(
+    stream: AsyncGenerator[AgentEvent, None],
+    *,
+    fallback_run_id: str,
+    fallback_task: str,
+) -> AgentRun:
+    """Reduce an event stream to its terminal run — the last COMPLETED/FAILED/
+    SUSPENDED event wins; a stream that ends without one yields a synthetic
+    FAILED run. Shared by every "drive to terminal state" entry point."""
+    final_run: AgentRun | None = None
+    async for event in stream:
+        if isinstance(event, (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)):
+            final_run = event.run
+    if final_run is None:
+        return make_failed_run(fallback_run_id, fallback_task)
+    return final_run
 
 
 def child_run_id(parent_run_id: str, child_name: str) -> str:

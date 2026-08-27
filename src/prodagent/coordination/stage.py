@@ -38,7 +38,6 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
-from prodagent.coordination.activation import Activation
 from prodagent.coordination.termination import TerminationReason
 from prodagent.kernel.budget import run_enveloped
 
@@ -83,8 +82,8 @@ class ViewInjector:
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
 
-    from prodagent.coordination.activation import Activation
     from prodagent.kernel.budget import BudgetLedger
+    from prodagent.ports.activation import Activation
     from prodagent.ports.lock import LockStore, LockToken
 
 logger = logging.getLogger(__name__)
@@ -185,7 +184,7 @@ class StageDriver(Generic[E]):
         lock_store: LockStore | None = None,
         lock_scope: str = "",
     ) -> list[tuple[str, Any | None]]:
-        """Run one :class:`~prodagent.coordination.activation.Activation`
+        """Run one :class:`~prodagent.ports.activation.Activation`
         per its dispatch mode, returning ``(member, result)`` in member order.
 
         - ``serial`` — one ``run_one`` at a time, in order.

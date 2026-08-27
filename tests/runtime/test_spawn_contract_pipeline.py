@@ -11,6 +11,7 @@ from prodagent.coordination.spawn import Spawn
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.parent_runtime import ParentRuntime
+from prodagent.runtime.runner import InProcessRunner
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -52,10 +53,17 @@ def _pipeline(
 ) -> Spawn:
     return Spawn(
         [child],
-        llm=FakeLLMAdapter(responses=[LLMResponse(content=child_output, stop_reason="end_turn")]),
+        runner=InProcessRunner(
+            ParentRuntime(
+                parent_run_id="parent-test",
+                llm=FakeLLMAdapter(
+                    responses=[LLMResponse(content=child_output, stop_reason="end_turn")]
+                ),
+            )
+        ),
         hooks=None,
         framework_config=_isolated_fw(tmp_path),
-        ctx=ParentRuntime(parent_run_id="parent-test"),
+        parent_run_id="parent-test",
         dead_letter_queue=dlq,
     )
 

@@ -1,19 +1,11 @@
 """ActivationPolicy — the cross-primitive concept of "who acts next".
 
-Every stage primitive is one model in two axes (see ``_store.py``):
-
-- ``Ensemble``   = SharedFloor (append-only transcript) × SpeakingOrder
-- ``Blackboard`` = Board (versioned map) × Trigger matching
-- ``WorkQueue``  = SharedQueue (lease deque) × pull-claim
-
-The *stores* stay separate — their write semantics (append / optimistic
-overwrite / claim-and-lease) and failure semantics (pass / None / retry+dead
-letter) are real domain content, not accidental duplication. But the
-*activation* axis is genuinely the same question everywhere: given the current
-shared state and what changed last round, which members wake up this round,
-and do they run serially, concurrently, or does only one of them win?
-
-This module names that concept once:
+Lifted from ``coordination/activation.py`` to ports: activation is wire
+vocabulary. Every scheduler in the framework — the three stage primitives
+today, graph nodes and remote dispatchers tomorrow — asks the same question:
+given the current shared state and what changed last round, which members
+wake up this round, and do they run serially, concurrently, or does only one
+of them win? This module names that concept once:
 
 - :class:`Activation` — one unit of scheduled work: members + dispatch mode +
   why (a label for logs/events).
@@ -23,20 +15,24 @@ This module names that concept once:
   list, and ``WorkQueue``'s worker set each become a thin adapter, so a new
   coordination style (an LLM moderator, a priority queue, a pub/sub topic) is
   a new adapter — not a new round loop.
+
+The stores policies read stay in coordination (their write semantics are real
+domain content); :class:`StageStore` below is the narrow read-side contract
+they're seen through, satisfied structurally by
+:class:`~prodagent.coordination._store.SharedStore`.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
 
-    from prodagent.coordination._store import SharedStore
-
 __all__ = [
     "DispatchMode",
+    "StageStore",
     "Activation",
     "ActivationPolicy",
     "ActivationContext",
@@ -52,6 +48,20 @@ DispatchMode = Literal["serial", "concurrent", "single_winner"]
 - ``single_winner`` — all *race*, but only one computes (buzz_in: the first to
   grab the lock wins; losers must never start real work).
 """
+
+
+@runtime_checkable
+class StageStore(Protocol):
+    """Read-side contract of a stage's shared store, as an activation policy
+    sees it. Satisfied structurally by coordination's ``SharedStore`` family;
+    policies that need a concrete store's specifics down-cast in their own
+    layer."""
+
+    def round_count(self) -> int: ...
+
+    def snapshot(self) -> dict[str, Any]: ...
+
+    def fingerprint(self) -> Any: ...
 
 
 @dataclass(frozen=True)
@@ -84,7 +94,7 @@ class ActivationContext:
     key-shaped (transcripts, queue transitions).
     """
 
-    store: SharedStore
+    store: StageStore
     changed_keys: tuple[str, ...] = ()
     round_num: int = 0
     """The round the *next* activation would run in (same convention as

@@ -217,6 +217,31 @@ def test_runtime_reaches_coordination_only_through_compose() -> None:
     )
 
 
+def test_coordination_never_imports_runtime() -> None:
+    """The same seam, pinned from the other side — and stricter: coordination
+    has NO exempt file. Agent execution reaches the runtime only through the
+    RunnerPort (ports/runner.py; RunLoop wires ``ctx.runner``), tool merging
+    through tooling, agent descriptions through coordination/describe. An
+    ``if TYPE_CHECKING`` Agent annotation carries no runtime dependency and
+    stays allowed, same exemption philosophy as everywhere else in this file."""
+    violations: list[str] = []
+    for path in sorted(SRC.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        rel_parts = path.relative_to(SRC).parts
+        if rel_parts[0] != "coordination":
+            continue
+        rel = "/".join(rel_parts)
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for lineno, imported in _executed_imports(tree):
+            if _target_roots(imported) & {"runtime"}:
+                violations.append(f"{rel}:{lineno}  coordination -> runtime")
+    assert not violations, (
+        "coordination must reach the runtime only through the RunnerPort "
+        "(ports/runner.py). Executing imports:\n  " + "\n  ".join(violations)
+    )
+
+
 def test_layering_contract() -> None:
     violations: list[str] = []
     for path in sorted(SRC.rglob("*.py")):

@@ -9,9 +9,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from prodagent.base.text import bound_text
-from prodagent.coordination._stage import StageDriver, ViewInjector
-from prodagent.coordination._store import RoundedLockableStore
-from prodagent.coordination.activation import Activation, ActivationContext, ActivationPolicy
 from prodagent.coordination.messaging.envelope import (
     Crossing,
     CrossingKind,
@@ -24,11 +21,16 @@ from prodagent.coordination.messaging.pipeline import (
     admission_pipeline,
     assembly_pipeline,
 )
+from prodagent.coordination.stage import StageDriver, ViewInjector
+from prodagent.coordination.store import RoundedLockableStore
 from prodagent.coordination.termination import (
     MaxRounds,
     TerminationPolicy,
     TerminationReason,
 )
+from prodagent.kernel.types import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
+from prodagent.ports.activation import Activation, ActivationContext, ActivationPolicy
+from prodagent.ports.runner import AgentActivation, InProcessChatRunner, RunnerPort
 
 
 class BoardVersionConflict(Exception):
@@ -45,6 +47,7 @@ if TYPE_CHECKING:
     from prodagent.coordination.messaging.pipeline import Interceptor
     from prodagent.kernel.budget import BudgetLedger
     from prodagent.kernel.bus import HookRegistry
+    from prodagent.kernel.state import AgentRun
     from prodagent.ports.dead_letter import DeadLetterStore
     from prodagent.ports.lock import LockStore
     from prodagent.runtime.agent import Agent
@@ -168,7 +171,7 @@ class Trigger:
 
 
 class BlackboardPolicy:
-    """Adapts the Trigger list to :class:`~prodagent.coordination.activation.ActivationPolicy`.
+    """Adapts the Trigger list to :class:`~prodagent.ports.activation.ActivationPolicy`.
 
     Each matched trigger becomes one :class:`Activation` this round: ``event``
     mode fans out concurrently, ``buzz_in`` races for a single winner — the
@@ -537,10 +540,18 @@ class AgentBlackboardMember:
     implement :class:`BlackboardMember` directly against their own agent
     instead of parsing free text."""
 
-    def __init__(self, agent: Agent, *, session_id: str, write_key: str) -> None:
+    def __init__(
+        self,
+        agent: Agent,
+        *,
+        session_id: str,
+        write_key: str,
+        runner: RunnerPort | None = None,
+    ) -> None:
         self._agent = agent
         self._session_id = session_id
         self._write_key = write_key
+        self._runner = runner if runner is not None else InProcessChatRunner()
         self._slot = _BoardViewSlot()
         self._view_injector = ViewInjector(
             agent, block="BOARD", render=lambda: _format_board_block(self._slot)
@@ -577,14 +588,26 @@ class AgentBlackboardMember:
             f"If you have a contribution for key {self._write_key!r}, reply with just "
             "the value. If you have nothing to add this round, reply exactly PASS."
         )
+        run: AgentRun | None = None
         try:
-            run = await self._agent.chat(prompt, session_id=self._session_id)
+            async for event in self._runner.activate(
+                AgentActivation(agent=self._agent, task=prompt, session_id=self._session_id)
+            ):
+                if isinstance(event, (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)):
+                    run = event.run
         except Exception as exc:  # noqa: BLE001 — a member failing shouldn't kill the board
             logger.warning(
                 "[blackboard] member %s try_contribute() raised %s: %s — treating as pass",
                 self.name,
                 type(exc).__name__,
                 exc,
+            )
+            return None
+        if run is None:
+            logger.warning(
+                "[blackboard] member %s activation ended without a terminal event — "
+                "treating as pass",
+                self.name,
             )
             return None
 

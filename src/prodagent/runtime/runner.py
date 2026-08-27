@@ -11,12 +11,17 @@ import asyncio
 import contextlib
 import logging
 import uuid
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING, Any, cast
 
-from prodagent.kernel.budget import BudgetLedger
+from prodagent.kernel.budget import BudgetLedger, SpawnAccumulator
 from prodagent.kernel.bus import HookEvent
-from prodagent.kernel.state import AgentRun, is_child_subordinate, make_failed_run
+from prodagent.kernel.state import (
+    AgentRun,
+    collect_final_run,
+    is_child_subordinate,
+    make_failed_run,
+)
 from prodagent.kernel.types import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.runtime.compose import (
     find_suspended_peer,
@@ -25,7 +30,7 @@ from prodagent.runtime.compose import (
     peer_relay,
 )
 from prodagent.runtime.factory import LeafExecutorFactory
-from prodagent.runtime.parent_runtime import SpawnAccumulator
+from prodagent.runtime.parent_runtime import ParentRuntime
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -39,20 +44,27 @@ if TYPE_CHECKING:
     from prodagent.ports import CheckpointStore, EventLog
     from prodagent.ports.budget_ledger import BudgetLedgerPort
     from prodagent.ports.llm import LLMClient
+    from prodagent.ports.runner import AgentActivation, HandoffActivation, RunnerPort
     from prodagent.runtime.agent import Agent
-    from prodagent.runtime.parent_runtime import SpawnAccumulator
 
     class _Relay(Protocol):
         """What the loop needs from a peer relay — implemented by
-        coordination/relay.py, named only through the compose seam."""
+        coordination/relay.py, named only through the compose seam. The relay
+        returns a pure-data ``HandoffActivation``; interpreting it (peer
+        lookup, fork, hop context) is this driver's job."""
 
-        async def next_context(
+        async def next_hop(
             self,
-            ctx: RunContext,
+            agent: Agent,
             run: AgentRun,
+            *,
+            run_id: str,
+            depth: int,
+            checkpoint: CheckpointStore | None,
+            event_log: EventLog | None,
             spawn_acc: SpawnAccumulator | None = None,
             ledger: BudgetLedgerPort | None = None,
-        ) -> RunContext | None: ...
+        ) -> HandoffActivation | None: ...
 
 
 logger = logging.getLogger(__name__)
@@ -86,6 +98,11 @@ class RunContext:
     budget_ledger: BudgetLedger | None = None
     """Chain-scoped shared ledger — one per RunLoop, set by the RunLoop itself."""
 
+    runner: RunnerPort | None = None
+    """The hop's execution seam, set by RunLoop after context entry (stores
+    resolved) and before executor preparation. Spawn/peer tool assemblers
+    consume it — coordination reaches execution only through the port."""
+
     tool_assemblers: list[Any] = field(default_factory=list)
     """Hop tool contributors (spawn/peer wrappers), attached by the driver.
 
@@ -116,6 +133,45 @@ class RunContext:
 
     async def __aexit__(self, *exc: object) -> None:
         await self.stack.aclose()
+
+
+# ── InProcessRunner — the RunnerPort's in-process implementation ──────────────
+
+
+class InProcessRunner:
+    """One agent activation, executed right here.
+
+    Bound to the hop's wiring (a :class:`ParentRuntime`), a bare run forks
+    its target under that wiring — the fork is runtime vocabulary, the port
+    contract stays pure execution. Unbound (``runtime=None``) the target runs
+    as-is: the standalone default for callers outside a hop chain. Chat
+    activations (``session_id`` set) never fork — a member speaks as itself.
+    """
+
+    def __init__(self, runtime: ParentRuntime | None = None) -> None:
+        self._runtime = runtime
+
+    def activate(self, activation: AgentActivation) -> AsyncGenerator[AgentEvent, None]:
+        if activation.session_id is not None:
+            # Same as InProcessChatRunner — agent is Any on the port, an Agent here.
+            return cast(
+                "AsyncGenerator[AgentEvent, None]",
+                activation.agent.chat_stream(activation.task, session_id=activation.session_id),
+            )
+        agent = activation.agent
+        if self._runtime is not None:
+            runtime = replace(
+                self._runtime,
+                budget=self._runtime.budget or agent.budget_config,
+            )
+            agent = agent.fork_as_spawn(runtime)
+        return drive_stream(
+            agent,
+            activation.task,
+            run_id=activation.run_id,
+            parent_run_id=activation.parent_run_id,
+            budget_ledger=cast("BudgetLedger | None", activation.budget_ledger),
+        )
 
 
 # ── Run entry points — drive a fresh or resumed run to terminal state ─────────
@@ -175,21 +231,6 @@ async def drive(
         budget_ledger=budget_ledger,
     )
     return await collect_final_run(stream, fallback_run_id=root_run_id, fallback_task=task)
-
-
-async def collect_final_run(
-    stream: AsyncGenerator[AgentEvent, None],
-    *,
-    fallback_run_id: str,
-    fallback_task: str,
-) -> AgentRun:
-    final_run: AgentRun | None = None
-    async for event in stream:
-        if isinstance(event, (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)):
-            final_run = event.run
-    if final_run is None:
-        return make_failed_run(fallback_run_id, fallback_task)
-    return final_run
 
 
 async def _resolve_initial_context(agent: Agent, root_run_id: str, task: str) -> RunContext:
@@ -274,6 +315,8 @@ class RunLoop:
             next_ctx: RunContext | None = None
             try:
                 async with ctx:
+                    if ctx.runner is None:
+                        ctx.runner = InProcessRunner(ParentRuntime.from_context(ctx))
                     hooks, executor, spawn_acc = await self._factory.prepare(ctx)
                     try:
                         async for event in executor.stream(
@@ -307,7 +350,7 @@ class RunLoop:
                             settle_hooks = self._root_agent.hooks
                             if settle_hooks is None:
                                 settle_hooks = self._root_agent.attach_default_hooks()
-                        await self._settle(overall_final_run, ctx, settle_hooks)
+                        await self._settle(overall_final_run, ctx.checkpoint, settle_hooks)
             except asyncio.CancelledError:
                 if overall_final_run is None and final_run is not None:
                     overall_final_run = final_run
@@ -331,20 +374,53 @@ class RunLoop:
     ) -> RunContext | None:
         """Hand off to the next peer hop via the relay (compose seam).
 
-        The relay itself — budget settle-at-handoff, dedupe pipeline,
-        checkpoint persistence, peer fork — lives with the peer primitive in
-        ``coordination/relay.py``; runtime stays blind to coordination."""
+        The relay decides whether and where the chain continues and returns a
+        pure-data :class:`~prodagent.ports.runner.HandoffActivation`;
+        interpreting it — peer lookup, fork, hop context — is this driver's
+        job, so coordination never constructs runtime objects. Budget
+        settle-at-handoff, dedupe pipeline, and checkpoint persistence stay
+        with the relay in ``coordination/relay.py``."""
         if run is None or run.pending_handoff is None:
             return None
         if self._relay is None:
             self._relay = peer_relay(self._root_run_id)
         relay = self._relay
-        return await relay.next_context(ctx, run, spawn_acc, self._ledger)
+        hop = await relay.next_hop(
+            ctx.agent,
+            run,
+            run_id=ctx.run_id,
+            depth=ctx.depth,
+            checkpoint=ctx.checkpoint,
+            event_log=ctx.event_log,
+            spawn_acc=spawn_acc,
+            ledger=self._ledger,
+        )
+        if hop is None:
+            return None
+        peer_spec = ctx.agent.peer_named(hop.peer_name)
+        if peer_spec is None:
+            logger.error(
+                "[orchestrator] relay handed off to unknown peer %r — chain stops",
+                hop.peer_name,
+            )
+            return None
+        return RunContext(
+            agent=peer_spec.fork_as_peer(
+                ctx.agent,
+                ctx.run_id,
+                checkpoint=ctx.checkpoint,
+                event_log=ctx.event_log,
+            ),
+            task=hop.task,
+            run_id=hop.run_id,
+            depth=hop.depth,
+            parent_run_id=hop.parent_run_id,
+        )
 
     async def _settle(
         self,
         run: AgentRun,
-        ctx: RunContext,
+        checkpoint: Any,
         hooks: HookRegistry | None,
     ) -> None:
         settler = make_settler(
@@ -353,7 +429,7 @@ class RunLoop:
             output_schema=self._output_schema,
             output_contract=self._root_agent.config.output_contract,
         )
-        await settler.settle(run, ctx, hooks)
+        await settler.settle(run, checkpoint, hooks)
 
     async def _finalize_run(
         self,

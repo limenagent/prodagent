@@ -5,11 +5,12 @@ from prodagent.coordination.spawn import (
     Spawn,
     short_result,
 )
+from prodagent.kernel.budget import SpawnAccumulator
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import ErrorSeverity, ToolOutcome
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.parent_runtime import ParentRuntime, SpawnAccumulator
-from prodagent.runtime.runner import RunContext, RunLoop
+from prodagent.runtime.parent_runtime import ParentRuntime
+from prodagent.runtime.runner import InProcessRunner, RunContext, RunLoop
 from prodagent.tooling.base import coerce_result
 
 
@@ -27,16 +28,19 @@ async def test_spawn_timeout_returns_permanent_error(monkeypatch) -> None:
 
     pipeline = Spawn(
         [child],
-        llm=FakeLLMAdapter(),
+        runner=InProcessRunner(
+            ParentRuntime(
+                constraints=[],
+                budget=None,
+                parent_run_id="parent-timeout",
+                checkpoint=None,
+                event_log=None,
+                llm=FakeLLMAdapter(),
+            )
+        ),
         hooks=None,
         framework_config=None,
-        ctx=ParentRuntime(
-            constraints=[],
-            budget=None,
-            parent_run_id="parent-timeout",
-            checkpoint=None,
-            event_log=None,
-        ),
+        parent_run_id="parent-timeout",
     )
 
     result = await pipeline.spawn("blocker", "do something")

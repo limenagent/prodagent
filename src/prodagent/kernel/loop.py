@@ -32,7 +32,6 @@ from prodagent.kernel.types import (
     RunState,
     RunSuspendedEvent,
 )
-from prodagent.ports.llm import LLMConfig
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -118,7 +117,7 @@ class ReactiveLoop:
             bus=self._hooks,
             assembler=_assemble if cm is not None else None,
             budget_check=self._check_budget,
-            llm_config=LLMConfig(),
+            llm_config=getattr(llm, "default_config", None),
             cache_boundary=(lambda: cm.cache_boundary_index) if cm is not None else None,
         )
 

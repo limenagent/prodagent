@@ -10,9 +10,9 @@ from typing import TYPE_CHECKING
 import pytest
 
 from prodagent.backends.memory.lock import InProcessLockStore
-from prodagent.coordination._stage import StageDriver
-from prodagent.coordination.activation import Activation
+from prodagent.coordination.stage import StageDriver
 from prodagent.kernel.budget import BudgetLedger, HardBudget
+from prodagent.ports.activation import Activation
 
 if TYPE_CHECKING:
     from prodagent.coordination.termination import TerminationReason

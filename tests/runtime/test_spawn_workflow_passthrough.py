@@ -12,6 +12,7 @@ from prodagent.coordination.spawn import build_spawn_tools_for_agent
 from prodagent.llm.fake import script
 from prodagent.plan.workflow import Workflow
 from prodagent.runtime.parent_runtime import ParentRuntime
+from prodagent.runtime.runner import InProcessRunner
 from prodagent.tooling import tool
 
 
@@ -47,7 +48,7 @@ async def test_workflow_child_runs_preset_dag_via_spawn():
     assert child.config.initial_plan is not None
     assert child.config.max_replans == 0
 
-    spawn = build_spawn_tools_for_agent([child], llm=llm, context=ParentRuntime())
+    spawn = build_spawn_tools_for_agent([child], runner=InProcessRunner(ParentRuntime(llm=llm)))
     result = await spawn.tool._fn(name="wf_worker", task="fetch and summarise")
 
     assert result["state"] == "completed", (
@@ -82,7 +83,7 @@ async def test_workflow_child_forwarded_max_replans_is_zero():
 
     assert child.config.max_replans == 0
 
-    spawn = build_spawn_tools_for_agent([child], llm=llm, context=ParentRuntime())
+    spawn = build_spawn_tools_for_agent([child], runner=InProcessRunner(ParentRuntime(llm=llm)))
     result = await spawn.tool._fn(name="wf_boom", task="trigger boom")
 
     # max_replans=0 → step failure terminates; child does not silently replan.

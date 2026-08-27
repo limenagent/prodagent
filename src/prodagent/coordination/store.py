@@ -4,7 +4,7 @@
 ``SharedFloor`` (append-only transcript), ``Board`` (versioned map), ``SharedQueue``
 (lease-based claim deque). They are informal instances of one model — a store + an
 activation policy (the *activation* axis is named explicitly in
-:mod:`prodagent.coordination.activation`) — and they share the same
+:mod:`prodagent.ports.activation`) — and they share the same
 *read-side contract*: a round-aware,
 snapshotable state with a liveness fingerprint. That contract lives here, once,
 so :class:`~prodagent.coordination.termination.TerminationPolicy` can

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent.coordination.activation import Activation, ActivationContext
 from prodagent.coordination.ensemble import (
     EnsembleCompletedEvent,
     EnsembleSpec,
@@ -14,6 +13,7 @@ from prodagent.coordination.ensemble import (
 from prodagent.coordination.floor import FloorTurn, SharedFloor
 from prodagent.coordination.termination import MaxRounds, TerminationPolicy
 from prodagent.kernel.budget import BudgetLedger, HardBudget
+from prodagent.ports.activation import Activation, ActivationContext
 
 
 class _EchoMember:

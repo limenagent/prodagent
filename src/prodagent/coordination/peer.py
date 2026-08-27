@@ -1,10 +1,12 @@
 """Peer — horizontal peer handoff (``peers=``).
 
-This module only defines the ``handoff_to_<peer>`` tool schema. The real
-handoff chain — ``HandoffPacket``, ``Crossing``, idempotency dedup — lives in
-``runtime/runner.py`` (see its handling around the ``PendingHandoff`` state).
-Peer is a *delegation strategy*, not a multi-round staged topology: contrast
-with ensemble/blackboard/work_queue, which run their own round loop over a
+This module only defines the ``handoff_to_<peer>`` tool schemas. The real
+handoff chain — ``HandoffPacket``, ``Crossing``, idempotency dedup,
+settle-at-handoff — lives in ``coordination/relay.py``; the chain driver
+(``runtime/runner.py``) reaches it through the compose seam and interprets
+the pure-data ``HandoffActivation`` it returns. Peer is a *delegation
+strategy*, not a multi-round staged topology: contrast with
+ensemble/blackboard/work_queue, which run their own round loop over a
 shared store.
 """
 
@@ -14,17 +16,16 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from prodagent.base.errors import ErrorReason
+from prodagent.coordination.describe import describe_agent
 from prodagent.kernel.types import RunState, SideEffectLevel, ToolError, ToolMeta, ToolResult
-from prodagent.runtime.factory import attach_tools
-from prodagent.runtime.parent_runtime import ParentRuntime, describe_agent
 from prodagent.tooling.base import FunctionTool
+from prodagent.tooling.merge import attach_tools
 
 if TYPE_CHECKING:
+    from prodagent.kernel.budget import SpawnAccumulator
     from prodagent.kernel.state import PendingHandoff
     from prodagent.ports import CheckpointStore
     from prodagent.runtime.agent import Agent
-    from prodagent.runtime.parent_runtime import SpawnAccumulator
-    from prodagent.runtime.runner import RunContext
 
 logger = logging.getLogger(__name__)
 
@@ -36,14 +37,8 @@ class Peer:
     :class:`~prodagent.coordination.spawn.Spawn` (``agents=``, vertical
     delegation): parent keeps running, gets a result back."""
 
-    def __init__(
-        self,
-        peers: list[Agent],
-        *,
-        ctx: ParentRuntime,
-    ) -> None:
+    def __init__(self, peers: list[Agent]) -> None:
         self._spec_map = {a.name: a for a in peers}
-        self._ctx = ctx
 
     def handoff(
         self,
@@ -71,10 +66,7 @@ class Peer:
         )
 
     def build_tools(self) -> list[FunctionTool]:
-        tools: list[FunctionTool] = []
-        for peer in self._ctx.peer_specs:
-            tools.append(self._build_one_tool(peer))
-        return tools
+        return [self._build_one_tool(peer) for peer in self._spec_map.values()]
 
     def _build_one_tool(self, peer: Agent) -> FunctionTool:
         peer_name = peer.name
@@ -133,40 +125,28 @@ class Peer:
         )
 
 
-def build_peer_tools_for_agent(
-    peers: list[Agent],
-    *,
-    ctx: ParentRuntime | None = None,
-) -> list[FunctionTool]:
+def build_peer_tools_for_agent(peers: list[Agent]) -> list[FunctionTool]:
     if not peers:
         return []
-    if ctx is None:
-        ctx = ParentRuntime(peer_specs=list(peers))
-    if not ctx.peer_specs:
-        ctx.peer_specs = list(peers)
-    pipeline = Peer(peers, ctx=ctx)
-    return pipeline.build_tools()
+    return Peer(peers).build_tools()
 
 
 def assemble_peer_tools(
-    ctx: RunContext,
+    ctx: Any,
     active_tools: list[Any],
     tool_schemas: list[dict[str, Any]],
     spawn_acc: SpawnAccumulator | None,
 ) -> SpawnAccumulator | None:
-    """Build peer-handoff tools for ``agent.peer_agents``, appended to
+    """Build peer-handoff tools for ``agent.config.peers``, appended to
     ``active_tools``/``tool_schemas``. Returns ``spawn_acc`` unchanged — peer
     handoff doesn't create its own accumulator, but passing it through keeps
-    the call shape symmetric with ``assemble_spawn_tools``."""
+    the call shape symmetric with ``assemble_spawn_tools``.
+
+    ``ctx`` is the hop's RunContext — runtime vocabulary, read structurally."""
     agent = ctx.agent
     if not agent.config.peers:
         return spawn_acc
-    peer_ctx = ParentRuntime.from_context(
-        ctx,
-        peer_specs=agent.config.peers,
-        accumulator=spawn_acc,
-    )
-    peer_tools = build_peer_tools_for_agent(agent.config.peers, ctx=peer_ctx)
+    peer_tools = build_peer_tools_for_agent(agent.config.peers)
     attach_tools(active_tools, tool_schemas, peer_tools)
     return spawn_acc
 

@@ -5,7 +5,7 @@ Pins three contracts:
 - :func:`prodagent.kernel.budget.run_enveloped` — the one reserve→act→commit
   envelope (spawn and the stage drivers both delegate here; the crash policy
   must not be able to drift between them);
-- :func:`prodagent.runtime.parent_runtime.hop_own_share` — the hop's own
+- :func:`prodagent.kernel.budget.hop_own_share` — the hop's own
   spend, children excluded, for the relay's settle-at-boundary commit;
 - the relay's checkpoint save going through ``save_and_fire_checkpoint`` —
   a failing relay save must fire CHECKPOINT_FAILED like every other save
@@ -20,11 +20,16 @@ import pytest
 import prodagent.backends.file.checkpoint as checkpoint_module
 from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.backends.file.checkpoint import FileCheckpointStore
-from prodagent.kernel.budget import BudgetLedger, HardBudget, run_enveloped
+from prodagent.kernel.budget import (
+    BudgetLedger,
+    HardBudget,
+    SpawnAccumulator,
+    hop_own_share,
+    run_enveloped,
+)
 from prodagent.kernel.bus import HookEvent, HookRegistry
 from prodagent.kernel.state import AgentRun
 from prodagent.llm.fake import script
-from prodagent.runtime.parent_runtime import SpawnAccumulator, hop_own_share
 
 
 def _ledger(max_turns: int = 5) -> BudgetLedger:

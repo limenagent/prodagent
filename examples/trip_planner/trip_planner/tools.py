@@ -198,7 +198,6 @@ async def search_restaurants(city: str, cuisine: str = "") -> dict:
         side_effect_level=SideEffectLevel.MEDIUM,
         timeout_seconds=200 / 1_000,
         domain="travel",
-        resource_id="restaurant-booking",
         enforced_idempotent=True,
     )
 )

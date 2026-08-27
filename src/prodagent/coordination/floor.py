@@ -20,7 +20,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from prodagent.coordination._store import SharedStore
+from prodagent.coordination.store import SharedStore
 
 if TYPE_CHECKING:
     from prodagent.kernel.types import ToolCall

@@ -6,6 +6,7 @@ from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.base.config import FrameworkConfig
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
+from prodagent.runtime.runner import InProcessRunner
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -51,16 +52,19 @@ async def test_run_child_directly_returns_failed_on_none_run(tmp_path: Path) -> 
     llm = FakeLLMAdapter(responses=[LLMResponse(content="not json", stop_reason="end_turn")])
     pipeline = Spawn(
         [child],
-        llm=llm,
+        runner=InProcessRunner(
+            ParentRuntime(
+                constraints=[],
+                budget=None,
+                parent_run_id="parent-1",
+                checkpoint=None,
+                event_log=None,
+                llm=llm,
+            )
+        ),
         hooks=None,
         framework_config=_isolated_fw(tmp_path),
-        ctx=ParentRuntime(
-            constraints=[],
-            budget=None,
-            parent_run_id="parent-1",
-            checkpoint=None,
-            event_log=None,
-        ),
+        parent_run_id="parent-1",
     )
     result = await pipeline.spawn("broken_planner", "do something")
 
@@ -88,16 +92,19 @@ async def test_run_child_returns_failed_when_executor_raises(tmp_path: Path) -> 
     )
     pipeline = Spawn(
         [child],
-        llm=_BoomLLM(),  # type: ignore[arg-type]
+        runner=InProcessRunner(
+            ParentRuntime(
+                constraints=[],
+                budget=None,
+                parent_run_id="parent-2",
+                checkpoint=None,
+                event_log=None,
+                llm=_BoomLLM(),  # type: ignore[arg-type]
+            )
+        ),
         hooks=None,
         framework_config=_isolated_fw(tmp_path),
-        ctx=ParentRuntime(
-            constraints=[],
-            budget=None,
-            parent_run_id="parent-2",
-            checkpoint=None,
-            event_log=None,
-        ),
+        parent_run_id="parent-2",
     )
     result = await pipeline.spawn("exploder", "do something")
 

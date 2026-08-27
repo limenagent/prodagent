@@ -28,6 +28,7 @@ from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.agent import Agent
 from prodagent.runtime.config import AgentConfig
 from prodagent.runtime.parent_runtime import ParentRuntime
+from prodagent.runtime.runner import InProcessRunner
 
 
 def _worker(name: str) -> Agent:
@@ -47,10 +48,10 @@ async def test_only_one_of_two_concurrent_spawns_passes_a_one_turn_ceiling():
     worker_b = _worker("workerB")
     pipeline = Spawn(
         [worker_a, worker_b],
-        llm=FakeLLMAdapter(responses=[]),
+        runner=InProcessRunner(ctx),
         hooks=None,
         framework_config=None,
-        ctx=ctx,
+        budget=budget,
     )
 
     result_a, result_b = await asyncio.gather(
@@ -75,10 +76,9 @@ async def test_ledger_is_noop_when_no_budget_configured():
     worker_a = _worker("workerA")
     pipeline = Spawn(
         [worker_a],
-        llm=FakeLLMAdapter(responses=[]),
+        runner=InProcessRunner(ctx),
         hooks=None,
         framework_config=None,
-        ctx=ctx,
     )
     assert pipeline._budget_ledger is None
 

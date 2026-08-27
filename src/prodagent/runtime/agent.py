@@ -15,8 +15,9 @@ from prodagent.base.errors import (
     UnknownApprovalError,
 )
 from prodagent.base.session import ConversationSession
+from prodagent.kernel.budget import SpawnAccumulator
 from prodagent.kernel.bus import Gate, HookEvent, HookRegistry, InjectionPoint
-from prodagent.kernel.state import CHILD_SEPARATOR
+from prodagent.kernel.state import CHILD_SEPARATOR, collect_final_run
 from prodagent.kernel.types import (
     ExecutionMode,
     MessageList,
@@ -27,9 +28,9 @@ from prodagent.kernel.types import (
 )
 from prodagent.ports.llm import LLMClient
 from prodagent.runtime.config import AgentConfig
-from prodagent.runtime.factory import merge_tools_by_name
-from prodagent.runtime.parent_runtime import ParentRuntime, SpawnAccumulator
-from prodagent.runtime.runner import collect_final_run, drive_stream
+from prodagent.runtime.parent_runtime import ParentRuntime
+from prodagent.runtime.runner import drive_stream
+from prodagent.tooling.merge import merge_tools_by_name
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Sequence

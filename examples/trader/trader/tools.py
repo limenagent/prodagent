@@ -94,7 +94,6 @@ async def _acquire_orders_lock() -> dict | None:
         side_effect_level=SideEffectLevel.HIGH,
         timeout_seconds=100 / 1_000,
         domain="food_delivery",
-        resource_id="orders",
         enforced_idempotent=True,
     )
 )

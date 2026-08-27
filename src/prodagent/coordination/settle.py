@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from prodagent.coordination.messaging.contract import MessageContract
     from prodagent.kernel.bus import HookRegistry
     from prodagent.kernel.state import AgentRun
-    from prodagent.runtime.runner import RunContext
+    from prodagent.ports import CheckpointStore
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +47,14 @@ class Settler:
         self._output_schema = output_schema
         self._output_contract = output_contract
 
-    async def settle(self, run: AgentRun, ctx: RunContext, hooks: HookRegistry | None) -> None:
+    async def settle(
+        self,
+        run: AgentRun,
+        checkpoint: CheckpointStore | None,
+        hooks: HookRegistry | None,
+    ) -> None:
         if run.state is RunState.SUSPENDED:
-            await self._save_checkpoint(run, ctx, hooks)
+            await self._save_checkpoint(run, checkpoint, hooks)
             return
 
         if run.state is not RunState.FAILED:
@@ -59,9 +64,9 @@ class Settler:
 
         if run.state is RunState.FAILED:
             if run.checkpoint_version > 0:
-                await self._save_checkpoint(run, ctx, hooks)
+                await self._save_checkpoint(run, checkpoint, hooks)
         else:
-            await self._save_checkpoint(run, ctx, hooks)
+            await self._save_checkpoint(run, checkpoint, hooks)
 
         if hooks is None:
             return
@@ -92,7 +97,7 @@ class Settler:
             )
         except SECURITY_VETO_EXCEPTIONS:
             run.state = RunState.FAILED
-            await self._save_checkpoint(run, ctx, hooks)
+            await self._save_checkpoint(run, checkpoint, hooks)
             raise
 
         await _fire(
@@ -151,8 +156,8 @@ class Settler:
     async def _save_checkpoint(
         self,
         run: AgentRun,
-        ctx: RunContext,
+        checkpoint: CheckpointStore | None,
         hooks: HookRegistry | None = None,
     ) -> None:
-        if ctx.checkpoint is not None:
-            await save_and_fire_checkpoint(ctx.checkpoint, run, hooks)
+        if checkpoint is not None:
+            await save_and_fire_checkpoint(checkpoint, run, hooks)

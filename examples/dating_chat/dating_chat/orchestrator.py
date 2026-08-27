@@ -35,14 +35,13 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from prodagent import MaxRounds, TerminationPolicy
-from prodagent.kernel.budget import SharedBudget
 from prodagent.coordination.ensemble import (
     EnsembleSpec,
     FloorTurnEvent,
     ensemble_stream,
 )
 from prodagent.coordination.floor_projection import PublicTextOnly
-from prodagent.kernel.budget import HardBudget
+from prodagent.kernel.budget import BudgetLedger, HardBudget
 
 from dating_chat.agent import MeiFloorMember, build_dating_chat_agent
 from dating_chat.memory import MEMORY_DIR, build_memory, seed_mei_memory
@@ -165,7 +164,7 @@ async def run_conversation(*, session_id: str = "dating-chat") -> AsyncIterator[
     """跑完整对话，逐行 yield 出来给 CLI 打印或 web 层推送。
 
     跟原版的区别：不再用 ``for round_num`` 手搓循环，而是组装 ``EnsembleSpec`` 交给
-    ``ensemble_stream()``。框架按 round-robin 驱动两人发言，每轮检查 SharedBudget +
+    ``ensemble_stream()``。框架按 round-robin 驱动两人发言，每轮检查共享 BudgetLedger +
     TerminationPolicy。两人都是 ``FloorMember``——大牛是 ``NiuFloorMember``（手搓
     messages + 截断），小美是 ``MeiFloorMember``（真 Agent + [FLOOR] L2 注入）。
     """
@@ -202,7 +201,7 @@ async def run_conversation(*, session_id: str = "dating-chat") -> AsyncIterator[
         order=DatingOrder(),
         projection=PublicTextOnly(),
         termination=TerminationPolicy(hard_cap=MaxRounds(max_rounds=10)),
-        budget=SharedBudget(max=HardBudget(
+        budget=BudgetLedger(max=HardBudget(
             max_turns=20, max_seconds=1800.0, max_tokens=500_000, max_cost_usd=2.0,
         )),
         session_id=session_id,

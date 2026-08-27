@@ -8,6 +8,7 @@ from prodagent.kernel.budget import HardBudget
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.parent_runtime import ParentRuntime
+from prodagent.runtime.runner import InProcessRunner
 
 
 def _plan_llm() -> FakeLLMAdapter:
@@ -21,14 +22,21 @@ async def test_spawned_child_trips_on_spend_already_committed_by_a_sibling():
     budget = HardBudget(max_turns=50, max_cost_usd=0.9, max_tokens=1_000_000, max_seconds=600)
     ledger = BudgetLedger(max=budget)
     await ledger.commit(member="earlier-sibling", turns=0, tokens=0, cost_usd=0.95)
-    ctx = ParentRuntime(budget=budget, budget_ledger=ledger)
+    ctx = ParentRuntime(budget=budget, budget_ledger=ledger, llm=_plan_llm())
 
     child = Agent(
         "worker",
         system_prompt="do work",
         config=AgentConfig(name="worker", llm=_plan_llm(), description="A PLAN_FIRST worker"),
     )
-    pipeline = Spawn([child], llm=_plan_llm(), hooks=None, framework_config=None, ctx=ctx)
+    pipeline = Spawn(
+        [child],
+        runner=InProcessRunner(ctx),
+        hooks=None,
+        framework_config=None,
+        budget=budget,
+        budget_ledger=ledger,
+    )
 
     result = await pipeline.spawn("worker", "do something")
 
@@ -39,7 +47,7 @@ async def test_spawned_child_trips_on_spend_already_committed_by_a_sibling():
 
 async def test_spawned_child_completes_when_sibling_spend_stays_under_ceiling():
     budget = HardBudget(max_turns=50, max_cost_usd=0.9, max_tokens=1_000_000, max_seconds=600)
-    ctx = ParentRuntime(budget=budget)
+    ctx = ParentRuntime(budget=budget, llm=_plan_llm())
     ctx.accumulator.cost_usd = 0.1
     ctx.accumulator.spawn_count = 1
 
@@ -48,7 +56,14 @@ async def test_spawned_child_completes_when_sibling_spend_stays_under_ceiling():
         system_prompt="do work",
         config=AgentConfig(name="worker", llm=_plan_llm(), description="A PLAN_FIRST worker"),
     )
-    pipeline = Spawn([child], llm=_plan_llm(), hooks=None, framework_config=None, ctx=ctx)
+    pipeline = Spawn(
+        [child],
+        runner=InProcessRunner(ctx),
+        hooks=None,
+        framework_config=None,
+        budget=budget,
+        accumulator=ctx.accumulator,
+    )
 
     result = await pipeline.spawn("worker", "do something")
 

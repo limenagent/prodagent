@@ -225,7 +225,6 @@ async def enrich_entity(transactions: Any = None, **kwargs: Any) -> dict[str, An
         side_effect_level=SideEffectLevel.HIGH,
         timeout_seconds=200 / 1_000,
         domain="compliance",
-        resource_id="regulator-portal",
         enforced_idempotent=True,
     )
 )

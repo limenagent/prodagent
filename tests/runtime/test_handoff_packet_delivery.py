@@ -10,6 +10,7 @@ from prodagent.kernel.types import LLMResponse, SideEffectLevel, ToolMeta
 from prodagent.llm.fake import script
 from prodagent.ports.llm import LLMClient
 from prodagent.runtime.parent_runtime import ParentRuntime
+from prodagent.runtime.runner import InProcessRunner
 from prodagent.tooling.base import FunctionTool
 
 if TYPE_CHECKING:
@@ -78,7 +79,9 @@ async def test_child_receives_packet_constraints_not_raw_task():
     capturing = _CapturingLLM(fake)
     child = _child_with_tools(["search_logs", "query_db"])
 
-    spawn = build_spawn_tools_for_agent([child], llm=capturing, context=ParentRuntime())
+    spawn = build_spawn_tools_for_agent(
+        [child], runner=InProcessRunner(ParentRuntime(llm=capturing))
+    )
     result = await spawn.tool._fn(name="worker", task="find the failing order")
 
     assert result["state"] != "duplicate"
@@ -120,8 +123,8 @@ async def test_child_receives_parent_constraints_not_phase_goal():
 
     spawn = build_spawn_tools_for_agent(
         [child],
-        llm=capturing,
-        context=ParentRuntime(constraints=["Never write to prod", "Budget capped at $1"]),
+        runner=InProcessRunner(ParentRuntime(llm=capturing)),
+        constraints=["Never write to prod", "Budget capped at $1"],
     )
     await spawn.tool._fn(name="worker", task="investigate")
 
@@ -148,7 +151,9 @@ async def test_raw_task_not_passed_directly():
     capturing = _CapturingLLM(fake)
     child = _child_with_tools(["tool_a", "tool_b"])
 
-    spawn = build_spawn_tools_for_agent([child], llm=capturing, context=ParentRuntime())
+    spawn = build_spawn_tools_for_agent(
+        [child], runner=InProcessRunner(ParentRuntime(llm=capturing))
+    )
     raw_task = "just a bare task"
     await spawn.tool._fn(name="worker", task=raw_task)
 

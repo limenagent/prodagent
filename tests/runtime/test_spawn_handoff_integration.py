@@ -4,6 +4,8 @@ import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.llm.fake import script
+from prodagent.runtime.parent_runtime import ParentRuntime
+from prodagent.runtime.runner import InProcessRunner
 from prodagent.tooling.base import FunctionTool
 
 
@@ -28,7 +30,9 @@ async def test_spawn_tool_respects_duplicate_message_ids():
 
     from prodagent.coordination.spawn import build_spawn_tools_for_agent
 
-    spawn_tools = build_spawn_tools_for_agent([child], llm=fake_llm)
+    spawn_tools = build_spawn_tools_for_agent(
+        [child], runner=InProcessRunner(ParentRuntime(llm=fake_llm))
+    )
     spawn_tool = spawn_tools.tool
 
     result1 = await spawn_tool._fn(name="doubler", task="double 5", idempotency_key="retry-key-1")
@@ -58,7 +62,9 @@ async def test_spawn_tool_different_tasks_not_duplicated():
 
     from prodagent.coordination.spawn import build_spawn_tools_for_agent
 
-    spawn_tools = build_spawn_tools_for_agent([child], llm=fake_llm)
+    spawn_tools = build_spawn_tools_for_agent(
+        [child], runner=InProcessRunner(ParentRuntime(llm=fake_llm))
+    )
     spawn_tool = spawn_tools.tool
 
     result1 = await spawn_tool._fn(name="doubler", task="task A")
@@ -80,7 +86,9 @@ async def test_spawn_tool_creates_handoff_packet():
 
     from prodagent.coordination.spawn import build_spawn_tools_for_agent
 
-    spawn_tools = build_spawn_tools_for_agent([child], llm=fake_llm)
+    spawn_tools = build_spawn_tools_for_agent(
+        [child], runner=InProcessRunner(ParentRuntime(llm=fake_llm))
+    )
     spawn_tool = spawn_tools.tool
 
     result = await spawn_tool._fn(name="echoer", task="echo test")
@@ -100,7 +108,9 @@ async def test_spawn_tool_result_has_output_and_state():
 
     from prodagent.coordination.spawn import build_spawn_tools_for_agent
 
-    spawn_tools = build_spawn_tools_for_agent([child], llm=fake_llm)
+    spawn_tools = build_spawn_tools_for_agent(
+        [child], runner=InProcessRunner(ParentRuntime(llm=fake_llm))
+    )
     spawn_tool = spawn_tools.tool
 
     result = await spawn_tool._fn(name="bad_agent", task="fail")
@@ -126,7 +136,9 @@ async def test_spawn_tool_meta_allows_parallel_and_idempotent():
     from prodagent.coordination.spawn import build_spawn_tools_for_agent
 
     fake_llm = script({"content": "done"})
-    spawn = build_spawn_tools_for_agent([_spec()], llm=fake_llm)
+    spawn = build_spawn_tools_for_agent(
+        [_spec()], runner=InProcessRunner(ParentRuntime(llm=fake_llm))
+    )
     assert spawn is not None
     assert spawn.tool.meta.is_readonly is True
     assert spawn.tool.meta.side_effect_level.value == "low"
@@ -139,8 +151,10 @@ async def test_spawn_aggregates_cost_into_accumulator():
     from prodagent.runtime.parent_runtime import ParentRuntime
 
     fake_llm = script({"content": "done"})
-    ctx = ParentRuntime()
-    spawn = build_spawn_tools_for_agent([_spec()], llm=fake_llm, context=ctx)
+    ctx = ParentRuntime(llm=fake_llm)
+    spawn = build_spawn_tools_for_agent(
+        [_spec()], runner=InProcessRunner(ctx), accumulator=ctx.accumulator
+    )
     result = await spawn.tool._fn(name="worker", task="do it")
     assert result["state"] != "duplicate"
     assert ctx.accumulator.spawn_count == 1
@@ -161,7 +175,9 @@ async def test_l7_handoff_rejection_dead_letters(monkeypatch=None):
     hooks.register_checker(Gate.AGENT_HANDOFF, _reject)
 
     fake_llm = script({"content": "done"})
-    spawn = build_spawn_tools_for_agent([_spec()], llm=fake_llm, hooks=hooks)
+    spawn = build_spawn_tools_for_agent(
+        [_spec()], runner=InProcessRunner(ParentRuntime(llm=fake_llm)), hooks=hooks
+    )
     result = await spawn.tool._fn(name="worker", task="do it")
     assert result["state"] == "handoff_rejected"
     assert "security policy" in result["output"].lower()
@@ -181,7 +197,9 @@ async def test_security_veto_from_child_propagates_not_swallowed():
         def estimate_cost(self, *a, **k):
             return 0.0
 
-    spawn = build_spawn_tools_for_agent([_spec()], llm=_VetoLLM())
+    spawn = build_spawn_tools_for_agent(
+        [_spec()], runner=InProcessRunner(ParentRuntime(llm=_VetoLLM()))
+    )
     with pytest.raises(PermissionDenied):
         await spawn.tool._fn(name="worker", task="do it")
 

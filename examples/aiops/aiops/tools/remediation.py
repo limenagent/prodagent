@@ -16,8 +16,8 @@ from prodagent import SideEffectLevel, ToolMeta, tool
 # 两组共享资源各自用 Tool 内自持的 asyncio.Lock 串行化;忙时返回结构化
 # resource_busy 反馈,由上层 LLM 决定让路还是稍后重试。
 # 等待时长必须小于该工具 timeout_seconds（外层还有工具超时）。
-_INCIDENT_LOCK = asyncio.Lock()  # resource_id="incident-tracker"
-_K8S_LOCK = asyncio.Lock()  # resource_id="kubernetes-cluster"
+_INCIDENT_LOCK = asyncio.Lock()  # serializes the "incident-tracker" resource
+_K8S_LOCK = asyncio.Lock()  # serializes the "kubernetes-cluster" resource
 _INCIDENT_LOCK_WAIT_S = 0.1
 _K8S_LOCK_WAIT_S = 1.0
 
@@ -74,7 +74,6 @@ async def open_incident(title: str, severity: str, affected_services: list[str])
         side_effect_level=SideEffectLevel.LOW,
         timeout_seconds=300 / 1_000,
         domain="incident",
-        resource_id="incident-tracker",
     )
 )
 async def update_incident(
@@ -125,7 +124,6 @@ async def update_incident(
         side_effect_level=SideEffectLevel.HIGH,
         timeout_seconds=3000 / 1_000,
         domain="kubernetes",
-        resource_id="kubernetes-cluster",
     )
 )
 async def restart_pod(service: str, pod_name: str, reason: str = "") -> dict:
@@ -169,7 +167,6 @@ async def restart_pod(service: str, pod_name: str, reason: str = "") -> dict:
         side_effect_level=SideEffectLevel.HIGH,
         timeout_seconds=5000 / 1_000,
         domain="kubernetes",
-        resource_id="kubernetes-cluster",
     )
 )
 async def rollback(service: str, sha: str, reason: str = "") -> dict:
@@ -256,7 +253,6 @@ async def silence_alert(alert_name: str, duration_minutes: int = 60, reason: str
         side_effect_level=SideEffectLevel.LOW,
         timeout_seconds=300 / 1_000,
         domain="incident",
-        resource_id="incident-tracker",
     )
 )
 async def create_incident_note(incident_id: str, note: str, author: str = "sentinel-agent") -> dict:

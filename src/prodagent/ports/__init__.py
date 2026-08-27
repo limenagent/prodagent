@@ -7,6 +7,13 @@ and the kernel's in-process BudgetLedger (``prodagent.kernel.budget``);
 both satisfy their port structurally, like every backend.
 """
 
+from prodagent.ports.activation import (
+    Activation,
+    ActivationContext,
+    ActivationPolicy,
+    DispatchMode,
+    StageStore,
+)
 from prodagent.ports.approval import ApprovalStore
 from prodagent.ports.budget_ledger import BudgetLedgerPort, SpendView
 from prodagent.ports.cache import CacheStore
@@ -19,28 +26,43 @@ from prodagent.ports.graph import GraphStore
 from prodagent.ports.leaf_executor import LeafExecutor
 from prodagent.ports.llm import LLMClient
 from prodagent.ports.lock import LockStore, LockToken
+from prodagent.ports.runner import (
+    AgentActivation,
+    HandoffActivation,
+    InProcessChatRunner,
+    RunnerPort,
+)
 from prodagent.ports.session import SessionStore
 from prodagent.ports.span import SpanExporter
 from prodagent.ports.tool import Tool
 from prodagent.ports.transport import Transport
 
 __all__ = [
+    "Activation",
+    "ActivationContext",
+    "ActivationPolicy",
+    "AgentActivation",
     "ApprovalStore",
     "BudgetLedgerPort",
     "CacheStore",
     "CheckpointStore",
     "DeadLetterStore",
+    "DispatchMode",
     "DocumentStore",
     "EventLog",
     "ExperienceStore",
     "GraphStore",
+    "HandoffActivation",
+    "InProcessChatRunner",
     "LeafExecutor",
     "LLMClient",
     "LockStore",
     "LockToken",
+    "RunnerPort",
     "SessionStore",
     "SpendView",
     "SpanExporter",
+    "StageStore",
     "Tool",
     "Transport",
 ]

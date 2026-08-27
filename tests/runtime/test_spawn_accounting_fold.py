@@ -4,13 +4,12 @@ import pytest
 
 from prodagent import Agent, AgentConfig, ExecutionMode
 from prodagent.coordination.spawn import ChildResult
-from prodagent.kernel.budget import HardBudget
+from prodagent.kernel.budget import HardBudget, SpawnAccumulator
 from prodagent.kernel.bus import HookRegistry
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import LLMResponse, ToolCall
 from prodagent.llm import LLMConfig
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.parent_runtime import SpawnAccumulator
 
 
 def fold_spawn_accounting(run: AgentRun, accumulator: SpawnAccumulator | None) -> None:

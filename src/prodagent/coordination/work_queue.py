@@ -26,9 +26,6 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from prodagent.base.event_log import Event, append_expected
 from prodagent.base.text import bound_text
-from prodagent.coordination._stage import StageDriver
-from prodagent.coordination._store import RoundedLockableStore
-from prodagent.coordination.activation import Activation
 from prodagent.coordination.messaging.envelope import (
     Crossing,
     CrossingKind,
@@ -36,11 +33,14 @@ from prodagent.coordination.messaging.envelope import (
 )
 from prodagent.coordination.messaging.limits import CROSSING_OUTPUT_MAX_CHARS
 from prodagent.coordination.messaging.pipeline import admission_pipeline
+from prodagent.coordination.stage import StageDriver
+from prodagent.coordination.store import RoundedLockableStore
 from prodagent.coordination.termination import (
     MaxRounds,
     TerminationPolicy,
     TerminationReason,
 )
+from prodagent.ports.activation import Activation
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator

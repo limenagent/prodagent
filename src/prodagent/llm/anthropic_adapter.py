@@ -59,6 +59,15 @@ class AnthropicAdapter:
         register_retryable_exceptions(anthropic.APIConnectionError)
         self._default_config = default_config or LLMConfig()
 
+    @property
+    def default_config(self) -> LLMConfig:
+        """The config used when a caller passes ``config=None``.
+
+        Public so the kernel can adopt it as the run's LLMConfig (model name,
+        pricing) without importing adapter types — see ReactiveLoop._build_step.
+        """
+        return self._default_config
+
     async def complete(
         self,
         messages: MessageList,

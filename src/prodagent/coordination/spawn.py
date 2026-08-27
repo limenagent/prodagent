@@ -13,10 +13,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from prodagent.base.errors import SECURITY_VETO_EXCEPTIONS, ErrorReason
+from prodagent.coordination.describe import describe_agent
 from prodagent.coordination.messaging.contract import (
     DEFAULT_CHILD_CONTRACT,
     MessageContract,
@@ -28,8 +29,9 @@ from prodagent.coordination.messaging.envelope import (
 )
 from prodagent.coordination.messaging.packet import HandoffPacket
 from prodagent.coordination.messaging.transport import TransportSpec, build_transport
-from prodagent.kernel.budget import BudgetLedger, run_enveloped
+from prodagent.kernel.budget import BudgetLedger, SpawnAccumulator, run_enveloped
 from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.state import collect_final_run
 from prodagent.kernel.types import (
     ErrorSeverity,
     RunState,
@@ -37,18 +39,16 @@ from prodagent.kernel.types import (
     ToolError,
     ToolMeta,
 )
-from prodagent.runtime.factory import attach_tools
-from prodagent.runtime.parent_runtime import ParentRuntime, describe_agent
+from prodagent.ports.runner import AgentActivation, RunnerPort
 from prodagent.tooling.base import FunctionTool
+from prodagent.tooling.merge import attach_tools
 
 if TYPE_CHECKING:
     from prodagent.base.config import FrameworkConfig
+    from prodagent.kernel.budget import HardBudget
     from prodagent.kernel.bus import HookRegistry
     from prodagent.ports.dead_letter import DeadLetterStore
-    from prodagent.ports.llm import LLMClient
     from prodagent.runtime.agent import Agent
-    from prodagent.runtime.parent_runtime import SpawnAccumulator
-    from prodagent.runtime.runner import RunContext
 
 logger = logging.getLogger(__name__)
 
@@ -154,20 +154,28 @@ class Spawn:
         self,
         agents: list[Agent],
         *,
-        llm: LLMClient,
-        hooks: HookRegistry | None,
-        framework_config: FrameworkConfig | None,
-        ctx: ParentRuntime,
+        runner: RunnerPort,
+        hooks: HookRegistry | None = None,
+        framework_config: FrameworkConfig | None = None,
+        constraints: list[str] | None = None,
+        budget: HardBudget | None = None,
+        budget_ledger: BudgetLedger | None = None,
+        parent_run_id: str | None = None,
+        depth: int = 0,
+        accumulator: SpawnAccumulator | None = None,
         dead_letter_queue: DeadLetterStore | None = None,
     ) -> None:
         from prodagent.backends.factory import resolve_dead_letter
         from prodagent.base.config import FrameworkConfig
 
         self._spec_map = {a.name: a for a in agents}
-        self._llm = llm
+        self._runner = runner
         self._hooks = hooks
         self._framework_config = framework_config or FrameworkConfig.from_env()
-        self._ctx = ctx
+        self._constraints = list(constraints or ())
+        self._parent_run_id = parent_run_id
+        self._depth = depth
+        self._accumulator = accumulator if accumulator is not None else SpawnAccumulator()
         orch = self._framework_config.orchestration
         self._handoff_output_max_chars = orch.handoff_output_max_chars
         self._default_timeout_s = orch.spawn_default_timeout_s
@@ -178,8 +186,8 @@ class Spawn:
         )
         # Shared chain ledger (one per RunLoop) — peers and siblings see the same
         # spend. A standalone Spawn (no chain) still enforces its own ceiling.
-        self._budget_ledger = ctx.budget_ledger or (
-            BudgetLedger(max=ctx.budget) if ctx.budget is not None else None
+        self._budget_ledger = budget_ledger or (
+            BudgetLedger(max=budget) if budget is not None else None
         )
         # Both boundary directions of the spawn primitive, built through the
         # shared transport factory — preset selection and dedupe policy live
@@ -239,7 +247,7 @@ class Spawn:
 
     @property
     def accumulator(self) -> SpawnAccumulator:
-        return self._ctx.accumulator
+        return self._accumulator
 
     @property
     def dlq(self) -> DeadLetterStore:
@@ -261,9 +269,7 @@ class Spawn:
             ).as_dict()
 
         packet = self._build_packet(name, spec, task, input_refs, idempotency_key)
-        child_run_id = (
-            child_run_id_for(self._ctx.parent_run_id, name) if self._ctx.parent_run_id else None
-        )
+        child_run_id = child_run_id_for(self._parent_run_id, name) if self._parent_run_id else None
 
         # DOWNSTREAM: dispatch (dedupe + gate); rejected dispatches die before
         # the child burns any budget.
@@ -276,8 +282,8 @@ class Spawn:
             name=name,
             task=task,
             packet_id=packet.task_id,
-            depth=self._ctx.depth + 1,
-            parent_run_id=self._ctx.parent_run_id,
+            depth=self._depth + 1,
+            parent_run_id=self._parent_run_id,
             child_run_id=child_run_id,
         )
 
@@ -296,7 +302,7 @@ class Spawn:
             ).as_dict()
 
         if result.state == STATE_SUSPENDED and result.approval_request_id:
-            self._ctx.accumulator.add(result)
+            self._accumulator.add(result)
             logger.info(
                 "[spawn] child %r suspended pending approval (request_id=%s) — "
                 "propagating to parent run",
@@ -311,7 +317,7 @@ class Spawn:
                 "agent": name,
             }
 
-        self._ctx.accumulator.add(result)
+        self._accumulator.add(result)
         return await self._admit(name, result, packet, child_run_id)
 
     def _build_packet(
@@ -324,7 +330,7 @@ class Spawn:
     ) -> HandoffPacket:
         packet_kwargs: dict[str, Any] = {
             "task_description": task,
-            "constraints": list(self._ctx.constraints),
+            "constraints": list(self._constraints),
             "available_tools": [t.name for t in spec.inline_tools],
             "input_refs": input_refs or {},
         }
@@ -351,9 +357,9 @@ class Spawn:
                 from_agent="parent",
                 to=name,
                 payload=packet,
-                trace_id=self._ctx.parent_run_id or "",
+                trace_id=self._parent_run_id or "",
                 message_id=packet.message_id,
-                depth=self._ctx.depth + 1,
+                depth=self._depth + 1,
                 child_run_id=child_run_id or "",
             )
         )
@@ -425,10 +431,10 @@ class Spawn:
                 from_agent=name,
                 to="parent",
                 payload=result.as_dict(),
-                trace_id=self._ctx.parent_run_id or "",
+                trace_id=self._parent_run_id or "",
                 message_id=packet.message_id,
-                depth=self._ctx.depth + 1,
-                parent_run_id=self._ctx.parent_run_id,
+                depth=self._depth + 1,
+                parent_run_id=self._parent_run_id,
                 child_run_id=child_run_id or "",
                 turns=result.turns,
             )
@@ -484,27 +490,22 @@ class Spawn:
     async def _run_child(
         self, spec: Agent, task: str, packet: HandoffPacket, child_run_id: str | None
     ) -> ChildResult:
-        ctx = self._ctx
         child_task = packet.to_task_prompt()
-        inherited_hooks = self._hooks or spec.hooks
-        runtime = replace(
-            ctx,
-            llm=self._llm,
-            hooks=inherited_hooks,
-            framework_config=self._framework_config,
-            budget=ctx.budget or spec.budget_config,
-        )
-        child = spec.fork_as_spawn(runtime)
 
         try:
-            from prodagent.runtime.runner import drive
-
-            run = await drive(
-                child,
-                child_task,
-                run_id=child_run_id,
-                parent_run_id=self._ctx.parent_run_id,
-                budget_ledger=self._budget_ledger,
+            run = await collect_final_run(
+                self._runner.activate(
+                    AgentActivation(
+                        agent=spec,
+                        task=child_task,
+                        run_id=child_run_id,
+                        parent_run_id=self._parent_run_id,
+                        depth=self._depth + 1,
+                        budget_ledger=self._budget_ledger,
+                    )
+                ),
+                fallback_run_id=child_run_id or spec.name,
+                fallback_task=child_task,
             )
         except SECURITY_VETO_EXCEPTIONS:
             raise
@@ -554,42 +555,65 @@ class Spawn:
 def build_spawn_tools_for_agent(
     agents: list[Agent],
     *,
-    llm: LLMClient,
+    runner: RunnerPort,
     hooks: HookRegistry | None = None,
     framework_config: FrameworkConfig | None = None,
-    context: ParentRuntime | None = None,
+    constraints: list[str] | None = None,
+    budget: HardBudget | None = None,
+    budget_ledger: BudgetLedger | None = None,
+    parent_run_id: str | None = None,
+    depth: int = 0,
+    accumulator: SpawnAccumulator | None = None,
     dead_letter_queue: DeadLetterStore | None = None,
 ) -> SpawnTool | None:
     if not agents:
         return None
 
-    ctx = context or ParentRuntime()
     pipeline = Spawn(
         agents,
-        llm=llm,
+        runner=runner,
         hooks=hooks,
         framework_config=framework_config,
-        ctx=ctx,
+        constraints=constraints,
+        budget=budget,
+        budget_ledger=budget_ledger,
+        parent_run_id=parent_run_id,
+        depth=depth,
+        accumulator=accumulator,
         dead_letter_queue=dead_letter_queue,
     )
-    return SpawnTool(tool=pipeline.build_tool(), accumulator=ctx.accumulator)
+    return SpawnTool(tool=pipeline.build_tool(), accumulator=pipeline.accumulator)
 
 
 def assemble_spawn_tools(
-    ctx: RunContext,
+    ctx: Any,
     active_tools: list[Any],
     tool_schemas: list[dict[str, Any]],
 ) -> SpawnAccumulator | None:
-    """Build spawn tools for ``agent.child_agents`` and append them to ``active_tools``/``tool_schemas``."""
+    """Build spawn tools for ``agent.child_agents`` and append them to
+    ``active_tools``/``tool_schemas``.
+
+    ``ctx`` is the hop's RunContext — runtime vocabulary, read structurally
+    (agent, runner, budget ledger, identity). Coordination never imports the
+    runtime; child execution reaches it only through ``ctx.runner``."""
     agent = ctx.agent
     if not agent.child_agents:
         return None
+    if ctx.runner is None:
+        raise RuntimeError(
+            "spawn tools need the hop's RunnerPort — RunLoop wires ctx.runner "
+            "before executor preparation"
+        )
     spawn_tools = build_spawn_tools_for_agent(
         agent.child_agents,
-        llm=ctx.llm,
+        runner=ctx.runner,
         hooks=agent.hooks,
         framework_config=agent.framework_config,
-        context=ParentRuntime.from_context(ctx),
+        constraints=agent.constraints,
+        budget=agent.budget_config,
+        budget_ledger=ctx.budget_ledger,
+        parent_run_id=ctx.run_id,
+        depth=ctx.depth,
     )
     if spawn_tools is None:
         return None
