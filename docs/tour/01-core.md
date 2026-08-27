@@ -255,4 +255,4 @@ class ToolOutcome(StrEnum):
 
 ## 下一步
 
-👉 **[第 ② 站：端口与契约 →](02-ports.md)** — 为什么用 Protocol 而不是继承？14 个端口怎么分工？
+👉 **[第 ② 站：端口与契约 →](02-ports.md)** — 为什么用 Protocol 而不是继承？17 个端口怎么分工？

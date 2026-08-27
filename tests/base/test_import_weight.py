@@ -68,6 +68,8 @@ KERNEL_EXPECTED = frozenset(
         "prodagent.kernel.types",
         "prodagent.ports",
         "prodagent.ports.activation",
+        "prodagent.ports.agent_events",
+        "prodagent.ports.agent_spec",
         "prodagent.ports.approval",
         "prodagent.ports.budget_ledger",
         "prodagent.ports.cache",

@@ -26,8 +26,7 @@ def _rich_run() -> AgentRun:
     run.pending_tool_call = ToolCall(name="refund", params={"order": 42}, call_id="c1")
     run.last_error = "403 Forbidden"
     run.error = ClassifiedError(reason=ErrorReason.AUTH_FORBIDDEN, retryable=False, status_code=403)
-    run.plan_state = {"steps": {}, "version": 3}
-    run.plan_last_seq = 7
+    run.set_cursor("plan", {"state": {"steps": {}, "version": 3}, "last_seq": 7})
     return run
 
 
@@ -53,8 +52,7 @@ def test_full_round_trip_preserves_every_field():
     assert restored.error.reason is ErrorReason.AUTH_FORBIDDEN
     assert restored.error.retryable is False
     assert restored.error.status_code == 403
-    assert restored.plan_state == {"steps": {}, "version": 3}
-    assert restored.plan_last_seq == 7
+    assert restored.cursor("plan") == {"state": {"steps": {}, "version": 3}, "last_seq": 7}
 
 
 def test_pending_tool_call_survives():

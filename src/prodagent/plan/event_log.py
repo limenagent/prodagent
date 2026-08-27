@@ -23,6 +23,27 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# ── Plan cursor — this domain's boxed section on AgentRun ─────────────────────
+
+
+def _plan_tail(run: AgentRun) -> dict[str, Any]:
+    """The plan cursor section (``run.cursors["plan"]``); ``{}`` when absent."""
+    tail = run.cursor("plan")
+    return tail if isinstance(tail, dict) else {}
+
+
+def _plan_state(run: AgentRun) -> dict[str, Any] | None:
+    return _plan_tail(run).get("state")
+
+
+def _plan_last_seq(run: AgentRun) -> int:
+    return int(_plan_tail(run).get("last_seq") or 0)
+
+
+def _set_plan(run: AgentRun, *, state: Any, last_seq: int) -> None:
+    run.set_cursor("plan", {"state": state, "last_seq": last_seq})
+
+
 def apply_event(state: dict[str, Any], event: Event) -> None:
     """Reducer for ``hybrid_restore``."""
     steps = state.setdefault("steps", {})
@@ -79,7 +100,7 @@ class PlanEventLog:
         if await self.has_events(run_id):
             return True
         stored = await self._checkpoints.load(run_id)
-        return stored is not None and stored.plan_state is not None
+        return stored is not None and _plan_state(stored) is not None
 
     async def rebaseline_checkpoint(self, run: AgentRun) -> None:
         """Ensures first checkpoint save uses the correct expected_version (avoids collision with stale snapshot from a prior failed run)."""
@@ -104,14 +125,14 @@ class PlanEventLog:
             self._checkpoints,
             apply_event,
             extract_base=lambda r: (
-                (r.plan_state, r.checkpoint_version, r.plan_last_seq)
-                if r.plan_state is not None
+                (_plan_state(r), r.checkpoint_version, _plan_last_seq(r))
+                if _plan_state(r) is not None
                 else None
             ),
             empty_state=lambda: {"steps": {}, "version": 0},
         )
         run.checkpoint_version = max(run.checkpoint_version, ckpt_version)
-        run.plan_last_seq = max(run.plan_last_seq, last_seq)
+        _set_plan(run, state=_plan_state(run), last_seq=max(_plan_last_seq(run), last_seq))
         stored = await self._checkpoints.load(run.run_id)
         if stored is None:
             return state
@@ -205,7 +226,7 @@ class PlanEventLog:
         """No step event to record, but ``pending_approval_id`` must survive a resume (HITL-suspended plan)."""
         async with self._lock:
             if plan is not None:
-                run.plan_state = plan.to_state()
+                _set_plan(run, state=plan.to_state(), last_seq=_plan_last_seq(run))
             await save_and_fire_checkpoint(self._checkpoints, run, self._hooks)
 
     async def _record(
@@ -221,10 +242,10 @@ class PlanEventLog:
             seq = await append_expected(
                 self._events,
                 Event.make(event_type, stream_id=run.run_id, version=version, **data),
-                tail_seq=run.plan_last_seq,
+                tail_seq=_plan_last_seq(run),
             )
-            run.plan_last_seq = seq
+            _set_plan(run, state=_plan_state(run), last_seq=seq)
             if checkpoint_plan is not None:
-                run.plan_state = checkpoint_plan.to_state()
+                _set_plan(run, state=checkpoint_plan.to_state(), last_seq=_plan_last_seq(run))
                 await save_and_fire_checkpoint(self._checkpoints, run, self._hooks)
             return seq

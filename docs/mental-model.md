@@ -151,6 +151,7 @@ class RunContext:
     event_log: EventLog | None
     spill_store: ToolResultSpillStore | None
     context_manager: ContextManager | None
+    runner: RunnerPort | None        # 激活口（spawn 子任务、成员发言从这里执行）
     tool_assemblers: list[Callable]  # 协作工具装配器（spawn/peer/handoff）
 ```
 
@@ -164,7 +165,7 @@ class RunContext:
 
 ## 阶段 3：运行时驱动
 
-**源码：** `src/prodagent/runtime/runner.py` — `drive_stream()` / `collect_final_run()`
+**源码：** `src/prodagent/runtime/runner.py` — `drive_stream()`；`src/prodagent/kernel/state.py` — `collect_final_run()`
 
 ### 做什么
 
@@ -735,7 +736,7 @@ async for event in drive_stream(...):
 
 ## 阶段 12：返回
 
-**源码：** `src/prodagent/runtime/runner.py` — `collect_final_run()`
+**源码：** `src/prodagent/kernel/state.py` — `collect_final_run()`
 
 ### 做什么
 

@@ -26,6 +26,7 @@ from prodagent.kernel.types import (
     RunState,
     RunSuspendedEvent,
 )
+from prodagent.ports.agent_spec import AgentSpec
 from prodagent.ports.llm import LLMClient
 from prodagent.runtime.config import AgentConfig
 from prodagent.runtime.parent_runtime import ParentRuntime
@@ -484,6 +485,26 @@ class Agent:
 
         for ext in self.config.extensions:
             hooks.attach_extension(ext)
+
+    # -- Wire projection ---------------------------------------------------
+
+    def spec(self) -> AgentSpec:
+        """Serializable projection of this agent — the wire form for remote
+        spawn and rosters (:class:`prodagent.ports.agent_spec.AgentSpec`).
+        Live wiring (LLM client, hooks, stores, tool callables) stays on
+        AgentConfig and never crosses a process boundary."""
+        return AgentSpec(
+            name=self.config.name,
+            description=self.config.description,
+            system_prompt=self.config.system_prompt,
+            mode=self.config.mode,
+            constraints=list(self.config.constraints),
+            budget=self.config.budget,
+            tools_schema=[t.schema for t in self.config.tools],
+            max_replans=self.config.max_replans,
+            child_agents=[a.spec() for a in self.config.agents],
+            peers=[a.spec() for a in self.config.peers],
+        )
 
     # -- Fork / spawn -----------------------------------------------------
 

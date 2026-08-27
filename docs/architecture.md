@@ -16,26 +16,27 @@ prodagent 的代码不是平铺的，而是严格分层的。每一层只依赖�
 | 6 | `hooks` · `skills` · `mcp` · `backends` | 横切能力——审批/权限/观测/审计 · runbook 蒸馏 · 外部工具桥接 · 5 种存储实现 |
 | 5 | `cognition` · `coordination` | 认知与协调——上下文压缩 + 四通道记忆；5 种多 Agent 协作原语 + 统一消息平面 |
 | 4 | `plan` · `tooling` · `llm` | 能力——DAG 规划与执行 · 工具系统 · 模型适配 |
-| 3 | `runtime` | 运行时——Agent 装配 · Factory · ParentRuntime · Runner |
+| 3 | `runtime` | 运行时——Agent 装配 · Factory · RunnerPort 的进程内实现（RunLoop） |
 | 2 | `kernel` | 内核（纯逻辑，不依赖任何 capability）——types · state · budget · bus · step · loop · progress |
-| 1 | `ports` | 端口（Protocol 抽象，六边形架构的“左”侧）——14 个 Protocol |
+| 1 | `ports` | 端口（Protocol 抽象，六边形架构的“左”侧）——17 个 Protocol + AgentSpec / 事件编解码 / Activation |
 | 0 | `base` | 基础——配置 · 错误分类 · 事件日志 · 会话 · 重试 · 文本 · 时间 |
 
 > 依赖方向自上而下——每一层只依赖它下面的层。
 
-### 三条不可逾越的红线
+### 四条不可逾越的红线
 
 这不是建议，是被 CI 强制执行的架构约束：
 
 1. **kernel 不依赖任何 capability 包**——`kernel/` 的 import 只能指向 `base/` 和 `ports/`。它不知道 LLM 是 OpenAI 还是 Anthropic，不知道工具是函数还是 MCP，不知道存储是文件还是 Postgres。它只知道 Protocol。
 2. **ports 是唯一的接缝**——所有跨层交互都通过 Protocol。换后端 = 换实现类，不动一行业务代码。没有任何模块直接 `import` 一个具体的后端实现。
-3. **playground 是叶子节点**——`import-linter` 强制检查：没有任何 prodagent 内部模块可以 `import playground`。核心永远不依赖 UI。
+3. **协作层不 import runtime**——`coordination/` 里没有任何一行执行 `import prodagent.runtime`，两个方向都有 CI 测试。执行 agent 走 `RunnerPort`，合并工具走 `tooling`，子 agent 名册从 `AgentSpec` 投影生成。协作原语不依赖进程内实现，分布式执行时换端口实现，协作层一行不改。
+4. **playground 是叶子节点**——`import-linter` 强制检查：没有任何 prodagent 内部模块可以 `import playground`。核心永远不依赖 UI。
 
 > **为什么要这么严格？** 因为架构腐化都是从"我就跨层 import 一次"开始的。prodagent 用 CI 把架构约束变成了不可违反的法律，而不是靠人自觉。
 
 ---
 
-## 二、六边形架构：14 个端口，5 种实现
+## 二、六边形架构：17 个端口，5 种实现
 
 prodagent 的核心架构模式是**六边形架构（Hexagonal Architecture / Ports & Adapters）**。
 
@@ -61,13 +62,14 @@ prodagent 的核心架构模式是**六边形架构（Hexagonal Architecture / P
 └─────────┘  └─────────┘  └─────────┘
 ```
 
-### 14 个端口全景
+### 17 个端口全景
 
 prodagent 定义了 14 个 Protocol 端口，每一个都是一个"我需要什么能力"的契约：
 
 | 端口 | 职责 | 现有实现 | 你可以替换成 |
 |------|------|---------|------------|
 | `LLMClient` | 模型调用（流式/结构化/缓存） | OpenAI / Anthropic / Fake | 任何有 `async complete()` 的客户端 |
+| `RunnerPort` | 激活一个 agent 执行一次 run（spawn 子任务、舞台成员发言） | RunLoop（进程内） | 分布式 runtime / 远端 worker |
 | `Tool` | 工具执行 | FunctionTool / MCP工具 | 你的自定义工具类 |
 | `CheckpointStore` | 运行状态快照（崩溃恢复） | file / postgres / memory | MySQL / DynamoDB |
 | `EventLog` | 事件追加日志（PLAN_FIRST状态） | file / postgres / memory | Kafka / Kinesis |
@@ -650,7 +652,7 @@ prodagent 的架构之美在于几个"恰好"：
 
 1. **恰好的分层**——7 层不多不少。太少会导致职责混杂，太多会导致理解成本爆炸。7 层是"一个人能在脑子里装下整个架构"的上限。
 
-2. **恰好的抽象**——14 个端口。每个端口对应一个真实的、可替换的能力。没有为了"优雅"而过度抽象（比如没有把"序列化"单独抽成端口），也没有该抽象的地方不抽象（比如 LLM 调用直接耦合 OpenAI SDK）。
+2. **恰好的抽象**——17 个端口。每个端口对应一个真实的、可替换的能力。没有为了"优雅"而过度抽象（比如没有把"序列化"单独抽成端口），也没有该抽象的地方不抽象（比如 LLM 调用直接耦合 OpenAI SDK）。
 
 3. **恰好的纯度**——kernel 是纯的，但不是整个框架都是纯的。如果整个框架都是纯的，IO 就要到处传递，代码会变得啰嗦。prodagent 只把最核心的循环逻辑做成纯的，外面的层允许有状态——这是"纯度"和"可用性"的最佳平衡点。
 

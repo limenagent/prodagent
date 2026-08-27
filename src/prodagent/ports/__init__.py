@@ -14,6 +14,15 @@ from prodagent.ports.activation import (
     DispatchMode,
     StageStore,
 )
+from prodagent.ports.agent_events import (
+    AgentEvent,
+    RunCompletedEvent,
+    RunFailedEvent,
+    RunSuspendedEvent,
+    event_from_wire,
+    event_to_wire,
+)
+from prodagent.ports.agent_spec import AgentSpec
 from prodagent.ports.approval import ApprovalStore
 from prodagent.ports.budget_ledger import BudgetLedgerPort, SpendView
 from prodagent.ports.cache import CacheStore
@@ -39,6 +48,8 @@ from prodagent.ports.transport import Transport
 
 __all__ = [
     "Activation",
+    "AgentEvent",
+    "AgentSpec",
     "ActivationContext",
     "ActivationPolicy",
     "AgentActivation",
@@ -52,6 +63,11 @@ __all__ = [
     "EventLog",
     "ExperienceStore",
     "GraphStore",
+    "RunCompletedEvent",
+    "RunFailedEvent",
+    "RunSuspendedEvent",
+    "event_from_wire",
+    "event_to_wire",
     "HandoffActivation",
     "InProcessChatRunner",
     "LeafExecutor",

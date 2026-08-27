@@ -32,12 +32,16 @@ CHILD_SEPARATOR = "::"
 
 _TERMINAL_ERROR = "run ended without a terminal event"
 
-AGENT_RUN_SCHEMA_VERSION = 1
+AGENT_RUN_SCHEMA_VERSION = 2
 """Serialization format of ``AgentRun.to_dict``. Bumped when the dict shape
 changes in a way old loaders would misread. A checkpoint written by a newer
 schema loads best-effort (fields it doesn't know are ignored); readers warn
 on a higher version rather than refusing — a checkpoint that loads wrong is
-recoverable, one that refuses to load is not."""
+recoverable, one that refuses to load is not.
+
+v2 boxes the per-executor resumption tails into one ``cursors`` section
+(v1 carried them flat: ``plan_state`` / ``plan_last_seq`` /
+``last_event_seq``); v1 checkpoints migrate on load."""
 
 
 def is_child_run_id(run_id: str) -> bool:
@@ -138,6 +142,21 @@ class AwaitingHandoff:
 ResumePoint = AwaitingApproval | AwaitingHandoff | None
 
 
+def _cursors_from_dict(d: JsonDict) -> dict[str, Any]:
+    """v2 reads the boxed ``cursors`` section; a v1 dict (flat ``plan_state`` /
+    ``plan_last_seq`` / ``last_event_seq``) migrates into it on load."""
+    if "cursors" in d:
+        return dict(d.get("cursors") or {})
+    cursors: dict[str, Any] = {}
+    plan_state = d.get("plan_state")
+    plan_last_seq = d.get("plan_last_seq", 0)
+    if plan_state is not None or plan_last_seq:
+        cursors["plan"] = {"state": plan_state, "last_seq": plan_last_seq}
+    if d.get("last_event_seq", 0):
+        cursors["reactive"] = d.get("last_event_seq", 0)
+    return cursors
+
+
 def _toolcall_to_dict(call: ToolCall | JsonDict) -> JsonDict:
     if isinstance(call, dict):
         return call
@@ -227,11 +246,13 @@ class AgentRun(Generic[_RunT]):
     pending_handoff: PendingHandoff | None = None
     last_error: str | None = None
     error: ClassifiedError | None = None
-    plan_state: JsonDict | None = None
-    plan_last_seq: int = 0
-    last_event_seq: int = 0
-    """Tail seq for REACTIVE's per-turn ``EventLog.append(..., expected_seq=...)`` —
-    the ``plan_last_seq`` counterpart for the non-plan execution mode."""
+    cursors: dict[str, Any] = field(default_factory=dict)
+    """Per-executor resumption tails, boxed: each execution mode owns ONE key
+    here and the shape of its value (JSON-able; checkpointed as its own
+    section so each mode's cursor evolves without touching this object or
+    bumping anyone else's schema). Keys in use: ``plan`` (PlanEventLog —
+    ``{"state": JsonDict | None, "last_seq": int}``), ``reactive``
+    (ReactiveLoop's event-log tail seq — an int)."""
     checkpoint_version: int = 0
     checkpoint_failed: bool = False
 
@@ -325,6 +346,14 @@ class AgentRun(Generic[_RunT]):
     def reset_retry(self, tool_name: str) -> None:
         self.retry_counter[tool_name] = 0
 
+    def cursor(self, key: str, default: Any = None) -> Any:
+        """Read one executor's boxed cursor section (``None``/default when absent)."""
+        return self.cursors.get(key, default)
+
+    def set_cursor(self, key: str, value: Any) -> None:
+        """Write one executor's boxed cursor section."""
+        self.cursors[key] = value
+
     def push_fingerprint(self, fp: str, *, window: int) -> int:
         """Append a tool-call fingerprint to the sliding window and return how
         many times it now occurs within that window (the dead-loop count)."""
@@ -385,9 +414,7 @@ class AgentRun(Generic[_RunT]):
             "pending_handoff": self.pending_handoff.to_dict() if self.pending_handoff else None,
             "last_error": self.last_error,
             "error": self.error.to_dict() if self.error is not None else None,
-            "plan_state": self.plan_state,
-            "plan_last_seq": self.plan_last_seq,
-            "last_event_seq": self.last_event_seq,
+            "cursors": dict(self.cursors),
             "is_peer_continuation": self.is_peer_continuation,
         }
 
@@ -427,8 +454,6 @@ class AgentRun(Generic[_RunT]):
             error=(
                 ClassifiedError.from_dict(d["error"]) if isinstance(d.get("error"), dict) else None
             ),
-            plan_state=d.get("plan_state"),
-            plan_last_seq=d.get("plan_last_seq", 0),
-            last_event_seq=d.get("last_event_seq", 0),
+            cursors=_cursors_from_dict(d),
             is_peer_continuation=d.get("is_peer_continuation", False),
         )

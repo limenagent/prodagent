@@ -210,9 +210,9 @@ class ReactiveLoop:
             return
         seq = await self._event_log.append(
             Event.make(RunEventType.TURN_COMPLETED, stream_id=run.run_id, version=0),
-            expected_seq=run.last_event_seq,
+            expected_seq=run.cursor("reactive", 0),
         )
-        run.last_event_seq = seq
+        run.set_cursor("reactive", seq)
         await save_and_fire_checkpoint(self._checkpoint_store, run, self._hooks)
 
     async def _record_terminal(self, run: AgentRun, event_type: RunEventType) -> None:
@@ -222,9 +222,9 @@ class ReactiveLoop:
             return
         seq = await self._event_log.append(
             Event.make(event_type, stream_id=run.run_id, version=0),
-            expected_seq=run.last_event_seq,
+            expected_seq=run.cursor("reactive", 0),
         )
-        run.last_event_seq = seq
+        run.set_cursor("reactive", seq)
 
     async def _loop_events(
         self,

@@ -201,10 +201,10 @@ async def test_relay_checkpoint_failure_fires_checkpoint_failed(tmp_path, monkey
 def test_run_dict_carries_schema_version_and_round_trips():
     run = AgentRun(run_id="r", task="t")
     d = run.to_dict()
-    assert d["schema_version"] == 1
+    assert d["schema_version"] == 2
 
     restored = AgentRun.from_dict(d)
-    assert restored.to_dict()["schema_version"] == 1
+    assert restored.to_dict()["schema_version"] == 2
 
 
 def test_from_dict_tolerates_legacy_checkpoint_without_schema_version():
@@ -213,7 +213,29 @@ def test_from_dict_tolerates_legacy_checkpoint_without_schema_version():
 
     restored = AgentRun.from_dict(legacy)
     assert restored.run_id == "r"
-    assert restored.to_dict()["schema_version"] == 1
+    assert restored.to_dict()["schema_version"] == 2
+
+
+def test_v1_checkpoint_with_flat_cursor_fields_migrates_into_boxed_cursors():
+    """v1 wrote plan tails flat on the run dict; v2 boxes them. A v1
+    checkpoint must load and migrate (data-model unit 2's compat promise)."""
+    v1 = {
+        "run_id": "legacy",
+        "task": "t",
+        "schema_version": 1,
+        "plan_state": {"version": 2, "steps": {"s1": {"status": "completed"}}},
+        "plan_last_seq": 5,
+        "last_event_seq": 9,
+    }
+    run = AgentRun.from_dict(v1)
+    assert run.cursor("plan") == {
+        "state": {"version": 2, "steps": {"s1": {"status": "completed"}}},
+        "last_seq": 5,
+    }
+    assert run.cursor("reactive") == 9
+    d = run.to_dict()
+    assert d["schema_version"] == 2
+    assert "plan_state" not in d and d["cursors"]["plan"]["last_seq"] == 5
 
 
 def test_from_dict_warns_but_loads_a_newer_schema_checkpoint(caplog):

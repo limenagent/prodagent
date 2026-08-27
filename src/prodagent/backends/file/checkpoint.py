@@ -158,7 +158,13 @@ class FileCheckpointStore:
             )
         forked_id = new_run_id or f"{run_id}:fork-v{at_version}-{uuid.uuid4().hex[:8]}"
         source.run_id = forked_id
-        source.plan_last_seq = 0
+        # Forked run keeps each boxed cursor section's state but resets its
+        # seq-shaped tail — the child's event log starts fresh. Key names are
+        # the executors' vocabulary; the backend only knows "the last_seq
+        # field inside a dict cursor resets to 0".
+        for key, tail in list(source.cursors.items()):
+            if isinstance(tail, dict) and "last_seq" in tail:
+                source.set_cursor(key, {**tail, "last_seq": 0})
         source.checkpoint_version = 0
 
         with _exclusive(self._lock_path(forked_id)):
@@ -176,7 +182,7 @@ class FileCheckpointStore:
             write_atomic_json(target, envelope, fsync=self._fsync)
             source.checkpoint_version = 1
         logger.info(
-            "[checkpoint] forked run=%s v%d → %s (plan_last_seq reset to 0)",
+            "[checkpoint] forked run=%s v%d → %s (cursor seq tails reset to 0)",
             run_id,
             at_version,
             forked_id,

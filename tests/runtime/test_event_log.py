@@ -18,7 +18,12 @@ def _make(event_type: PlanEventType, stream_id: str = "p1", version: int = 1, **
 
 
 def _extract_base(run: AgentRun) -> tuple[dict, int, int] | None:
-    return (run.plan_state, run.checkpoint_version, run.plan_last_seq) if run.plan_state else None
+    tail = run.cursor("plan") or {}
+    return (
+        (tail.get("state"), run.checkpoint_version, tail.get("last_seq", 0))
+        if tail.get("state")
+        else None
+    )
 
 
 def _empty_state() -> dict:
@@ -150,14 +155,16 @@ class TestHybridRestore:
         cs = FileCheckpointStore(directory=tmp_path / "ckpt")
 
         run = AgentRun(run_id=plan_id, task="t")
-        run.plan_state = {
-            "version": 1,
-            "steps": {
-                "s1": {"status": "completed"},
-                "s2": {"status": "completed"},
+        run.set_cursor(
+            "plan",
+            {
+                "state": {
+                    "version": 1,
+                    "steps": {"s1": {"status": "completed"}, "s2": {"status": "completed"}},
+                },
+                "last_seq": 3,
             },
-        }
-        run.plan_last_seq = 3
+        )
         await cs.save(run)
 
         reducer_calls: list[Event] = []
@@ -179,14 +186,16 @@ class TestHybridRestore:
         cs = FileCheckpointStore(directory=tmp_path / "ckpt")
 
         run = AgentRun(run_id=plan_id, task="t")
-        run.plan_state = {
-            "version": 1,
-            "steps": {
-                "s1": {"status": "pending"},
-                "s2": {"status": "pending"},
+        run.set_cursor(
+            "plan",
+            {
+                "state": {
+                    "version": 1,
+                    "steps": {"s1": {"status": "pending"}, "s2": {"status": "pending"}},
+                },
+                "last_seq": 1,
             },
-        }
-        run.plan_last_seq = 1
+        )
         await cs.save(run)
 
         state, _, _ = await hybrid_restore(
@@ -206,14 +215,16 @@ class TestHybridRestore:
         cs = FileCheckpointStore(directory=tmp_path / "ckpt")
 
         run = AgentRun(run_id=plan_id, task="t")
-        run.plan_state = {
-            "version": 1,
-            "steps": {
-                "s1": {"status": "completed"},
-                "s2": {"status": "pending"},
+        run.set_cursor(
+            "plan",
+            {
+                "state": {
+                    "version": 1,
+                    "steps": {"s1": {"status": "completed"}, "s2": {"status": "pending"}},
+                },
+                "last_seq": 2,
             },
-        }
-        run.plan_last_seq = 2
+        )
         await cs.save(run)
 
         replayed: list[str] = []

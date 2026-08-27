@@ -16,7 +16,6 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from prodagent.base.errors import ErrorReason
-from prodagent.coordination.describe import describe_agent
 from prodagent.kernel.types import RunState, SideEffectLevel, ToolError, ToolMeta, ToolResult
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.merge import attach_tools
@@ -70,7 +69,7 @@ class Peer:
 
     def _build_one_tool(self, peer: Agent) -> FunctionTool:
         peer_name = peer.name
-        description = describe_agent(peer) or "(no description provided)"
+        description = peer.spec().describe() or "(no description provided)"
         schema = {
             "name": f"handoff_to_{peer_name}",
             "description": (

@@ -17,6 +17,7 @@
 | **ToolResult** | 工具执行后的返回（outcome + content/error）。 |
 | **ToolOutcome** | 工具执行结局：OK/RETRY/ABORT/BLOCKED/SUSPENDED/HANDOFF。 |
 | **StopReason** | 模型停止原因：END_TURN/TOOL_USE/MAX_TOKENS/CONTENT_FILTER。 |
+| **AgentSpec** | Agent 的可序列化投影：名字、提示、模式、预算、工具 schema、子与同伴规格。`Agent.spec()` 生成，跨进程传递用。 |
 
 ---
 
@@ -79,6 +80,10 @@
 | 术语 | 定义 |
 |------|------|
 | **Spawn** | 垂直委派：父 Agent 通过 `agents=[...]` 配置，模型调用 spawn_agent 工具派任务给子 Agent。 |
+| **RunnerPort** | 激活一个 agent 执行一次 run 的端口（spawn 子任务、舞台成员发言共用）。进程内实现是 RunLoop。 |
+| **AgentActivation** | 一次激活的入参：agent、任务、run_id、账本；带 session_id 就是成员会话轮次。 |
+| **Activation** | 舞台拓扑的排班单：这轮哪些成员上、serial / concurrent / single_winner 三种派发。 |
+| **HandoffActivation** | 接力链下一跳：peer 名、任务、run_id。relay 填写，驱动方照此 fork。 |
 | **Peer** | 水平接力：通过 `peers=[...]` 配置，模型调用 handoff_to_X 工具把任务交给下一个 Agent。 |
 | **HandoffPacket** | 接力时传递的上下文包（任务、输入引用、约束）。 |
 | **Ensemble** | 舞台拓扑：多个 Agent 共享 Floor 轮流发言（RoundRobin/Moderated/FreeForAll）。 |
@@ -94,6 +99,7 @@
 ## 持久化与恢复
 
 | 术语 | 定义 |
+| **游标（cursor）** | 执行器在 `AgentRun.cursors` 里的恢复进度，plan / reactive 各一格；新执行模式加一格，不加 Run 字段。 |
 |------|------|
 | **CheckpointStore** | Run 状态快照端口（file/postgres 后端）。支持 save/load/list_run_ids/fork/list_versions。 |
 | **SessionStore** | 跨 Run 会话持久化端口（file/postgres 后端）。 |
@@ -123,7 +129,7 @@
 
 | 术语 | 定义 |
 |------|------|
-| **端口（Port）** | Protocol 接口，定义核心与外部世界的契约。共 16 个。 |
+| **端口（Port）** | Protocol 接口，定义核心与外部世界的契约。共 17 个；AgentSpec、事件编解码、Activation 这些跨进程传递的定义也在这层。 |
 | **适配器（Adapter）** | 端口的具体实现（file/postgres/redis/neo4j 等）。 |
 | **BackendConfig** | 后端选择配置，用字符串字面量约束可选值。 |
 | **bare()** | 裸核 profile：无持久化、无审批、无缓存、无压缩。 |

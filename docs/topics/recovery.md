@@ -57,6 +57,7 @@ class AgentRun:
     pending_approval_id: str | None     # 关联的审批请求 ID
     pending_handoff: PendingHandoff | None  # 多 Agent 接力的待交接包
     checkpoint_version: int        # 乐观并发版本号
+    cursors: dict[str, Any]        # 各执行器的恢复进度（plan / reactive 各一格）
     last_error: str | None
     error: ClassifiedError | None
 ```
@@ -64,6 +65,12 @@ class AgentRun:
 **整个对象可以直接 JSON 序列化**，存到文件或数据库。恢复时反序列化，继续跑。
 
 > 为什么用 dataclass 而不是更复杂的 ORM？因为状态对象需要频繁序列化/反序列化，dataclass + JSON 最简单、最透明、最容易调试。需要数据库时，把 JSON 存到一个字段里就行。
+
+### 游标：各执行器记各自的恢复进度
+
+`cursors` 按执行器分格：`plan` 存 PLAN_FIRST 的 DAG 状态和日志位置（读写封装在 `plan/event_log.py`），`reactive` 存 REACTIVE 每轮事件的尾巴（`kernel/loop.py`）。新增一种执行模式，是在自己的层里加一个键，不给 `AgentRun` 加字段——恢复语义跟着执行器走，内核只负责原样存取。
+
+序列化格式带 `schema_version`，格式变更时递增；旧 checkpoint 在 `from_dict` 里就地迁移（v1 的扁平字段迁入 v2 的分格结构）。原则是：**加载错可以救，拒绝加载没得救**——旧版本永远 best-effort 读取，新版本只警告、不拒载。
 
 ---
 

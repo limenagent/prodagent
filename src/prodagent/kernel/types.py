@@ -31,7 +31,6 @@ from prodagent.base.types import (
 
 if TYPE_CHECKING:
     from prodagent.base.types import JsonDict, ToolParams
-    from prodagent.kernel.state import AgentRun
 
 ToolName: TypeAlias = str
 RunId: TypeAlias = str
@@ -354,79 +353,40 @@ class ToolResult(Generic[_T]):
         return self.error.as_dict()
 
 
-# ── Streaming events — the discriminated union yielded by Agent.stream() ─────
+# ── Streaming events — the run-stream union lives in ports (wire vocabulary) ──
+# Lifted to prodagent.ports.agent_events: they are every stream consumer's
+# contract (LeafExecutor / RunnerPort / the remote plane) and carry a wire
+# codec there. Re-exported here so kernel consumers keep one import site —
+# same precedent as the base-vocabulary re-exports at the top of this module.
+# The redundant `as` aliases mark the re-export explicitly (mypy strict).
 
-
-@dataclass(frozen=True, slots=True)
-class ThinkTokenEvent:
-    token: str
-    run_id: RunId
-
-
-@dataclass(frozen=True, slots=True)
-class ToolCallStartEvent:
-    call: ToolCall
-    run_id: RunId
-
-
-@dataclass(frozen=True, slots=True)
-class ToolResultEvent:
-    name: ToolName
-    result: object
-    run_id: RunId
-
-
-@dataclass(frozen=True, slots=True)
-class StepStartedEvent:
-    step_id: str
-    action: ToolName
-    run_id: RunId
-
-
-@dataclass(frozen=True, slots=True)
-class StepCompletedEvent:
-    step_id: str
-    action: ToolName
-    result: object
-    run_id: RunId
-
-
-@dataclass(frozen=True, slots=True)
-class StepFailedEvent:
-    """Triggers replan."""
-
-    step_id: str
-    action: ToolName
-    error: str
-    run_id: RunId
-
-
-@dataclass(frozen=True, slots=True)
-class RunCompletedEvent:
-    run: AgentRun
-
-
-@dataclass(frozen=True, slots=True)
-class RunFailedEvent:
-    """Terminated due to budget, loop-detection, or abort."""
-
-    run: AgentRun
-    error: str
-
-
-@dataclass(frozen=True, slots=True)
-class RunSuspendedEvent:
-    run: AgentRun
-
-
-AgentEvent: TypeAlias = (
-    ThinkTokenEvent
-    | ToolCallStartEvent
-    | ToolResultEvent
-    | StepStartedEvent
-    | StepCompletedEvent
-    | StepFailedEvent
-    | RunCompletedEvent
-    | RunFailedEvent
-    | RunSuspendedEvent
+from prodagent.ports.agent_events import (  # noqa: E402
+    AgentEvent as AgentEvent,
+)
+from prodagent.ports.agent_events import (  # noqa: E402
+    RunCompletedEvent as RunCompletedEvent,
+)
+from prodagent.ports.agent_events import (  # noqa: E402
+    RunFailedEvent as RunFailedEvent,
+)
+from prodagent.ports.agent_events import (  # noqa: E402
+    RunSuspendedEvent as RunSuspendedEvent,
+)
+from prodagent.ports.agent_events import (  # noqa: E402
+    StepCompletedEvent as StepCompletedEvent,
+)
+from prodagent.ports.agent_events import (  # noqa: E402
+    StepFailedEvent as StepFailedEvent,
+)
+from prodagent.ports.agent_events import (  # noqa: E402
+    StepStartedEvent as StepStartedEvent,
+)
+from prodagent.ports.agent_events import (  # noqa: E402
+    ThinkTokenEvent as ThinkTokenEvent,
+)
+from prodagent.ports.agent_events import (  # noqa: E402
+    ToolCallStartEvent as ToolCallStartEvent,
+)
+from prodagent.ports.agent_events import (  # noqa: E402
+    ToolResultEvent as ToolResultEvent,
 )

@@ -17,8 +17,8 @@ _TERMINAL = (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)
 
 def _run(run_id: str = "R1", *, plan_state: dict | None = None, plan_last_seq: int = 0) -> AgentRun:
     r = AgentRun(run_id=run_id, task="t")
-    r.plan_state = plan_state
-    r.plan_last_seq = plan_last_seq
+    if plan_state is not None or plan_last_seq:
+        r.set_cursor("plan", {"state": plan_state, "last_seq": plan_last_seq})
     return r
 
 
@@ -101,8 +101,10 @@ async def test_fork_preserves_state_resets_plan_last_seq(tmp_path):
     forked = await store.load(forked_id)
     assert forked is not None
     assert forked.run_id == forked_id
-    assert forked.plan_state == plan_state
-    assert forked.plan_last_seq == 0, "plan_last_seq must reset so append doesn't VersionConflict"
+    assert (forked.cursor("plan") or {}).get("state") == plan_state
+    assert (forked.cursor("plan") or {}).get("last_seq", 0) == 0, (
+        "plan last_seq must reset so append doesn't VersionConflict"
+    )
     assert forked.turn_count == 5, "forked state must equal the v2 snapshot"
     assert forked.checkpoint_version == 1
 

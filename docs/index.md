@@ -65,7 +65,7 @@ graph LR
 | 站 | 主题 | 解决什么问题 | 源码包 |
 |----|------|-------------|--------|
 | ① | [核心词汇](tour/01-core.md) | Agent、Run、Step、Turn、Message 到底是什么关系 | `kernel/types` |
-| ② | [端口与契约](tour/02-ports.md) | 为什么用 Protocol 而不是继承？16 个端口怎么分工 | `ports/` |
+| ② | [端口与契约](tour/02-ports.md) | 为什么用 Protocol 而不是继承？17 个端口怎么分工 | `ports/` |
 | ③ | [模型层](tour/03-llm.md) | LLMClient 端口、流式回调、缓存边界、定价模型 | `llm/` |
 | ④ | [工具系统](tour/04-tools.md) | `@tool` 装饰器、参数校验、只读并行/写串行、工具幻觉防御 | `tooling/` |
 | ⑤ | [循环内核](tour/05-loop.md) | think→act 原子、死循环检测、终止与恢复 | `kernel/` |
@@ -114,7 +114,7 @@ graph LR
 | **四通道记忆** | 规则/实体/精确/语义并行召回 + 冲突裁决 | `cognition/memory/` |
 | **全链路可观测** | AgentSpan + 29 个 HookEvent + EventLog 事件溯源 | `hooks/bundles/observability.py` |
 | **确定性测试** | FakeLLM 预设脚本，1,000+ 测试全离线零 flaky | `llm/fake.py` `tests/` |
-| **可替换后端** | 16 个 Protocol 端口，file+memory 零依赖起步 | `ports/` `backends/` |
+| **可替换后端** | 17 个 Protocol 端口，file+memory 零依赖起步 | `ports/` `backends/` |
 | **MCP 桥接** | 外部工具经 stdio/HTTP 接入，不用逐个写适配 | `mcp/` |
 
 ---
@@ -124,7 +124,7 @@ graph LR
 ```
 src/prodagent/
 ├── base/          ← 基础工具：配置、异常、类型、事件模型
-├── ports/         ← 16 个 Protocol 端口（六边形架构）
+├── ports/         ← 17 个 Protocol 端口（六边形架构）
 ├── llm/           ← 模型适配器：OpenAI/Anthropic/Fake + 定价 + 缓存
 ├── tooling/       ← 工具系统：装饰器、调度、注册、可靠性、技能解析
 ├── kernel/        ← 内核：循环、步骤、预算、事件总线、状态

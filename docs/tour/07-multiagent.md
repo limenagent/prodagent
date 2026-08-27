@@ -36,6 +36,8 @@ prodagent 提供五种协作原语，覆盖绝大多数多 Agent 场景。它们
 - **委派策略**（spawn / peer）——通过 Agent 的 `agents=` / `peers=` 配置，框架自动生成工具，模型在对话中决定何时调用
 - **舞台拓扑**（ensemble / blackboard / work_queue）——独立的 StageDriver，通过 Spec 配置，外部驱动多轮循环
 
+两类在调度上不同——委派由模型决定，舞台由策略决定；在执行上是同一件事：spawn 一个子 agent、让一个成员发言，都是 `RunnerPort.activate()` 的一次激活。入参 `AgentActivation` 只带可序列化字段（agent、任务、run_id、账本，或 session_id），agent 在本进程还是另一台机器上执行由端口实现决定，协作原语不感知。
+
 ```mermaid
 graph TB
     subgraph "委派 Spawn（agents=）"
@@ -91,6 +93,8 @@ parent = Agent(
 **特点**：
 - 父子关系明确，子 Agent 完成后把结果返回给父
 - 子 Agent 有独立的消息历史和工具集
+- 模型看到的子 Agent 名册由 `Agent.spec()` 投影生成，远程 roster 传递的也是同一种格式
+- 子 Agent 经 `RunnerPort` 执行，本跳的 hooks / checkpoint / 账本由进程内实现持有
 - 预算通过 BudgetLedger 共享——子 Agent 花的钱计入父的总账
 - 子 Agent 的审批可以传播到父（HITL 统一处理）
 - 父 Agent 在等待子 Agent 期间保持运行，不阻塞
@@ -123,6 +127,7 @@ first = Agent(
 
 **特点**：
 - 顺序执行，前一个的输出通过 `HandoffPacket` 传给后一个
+- relay 决定链要不要继续、交给谁，返回 `HandoffActivation`；peer 的查找与 fork 由驱动方完成，协作层不构造运行时对象
 - handoff 工具的 meta 标记为 `domain="orchestration"`
 - 当前 Agent Run 以 COMPLETED 状态结束，peer 继续
 - 支持 SUSPENDED 状态的 peer 恢复（审批挂起场景）
@@ -183,6 +188,7 @@ async for event in ensemble_stream(spec):
 - 默认 `PublicTextOnly` 投影——工具调用不泄露到共享记录
 - 终止策略：`MaxRounds` 硬上限 + 可选业务策略（共识、预算等）
 - 共享 BudgetLedger，一个成员超预算不影响其他成员已完成的发言
+- 成员发言经 `RunnerPort` 激活（默认 `InProcessChatRunner`），注入自定义 runner 可把成员放到远端
 
 **类比**：专家评审会，每个人发言，主持人总结。
 
@@ -313,6 +319,29 @@ async for event in work_queue_stream(spec):
 
 ---
 
+### 三种舞台共用的排班：Activation
+
+三种舞台拓扑每一轮都在回答同一个问题：这轮谁上、怎么上。这个答案是一张统一的单子（`ports/activation.py`）：
+
+```python
+@dataclass(frozen=True)
+class Activation:
+    members: list[str]          # 这轮谁上
+    dispatch: "serial" | "concurrent" | "single_winner"
+    round_num: int = 0          # 第几轮
+    label: str = ""             # 为什么叫他们（触发器名、顺序名，日志用）
+```
+
+| dispatch | 行为 | 谁在用 |
+|---------|------|--------|
+| `serial` | 逐个、按顺序 | RoundRobin、Moderated 的单发言者 |
+| `concurrent` | 全体并发，结果按成员顺序收集 | FreeForAll、Blackboard 的触发扇出、WorkQueue 的认领竞争 |
+| `single_winner` | 全体竞争，只有一个执行，输家零开销 | Blackboard 的 buzz_in 抢答 |
+
+解释这张单子的只有一个地方：`StageDriver._dispatch`（`coordination/stage.py`）。并发批的 fail-fast 取消、抢答的先抢锁再干活，都只写一遍，三种拓扑共享。新增一种协作玩法（LLM 主持人、优先级队列），只需要实现 `ActivationPolicy` 回答"这轮谁上"，不用再写一个轮循环。
+
+---
+
 ## 统一消息平面：Crossing
 
 五种原语的通信都走同一个消息平面——`Crossing` 信封 + `Pipeline` 管道。
@@ -409,7 +438,10 @@ graph TD
 | Floor（Ensemble 共享状态） | `coordination/floor.py` |
 | 终止策略 | `coordination/termination.py` |
 | 预算账本 | `kernel/budget.py::BudgetLedger` |
-| StageDriver 基类 | `coordination/_stage.py` |
+| StageDriver 基类 | `coordination/stage.py` |
+| Activation 排班 | `ports/activation.py` |
+| RunnerPort（激活执行） | `ports/runner.py` |
+| AgentSpec 投影 | `ports/agent_spec.py` |
 
 ---
 

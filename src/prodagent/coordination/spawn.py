@@ -17,7 +17,6 @@ from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from prodagent.base.errors import SECURITY_VETO_EXCEPTIONS, ErrorReason
-from prodagent.coordination.describe import describe_agent
 from prodagent.coordination.messaging.contract import (
     DEFAULT_CHILD_CONTRACT,
     MessageContract,
@@ -47,6 +46,7 @@ if TYPE_CHECKING:
     from prodagent.base.config import FrameworkConfig
     from prodagent.kernel.budget import HardBudget
     from prodagent.kernel.bus import HookRegistry
+    from prodagent.ports.agent_spec import AgentSpec
     from prodagent.ports.dead_letter import DeadLetterStore
     from prodagent.runtime.agent import Agent
 
@@ -93,8 +93,10 @@ def short_result(
     return ChildResult(agent=name, state=state, output=message, failed_reason=failed_reason)
 
 
-def build_spawn_tool_schema(agents: list[Agent]) -> dict[str, Any]:
-    agent_lines = "\n".join(f"  - {a.name}: {describe_agent(a)}" for a in agents)
+def build_spawn_tool_schema(specs: list[AgentSpec]) -> dict[str, Any]:
+    """The model-facing roster, built from wire-shaped specs (Agent.spec()
+    projections) — the same form a remote roster would send."""
+    agent_lines = "\n".join(f"  - {s.name}: {s.describe()}" for s in specs)
     return {
         "name": "spawn_agent",
         "description": (
@@ -110,7 +112,7 @@ def build_spawn_tool_schema(agents: list[Agent]) -> dict[str, Any]:
                 "name": {
                     "type": "string",
                     "description": "Sub-agent identifier",
-                    "enum": [a.name for a in agents],
+                    "enum": [s.name for s in specs],
                 },
                 "task": {
                     "type": "string",
@@ -540,7 +542,7 @@ class Spawn:
             await self._hooks.fire(event, **fields)
 
     def build_tool(self) -> FunctionTool:
-        schema = build_spawn_tool_schema(list(self._spec_map.values()))
+        schema = build_spawn_tool_schema([a.spec() for a in self._spec_map.values()])
         meta = ToolMeta(
             name="spawn_agent",
             side_effect_level=SideEffectLevel.LOW,

@@ -301,6 +301,30 @@ async for event in work_queue_stream(spec):
     ...
 ```
 
+## RunnerPort
+
+```python
+from prodagent.ports.runner import AgentActivation, InProcessChatRunner, InProcessRunner
+from prodagent.runtime.parent_runtime import ParentRuntime
+
+# 成员的一次发言（会话轮次，本地默认实现）
+runner = InProcessChatRunner()
+async for event in runner.activate(
+    AgentActivation(agent=member, task="说说你的看法", session_id="floor-1")
+):
+    ...  # 终态事件携带 AgentRun
+
+# spawn 形态的子执行（绑上本跳的 hooks / checkpoint / 账本）
+runner = InProcessRunner(ParentRuntime(parent_run_id="root", llm=client))
+async for event in runner.activate(
+    AgentActivation(agent=child, task="子任务", run_id="root::child", parent_run_id="root")
+):
+    ...
+```
+
+`session_id` 有值是成员会话轮次，没有就是按 run_id 执行的正式 run；`InProcessRunner` 绑了 `ParentRuntime`，子执行按本跳接线 fork。换分布式，换端口实现即可，协作层不变。
+
+
 ---
 
 ## 事件类型

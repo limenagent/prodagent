@@ -36,7 +36,7 @@ graph TD
         P2["CheckpointStore"]
         P3["ApprovalStore"]
         P4["SpanExporter"]
-        P5["...共 16 个 Protocol"]
+        P5["...共 17 个 Protocol"]
     end
     subgraph "适配器（实现端口，可以替换）"
         A1["OpenAI / Anthropic / Fake"]
@@ -89,9 +89,9 @@ prodagent 全部用 Protocol。原因：
 
 ---
 
-## 16 个端口全景
+## 17 个端口全景
 
-prodagent 在 `ports/__init__.py` 中导出了 16 个 Protocol 端口（外加 `LockToken`、`SpendView` 两个辅助类型），按职责分组：
+prodagent 在 `ports/__init__.py` 中导出了 17 个 Protocol 端口（外加 `LockToken`、`SpendView` 两个辅助类型），按职责分组：
 
 ### 模型与执行
 
@@ -100,6 +100,7 @@ prodagent 在 `ports/__init__.py` 中导出了 16 个 Protocol 端口（外加 `
 | `LLMClient` | 调用大模型，支持流式和思维链 | FakeLLM / OpenAI 兼容 / Anthropic |
 | `Tool` | 工具的统一接口（FunctionTool 是主要实现） | `@tool` 装饰器生成 |
 | `LeafExecutor` | DAG 中单个步骤的执行器 | 内置默认实现，可自定义 |
+| `RunnerPort` | 激活一个 agent 执行一次 run（spawn 子任务、舞台成员发言） | `InProcessRunner`（本进程）/ `InProcessChatRunner`（成员会话） |
 
 ### 持久化与记忆
 
@@ -135,6 +136,20 @@ prodagent 在 `ports/__init__.py` 中导出了 16 个 Protocol 端口（外加 `
 | `BudgetLedgerPort` | 多 Agent 共享预算账本（含 `SpendView`） | 内核 `BudgetLedger` |
 
 > **注意**：`LLMConfig` 是和 `LLMClient` 定义在同一个文件里的 dataclass，不是 Protocol 端口。它是端口契约的一部分——配置即契约。
+
+---
+
+## 跨进程传递的定义也在 ports
+
+端口解决"换后端"的问题。还有一类相邻的问题：一个对象要跨进程传递，它的定义放哪？放在业务层，远端就得跟着 import 你的业务代码。prodagent 把这类定义也放在 ports：
+
+| 定义 | 内容 | 位置 |
+|------|------|------|
+| `AgentSpec` | Agent 的可序列化投影：名字、提示、模式、预算、工具 schema、子/同伴规格，`to_dict` / `from_dict` 无损往返 | `ports/agent_spec.py` |
+| `AgentEvent` + 编解码 | 九种流事件和 `event_to_wire` / `event_from_wire`；JSON-able 载荷无损往返，其他对象降级为文本 | `ports/agent_events.py` |
+| `Activation` / `HandoffActivation` | 舞台拓扑每轮的排班（成员 + 派发方式）；接力链的下一跳 | `ports/activation.py` / `ports/runner.py` |
+
+`AgentConfig` 持有的是 LLM 客户端、hooks、存储这些活对象，序列化不了；`Agent.spec()` 投影出的 `AgentSpec` 才能发到远端，接收方拿它对 roster 解析。事件同理：执行器输出、playground、远端平面共享同一份定义，`kernel/types.py` 只是重导出，消费方的导入路径不用改。
 
 ---
 

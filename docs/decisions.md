@@ -58,6 +58,26 @@
 
 ---
 
+### 为什么执行一个 agent 也走端口？
+
+spawn 里直接 `import` runner 调用、舞台成员直接 `agent.chat()`，单进程下没有问题——但协作代码从此和进程内执行绑死：把任何一个成员挪到别的机器上，要改的就是协作层。
+
+prodagent 的做法：激活一次执行就是一次端口调用（`ports/runner.py`）。`RunnerPort.activate()` 的入参 `AgentActivation` 只带可序列化字段——agent、任务、run_id、账本，或 session_id；进程内实现 `InProcessRunner` 持有本跳的 hooks/checkpoint/账本并负责子 agent 的 fork，成员会话用更轻的 `InProcessChatRunner`。接力同理：relay 返回 `HandoffActivation`，peer 查找与 fork 由驱动方解释，协作层不构造运行时对象。
+
+**理由**：这让"`coordination` 不 import `runtime`"成为一条 CI 能检查的红线（两个方向都有测试）。换分布式执行就是换一个端口实现，协作原语一行不改。
+
+---
+
+### 为什么 AgentSpec 和 AgentConfig 是两个东西？
+
+`AgentConfig` 里是 LLM 客户端、hooks 注册表、存储、工具实例——只在当前进程有意义，序列化不了。远程派活需要传递的是另一组信息：名字、系统提示、模式、预算、工具 schema、子 agent 与同伴的规格。
+
+所以投影是显式的一步：`Agent.spec()` 产出纯数据的 `AgentSpec`（`ports/agent_spec.py`），`to_dict` / `from_dict` 无损往返。spawn 工具给模型看的子 agent 名册就从这份投影生成，远程 roster 传递的也是同一种格式。
+
+**理由**：配置留在进程内，规格才能跨进程。两者混在一个类型里，要么配置序列化不了，要么规格带着一堆活对象。
+
+---
+
 ## 模型层
 
 ### 为什么 Message 以 OpenAI 线格式为规范格式？
@@ -292,6 +312,29 @@ test_work_queue_lease_timeout_requeue
 
 ---
 
+## 事件层
+
+### 为什么"步骤完成"有三个名字，却不合并成一种事件？
+
+同一次步骤完成出现在三个地方：总线 `HookEvent.STEP_COMPLETED`（广播给挂钩能力）、事件流 `StepCompletedEvent`（发给流式消费者）、事件日志 `PlanEventType.STEP_COMPLETED`（落盘回放）。
+
+不合并，因为三者要的东西不同：广播要 fan-out，流要携带活对象，日志要可重放——合成一种，每种都做不好。
+
+但拼写必须一一对应，否则每读一处就得背一次暗号。约定：**总线用小写点分，流事件用 PascalCase 类名，日志用 PascalCase 字符串值，词干相同**：
+
+| 这件事 | 总线 | 事件流 | 日志 |
+|------|------|--------|------|
+| step 开始 | `step.started` | `StepStartedEvent` | `StepStarted` |
+| step 完成 | `step.completed` | `StepCompletedEvent` | `StepCompleted` |
+| step 失败 | `step.failed` | `StepFailedEvent` | `StepFailed` |
+| run 完成 | `run.complete` | `RunCompletedEvent` | `RunCompleted` |
+| run 失败 | `run.failed` | `RunFailedEvent` | `RunFailed` |
+| turn 完成（REACTIVE） | — | — | `TurnCompleted` |
+
+事件流事件和它的 JSON 编解码（`event_to_wire` / `event_from_wire`）定义在 `ports/agent_events.py`；`kernel/types.py` 重导出，消费方保持单一导入站点。
+
+---
+
 ## 代码定位
 
 | 决策 | 相关源码 |
@@ -307,6 +350,10 @@ test_work_queue_lease_timeout_requeue
 | thinking 往返 | `llm/anthropic_adapter.py` |
 | 结算信封 | `kernel/budget.py` |
 | Transport 端口 | `ports/transport.py` |
+| RunnerPort | `ports/runner.py` |
+| Activation 排班 | `ports/activation.py` |
+| AgentSpec 投影 | `ports/agent_spec.py` |
+| 事件编解码 | `ports/agent_events.py` |
 
 ---
 

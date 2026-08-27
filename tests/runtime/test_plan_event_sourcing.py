@@ -82,7 +82,7 @@ async def test_emits_event_sequence(tmp_path):
     assert executor.calls == ["collect", "report"]
     saved = await checkpoints.load("R1")
     assert saved is not None
-    assert saved.plan_last_seq == (await events.get_events("R1"))[-1].seq
+    assert (saved.cursor("plan") or {}).get("last_seq") == (await events.get_events("R1"))[-1].seq
     assert run.state.value == "completed"
 
 
@@ -174,11 +174,11 @@ async def test_checkpoint_only_at_step_boundary(tmp_path):
 
     run = await checkpoints.load("R4")
     assert run is not None
-    assert run.plan_state["steps"]["s1"]["status"] == "completed"
+    assert (run.cursor("plan") or {})["state"]["steps"]["s1"]["status"] == "completed"
     completed = [
         e for e in await events.get_events("R4") if e.event_type == PlanEventType.STEP_COMPLETED
     ][0]
-    assert run.plan_last_seq == completed.seq
+    assert (run.cursor("plan") or {})["last_seq"] == completed.seq
 
 
 @pytest.mark.asyncio
