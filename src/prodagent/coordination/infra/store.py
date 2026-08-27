@@ -34,7 +34,37 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any
 
-__all__ = ["SharedStore", "RoundedLockableStore"]
+from prodagent.base.event_log import Event, append_expected
+
+__all__ = ["SharedStore", "RoundedLockableStore", "EventSourcedStore"]
+
+
+class EventSourcedStore:
+    """Durable-projection mixin shared by the three stage stores: append one
+    transition to the attached event log via the shared optimistic tail-check
+    (``base.event_log.append_expected``), advancing the resume cursor.
+
+    Lock-free by contract — the caller holds the store's lock (the queue and
+    board mutate under theirs; the floor wraps its append in its own). The
+    event type, the reducer, and ``restore`` stay in each domain: they are real
+    content. What lives here once is the record-and-advance mechanics."""
+
+    _event_log: Any
+    _run_id: str
+    _last_seq: int
+
+    async def _record(self, event_type: Any, **data: Any) -> int:
+        """Append one durable transition; no-op without an attached log.
+        Returns the assigned seq and advances ``_last_seq``."""
+        if getattr(self, "_event_log", None) is None or not getattr(self, "_run_id", ""):
+            return 0
+        seq = await append_expected(
+            self._event_log,
+            Event.make(event_type, self._run_id, version=0, **data),
+            tail_seq=self._last_seq,
+        )
+        self._last_seq = seq
+        return seq
 
 
 class SharedStore(ABC):

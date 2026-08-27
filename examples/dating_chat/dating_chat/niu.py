@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from prodagent import use_fake_llm
-from prodagent.coordination.floor import FloorTurn, SharedFloor
+from prodagent.coordination.ensemble import FloorTurn, SharedFloor
 from prodagent.kernel.types import MessageList, StopReason
 
 from dating_chat.fake_llm import NIU_SYSTEM_PROMPT, build_niu_fake_llm

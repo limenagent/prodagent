@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent.coordination.termination import MaxRounds, TerminationPolicy
+from prodagent.coordination.infra.stage import MaxRounds, TerminationPolicy
 from prodagent.coordination.work_queue import (
     ItemClaimedEvent,
     ItemCompletedEvent,

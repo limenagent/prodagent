@@ -28,7 +28,7 @@ from prodagent.coordination.messaging.envelope import (
 )
 from prodagent.coordination.messaging.packet import HandoffPacket
 from prodagent.coordination.messaging.transport import TransportSpec, build_transport
-from prodagent.kernel.budget import BudgetLedger, SpawnAccumulator, run_enveloped
+from prodagent.kernel.budget import SpawnAccumulator, open_ledger, run_enveloped
 from prodagent.kernel.bus import HookEvent
 from prodagent.kernel.state import collect_final_run
 from prodagent.kernel.types import (
@@ -44,7 +44,7 @@ from prodagent.tooling.merge import attach_tools
 
 if TYPE_CHECKING:
     from prodagent.base.config import FrameworkConfig
-    from prodagent.kernel.budget import HardBudget
+    from prodagent.kernel.budget import BudgetLedger, HardBudget
     from prodagent.kernel.bus import HookRegistry
     from prodagent.ports.agent_spec import AgentSpec
     from prodagent.ports.dead_letter import DeadLetterStore
@@ -188,9 +188,7 @@ class Spawn:
         )
         # Shared chain ledger (one per RunLoop) — peers and siblings see the same
         # spend. A standalone Spawn (no chain) still enforces its own ceiling.
-        self._budget_ledger = budget_ledger or (
-            BudgetLedger(max=budget) if budget is not None else None
-        )
+        self._budget_ledger = open_ledger(budget, existing=budget_ledger)
         # Both boundary directions of the spawn primitive, built through the
         # shared transport factory — preset selection and dedupe policy live
         # once there, not per primitive.

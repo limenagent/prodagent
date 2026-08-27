@@ -309,6 +309,16 @@ class FileCheckpointStore:
 
 ---
 
+## 舞台拓扑的恢复：floor / board / queue 同一套契约
+
+三种舞台拓扑的共享状态（发言记录、板面、队列）用的是同一套事件溯源契约，和 PLAN_FIRST 的 DAG 一个思路：
+
+- Spec 上传 `event_log` + `run_id`，每次状态变更追加一条事件（`TurnAppended` / `SlotWritten` / `ItemClaimed`…），内存态是运行时的真源，日志是崩溃后剩下的东西；
+- 重跑同一个 `run_id` 时先查日志：有事件就 `restore()` 重建（发言记录带原 turn_id、板面带原版本号），没有就全新开始；
+- 活对象不进日志——floor 的成员在恢复后由调用方重新挂上，和 checkpoint 恢复后重装工具是同一个道理。
+
+---
+
 ## 下一步
 
 - 预算和恢复怎么配合？→ [四轴预算专题](budget.md)

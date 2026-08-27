@@ -29,8 +29,8 @@ if TYPE_CHECKING:
 
 if TYPE_CHECKING:
     from prodagent.base.config import FrameworkConfig
-    from prodagent.coordination.relay import PeerRelay
-    from prodagent.coordination.settle import Settler
+    from prodagent.coordination.infra.settle import Settler
+    from prodagent.coordination.peer import PeerRelay
     from prodagent.hooks.bundles.base import HookBundle
 
 logger = logging.getLogger(__name__)
@@ -91,12 +91,14 @@ def hop_tool_assemblers() -> list[Any]:
     The driver attaches these to ``RunContext.tool_assemblers``; the factory
     consumes them blind. As the assembly root, this is the one place runtime
     may name coordination capabilities."""
+    from prodagent.coordination.infra.stage_tools import assemble_stage_tools
     from prodagent.coordination.peer import assemble_peer_tools
     from prodagent.coordination.spawn import assemble_spawn_tools
 
     return [
         lambda ctx, tools, schemas, acc: assemble_spawn_tools(ctx, tools, schemas),
         assemble_peer_tools,
+        assemble_stage_tools,
     ]
 
 
@@ -110,7 +112,7 @@ async def find_suspended_peer(checkpoint: Any, root_run_id: str) -> tuple[str, s
 def peer_relay(root_run_id: str) -> PeerRelay:
     """The peer-chain relay — assembled here so runtime names coordination
     in exactly one file (this one)."""
-    from prodagent.coordination.relay import PeerRelay as _PeerRelay
+    from prodagent.coordination.peer import PeerRelay as _PeerRelay
 
     return _PeerRelay(root_run_id)
 
@@ -123,7 +125,7 @@ def make_settler(
 ) -> Settler:
     """Terminal-state discipline for a finished chain — same seam rule as
     :func:`peer_relay`."""
-    from prodagent.coordination.settle import Settler as _Settler
+    from prodagent.coordination.infra.settle import Settler as _Settler
 
     return _Settler(
         agent_name=agent_name,

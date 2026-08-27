@@ -72,6 +72,22 @@ class HardBudget:
 SAFETY_NET_BUDGET = HardBudget()
 
 
+def open_ledger(
+    budget: HardBudget | None,
+    *,
+    existing: BudgetLedger | None = None,
+) -> BudgetLedger | None:
+    """The one construction point for chain ledgers: join ``existing`` when
+    there is one, else open a new ceiling when a budget is configured, else no
+    ledger. The "join-or-open" policy used to be re-written at every call site
+    (runner root, spawn, ensemble) — now it lives once here."""
+    if existing is not None:
+        return existing
+    if budget is None:
+        return None
+    return BudgetLedger(max=budget)
+
+
 def check_budget(
     run: AgentRun,
     budget: HardBudget,

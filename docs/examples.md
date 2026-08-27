@@ -17,6 +17,7 @@
 | [quiz_arena](https://github.com/limenagent/prodagent/tree/main/examples/quiz_arena) | ~200 | 多 Agent 辩论 | Ensemble、RoundRobin/Moderated |
 | [code_detective](https://github.com/limenagent/prodagent/tree/main/examples/code_detective) | ~250 | 多 Agent 协作排查 | Blackboard、Trigger、共享状态 |
 | [aiops](https://github.com/limenagent/prodagent/tree/main/examples/aiops) | ~300 | 多 Agent 运维 | WorkQueue、租约、死信、事件溯源 |
+| [council](https://github.com/limenagent/prodagent/tree/main/examples/council) | ~100 | 模型自己召集协作 | run_ensemble / run_work_queue 工具 |
 
 ---
 

@@ -11,8 +11,8 @@ from prodagent.coordination.blackboard import (
     Trigger,
     blackboard_stream,
 )
+from prodagent.coordination.infra.stage import MaxRounds, TerminationPolicy
 from prodagent.coordination.messaging.contract import MessageContract
-from prodagent.coordination.termination import MaxRounds, TerminationPolicy
 from prodagent.kernel.bus import BlockingResult, Gate, HookRegistry
 
 

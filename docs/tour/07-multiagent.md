@@ -189,6 +189,7 @@ async for event in ensemble_stream(spec):
 - 终止策略：`MaxRounds` 硬上限 + 可选业务策略（共识、预算等）
 - 共享 BudgetLedger，一个成员超预算不影响其他成员已完成的发言
 - 成员发言经 `RunnerPort` 激活（默认 `InProcessChatRunner`），注入自定义 runner 可把成员放到远端
+- 指定 `event_log` + `run_id` 时每轮发言落日志；同一 `run_id` 重跑从日志恢复发言记录，未完成的轮次继续
 
 **类比**：专家评审会，每个人发言，主持人总结。
 
@@ -312,7 +313,7 @@ async for event in work_queue_stream(spec):
 |------|------|
 | **租约（Lease）** | Worker 领取任务后有 30 秒租约，超时未完成自动重新入队 |
 | **死信（Dead Letter）** | 重试 N 次（默认 3）仍失败的任务进入死信队列，不阻塞其他任务 |
-| **事件溯源** | 可选 EventLog，每次状态变更追加事件，崩溃后通过 `SharedQueue.restore()` 重建 |
+| **事件溯源** | 可选 EventLog，每次状态变更追加事件，崩溃后从日志重建（floor / board / queue 三家同一契约，见下文） |
 | **拉模式** | Worker 主动 `claim_next()`，不是 push——空闲 Worker 自然竞争，负载均衡 |
 
 **类比**：快递分拣中心，任务是包裹，Worker 是快递员，领一个送一个。
@@ -338,7 +339,30 @@ class Activation:
 | `concurrent` | 全体并发，结果按成员顺序收集 | FreeForAll、Blackboard 的触发扇出、WorkQueue 的认领竞争 |
 | `single_winner` | 全体竞争，只有一个执行，输家零开销 | Blackboard 的 buzz_in 抢答 |
 
-解释这张单子的只有一个地方：`StageDriver._dispatch`（`coordination/stage.py`）。并发批的 fail-fast 取消、抢答的先抢锁再干活，都只写一遍，三种拓扑共享。新增一种协作玩法（LLM 主持人、优先级队列），只需要实现 `ActivationPolicy` 回答"这轮谁上"，不用再写一个轮循环。
+解释这张单子的只有一个地方：`StageDriver._dispatch`（`coordination/infra/stage.py`）。并发批的 fail-fast 取消、抢答的先抢锁再干活，都只写一遍，三种拓扑共享。新增一种协作玩法（LLM 主持人、优先级队列），只需要实现 `ActivationPolicy` 回答"这轮谁上"，不用再写一个轮循环。
+
+### 模型自己开会：run_ensemble / run_work_queue
+
+上面四种拓扑都是应用层拉 stream 驱动的。还有第五种用法：把带名字的 Spec 声明在 `AgentConfig` 上，框架自动生成工具，**模型自己决定**什么时候开会、什么时候派活——和调 `spawn_agent` 是同一种体验：
+
+```python
+panel = EnsembleSpec(name="panel", members=[...], topic="待定议题")
+chores = WorkQueueSpec(name="chores", workers={"w1": AgentWorkMember(w1)}, items=[])
+
+host = Agent("host", config=AgentConfig(
+    name="host",
+    ensembles=[panel],      # → 自动生成 run_ensemble 工具
+    work_queues=[chores],   # → 自动生成 run_work_queue 工具
+))
+# 模型调用 run_ensemble(name="panel", task="要不要周五上线")
+#   → 成员在共享 floor 上轮流表态，完整 transcript 作为工具结果返回
+# 模型调用 run_work_queue(name="chores", items=["写公告", "回滚预案"])
+#   → 工人按租约认领，重试与死信归队列，完成清单作为工具结果返回
+```
+
+规则很简单：**Spec 有名字才可调用**（名字就是工具的 handle），没名字的 Spec 只能应用层自己驱动。工人的适配器是 `AgentWorkMember`——认领一个 item 就是一次激活，队列版的 `AgentFloorMember`。
+
+完整可跑的例子见 [examples/council](https://github.com/limenagent/prodagent/tree/main/examples/council)。
 
 ---
 
@@ -427,21 +451,25 @@ graph TD
 
 ## 代码定位
 
-| 原语 | 源码位置 |
+| 东西 | 源码位置 |
 |------|---------|
-| 委派 Spawn | `coordination/spawn.py`（通过 `agents=[...]` 配置） |
-| 接力 Peer | `coordination/peer.py`（通过 `peers=[...]` 配置） |
-| Ensemble | `coordination/ensemble.py` |
-| Blackboard | `coordination/blackboard.py` |
-| WorkQueue | `coordination/work_queue.py` |
+| 委派 Spawn（`agents=[...]`） | `coordination/spawn.py` |
+| 接力 Peer（`peers=[...]`，含 relay 链） | `coordination/peer.py` |
+| 辩论 Ensemble（floor + 投影 + 发言顺序） | `coordination/ensemble.py` |
+| 黑板 Blackboard | `coordination/blackboard.py` |
+| 队列 WorkQueue（含 AgentWorkMember） | `coordination/work_queue.py` |
+| 舞台机械（派发 + 终止策略 + 耐久开箱） | `coordination/infra/stage.py` |
+| 共享状态契约 + 事件溯源样板 | `coordination/infra/store.py` |
+| 舞台工具（run_ensemble / run_blackboard / run_work_queue） | `coordination/infra/stage_tools.py` |
+| 链终态纪律 Settler | `coordination/infra/settle.py` |
 | 消息平面 Crossing | `coordination/messaging/` |
-| Floor（Ensemble 共享状态） | `coordination/floor.py` |
-| 终止策略 | `coordination/termination.py` |
 | 预算账本 | `kernel/budget.py::BudgetLedger` |
-| StageDriver 基类 | `coordination/stage.py` |
-| Activation 排班 | `ports/activation.py` |
+| 激活排班 Activation | `ports/activation.py` |
 | RunnerPort（激活执行） | `ports/runner.py` |
 | AgentSpec 投影 | `ports/agent_spec.py` |
+
+顶层一个协作方式一个文件（spec、共享状态、驱动、成员适配、事件全在里面），
+机械沉在 `infra/`，消息平面自成 `messaging/`——这是 `coordination/` 的切分规则。
 
 ---
 

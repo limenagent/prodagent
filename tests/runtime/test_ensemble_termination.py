@@ -9,11 +9,12 @@ import pytest
 from prodagent.coordination.ensemble import (
     EnsembleCompletedEvent,
     EnsembleSpec,
+    FloorTurn,
     FloorTurnEvent,
+    SharedFloor,
     ensemble_stream,
 )
-from prodagent.coordination.floor import FloorTurn, SharedFloor
-from prodagent.coordination.termination import MaxRounds, TerminationPolicy
+from prodagent.coordination.infra.stage import MaxRounds, TerminationPolicy
 from prodagent.kernel.budget import BudgetLedger, HardBudget
 
 
@@ -61,7 +62,7 @@ class _BusinessStopsAtTwoTurns:
     proves it fires before the (much looser) hard cap."""
 
     def should_stop(self, floor: SharedFloor, *, next_round: int):
-        from prodagent.coordination.termination import TerminationReason
+        from prodagent.coordination.infra.stage import TerminationReason
 
         if len(floor.transcript) >= 2:
             return True, TerminationReason(reason="business_done", detail="reached 2 turns")

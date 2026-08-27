@@ -6,9 +6,19 @@ import fnmatch
 import logging
 import time
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from prodagent.base.text import bound_text
+from prodagent.coordination.infra.stage import (
+    MaxRounds,
+    StageDriver,
+    TerminationPolicy,
+    TerminationReason,
+    ViewInjector,
+    has_durable_events,
+)
+from prodagent.coordination.infra.store import EventSourcedStore, RoundedLockableStore
 from prodagent.coordination.messaging.envelope import (
     Crossing,
     CrossingKind,
@@ -20,13 +30,6 @@ from prodagent.coordination.messaging.pipeline import (
     Slot,
     admission_pipeline,
     assembly_pipeline,
-)
-from prodagent.coordination.stage import StageDriver, ViewInjector
-from prodagent.coordination.store import RoundedLockableStore
-from prodagent.coordination.termination import (
-    MaxRounds,
-    TerminationPolicy,
-    TerminationReason,
 )
 from prodagent.kernel.types import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.ports.activation import Activation, ActivationContext, ActivationPolicy
@@ -43,11 +46,13 @@ class BoardVersionConflict(Exception):
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
 
+    from prodagent.base.event_log import Event
     from prodagent.coordination.messaging.contract import MessageContract
     from prodagent.coordination.messaging.pipeline import Interceptor
     from prodagent.kernel.budget import BudgetLedger
     from prodagent.kernel.bus import HookRegistry
     from prodagent.kernel.state import AgentRun
+    from prodagent.ports import EventLog
     from prodagent.ports.dead_letter import DeadLetterStore
     from prodagent.ports.lock import LockStore
     from prodagent.runtime.agent import Agent
@@ -87,18 +92,46 @@ class BoardSlot:
     version: int
 
 
-class Board(RoundedLockableStore):
+class BoardEventType(StrEnum):
+    """Durable record of every Board transition — 1:1 with the in-memory
+    mutations. Appended to an :class:`~prodagent.ports.event_log.EventLog`
+    keyed by the board's ``run_id``, so a crashed board can be rebuilt by
+    :meth:`Board.restore`. Same shape as the work queue's
+    ``QueueEventType``."""
+
+    SLOT_WRITTEN = "SlotWritten"
+
+
+def apply_board_event(state: dict[str, Any], event: Event) -> None:
+    """Fold one board :class:`Event` into a rebuild-state dict — the pure
+    reducer behind :meth:`Board.restore`. State shape: ``slots``
+    (dict[str, BoardSlot])."""
+    if event.event_type == BoardEventType.SLOT_WRITTEN:
+        data = event.data
+        state["slots"][data["key"]] = BoardSlot(value=data["value"], version=data["new_version"])
+
+
+class Board(RoundedLockableStore, EventSourcedStore):
     """Shared ``dict[str, BoardSlot]`` — a versioned map of structured fields.
 
-    Not :class:`~prodagent.coordination.floor.SharedFloor`'s append-only
+    Not :class:`~prodagent.coordination.ensemble.SharedFloor`'s append-only
     transcript: Blackboard experts overwrite structured fields, so writes need
     optimistic-concurrency version checks, not just ordering. A
     :class:`RoundedLockableStore` — the lock and round counter come from the base."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        event_log: EventLog | None = None,
+        run_id: str = "",
+    ) -> None:
         super().__init__()
         self._slots: dict[str, BoardSlot] = {}
         self._changes: list[str] = []
+        # Durable projection (optional) — same contract as the work queue's.
+        self._event_log = event_log
+        self._run_id = run_id
+        self._last_seq = 0
 
     async def write(self, key: str, value: Any, *, expected_version: int | None = None) -> int:
         """Write ``key``, returning the new version. Raises :class:`VersionConflict`
@@ -115,6 +148,9 @@ class Board(RoundedLockableStore):
             new_version = current_version + 1
             self._slots[key] = BoardSlot(value=value, version=new_version)
             self._changes.append(key)
+            await self._record(
+                BoardEventType.SLOT_WRITTEN, key=key, value=value, new_version=new_version
+            )
             return new_version
 
     def read(self, keys: list[str] | None = None) -> dict[str, Any]:
@@ -143,6 +179,21 @@ class Board(RoundedLockableStore):
         and never falls, so it changes iff a write landed this round; the
         un-drained change count disambiguates back-to-back same-version rounds."""
         return (sum(s.version for s in self._slots.values()), len(self._changes))
+
+    @classmethod
+    async def restore(cls, event_log: EventLog, run_id: str) -> Board:
+        """Rebuild a board by folding its event log — the crash-recovery path.
+        Slot values and versions come back verbatim (optimistic-version
+        checks resume exactly where they left off); the per-round change list
+        starts empty, as it would at any round boundary."""
+        events = await event_log.get_events(run_id)
+        state: dict[str, Any] = {"slots": {}}
+        for event in events:
+            apply_board_event(state, event)
+        board = cls(event_log=event_log, run_id=run_id)
+        board._slots = state["slots"]
+        board._last_seq = events[-1].seq if events else 0
+        return board
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +261,7 @@ class BoardWrite:
 @runtime_checkable
 class BlackboardMember(Protocol):
     """What it takes to be a Blackboard expert. Unlike
-    :class:`~prodagent.coordination.floor.FloorMember.speak` (must
+    :class:`~prodagent.coordination.ensemble.FloorMember.speak` (must
     return a turn), ``try_contribute`` may return ``None`` — "this trigger
     fired but I have nothing to add, don't occupy a write slot for it"."""
 
@@ -234,6 +285,9 @@ def _in_process_lock() -> LockStore:
 class BlackboardSpec:
     experts: dict[str, BlackboardMember]
     triggers: dict[str, Trigger]
+    name: str = ""
+    """Optional handle for the ``run_blackboard`` tool — a spec with a name
+    can be declared on ``AgentConfig.blackboards`` and run by the model."""
     termination: TerminationPolicy = field(
         default_factory=lambda: TerminationPolicy(hard_cap=MaxRounds(max_rounds=20))
     )
@@ -265,6 +319,18 @@ class BlackboardSpec:
     write_interceptors: list[tuple[Slot, Interceptor]] = field(default_factory=list)
     """User-injected semantics on the write pipeline — mounted at their
     declared slots, order preserved."""
+
+    event_log: EventLog | None = None
+    """Durable projection (optional): every slot write also lands here under
+    ``run_id``, and a board with existing events is resumed from them instead
+    of starting fresh — same contract as the work queue."""
+
+    run_id: str = ""
+
+    seed: dict[str, Any] = field(default_factory=dict)
+    """Initial slots written on a fresh start (ignored on resume — the log
+    already has them). The ``run_blackboard`` tool passes its ``seeds``
+    argument through here."""
 
     def __post_init__(self) -> None:
         if not self.experts:
@@ -315,8 +381,9 @@ class Blackboard(StageDriver[BoardWriteEvent | BlackboardCompletedEvent]):
 
         super().__init__()
         self._spec = spec
-        self.board = Board()
+        self.board = Board(event_log=spec.event_log, run_id=spec.run_id)
         self._budget = spec.budget
+        self._opened = False
         self._value_max_chars = spec.value_max_chars or _VALUE_MAX_CHARS_DEFAULT
         self._activation: ActivationPolicy = BlackboardPolicy(spec.triggers)
         self._trigger_by_name: dict[str, Trigger] = {t.name: t for t in spec.triggers.values()}
@@ -375,12 +442,31 @@ class Blackboard(StageDriver[BoardWriteEvent | BlackboardCompletedEvent]):
 
         return run_one
 
+    async def _open(self) -> None:
+        """Lazy durable setup, run once before the first round. With an event
+        log: resume the board from it when ``run_id`` already has events, else
+        start fresh (the first writes record themselves). No-op for
+        non-durable boards — same contract as the work queue's ``_open``."""
+        if self._opened:
+            return
+        self._opened = True
+        spec = self._spec
+        if await has_durable_events(spec):
+            assert spec.event_log is not None  # narrowed by has_durable_events
+            self.board = await Board.restore(spec.event_log, spec.run_id)
+        elif spec.seed:
+            # Fresh start with declared seeds — they record like any write, so
+            # a resume replays them from the log instead of re-seeding.
+            for key, value in spec.seed.items():
+                await self.board.write(key, value)
+
     async def _rounds(self) -> AsyncGenerator[BoardWriteEvent, None]:
         """One round per iteration: ask :class:`BlackboardPolicy` which triggers
         matched → dispatch each activation via :meth:`StageDriver._dispatch`
         (concurrent fan-out or single-winner lock-race) → fold writes. Sets
         ``self._reason`` when the board should stop. Crash→error and
         finalize-to-unknown are handled by :meth:`StageDriver.run`."""
+        await self._open()
         round_num = 0
         while True:
             stop, policy_reason = self._spec.termination.should_stop(

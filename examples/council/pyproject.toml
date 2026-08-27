@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "council-agent"
+version = "0.1.0"
+description = "Stage tools example — the model convenes a panel (ensemble) and fans out chores (work queue) itself."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = ["llm", "agent", "multi-agent", "ensemble", "work-queue"]
+dependencies = ["prodagent"]
+
+[tool.uv.sources]
+prodagent = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["council"]

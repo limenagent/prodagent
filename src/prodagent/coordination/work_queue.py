@@ -24,8 +24,15 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
-from prodagent.base.event_log import Event, append_expected
 from prodagent.base.text import bound_text
+from prodagent.coordination.infra.stage import (
+    MaxRounds,
+    StageDriver,
+    TerminationPolicy,
+    TerminationReason,
+    has_durable_events,
+)
+from prodagent.coordination.infra.store import EventSourcedStore, RoundedLockableStore
 from prodagent.coordination.messaging.envelope import (
     Crossing,
     CrossingKind,
@@ -33,18 +40,15 @@ from prodagent.coordination.messaging.envelope import (
 )
 from prodagent.coordination.messaging.limits import CROSSING_OUTPUT_MAX_CHARS
 from prodagent.coordination.messaging.pipeline import admission_pipeline
-from prodagent.coordination.stage import StageDriver
-from prodagent.coordination.store import RoundedLockableStore
-from prodagent.coordination.termination import (
-    MaxRounds,
-    TerminationPolicy,
-    TerminationReason,
-)
+from prodagent.kernel.state import collect_final_run
+from prodagent.kernel.types import RunState
 from prodagent.ports.activation import Activation
+from prodagent.ports.runner import AgentActivation, InProcessChatRunner, RunnerPort
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
+    from prodagent.base.event_log import Event
     from prodagent.coordination.messaging.contract import MessageContract
     from prodagent.kernel.budget import BudgetLedger
     from prodagent.kernel.bus import HookRegistry
@@ -135,7 +139,7 @@ def apply_queue_event(state: dict[str, Any], event: Event) -> None:
         state["resolutions"] += 1
 
 
-class SharedQueue(RoundedLockableStore):
+class SharedQueue(RoundedLockableStore, EventSourcedStore):
     """``pending`` deque + ``claimed`` lease registry. A
     :class:`RoundedLockableStore` — the lock and round counter come from the
     base, shared with :class:`~prodagent.coordination.blackboard.Board`."""
@@ -272,22 +276,6 @@ class SharedQueue(RoundedLockableStore):
             self._resolution_count,
         )
 
-    async def _record(self, event_type: QueueEventType, **data: Any) -> int:
-        """Append a durable event under ``run_id`` via the shared optimistic
-        tail-check (``core.event_log.append_expected`` — the same discipline
-        ``PlanEventLog._record`` uses, serialized here by this store's lock).
-        No-op when no event log is attached. Returns the assigned seq and
-        advances ``_last_seq``."""
-        if self._event_log is None:
-            return 0
-        seq = await append_expected(
-            self._event_log,
-            Event.make(event_type, self._run_id, version=0, **data),
-            tail_seq=self._last_seq,
-        )
-        self._last_seq = seq
-        return seq
-
     async def record_enqueued(self) -> None:
         """Append ``ITEM_ENQUEUED`` for every pending item — called once when a
         durable queue starts fresh, so the log records the initial workload."""
@@ -361,10 +349,55 @@ class WorkResult:
 @runtime_checkable
 class Worker(Protocol):
     """Pull model — inverse of
-    :class:`~prodagent.coordination.floor.FloorMember.speak` (push).
+    :class:`~prodagent.coordination.ensemble.FloorMember.speak` (push).
     Returns ``None`` if nothing was available to claim this round."""
 
     async def try_claim_and_run(self, queue: SharedQueue, *, name: str) -> WorkResult | None: ...
+
+
+class AgentWorkMember:
+    """Adapts a full :class:`~prodagent.runtime.agent.Agent` to the
+    :class:`Worker` protocol — one claimed item is one session activation
+    through the RunnerPort (the queue twin of ensemble's
+    ``AgentFloorMember``): the payload becomes the message, each item gets
+    its own isolated session. A FAILED run reports a failure result and the
+    queue's retry/dead-letter path takes over."""
+
+    def __init__(self, agent: Any, *, runner: RunnerPort | None = None) -> None:
+        self._agent = agent
+        self._runner = runner if runner is not None else InProcessChatRunner()
+
+    @property
+    def name(self) -> str:
+        return str(self._agent.name)
+
+    async def try_claim_and_run(self, queue: SharedQueue, *, name: str) -> WorkResult | None:
+        item = await queue.claim_next(self._agent.name)
+        if item is None:
+            return None
+        run = await collect_final_run(
+            self._runner.activate(
+                AgentActivation(
+                    agent=self._agent,
+                    task=str(item.payload),
+                    session_id=f"{self._agent.name}:{item.item_id}",
+                )
+            ),
+            fallback_run_id=f"{self._agent.name}:{item.item_id}",
+            fallback_task=str(item.payload),
+        )
+        tokens = run.input_tokens + run.output_tokens
+        if run.state is RunState.FAILED:
+            return WorkResult(
+                item_id=item.item_id,
+                outcome="failure",
+                error=run.last_error or "worker run failed",
+                cost_usd=run.cost_usd,
+                tokens=tokens,
+            )
+        return WorkResult(
+            item_id=item.item_id, outcome="success", cost_usd=run.cost_usd, tokens=tokens
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -382,6 +415,9 @@ def _in_memory_dlq() -> DeadLetterStore:
 class WorkQueueSpec:
     workers: dict[str, Worker]
     items: list[WorkItem]
+    name: str = ""
+    """Optional handle for the ``run_work_queue`` tool — a spec with a name
+    can be declared on ``AgentConfig.work_queues`` and run by the model."""
     lease_seconds: float = 30.0
     dead_letter: DeadLetterStore = field(default_factory=lambda: _in_memory_dlq())
 
@@ -410,7 +446,9 @@ class WorkQueueSpec:
     def __post_init__(self) -> None:
         if not self.workers:
             raise ValueError("WorkQueueSpec.workers cannot be empty")
-        if not self.items:
+        if not self.items and not self.name:
+            # A named (tool-callable) queue may start empty — items arrive at
+            # each run_work_queue call.
             raise ValueError("WorkQueueSpec.items cannot be empty")
         ids = [item.item_id for item in self.items]
         if len(ids) != len(set(ids)):
@@ -525,9 +563,8 @@ class WorkQueue(StageDriver[WorkQueueEvent]):
             return
         self._opened = True
         spec = self._spec
-        if spec.event_log is None or not spec.run_id:
-            return
-        if await spec.event_log.get_events(spec.run_id):
+        if await has_durable_events(spec):
+            assert spec.event_log is not None  # narrowed by has_durable_events
             # Resume: rebuild the queue from its log, replacing the fresh one.
             self.queue = await SharedQueue.restore(
                 spec.event_log,

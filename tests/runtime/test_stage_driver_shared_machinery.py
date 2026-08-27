@@ -10,12 +10,12 @@ from typing import TYPE_CHECKING
 import pytest
 
 from prodagent.backends.memory.lock import InProcessLockStore
-from prodagent.coordination.stage import StageDriver
+from prodagent.coordination.infra.stage import StageDriver
 from prodagent.kernel.budget import BudgetLedger, HardBudget
 from prodagent.ports.activation import Activation
 
 if TYPE_CHECKING:
-    from prodagent.coordination.termination import TerminationReason
+    from prodagent.coordination.infra.stage import TerminationReason
 
 
 class _ProbeDriver(StageDriver[int]):

@@ -1,19 +1,42 @@
-"""Ensemble — N agents in a shared session, taking turns autonomously."""
+"""Ensemble — N agents debate on one shared floor (``EnsembleSpec`` / ``ensemble_stream``).
+
+One file, the whole topology:
+
+- **Shared floor** (``SharedFloor``): the append-only transcript every member
+  reads and writes — event-sourced when ``event_log`` is attached.
+- **Projection** (``FloorProjection``): per-viewer filtering of that transcript
+  — the default strips other members' tool calls; the same turn can render
+  differently per viewer.
+- **Speaking orders** (``RoundRobin`` / ``Moderated`` / ``FreeForAll``): who
+  speaks next, adapted to one :class:`~prodagent.ports.activation.Activation`
+  per round.
+- **Member adapter** (``AgentFloorMember``): turns a full Agent into a
+  ``FloorMember`` — each ``speak()`` is one session activation through the
+  RunnerPort.
+- **Driver + spec + events**: the round loop, its termination, its stream.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 import uuid
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 from prodagent.base.errors import BudgetExceeded
 from prodagent.base.text import bound_text
-from prodagent.coordination.floor import FloorMember, FloorTurn, SharedFloor
-from prodagent.coordination.floor_projection import (
-    FloorProjection,
-    PublicTextOnly,
+from prodagent.coordination.infra.stage import (
+    MaxRounds,
+    StageDriver,
+    TerminationPolicy,
+    TerminationReason,
+    ViewInjector,
+    has_durable_events,
 )
+from prodagent.coordination.infra.store import EventSourcedStore, SharedStore
 from prodagent.coordination.messaging.envelope import (
     Crossing,
     CrossingKind,
@@ -27,13 +50,7 @@ from prodagent.coordination.messaging.pipeline import (
     admission_pipeline,
     assembly_pipeline,
 )
-from prodagent.coordination.stage import StageDriver, ViewInjector
-from prodagent.coordination.termination import (
-    MaxRounds,
-    TerminationPolicy,
-    TerminationReason,
-)
-from prodagent.kernel.budget import BudgetLedger, HardBudget
+from prodagent.kernel.budget import BudgetLedger, HardBudget, open_ledger
 from prodagent.kernel.types import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.ports.activation import (
     Activation,
@@ -45,10 +62,12 @@ from prodagent.ports.runner import AgentActivation, InProcessChatRunner, RunnerP
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
 
+    from prodagent.base.event_log import Event
     from prodagent.coordination.messaging.pipeline import Interceptor
     from prodagent.kernel.bus import HookRegistry
     from prodagent.kernel.state import AgentRun
     from prodagent.kernel.types import AgentEvent, ToolCall
+    from prodagent.ports import EventLog
     from prodagent.ports.dead_letter import DeadLetterStore
     from prodagent.runtime.agent import Agent
 
@@ -59,6 +78,15 @@ _TURN_TEXT_MAX_CHARS = PUBLIC_TURN_TEXT_MAX_CHARS
 per-view cap so the transcript itself (not just its projections) is bounded."""
 
 __all__ = [
+    "FloorTurn",
+    "FloorMember",
+    "SharedFloor",
+    "FloorEventType",
+    "apply_floor_event",
+    "FloorProjection",
+    "PublicTextOnly",
+    "SelectiveToolExposure",
+    "project_floor",
     "EnsembleSpec",
     "Ensemble",
     "AgentFloorMember",
@@ -70,6 +98,368 @@ __all__ = [
     "EnsembleCompletedEvent",
     "ensemble_stream",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Shared floor — the transcript all members read and write
+# ---------------------------------------------------------------------------
+
+
+if TYPE_CHECKING:
+    from prodagent.kernel.types import ToolCall
+    from prodagent.ports import EventLog
+
+
+class FloorEventType(StrEnum):
+    """Durable record of every SharedFloor transition — 1:1 with the in-memory
+    mutations. Appended to an :class:`~prodagent.ports.event_log.EventLog` keyed
+    by the floor's ``run_id``, so a crashed floor can be rebuilt by
+    :meth:`SharedFloor.restore`. Same shape as the work queue's
+    ``QueueEventType``."""
+
+    TURN_APPENDED = "TurnAppended"
+
+
+def apply_floor_event(state: dict[str, Any], event: Event) -> None:
+    """Fold one floor :class:`Event` into a rebuild-state dict — the pure
+    reducer behind :meth:`SharedFloor.restore`. State shape: ``transcript``
+    (list[FloorTurn])."""
+    if event.event_type == FloorEventType.TURN_APPENDED:
+        state["transcript"].append(FloorTurn.from_dict(event.data["turn"]))
+
+
+@dataclass
+class FloorTurn:
+    """One member's utterance on the shared floor."""
+
+    speaker: str
+    """Member name — must match a key in ``SharedFloor.members``."""
+
+    round: int
+    """Round index this turn belongs to (0-based)."""
+
+    text: str
+    """The utterance itself. Empty string = pass."""
+
+    addressed_to: list[str] = field(default_factory=list)
+    """Who the speaker is talking to (empty = the floor)."""
+
+    stance: str | None = None
+    """Optional stance label — ``support``/``refute`` for debates."""
+
+    tool_calls: list[ToolCall] = field(default_factory=list)
+    """Tools called this turn. Visibility is a FloorProjection call."""
+
+    cost_usd: float = 0.0
+    """Spend attributed to this turn — folded into BudgetLedger."""
+
+    tokens: int = 0
+    """Token spend attributed to this turn (input + output) — folded into
+    BudgetLedger alongside ``cost_usd``. Without it the budget's token axis is
+    silently unenforced for ensemble runs."""
+
+    elapsed_s: float = 0.0
+    """Wall-clock seconds this turn took."""
+
+    turn_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    """Stable id — projection / hooks / checkpoint correlation."""
+
+    created_at: float = field(default_factory=time.monotonic)
+    """Monotonic timestamp — ordering and timeout accounting."""
+
+    def is_pass(self) -> bool:
+        """Pass turn (empty text, no tool calls) — member chose not to speak."""
+        return not self.text and not self.tool_calls
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "speaker": self.speaker,
+            "round": self.round,
+            "text": self.text,
+            "addressed_to": list(self.addressed_to),
+            "stance": self.stance,
+            "tool_calls": [c.to_dict() for c in self.tool_calls],
+            "cost_usd": self.cost_usd,
+            "tokens": self.tokens,
+            "elapsed_s": self.elapsed_s,
+            "turn_id": self.turn_id,
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> FloorTurn:
+        from prodagent.kernel.types import ToolCall
+
+        return cls(
+            speaker=d["speaker"],
+            round=d["round"],
+            text=d.get("text", ""),
+            addressed_to=list(d.get("addressed_to") or []),
+            stance=d.get("stance"),
+            tool_calls=[ToolCall.from_dict(c) for c in d.get("tool_calls") or []],
+            cost_usd=d.get("cost_usd", 0.0),
+            tokens=d.get("tokens", 0),
+            elapsed_s=d.get("elapsed_s", 0.0),
+            turn_id=d.get("turn_id") or str(uuid.uuid4()),
+            created_at=d.get("created_at", time.monotonic()),
+        )
+
+
+@runtime_checkable
+class FloorMember(Protocol):
+    """What it takes to join an ensemble: a ``name`` + async ``speak()``.
+
+    A full :class:`~prodagent.runtime.agent.Agent` works (via
+    :class:`AgentFloorMember`); a hand-rolled ``messages`` list works too.
+    """
+
+    name: str
+
+    async def speak(self, floor: SharedFloor, *, round_num: int) -> FloorTurn:
+        """Produce this member's turn for ``round_num``. Read
+        ``floor.transcript`` (already projected for this viewer by the
+        pipeline) and return a :class:`FloorTurn`. A pass turn (empty text,
+        no tools) sits the round out."""
+        ...
+
+
+@dataclass
+class SharedFloor(SharedStore, EventSourcedStore):
+    """The shared transcript all ensemble members read and write.
+
+    Lifetime is independent of any single member's run — persists across
+    rounds, outliving individual ``AgentRun`` instances the way a chat room
+    outlives any one message.
+    """
+
+    session_id: str
+    """Stable id — correlates to checkpoint / event log / session store."""
+
+    members: dict[str, FloorMember] = field(default_factory=dict)
+    """name → member. Insertion order preserved for round-robin. Live
+    protocol objects — never serialized; :meth:`SharedFloor.restore`
+    re-attaches them."""
+
+    transcript: list[FloorTurn] = field(default_factory=list)
+    """All turns, in order. Source of truth for 'what was said'."""
+
+    topic: str = ""
+    """The floor's subject — injected into each member's [FLOOR] block."""
+
+    started_at: float = field(default_factory=time.monotonic)
+    """Monotonic start — basis for the shared wall-clock budget."""
+
+    event_log: EventLog | None = None
+    """Durable projection (optional). When set, every appended turn is also
+    an ``Event`` under ``run_id``; the in-memory transcript stays the live
+    source during the run, the log is what survives a crash."""
+
+    run_id: str = ""
+
+    def __post_init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._last_seq = 0
+        # Mixin aliases — the dataclass fields are public (event_log/run_id),
+        # EventSourcedStore reads the private spellings.
+        self._event_log = self.event_log
+        self._run_id = self.run_id
+        """Tail of the durable projection — the floor's resume cursor; with a
+        log attached it is 1:1 with the mutations and doubles as the durable
+        fingerprint (see :meth:`fingerprint`)."""
+
+    def add_member(self, member: FloorMember) -> None:
+        if member.name in self.members:
+            raise ValueError(
+                f"Floor member {member.name!r} already exists on floor "
+                f"{self.session_id!r} — names must be unique"
+            )
+        self.members[member.name] = member
+
+    async def append(self, turn: FloorTurn) -> None:
+        """Record a completed turn. Validates speaker membership, not ordering —
+        the pipeline sequences."""
+        if turn.speaker not in self.members:
+            raise ValueError(
+                f"Turn speaker {turn.speaker!r} is not a floor member — "
+                f"known: {list(self.members.keys())}"
+            )
+        self.transcript.append(turn)
+        async with self._lock:
+            await self._record(FloorEventType.TURN_APPENDED, turn=turn.to_dict())
+
+    @classmethod
+    async def restore(
+        cls,
+        event_log: EventLog,
+        run_id: str,
+        *,
+        session_id: str,
+        topic: str = "",
+        members: list[FloorMember] | None = None,
+    ) -> SharedFloor:
+        """Rebuild a floor by folding its event log — the crash-recovery path.
+        The transcript comes back verbatim (turn ids included); live members
+        are re-attached by the caller, same roster as before the crash."""
+        events = await event_log.get_events(run_id)
+        state: dict[str, Any] = {"transcript": []}
+        for event in events:
+            apply_floor_event(state, event)
+        floor = cls(session_id=session_id, topic=topic, event_log=event_log, run_id=run_id)
+        for member in members or []:
+            floor.add_member(member)
+        floor.transcript = state["transcript"]
+        floor._last_seq = events[-1].seq if events else 0
+        return floor
+
+    def round_count(self) -> int:
+        """Highest round index seen + 1, or 0 if empty. Partial rounds count."""
+        if not self.transcript:
+            return 0
+        return max(t.round for t in self.transcript) + 1
+
+    def turns_for(self, speaker: str) -> list[FloorTurn]:
+        """All turns by ``speaker``, in order."""
+        return [t for t in self.transcript if t.speaker == speaker]
+
+    def last_turn_by(self, speaker: str) -> FloorTurn | None:
+        """Most recent turn by ``speaker``, or None."""
+        for turn in reversed(self.transcript):
+            if turn.speaker == speaker:
+                return turn
+        return None
+
+    def recent_turns(self, *, limit: int) -> list[FloorTurn]:
+        """Last ``limit`` turns, oldest-first. Caps how much history each
+        member sees — mirrors ``prior_output_max_chars`` in the messaging
+        plane's :class:`~prodagent.coordination.messaging.packet.HandoffPacket`."""
+        if limit <= 0 or not self.transcript:
+            return []
+        return list(self.transcript[-limit:])
+
+    def member_names(self) -> list[str]:
+        """Insertion-ordered member names — the round-robin order."""
+        return list(self.members.keys())
+
+    def snapshot(self) -> dict[str, Any]:
+        """Serializable view — for hooks / event log / checkpoint."""
+        return {
+            "session_id": self.session_id,
+            "topic": self.topic,
+            "member_count": len(self.members),
+            "turn_count": len(self.transcript),
+            "round_count": self.round_count(),
+            "elapsed_s": time.monotonic() - self.started_at,
+        }
+
+    def fingerprint(self) -> tuple[int, str]:
+        """Liveness fingerprint — changes whenever a turn is appended; stable
+        otherwise. (Ensemble stops via budget/termination, not liveness, but the
+        contract requires it.) With a durable log attached, ``_last_seq`` is the
+        same fact on the wire: one seq per mutation, so the resume cursor and
+        the fingerprint agree by construction."""
+        last_id = self.transcript[-1].turn_id if self.transcript else ""
+        return (len(self.transcript), last_id)
+
+
+# ---------------------------------------------------------------------------
+# Floor projection — per-viewer filtering of the transcript
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class FloorProjection(Protocol):
+    """Per-viewer filter applied to each transcript turn before a member sees it.
+
+    Called once per turn per viewer by the pipeline. Must be pure — no mutation
+    of the input turn. Return a new :class:`FloorTurn` reflecting what
+    ``viewer`` should see.
+    """
+
+    def project(self, turn: FloorTurn, *, viewer: str) -> FloorTurn: ...
+
+
+@dataclass
+class PublicTextOnly:
+    """Default projection — only the utterance text crosses the boundary.
+
+    ``tool_calls`` stripped entirely; ``stance``/``addressed_to`` preserved
+    (cheap metadata, useful for a moderator); ``cost_usd``/``elapsed_s``
+    zeroed (internal metrics). Safe default: a member's private tool results
+    never appear in another member's view.
+    """
+
+    max_chars: int = PUBLIC_TURN_TEXT_MAX_CHARS
+    """Per-turn text cap. Must stay equal to the floor's admission bound
+    (``PUBLIC_TURN_TEXT_MAX_CHARS``) — transcript and projection are bounded
+    the same, so one long-winded member can't blow another's context window."""
+
+    def project(self, turn: FloorTurn, *, viewer: str) -> FloorTurn:
+        # Speaker sees its own turn verbatim — no point truncating your own words.
+        if viewer == turn.speaker:
+            return turn
+        text = bound_text(turn.text, self.max_chars)
+        return FloorTurn(
+            speaker=turn.speaker,
+            round=turn.round,
+            text=text,
+            addressed_to=list(turn.addressed_to),
+            stance=turn.stance,
+            tool_calls=[],
+            cost_usd=0.0,
+            elapsed_s=0.0,
+            turn_id=turn.turn_id,
+            created_at=turn.created_at,
+        )
+
+
+@dataclass
+class SelectiveToolExposure:
+    """Whitelist which tool calls each viewer may see.
+
+    ``tool_visibility`` maps ``tool_name`` → list of viewer names allowed to
+    see it. Tools absent from the map are hidden from everyone (default-deny).
+    Use when a member has tools shareable with some peers but not others —
+    e.g. a research agent's ``web_fetch`` is fine for the judge to see, its
+    ``read_private_notes`` is not.
+    """
+
+    tool_visibility: dict[str, list[str]] = field(default_factory=dict)
+    max_chars: int = 4000
+
+    def project(self, turn: FloorTurn, *, viewer: str) -> FloorTurn:
+        if viewer == turn.speaker:
+            return turn
+        text = bound_text(turn.text, self.max_chars)
+        allowed = [
+            call for call in turn.tool_calls if viewer in self.tool_visibility.get(call.name, [])
+        ]
+        return FloorTurn(
+            speaker=turn.speaker,
+            round=turn.round,
+            text=text,
+            addressed_to=list(turn.addressed_to),
+            stance=turn.stance,
+            tool_calls=allowed,
+            cost_usd=0.0,
+            elapsed_s=0.0,
+            turn_id=turn.turn_id,
+            created_at=turn.created_at,
+        )
+
+
+def project_floor(
+    floor: SharedFloor,
+    *,
+    viewer: str,
+    projection: FloorProjection,
+    limit: int = 0,
+) -> list[FloorTurn]:
+    """Project the floor's transcript for ``viewer``. ``limit`` caps recent
+    turns (0 = no cap). Apply per-viewer right before handing the transcript
+    to ``speak()`` — multi-turn analogue of HandoffPacket's single-shot
+    prior_output truncation, generalized to N viewers."""
+    turns = floor.recent_turns(limit=limit) if limit > 0 else list(floor.transcript)
+    return [projection.project(t, viewer=viewer) for t in turns]
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +834,9 @@ class EnsembleSpec:
 
     members: list[FloorMember]
     topic: str
+    name: str = ""
+    """Optional handle for the ``run_ensemble`` tool — a spec with a name can
+    be declared on ``AgentConfig.ensembles`` and convened by the model."""
     order: SpeakingOrder = field(default_factory=RoundRobin)
     projection: FloorProjection = field(default_factory=PublicTextOnly)
     termination: TerminationPolicy = field(
@@ -469,6 +862,13 @@ class EnsembleSpec:
     """User-injected semantics on the speech pipeline (injection rules,
     judges, redaction) — mounted at their declared slots, order preserved."""
 
+    event_log: EventLog | None = None
+    """Durable projection (optional): every turn appended to the floor also
+    lands here under ``run_id``, and a floor with existing events is resumed
+    from them instead of starting fresh — same contract as the work queue."""
+
+    run_id: str = ""
+
     def __post_init__(self) -> None:
         if not self.members:
             raise ValueError("EnsembleSpec.members cannot be empty")
@@ -477,7 +877,12 @@ class EnsembleSpec:
             raise ValueError(f"Ensemble member names must be unique — got: {names}")
 
     def build_floor(self) -> SharedFloor:
-        floor = SharedFloor(session_id=self.session_id, topic=self.topic)
+        floor = SharedFloor(
+            session_id=self.session_id,
+            topic=self.topic,
+            event_log=self.event_log,
+            run_id=self.run_id,
+        )
         for m in self.members:
             floor.add_member(m)
         # Stash the projection on the floor so AgentFloorMember can read it.
@@ -533,6 +938,7 @@ class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
         self._spec = spec
         self._activation = _order_as_policy(spec.order, self._compute_round)
         self._floor = spec.build_floor()
+        self._opened = False
         # Narrow the base's Optional attribute: Ensemble always has a budget
         # (unlike Blackboard/WorkQueue, where None means unbudgeted).
         self._budget: BudgetLedger = spec.budget or self._build_default_budget()
@@ -611,14 +1017,38 @@ class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
             max_seconds = 600.0
             max_tokens = 200_000
             max_cost = 2.0
-        return BudgetLedger(
-            max=HardBudget(
+        ledger = open_ledger(
+            HardBudget(
                 max_turns=max_turns,
                 max_seconds=max_seconds,
                 max_tokens=max_tokens,
                 max_cost_usd=max_cost,
             )
         )
+        assert ledger is not None  # the HardBudget above is always set
+        return ledger
+
+    async def _open(self) -> None:
+        """Lazy durable setup, run once before the first round. With an event
+        log: resume the floor from it when ``run_id`` already has events,
+        else start fresh (the first turns record themselves). No-op for
+        non-durable floors — same contract as the work queue's ``_open``."""
+        if self._opened:
+            return
+        self._opened = True
+        spec = self._spec
+        if await has_durable_events(spec):
+            assert spec.event_log is not None  # narrowed by has_durable_events
+            restored = await SharedFloor.restore(
+                spec.event_log,
+                spec.run_id,
+                session_id=spec.session_id,
+                topic=spec.topic,
+                members=list(spec.members),
+            )
+            # Keep the projection side-channel the pipeline stashed earlier.
+            restored._projection = self._floor._projection  # type: ignore[attr-defined]
+            self._floor = restored
 
     async def _rounds(self) -> AsyncGenerator[FloorTurnEvent, None]:
         """One activation per iteration: adapt order → check termination/budget
@@ -626,6 +1056,7 @@ class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
         yield. Sets ``self._reason`` and returns when the floor should stop.
         Crash→error and finalize-to-unknown are handled by
         :meth:`StageDriver.run`."""
+        await self._open()
         while True:
             # 1. Pick the next activation + the round it belongs in. Done
             #    before termination/budget checks so the policy sees "the
@@ -713,7 +1144,7 @@ class Ensemble(StageDriver[FloorTurnEvent | EnsembleCompletedEvent]):
                     )
                 else:
                     recorded = delivery.crossing.payload
-                self._floor.append(recorded)
+                await self._floor.append(recorded)
                 yield FloorTurnEvent(turn=recorded, floor_snapshot=self._floor.snapshot())
 
             # 5. Re-check budget after commit — may have latched exhausted

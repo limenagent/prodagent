@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING
 
 from prodagent import Agent, AgentConfig, ContextConfig, FrameworkConfig, use_fake_llm
 from prodagent.coordination.ensemble import AgentFloorMember
-from prodagent.coordination.floor import SharedFloor
+from prodagent.coordination.ensemble import SharedFloor
 from prodagent.kernel.types import ExecutionMode
 from prodagent.hooks.bundles.memory import MemoryHooks
 

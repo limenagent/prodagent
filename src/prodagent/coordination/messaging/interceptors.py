@@ -27,8 +27,7 @@ from prodagent.kernel.bus import Gate
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from prodagent.coordination.floor import FloorTurn
-    from prodagent.coordination.floor_projection import FloorProjection
+    from prodagent.coordination.ensemble import FloorProjection, FloorTurn
     from prodagent.coordination.messaging.contract import MessageContract
     from prodagent.coordination.messaging.idempotency import IdempotentMessageHandler
     from prodagent.kernel.bus import HookEvent, HookRegistry
@@ -128,7 +127,7 @@ class TrimInterceptor:
 class ProjectionInterceptor:
     """Per-viewer view of a shared transcript — the floor's trim strategy.
 
-    Wraps a :class:`~prodagent.coordination.floor_projection.FloorProjection`
+    Wraps a :class:`~prodagent.coordination.ensemble.FloorProjection`
     (``PublicTextOnly`` / ``SelectiveToolExposure`` / user-supplied) and applies
     it to a transcript slice for one viewer. Speaker-verbatim rules, tool-call
     whitelists, and text caps stay inside the projection — this only routes the

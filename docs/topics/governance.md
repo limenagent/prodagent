@@ -183,7 +183,7 @@ reserve 机制保证并发安全：多个子 Agent 同时开始工作时，预�
 | 消息契约 | `coordination/messaging/contract.py` |
 | 管道拦截器 | `coordination/messaging/pipeline.py` |
 | 死信队列端口 | `ports/dead_letter.py` |
-| 终止策略 | `coordination/termination.py` |
+| 终止策略 | `coordination/infra/stage.py` |
 | 预算账本 | `kernel/budget.py::BudgetLedger` |
 | 进度守卫 | `kernel/progress.py` |
 

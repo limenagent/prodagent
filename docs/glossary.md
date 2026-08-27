@@ -84,6 +84,8 @@
 | **AgentActivation** | 一次激活的入参：agent、任务、run_id、账本；带 session_id 就是成员会话轮次。 |
 | **Activation** | 舞台拓扑的排班单：这轮哪些成员上、serial / concurrent / single_winner 三种派发。 |
 | **HandoffActivation** | 接力链下一跳：peer 名、任务、run_id。relay 填写，驱动方照此 fork。 |
+| **run_ensemble / run_work_queue** | 舞台工具：带名字的 EnsembleSpec / WorkQueueSpec 声明在 AgentConfig 上即生成，模型自己召集评审或派活。 |
+| **AgentWorkMember** | 把 Agent 适配成队列 Worker：认领一个 item 就是一次会话激活。 |
 | **Peer** | 水平接力：通过 `peers=[...]` 配置，模型调用 handoff_to_X 工具把任务交给下一个 Agent。 |
 | **HandoffPacket** | 接力时传递的上下文包（任务、输入引用、约束）。 |
 | **Ensemble** | 舞台拓扑：多个 Agent 共享 Floor 轮流发言（RoundRobin/Moderated/FreeForAll）。 |

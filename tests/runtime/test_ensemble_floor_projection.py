@@ -7,10 +7,11 @@ whitelist), plus project_floor's limit/ordering behavior.
 
 from __future__ import annotations
 
-from prodagent.coordination.floor import FloorTurn, SharedFloor
-from prodagent.coordination.floor_projection import (
+from prodagent.coordination.ensemble import (
+    FloorTurn,
     PublicTextOnly,
     SelectiveToolExposure,
+    SharedFloor,
     project_floor,
 )
 from prodagent.kernel.types import ToolCall

@@ -14,7 +14,7 @@ import uuid
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, cast
 
-from prodagent.kernel.budget import BudgetLedger, SpawnAccumulator
+from prodagent.kernel.budget import SpawnAccumulator, open_ledger
 from prodagent.kernel.bus import HookEvent
 from prodagent.kernel.state import (
     AgentRun,
@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from prodagent.cognition.context.spill import ToolResultSpillStore
+    from prodagent.kernel.budget import BudgetLedger
     from prodagent.kernel.bus import HookRegistry
     from prodagent.kernel.types import AgentEvent, ExecutionMode, MessageList
     from prodagent.ports import CheckpointStore, EventLog
@@ -297,9 +298,7 @@ class RunLoop:
         )
         # One ledger for the whole tree: a spawned child arrives with its
         # parent's ledger (siblings visible); a root run mints a fresh one.
-        self._ledger: BudgetLedger | None = budget_ledger or (
-            BudgetLedger(max=root_agent.budget_config) if root_agent.budget_config else None
-        )
+        self._ledger = open_ledger(root_agent.budget_config, existing=budget_ledger)
         self._relay: _Relay | None = None  # built lazily via the compose seam
 
     async def run(self) -> AsyncGenerator[AgentEvent, None]:

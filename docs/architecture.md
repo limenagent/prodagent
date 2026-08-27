@@ -10,16 +10,16 @@
 
 prodagent 的代码不是平铺的，而是严格分层的。每一层只依赖它下面的层，上面的层可以换、可以拆、可以不用。
 
-| 层 | 包 | 职责 |
-|:--:|:----|:------|
-| 7 | `playground` | 叶子节点——可视化调试 UI · FastAPI · 被 import-linter 隔离 |
-| 6 | `hooks` · `skills` · `mcp` · `backends` | 横切能力——审批/权限/观测/审计 · runbook 蒸馏 · 外部工具桥接 · 5 种存储实现 |
-| 5 | `cognition` · `coordination` | 认知与协调——上下文压缩 + 四通道记忆；5 种多 Agent 协作原语 + 统一消息平面 |
-| 4 | `plan` · `tooling` · `llm` | 能力——DAG 规划与执行 · 工具系统 · 模型适配 |
-| 3 | `runtime` | 运行时——Agent 装配 · Factory · RunnerPort 的进程内实现（RunLoop） |
-| 2 | `kernel` | 内核（纯逻辑，不依赖任何 capability）——types · state · budget · bus · step · loop · progress |
+| 层 | 包 | 职责                                                                                            |
+|:--:|:----|:------------------------------------------------------------------------------------------------|
+| 7 | `playground` | 叶子节点——可视化调试 UI · FastAPI · 被 import-linter 隔离                                       |
+| 6 | `hooks` · `skills` · `mcp` · `backends` | 横切能力——审批/权限/观测/审计 · runbook 蒸馏 · 外部工具桥接 · 5 种存储实现                      |
+| 5 | `cognition` · `coordination` | 认知与协调——上下文压缩 + 四通道记忆；5 种协作原语 + 统一消息平面                                |
+| 4 | `plan` · `tooling` · `llm` | 能力——DAG 规划与执行 · 工具系统 · 模型适配                                                      |
+| 3 | `runtime` | 运行时——Agent 装配 · Factory · RunnerPort 的进程内实现（RunLoop）                               |
+| 2 | `kernel` | 内核（纯逻辑，不依赖任何 capability）——types · state · budget · bus · step · loop · progress    |
 | 1 | `ports` | 端口（Protocol 抽象，六边形架构的“左”侧）——17 个 Protocol + AgentSpec / 事件编解码 / Activation |
-| 0 | `base` | 基础——配置 · 错误分类 · 事件日志 · 会话 · 重试 · 文本 · 时间 |
+| 0 | `base` | 基础——配置 · 错误分类 · 事件日志 · 会话 · 重试 · 文本 · 时间                                    |
 
 > 依赖方向自上而下——每一层只依赖它下面的层。
 

@@ -353,6 +353,8 @@ test_work_queue_lease_timeout_requeue
 | RunnerPort | `ports/runner.py` |
 | Activation 排班 | `ports/activation.py` |
 | AgentSpec 投影 | `ports/agent_spec.py` |
+| 舞台工具 | `coordination/infra/stage_tools.py` |
+| 账本工厂 open_ledger | `kernel/budget.py` |
 | 事件编解码 | `ports/agent_events.py` |
 
 ---

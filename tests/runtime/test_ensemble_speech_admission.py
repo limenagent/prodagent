@@ -7,11 +7,11 @@ from __future__ import annotations
 from prodagent.coordination.ensemble import (
     AgentFloorMember,
     EnsembleSpec,
+    FloorTurn,
     FloorTurnEvent,
     ensemble_stream,
 )
-from prodagent.coordination.floor import FloorTurn
-from prodagent.coordination.termination import MaxRounds, TerminationPolicy
+from prodagent.coordination.infra.stage import MaxRounds, TerminationPolicy
 from prodagent.kernel.budget import BudgetLedger, HardBudget
 from prodagent.kernel.bus import BlockingResult, Gate, HookRegistry
 
@@ -150,7 +150,7 @@ async def test_default_ensemble_without_hooks_unchanged():
 
 
 def test_agent_floor_member_still_satisfies_protocol():
-    from prodagent.coordination.floor import FloorMember as Protocol
+    from prodagent.coordination.ensemble import FloorMember as Protocol
     from prodagent.runtime.agent import Agent
 
     member = AgentFloorMember(Agent("m", system_prompt="s"), session_id="s1")

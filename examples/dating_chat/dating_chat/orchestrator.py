@@ -40,7 +40,7 @@ from prodagent.coordination.ensemble import (
     FloorTurnEvent,
     ensemble_stream,
 )
-from prodagent.coordination.floor_projection import PublicTextOnly
+from prodagent.coordination.ensemble import PublicTextOnly
 from prodagent.kernel.budget import BudgetLedger, HardBudget
 
 from dating_chat.agent import MeiFloorMember, build_dating_chat_agent

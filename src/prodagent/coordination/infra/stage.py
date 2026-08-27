@@ -10,35 +10,27 @@ blocked reserve starves a round; a work queue reports ``drained`` / ``no_progres
 Those stay in each subclass; forcing them identical would erase real semantics.
 
 What *is* identical across the three — and therefore lives here, once — is the
-lifecycle *around* the loop:
+infrastructure around the loop:
 
-- a raise out of the round loop becomes a terminal ``error`` event instead of
-  killing the stream (one member/expert/worker blowing up must not take the run
-  with it — and each primitive already isolates per-unit failures *inside* the
-  loop; this guard is the backstop for anything that escapes that);
-- a loop that ends without setting a reason finalizes to ``unknown`` rather than
-  emitting a reasonless terminal event.
-
-What is also identical — for the two primitives whose units of work run through
-a :class:`~prodagent.kernel.budget.BudgetLedger` — is the
-*envelope* around each unit: reserve a turn → run the act → commit the actual
-cost (or release the reservation if the act crashed before spending anything).
-That envelope lives in :meth:`_run_enveloped`; only the act itself differs per
-primitive (an expert's ``try_contribute``, a worker's ``try_claim_and_run``).
-
-Subclasses plug in via :meth:`_rounds` (the loop; yields intermediate events,
-sets ``self._reason`` before returning) and :meth:`_completed` (the terminal
-event factory). The base owns the crash guard, finalization, and the budget
-envelope, so a fix to any of the three applies to all primitives at once.
+- the lifecycle guard (a raise becomes a terminal ``error`` event; a loop that
+  ends without a reason finalizes to ``unknown``);
+- the dispatch interpreter for an :class:`~prodagent.ports.activation.Activation`
+  (serial / concurrent with fail-fast cancel / single-winner lock race);
+- the termination policy (business strategy ∧ mandatory hard cap) and its
+  ``TerminationReason`` vocabulary;
+- the budget envelope around each unit of work (reserve → act → commit via
+  ``kernel.budget.run_enveloped``);
+- ``has_durable_events`` — the restore-or-fresh decision every durable stage
+  makes before its first round.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, runtime_checkable
 
-from prodagent.coordination.termination import TerminationReason
 from prodagent.kernel.budget import run_enveloped
 
 
@@ -90,7 +82,15 @@ logger = logging.getLogger(__name__)
 
 E = TypeVar("E")
 
-__all__ = ["StageDriver"]
+__all__ = [
+    "StageDriver",
+    "RoundCountable",
+    "TerminationStrategy",
+    "MaxRounds",
+    "TerminationPolicy",
+    "TerminationReason",
+    "has_durable_events",
+]
 
 
 class StageDriver(Generic[E]):
@@ -250,3 +250,111 @@ class StageDriver(Generic[E]):
         finally:
             await lock_store.release(won_token)
         return [(m, result if m == winner else None) for m in activation.members]
+
+
+# ── Termination — when does a floor/queue/board stop? ──────────────────────────
+@runtime_checkable
+class RoundCountable(Protocol):
+    """Anything with a ``round_count()`` — :class:`SharedFloor`, :class:`Board`,
+    :class:`SharedQueue` all satisfy this. TerminationPolicy only needs the
+    round count, so it depends on this narrow protocol, not the concrete
+    floor/queue/board classes."""
+
+    def round_count(self) -> int: ...
+
+
+@dataclass
+class TerminationReason:
+    """Why the floor/queue/board stopped — carried into the final event."""
+
+    reason: str
+    """Short code: ``max_rounds`` / ``moderator`` / ``consensus`` / ``convergence`` / ``budget``."""
+
+    detail: str = ""
+    """Human-readable elaboration — which axis, which round, etc."""
+
+    by_hard_cap: bool = False
+    """True if the hard cap fired (vs. a graceful business-strategy stop)."""
+
+
+@runtime_checkable
+class TerminationStrategy(Protocol):
+    """Business termination — may never fire; the hard cap backs it."""
+
+    def should_stop(
+        self, floor: RoundCountable, *, next_round: int
+    ) -> tuple[bool, TerminationReason | None]:
+        """Return ``(stop, reason)``. ``next_round`` is the round the next
+        speaker would speak *in* — lets a strategy veto "don't start round N"
+        before anyone speaks. ``reason`` None = no verdict, distinct from
+        "verdict: stop"."""
+        ...
+
+
+@dataclass
+class MaxRounds:
+    """Hard cap on rounds. Always present, never None.
+
+    ``max_rounds=N`` means "no member speaks in round N or later" — so
+    ``max_rounds=2`` allows rounds 0 and 1, i.e. ``2 × N`` turns for an
+    N-member round-robin. Checked *before* the next speaker is scheduled —
+    same semantics as :class:`~prodagent.kernel.budget.HardBudget`'s turn axis:
+    check before the next unit of work, not mid-work.
+    """
+
+    max_rounds: int = 10
+
+    def should_stop(
+        self, floor: RoundCountable, *, next_round: int
+    ) -> tuple[bool, TerminationReason | None]:
+        if next_round >= self.max_rounds:
+            return True, TerminationReason(
+                reason="max_rounds",
+                detail=(
+                    f"Floor would enter round {next_round} (cap {self.max_rounds}) — "
+                    f"completed {floor.round_count()} round(s)"
+                ),
+                by_hard_cap=True,
+            )
+        return False, None
+
+
+@dataclass
+class TerminationPolicy:
+    """Composite: optional business strategy AND mandatory hard cap.
+
+    Pipeline evaluates ``business.should_stop() OR hard_cap.should_stop()``
+    each round; first to fire wins. If both would fire, business's reason is
+    preferred (graceful stop is more informative than "hit the cap").
+    """
+
+    hard_cap: MaxRounds
+    business: TerminationStrategy | None = None
+
+    def __post_init__(self) -> None:
+        if self.hard_cap is None:
+            raise ValueError(
+                "TerminationPolicy.hard_cap cannot be None — the hard cap is the "
+                "backstop that guarantees an unattended ensemble stops. Pass "
+                "MaxRounds(max_rounds=...) explicitly."
+            )
+        if self.hard_cap.max_rounds < 1:
+            raise ValueError(f"MaxRounds.max_rounds must be >= 1, got {self.hard_cap.max_rounds}")
+
+    def should_stop(
+        self, floor: RoundCountable, *, next_round: int
+    ) -> tuple[bool, TerminationReason | None]:
+        if self.business is not None:
+            stop, reason = self.business.should_stop(floor, next_round=next_round)
+            if stop:
+                return True, reason
+        return self.hard_cap.should_stop(floor, next_round=next_round)
+
+
+async def has_durable_events(spec: Any) -> bool:
+    """True when the spec's durable projection already has events under
+    ``run_id`` — the restore-or-fresh decision every durable stage makes
+    before its first round (restore when true, fresh start when false)."""
+    if spec.event_log is None or not spec.run_id:
+        return False
+    return bool(await spec.event_log.get_events(spec.run_id))

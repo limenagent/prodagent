@@ -301,6 +301,31 @@ async for event in work_queue_stream(spec):
     ...
 ```
 
+## 舞台工具
+
+```python
+from prodagent import Agent, AgentConfig
+from prodagent.coordination.ensemble import AgentFloorMember, EnsembleSpec
+from prodagent.coordination.work_queue import AgentWorkMember, WorkQueueSpec
+
+panel = EnsembleSpec(
+    name="panel",                      # 有名字才生成工具
+    members=[AgentFloorMember(pro, session_id="pro"), AgentFloorMember(con, session_id="con")],
+    topic="待定议题",
+)
+chores = WorkQueueSpec(name="chores", workers={"w1": AgentWorkMember(w1)}, items=[])
+
+host = Agent("host", config=AgentConfig(
+    name="host",
+    ensembles=[panel],      # → run_ensemble(name, task)
+    work_queues=[chores],   # → run_work_queue(name, items)
+))
+```
+
+`run_ensemble` 拿回完整 transcript，`run_work_queue` 拿回完成清单；没名字的 Spec 不生成工具。完整示例：`examples/council`。
+
+---
+
 ## RunnerPort
 
 ```python

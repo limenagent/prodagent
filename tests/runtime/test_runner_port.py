@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from prodagent import Agent, ExecutionMode
-from prodagent.coordination.stage import StageDriver
+from prodagent.coordination.infra.stage import StageDriver
 from prodagent.kernel.state import RunState, collect_final_run
 from prodagent.kernel.types import LLMResponse, RunCompletedEvent
 from prodagent.llm.fake import FakeLLMAdapter

@@ -7,8 +7,8 @@ from __future__ import annotations
 import pytest
 
 from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
+from prodagent.coordination.infra.stage import MaxRounds, TerminationPolicy
 from prodagent.coordination.messaging.contract import MessageContract
-from prodagent.coordination.termination import MaxRounds, TerminationPolicy
 from prodagent.coordination.work_queue import (
     ItemCompletedEvent,
     ItemDeadLetteredEvent,

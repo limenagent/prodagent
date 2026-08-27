@@ -7,11 +7,12 @@ import pytest
 from prodagent.coordination.ensemble import (
     EnsembleCompletedEvent,
     EnsembleSpec,
+    FloorTurn,
     FloorTurnEvent,
+    SharedFloor,
     ensemble_stream,
 )
-from prodagent.coordination.floor import FloorTurn, SharedFloor
-from prodagent.coordination.termination import MaxRounds, TerminationPolicy
+from prodagent.coordination.infra.stage import MaxRounds, TerminationPolicy
 from prodagent.kernel.budget import BudgetLedger, HardBudget
 from prodagent.ports.activation import Activation, ActivationContext
 

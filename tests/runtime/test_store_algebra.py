@@ -9,7 +9,7 @@ import pytest
 
 from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
 from prodagent.coordination.blackboard import Board
-from prodagent.coordination.floor import FloorTurn, SharedFloor
+from prodagent.coordination.ensemble import FloorTurn, SharedFloor
 from prodagent.coordination.work_queue import SharedQueue, WorkItem
 
 
@@ -25,10 +25,10 @@ async def test_floor_fingerprint_changes_on_append_only():
     floor = SharedFloor(session_id="s")
     floor.add_member(_NamedMember("alice"))
     empty = floor.fingerprint()
-    floor.append(FloorTurn(speaker="alice", round=0, text="hi"))
+    await floor.append(FloorTurn(speaker="alice", round=0, text="hi"))
     after_first = floor.fingerprint()
     assert after_first != empty
-    floor.append(FloorTurn(speaker="alice", round=0, text="again"))
+    await floor.append(FloorTurn(speaker="alice", round=0, text="again"))
     assert floor.fingerprint() != after_first
     # stable when nothing mutates
     assert floor.fingerprint() == floor.fingerprint()

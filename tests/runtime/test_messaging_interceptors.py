@@ -6,8 +6,7 @@ from __future__ import annotations
 import pytest
 
 from prodagent.base.errors import SecurityViolation
-from prodagent.coordination.floor import FloorTurn
-from prodagent.coordination.floor_projection import PublicTextOnly
+from prodagent.coordination.ensemble import FloorTurn, PublicTextOnly
 from prodagent.coordination.messaging.envelope import (
     Crossing,
     CrossingKind,
