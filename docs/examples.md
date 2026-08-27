@@ -171,4 +171,4 @@ uv run python -c "import asyncio; from deep_research.agent import build_deep_res
 
 - 想理解示例背后的机制？→ [7 站导览 →](tour/index.md)
 - 想深入某个生产问题？→ [专题文档 →](index.md)
-- 想写自己的示例？→ [贡献指南 →](../CONTRIBUTING.md)
+- 想写自己的示例？→ [贡献指南 →](https://github.com/limenagent/prodagent/blob/main/CONTRIBUTING.md)

@@ -229,4 +229,4 @@ prodagent 没有内建的 `evaluation/` 模块（没有 LLM-as-judge、没有指
 
 - 想写自己的工具？→ [第 ④ 站：工具系统 →](../tour/04-tools.md)
 - 想理解预算怎么测？→ [四轴预算专题 →](budget.md)
-- 想贡献代码？→ [贡献指南 →](../../CONTRIBUTING.md)
+- 想贡献代码？→ [贡献指南 →](https://github.com/limenagent/prodagent/blob/main/CONTRIBUTING.md)

@@ -1,4 +1,4 @@
-.PHONY: lint test test-cov clean clean-data playground playground-prod config services-up services-down services-logs docs docs-refs
+.PHONY: lint test test-cov clean clean-data playground playground-prod config services-up services-down services-logs docs docs-refs docs-verify
 
 # Auto-install uv if missing. uv manages Python too, so no separate Python install.
 # Sourced as a target so every entry point gets the guarantee for free.
@@ -76,6 +76,14 @@ docs: _ensure_uv
 docs-refs: _ensure_uv
 	@export PATH="$$HOME/.local/bin:$$PATH"; \
 	uv run python scripts/check_docs_refs.py
+
+# Mirrors the CI "docs" workflow's build job exactly — run before pushing
+# doc changes so link/nav/reference breaks surface locally, not in CI.
+docs-verify: _ensure_uv
+	@export PATH="$$HOME/.local/bin:$$PATH"; \
+	uv sync --extra dev --extra docs; \
+	uv run python scripts/check_docs_refs.py; \
+	uv run mkdocs build --strict
 
 lint: _ensure_uv
 	@export PATH="$$HOME/.local/bin:$$PATH"; \
