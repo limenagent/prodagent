@@ -25,6 +25,7 @@ from prodagent.kernel.types import (
     RunState,
     RunSuspendedEvent,
 )
+from prodagent.ports.llm import LLMClient
 from prodagent.runtime.config import AgentConfig
 from prodagent.runtime.factory import merge_tools_by_name
 from prodagent.runtime.parent_runtime import ParentRuntime, SpawnAccumulator
@@ -146,6 +147,13 @@ class Agent:
             cfg.mode = mode
         if budget is not None:
             cfg.budget = budget
+        if cfg.llm is not None and not isinstance(cfg.llm, LLMClient):
+            raise TypeError(
+                f"AgentConfig.llm expects an LLMClient instance (e.g. OpenAIAdapter, "
+                f"AnthropicAdapter) — got {type(cfg.llm).__name__}. "
+                "If you built an LLMConfig, pass it as the adapter's default_config= "
+                "instead: OpenAIAdapter(..., default_config=your_llm_config)."
+            )
         self.config: AgentConfig = cfg
         self._bind_invariants(workflow=workflow, allow_replan=allow_replan)
 

@@ -67,30 +67,32 @@ sequenceDiagram
 
 ## 连接真实模型
 
-FakeLLM 适合学习和测试。要接入真实模型，配置 `LLMConfig`：
+FakeLLM 适合学习和测试。要接入真实模型，需要一个实现了 `complete()` 的 `LLMClient`（如 `OpenAIAdapter`/`AnthropicAdapter`），用 `LLMConfig` 描述模型参数：
 
 ```python
 from prodagent import AgentConfig
 from prodagent.llm import LLMConfig
+from prodagent.llm.openai_adapter import OpenAIAdapter
 
 # OpenAI 兼容端点（DeepSeek、Moonshot、本地 vLLM 等）
-llm_config = LLMConfig(
-    model="deepseek-chat",
-    temperature=0.0,
+llm = OpenAIAdapter(
+    api_key="sk-...",
+    base_url="https://api.deepseek.com",
+    default_config=LLMConfig(model="deepseek-chat", temperature=0.0),
 )
 
-# 或通过环境变量自动检测：
+# 或通过环境变量自动检测，无需手写 adapter：
 #   LLM_BASE_URL / LLM_API_KEY / LLM_MODEL
 #   ANTHROPIC_API_KEY（Anthropic 原生）
 
 agent = Agent(
     "demo",
     tools=[search],
-    config=AgentConfig(name="demo", llm=llm_config),
+    config=AgentConfig(name="demo", llm=llm),
 )
 ```
 
-`LLMConfig` 会根据模型名自动查定价表，让预算的 cost 轴开箱即用。未知模型定价为 0，不影响其他三轴。
+注意 `AgentConfig.llm` 要的是 `LLMClient`（能发请求的客户端实例），不是 `LLMConfig`（一组模型参数）——两者不能互换，混用会在第一次调用时报 `AttributeError`。`LLMConfig` 会根据模型名自动查定价表，让预算的 cost 轴开箱即用。未知模型定价为 0，不影响其他三轴。
 
 ---
 
