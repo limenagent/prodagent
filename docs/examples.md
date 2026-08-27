@@ -154,13 +154,15 @@ cd prodagent
 pip install -e ".[dev]"
 
 # 跑示例（默认用 FakeLLM，不需要 API key）
-python examples/greeter/main.py
+cd examples/greeter
+uv run python -c "import asyncio; from greeter.agent import build_greeter_agent; asyncio.run(build_greeter_agent().chat('跟世界打个招呼'))"
 
 # 用真实模型跑
+cd ../deep_research
 export LLM_API_KEY=sk-...
 export LLM_BASE_URL=https://api.deepseek.com
 export LLM_MODEL=deepseek-chat
-python examples/deep_research/main.py
+uv run python -c "import asyncio; from deep_research.agent import build_deep_research_agent, DEFAULT_TASK; asyncio.run(build_deep_research_agent().chat(DEFAULT_TASK))"
 ```
 
 ---

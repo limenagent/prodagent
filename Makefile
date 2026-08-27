@@ -1,4 +1,4 @@
-.PHONY: lint test test-cov clean clean-data playground playground-prod config services-up services-down services-logs docs
+.PHONY: lint test test-cov clean clean-data playground playground-prod config services-up services-down services-logs docs docs-refs
 
 # Auto-install uv if missing. uv manages Python too, so no separate Python install.
 # Sourced as a target so every entry point gets the guarantee for free.
@@ -72,6 +72,10 @@ docs: _ensure_uv
 	uv sync --extra dev --extra docs; \
 	echo "Docs dev server — http://127.0.0.1:8000"; \
 	uv run mkdocs serve
+
+docs-refs: _ensure_uv
+	@export PATH="$$HOME/.local/bin:$$PATH"; \
+	uv run python scripts/check_docs_refs.py
 
 lint: _ensure_uv
 	@export PATH="$$HOME/.local/bin:$$PATH"; \
