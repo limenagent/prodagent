@@ -1,3 +1,11 @@
+"""RunRegistry — discover examples, launch them, track live runs.
+
+Examples are discovered from the ``examples/`` tree by their READMEs (title +
+「示例 #N ——」 line), loaded as modules, and driven in-process; run state
+itself never lives here (checkpoints/sessions own it) — the registry only
+maps run ids to the queues and cancellers the web UI needs.
+"""
+
 from __future__ import annotations
 
 import asyncio

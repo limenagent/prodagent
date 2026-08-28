@@ -51,6 +51,7 @@ class ToolCall:
 
     @property
     def params_hash(self) -> str:
+        # Dead-loop detection fingerprints "same tool, same params" with this.
         import hashlib
         import json
 
@@ -148,6 +149,9 @@ class LLMResponse:
 
 
 class StepStatus(StrEnum):
+    # OBSOLETE is distinct from FAILED: replanning can invalidate a pending
+    # step through no fault of its own — it neither ran nor failed, so resume
+    # logic must not treat it as either.
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"

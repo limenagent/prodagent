@@ -22,6 +22,9 @@ _RED_CODES = frozenset({-32601, -32602})
 
 
 def _translate_mcp_error(exc: Exception, *, tool_name: str) -> ToolError:
+    # Remote servers are black boxes with no shared error taxonomy; mapping
+    # JSON-RPC codes onto the framework's reasons is what keeps retry policy
+    # meaningful across the boundary.
     message = str(exc)
     if isinstance(exc, RPCError):
         if exc.code in _RED_CODES:

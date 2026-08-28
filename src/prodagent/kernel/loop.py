@@ -178,6 +178,9 @@ class ReactiveLoop:
 
     @staticmethod
     def _prune_unresolved_tool_uses(run: AgentRun) -> None:
+        # A crash mid-batch leaves an assistant turn whose tool call never got
+        # a result; providers reject a replayed tool_use without its
+        # tool_result, so the dangling turn is dropped and re-thought.
         msgs = run.messages
         if not msgs:
             return

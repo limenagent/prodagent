@@ -33,6 +33,14 @@ class _ToolBreakerState:
 
 
 class ToolCircuitBreaker:
+    """Per-tool breaker: fail fast while a dependency is down.
+
+    A broken tool that keeps getting called costs turns, tokens and time for
+    the same error every time; the breaker converts that into one cheap
+    retryable error until a recovery window passes, then lets a single probe
+    through (HALF_OPEN admits exactly one in-flight probe) to test the water.
+    """
+
     # Failures stored as monotonic timestamps; counts reflect only failures inside window_seconds.
     def __init__(
         self,

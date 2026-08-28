@@ -63,6 +63,9 @@ class Settler:
             await self._admit_output_contract(run)
 
         if run.state is RunState.FAILED:
+            # Persist a failed run only if it was already persisting — a run
+            # that never checkpointed shouldn't manufacture durability (and a
+            # collision-prone orphan) at the moment of its death.
             if run.checkpoint_version > 0:
                 await self._save_checkpoint(run, checkpoint, hooks)
         else:

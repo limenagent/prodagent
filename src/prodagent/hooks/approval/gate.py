@@ -28,6 +28,14 @@ class ApprovalProvider(Protocol):
 
 
 class ApprovalGate:
+    """HITL gate with suspend/resume semantics — never a blocking wait.
+
+    ``evaluate()`` either returns a decision that already arrived (deferred
+    in-process, or read back from the durable store on another node) or
+    raises ``SuspendPendingApproval``; the run parks and resumes when
+    ``submit_decision()`` lands out-of-band. A human's latency is measured
+    in minutes — no event loop should hold still for it."""
+
     def __init__(
         self,
         *,
@@ -37,6 +45,8 @@ class ApprovalGate:
         self._fmt = formatter or ContextAwareApprovalFormatter()
         self._pending: dict[str, ApprovalRequest] = {}
         self._deferred: dict[str, ApprovalDecision] = {}
+        # Weak on purpose: the gate outlives many short-lived forked agents —
+        # a strong set would pin every registry (and its hooks) in memory.
         self._wired_registries: weakref.WeakSet[Any] = weakref.WeakSet()
         # Optional durable backing: with a store, a decision submitted on one
         # node resumes a gate rebuilt on another.

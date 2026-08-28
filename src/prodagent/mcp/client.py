@@ -75,6 +75,8 @@ class MCPClient:
         self._connected = True
 
     async def close(self) -> None:
+        # A closed transport (dead subprocess / socket) cannot be reopened —
+        # swap in a fresh one so connect() is reusable on the same client.
         if self._connected:
             await self._transport.close()
             self._transport = _build_transport(self._config)

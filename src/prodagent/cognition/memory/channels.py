@@ -1,3 +1,11 @@
+"""Recall channels — one retrieval math per memory type.
+
+Rules are force-recalled (no similarity to compute), facts are keyed by
+entity, preferences/episodic answer to keywords and embeddings. Channels
+run independently; the manager merges their hits stage-ordered under one
+token budget.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,4 +1,8 @@
-"""Skills progressive disclosure — lazy domain knowledge injection."""
+"""Skills progressive disclosure — lazy domain knowledge injection.
+
+The whole catalogue rides in the system prompt as one line per skill; a
+full document costs pages and is fetched only when the model actually calls
+``get_skill`` — the agent pays for depth it uses, not depth it might."""
 
 from __future__ import annotations
 

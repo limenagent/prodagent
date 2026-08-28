@@ -139,7 +139,6 @@ class PlanExecutor:
             dispatcher=dispatcher,
             check_budget=self._check_budget,
         )
-        self._dispatcher = dispatcher
         self._replan_count = 0
 
     def _check_budget(self, run: AgentRun) -> None:
@@ -166,6 +165,8 @@ class PlanExecutor:
         plan: Plan,
         run: AgentRun,
     ) -> AsyncGenerator[AgentEvent, None]:
+        # No while-True over an LLM-authored graph: step count × replans
+        # bounds the loop, with a little slop for replan churn.
         max_iterations = len(plan.steps) * _MAX_ITERS_PER_STEP + _MAX_ITERS_SLOP
 
         for _ in range(max_iterations):

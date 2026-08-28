@@ -64,6 +64,9 @@ class ConversationSession:
 
     def start_turn(self, message: str, *, mode: ExecutionMode) -> TurnAllocation:
         """Return a ``TurnAllocation`` for the upcoming Run."""
+        # A SUSPENDED run resumes under its original run_id (not a fresh one)
+        # so checkpoints, ledger reservations and approval requests stay
+        # correlated with the run that awaits them.
         last = self.last_turn
         resume = last is not None and last.state is RunState.SUSPENDED
         self.messages.append(Message(role="user", content=message))

@@ -89,6 +89,9 @@ class Plan:
             self._index_deps(s)
 
     def merge(self, new_steps: list[PlanStep]) -> None:
+        # Replans rewrite by version, not in place: replaced steps turn
+        # OBSOLETE and successors carry lineage (replaces_step_id), so the
+        # event log replays every revision — nothing is silently mutated.
         new_ids = {s.step_id for s in new_steps}
         for ns in new_steps:
             for dep_id in ns.depends_on:
@@ -187,6 +190,9 @@ class Plan:
         return result if isinstance(result, dict) else {}
 
     def _assert_acyclic(self, candidates: list[PlanStep]) -> None:
+        # The planner is an LLM — a cycle here is a model mistake, not a
+        # programmer's. Reject it at the seam with the offenders named, not
+        # mid-execution as a mysterious hang.
         live: dict[str, PlanStep] = {
             sid: s for sid, s in self._steps.items() if s.status is not StepStatus.OBSOLETE
         }

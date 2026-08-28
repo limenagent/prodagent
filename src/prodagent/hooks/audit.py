@@ -111,6 +111,8 @@ class AuditLogger:
             await self._exporter.shutdown()
 
     def _is_sampled(self, trace_id: str) -> bool:
+        # Deterministic on the trace id: every span of a trace samples in or
+        # out together (no half-traced trees), and a replay decides the same.
         if self._sample_rate >= 1.0:
             return True
         if self._sample_rate <= 0.0:

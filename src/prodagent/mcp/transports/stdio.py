@@ -12,8 +12,6 @@ from prodagent.mcp.transports._rpc import RPCError
 
 logger = logging.getLogger(__name__)
 
-_STDERR_PIPE_CAPACITY = 64 * 1024
-
 
 def _rpc_request(method: str, params: dict[str, Any] | None, req_id: int | str) -> bytes:
     msg: dict[str, Any] = {"jsonrpc": "2.0", "id": req_id, "method": method}
@@ -30,6 +28,12 @@ def _rpc_notification(method: str, params: dict[str, Any] | None = None) -> byte
 
 
 class StdioTransport:
+    """JSON-RPC over a child process's stdin/stdout.
+
+    One permanent reader task resolves futures by request id — concurrent
+    ``send`` calls multiplex over the single pipe instead of queueing.
+    """
+
     def __init__(self, *, read_timeout: float = 30.0) -> None:
         self._proc: asyncio.subprocess.Process | None = None
         self._write_lock = asyncio.Lock()
@@ -46,6 +50,8 @@ class StdioTransport:
         env: dict[str, str] | None = None,
     ) -> None:
         full_env = {**os.environ, **(env or {})}
+        # start_new_session: the server may spawn children of its own — a new
+        # process group lets close() take down the whole tree, not just the shell.
         self._proc = await asyncio.create_subprocess_exec(
             *command,
             stdin=asyncio.subprocess.PIPE,
@@ -59,6 +65,8 @@ class StdioTransport:
         logger.info("MCP stdio transport: spawned %s (pid=%d)", command[0], self._proc.pid)
 
     async def _drain_stderr(self) -> None:
+        # A chatty server's stderr fills the OS pipe buffer (~64KB) and then
+        # blocks the child mid-call if nobody reads it — drain continuously.
         if self._proc is None or self._proc.stderr is None:
             return
         try:

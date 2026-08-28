@@ -25,8 +25,6 @@ from prodagent.coordination.messaging.envelope import (
 from prodagent.kernel.bus import Gate
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from prodagent.coordination.ensemble import FloorProjection, FloorTurn
     from prodagent.coordination.messaging.contract import MessageContract
     from prodagent.coordination.messaging.idempotency import IdempotentMessageHandler

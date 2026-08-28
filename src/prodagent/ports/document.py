@@ -24,6 +24,8 @@ EPISODIC_DEFAULT_TTL_DAYS = 7
 
 
 def mem_id(text: str, *, prefix: str = "") -> str:
+    # Content-hash identity: writing the same memory twice lands on the same
+    # id — dedupe and conflict supersession without a lookup query.
     h = hashlib.blake2b(text.encode(), digest_size=6).hexdigest()
     return f"{prefix}{h}" if prefix else h
 

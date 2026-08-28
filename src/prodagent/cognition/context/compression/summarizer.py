@@ -67,6 +67,9 @@ class Summariser:
         )
         prompt = schema + turns_text
 
+        # temperature=0 keeps summaries deterministic AND keeps the request
+        # cache-eligible — a >0 summary would silently bypass the response
+        # cache (see llm/cache.py's key policy).
         llm_cfg = LLMConfig(
             model=cfg.summary_model,
             max_tokens=cfg.summary_max_tokens,

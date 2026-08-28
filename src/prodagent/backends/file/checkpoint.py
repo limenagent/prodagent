@@ -79,6 +79,9 @@ class FileCheckpointStore:
                     run.turn_count,
                 )
         except OSError as exc:
+            # Degrade, don't crash: a failing disk must not kill a run
+            # mid-flight. The sticky flag + CHECKPOINT_FAILED event surface the
+            # durability loss instead of hiding it.
             run.checkpoint_failed = True
             logger.error(
                 "[checkpoint] save failed for run=%s (checkpoint_failed=True): %s",

@@ -111,11 +111,6 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
-if TYPE_CHECKING:
-    from prodagent.kernel.types import ToolCall
-    from prodagent.ports import EventLog
-
-
 class FloorEventType(StrEnum):
     """Durable record of every SharedFloor transition — 1:1 with the in-memory
     mutations. Appended to an :class:`~prodagent.ports.event_log.EventLog` keyed

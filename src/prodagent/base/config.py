@@ -237,6 +237,8 @@ def _apply_conn_env(backend: BackendConfig) -> None:
     backend.postgres_namespace = ns
     backend.redis_namespace = ns
     run_ns = os.getenv("PRODAGENT_RUN_NAMESPACE")
+    # A per-run suffix lets parallel runs (CI shards, load tests) share one
+    # Redis/Postgres without colliding on keys.
     if run_ns:
         backend.postgres_namespace = f"{ns}-{run_ns}"
         backend.redis_namespace = f"{ns}-{run_ns}"

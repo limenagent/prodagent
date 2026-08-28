@@ -85,6 +85,8 @@ class PlanBootstrap:
 
         plan: Plan | None = None
         if self._initial_plan is not None:
+            # A preset workflow plan is a reusable template — deep-copy so one
+            # run's statuses/replans never bleed into the next turn's plan.
             plan = copy.deepcopy(self._initial_plan)
             plan.plan_id = rid
             plan.task_input = task

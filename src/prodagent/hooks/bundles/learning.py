@@ -91,6 +91,8 @@ class LearningHooks:
 
         if is_child_subordinate(run):
             return
+        # Synthesis is an LLM round-trip; the terminal event must not wait for
+        # it. It runs in the background and flush() drains at exit.
         task = asyncio.create_task(self._safely_run_loop(run))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)

@@ -17,6 +17,14 @@ _L3_TRIGGER_THRESHOLD = 15
 
 
 class ToolRegistry:
+    """Tiered tool exposure: every tool is callable, few are visible.
+
+    Tool schemas are prompt tokens — a model handed 500 schemas burns budget
+    and accuracy before its first call. L1 (core) is always visible; L2
+    (domain) mounts by role; L3 (cold) is invisible until a search surfaces
+    it, and only when the visible set is small enough to afford the addition.
+    """
+
     def __init__(
         self,
         failure_threshold: int = 3,
@@ -69,6 +77,9 @@ class ToolRegistry:
                 active_names.add(t.name)
 
         query = force_l3_query or intent
+        # Cold-tier search only fires when the visible set is still lean —
+        # adding L3 hits to an already-crowded menu would spend the tokens the
+        # tiering exists to save.
         if query and len(active) < _L3_TRIGGER_THRESHOLD and self._l3_cold:
             if self._l3_index is None:
                 config = self._search_config or preset_procedural()

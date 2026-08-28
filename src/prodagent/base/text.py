@@ -11,6 +11,8 @@ _ASCII_WORD = re.compile(r"[A-Za-z][A-Za-z0-9_-]{1,}")
 
 
 def tokenize_cjk(text: str, *, min_len: int = 2) -> list[str]:
+    # CJK text has no word boundaries; character n-grams (2..3) buy recall
+    # without shipping a segmenter — precision is the embedder's job.
     if not text:
         return []
     tokens: list[str] = []

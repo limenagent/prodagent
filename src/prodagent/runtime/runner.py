@@ -337,6 +337,8 @@ class RunLoop:
                         raise
                     finally:
                         if final_run is not None and ctx.run_id != self._root_run_id:
+                            # Hops after the first belong to the chain, not to
+                            # a spawned subordinate — settlement keys on this.
                             final_run.is_peer_continuation = True
                         await self._finalize_run(final_run, ctx, hooks, spawn_acc)
 

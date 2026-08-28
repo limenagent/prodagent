@@ -20,6 +20,9 @@ class StructuredOutputError(Exception):
 
 
 def extract_json_object(text: str) -> str:
+    # Models wrap JSON in prose and markdown fences despite instructions;
+    # scan for the first balanced object/array instead of assuming clean
+    # output — and keep scanning past prose that merely looks balanced.
     text = text.strip()
     if text.startswith("```"):
         lines = text.splitlines()

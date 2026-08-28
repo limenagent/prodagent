@@ -1,3 +1,11 @@
+"""Tool search — the lexical bridge between intent and the cold tier.
+
+Deliberately not embeddings: the tool-selection path must stay offline,
+deterministic and sub-millisecond (it runs inside context assembly), and a
+weighted lexical scorer over parsed name parts + descriptions is accurate
+enough for the few slots L3 contributes.
+"""
+
 from __future__ import annotations
 
 import logging

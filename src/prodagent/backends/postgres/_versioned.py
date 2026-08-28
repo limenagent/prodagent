@@ -20,6 +20,11 @@ async def lock_and_check_version(
 ) -> int:
     """Acquire the per-row advisory lock and enforce optimistic concurrency.
 
+    The version check alone races under concurrent inserts (two writers both
+    read the same current value); the transaction-scoped advisory lock
+    serializes writers per subject and frees itself at commit — no lock
+    rows, no cleanup on crash.
+
     Returns the current version so the caller can increment it and write.
     """
     await cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (lock_key,))

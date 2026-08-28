@@ -76,6 +76,8 @@ class LLMResponse:
 
 这样核心循环不需要知道"OpenAI 的缓存字段叫什么、Anthropic 的叫什么"。
 
+**一个容易踩的口径坑**：`input_tokens` 在 canonical 格式里是**全包含**的（含缓存 token），但两家 provider 的原生口径相反——Anthropic 的 `usage.input_tokens` **不含**缓存 token（要自己加上 `cache_read/cache_write`），OpenAI 的 `prompt_tokens` **已经含**缓存 token。适配器负责把两种口径都折算成"全包含"，下游的成本公式才能从同一个基数里减掉缓存行（缓存的折扣价/溢价价）。如果你写自己的适配器，这里算错一个方向，预算的成本轴就会系统性偏差。
+
 **StopReason 以 Anthropic 词汇为规范**：
 
 | 值 | 字符串 | 含义 |
@@ -203,6 +205,33 @@ messages = [
 ```
 
 `enable_prompt_caching=False` 时，适配器不发送任何缓存标记。
+
+---
+
+## 传输层重试：一条看不见的守卫
+
+网络会闪断、provider 会限流。`llm/http_retry.py` 在适配器之下包了一层传输重试：可重试的状态码（429/5xx）和传输异常按 jittered backoff 重试，`Retry-After` 头优先；永久错误（400/401/403…）立刻上抛，绝不浪费一次重试。
+
+这里最有教学价值的设计是 **DeliveryGuard（半交付守卫）**：
+
+> 一旦流式输出的第一个 chunk 已经交给了消费者，传输中途失败就**不再透明重试**——重试会把已交付的前缀再放一遍。
+
+```python
+guard = DeliveryGuard()
+
+async def _guarded_chunk(text: str) -> None:
+    guard.mark()          # 第一笔交付，标记"已经出去了"
+    await on_chunk(text)
+
+await with_http_retry(
+    lambda: self._stream(..., on_chunk=_guarded_chunk),
+    stream_guard=guard,   # 失败时检查：交付过 → 直接上抛
+)
+```
+
+为什么不能重试？重试解决的是"调用失败、什么都没发生"；而半交付失败时**用户已经看到了前半段**。重放会得到重复的前缀，UI 上是灾难，语义上是"一条消息变两条"。所以这里的正确行为是把失败暴露给上层，让上层决定（重新组织一次完整调用，或干脆报错）。
+
+"重试"不是一个开关，而是一组按后果分级的选择：什么都没发生 → 可以透明重试；发生了一半 → 必须显式处理。这个区分在分布式系统里叫幂等性边界，在 Agent 框架里同样成立。
 
 ---
 

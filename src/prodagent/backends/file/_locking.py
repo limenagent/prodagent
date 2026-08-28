@@ -18,7 +18,9 @@ try:
     def _funlock(fd: int) -> None:
         _fcntl.flock(fd, _fcntl.LOCK_UN)
 except ImportError:  # Windows
-
+    # fcntl is POSIX-only; on Windows the lock degrades to a no-op. File
+    # backends there are single-process by contract — within one process,
+    # asyncio's event loop already serializes the read-modify-write.
     def _flock_exclusive(fd: int) -> None:
         pass
 

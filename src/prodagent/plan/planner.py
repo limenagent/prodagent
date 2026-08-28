@@ -114,6 +114,8 @@ class Planner:
         run: AgentRun,
     ) -> list[PlanStep]:
         clean: MessageList = []
+        # Replanning needs the narrative, not the raw tool dumps — strip tool
+        # turns so the recovery prompt stays about what happened, not payloads.
         for m in original_messages:
             role = m.get("role", "") if isinstance(m, dict) else getattr(m, "role", "")
             if role in ("user", "assistant"):
@@ -203,6 +205,8 @@ class Planner:
                     )
                 )
             except KeyError as exc:
+                # A malformed step is skipped, not fatal — four good steps and
+                # one bad field still make an executable plan.
                 logger.warning("[Plan] step missing required field %s in: %s", exc, s)
                 continue
         return steps

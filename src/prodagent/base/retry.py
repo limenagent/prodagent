@@ -14,6 +14,8 @@ class Backoff(StrEnum):
     EXPONENTIAL = "exponential"
     # Exponential with full jitter — uniform in [0, min(cap, base×2^n)].
     JITTERED = "jittered"
+    # The default: without jitter, concurrent agents that failed together
+    # retry together, stampeding an already-struggling upstream in lockstep.
 
 
 @dataclass

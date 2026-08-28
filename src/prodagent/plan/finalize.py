@@ -49,6 +49,8 @@ def finalize_run(run: AgentRun, plan: Plan | None) -> None:
 
 
 def select_terminal_step(plan: Plan) -> PlanStep | None:
+    """No explicit terminal → the last step to complete is the answer: output
+    flows downhill in a DAG, so the sink speaks for the plan."""
     completed = [s for s in plan.steps if s.status is StepStatus.COMPLETED]
     if not completed:
         return None

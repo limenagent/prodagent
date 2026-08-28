@@ -239,6 +239,8 @@ class PeerRelay:
         handoff = run.pending_handoff
         fw = agent.framework_config
         if depth >= fw.orchestration.max_peer_chain:
+            # Peers bouncing the task back and forth is a livelock, not
+            # progress — the chain cap turns it into a bounded settle.
             return None
 
         peer_name = handoff.peer_name

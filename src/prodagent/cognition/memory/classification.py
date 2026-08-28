@@ -96,6 +96,9 @@ Return a JSON object with exactly these fields (no prose, no markdown fences):
                 if attempt < self._max_retries:
                     await asyncio.sleep(0.5 * (attempt + 1))
                 else:
+                    # Degraded-but-not-dropped: an unparseable classification
+                    # lands as bounded-TTL EPISODIC rather than vanishing —
+                    # recall can still surface it, and decay cleans it up.
                     logger.warning(
                         "classification parse failed, defaulting to EPISODIC: %.80s", raw
                     )

@@ -81,6 +81,8 @@ class RedisLockStore:
             return await self._client.evalsha(sha, keys, *args)
 
     async def acquire(self, name: str, *, timeout: float) -> LockToken:
+        # TTL == the acquire timeout: if a holder crashes, the lock frees
+        # itself after at most the time a caller was willing to wait anyway.
         token_value = uuid.uuid4().hex
         key = self._key(name)
         px = max(1, int((timeout if timeout > 0 else _NONBLOCKING_TTL_S) * 1000))

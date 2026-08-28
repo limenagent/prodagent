@@ -46,6 +46,8 @@ class PricingTable:
 def token_cost_usd(response: LLMResponse, pricing: PricingTable) -> float:
     cache_read = response.cache_read_tokens or 0
     cache_write = response.cache_write_tokens or 0
+    # Providers count cache tokens inside input_tokens; they carry their own
+    # (discounted / premium) price lines, so the plain-input base excludes them.
     input_billed = max(0, response.input_tokens - cache_read - cache_write)
     cost = (
         input_billed / 1_000_000 * pricing.input_rate_per_million
@@ -58,6 +60,9 @@ def token_cost_usd(response: LLMResponse, pricing: PricingTable) -> float:
 
 @dataclass
 class LLMConfig:
+    """Per-call request settings — and the rate card that keeps the budget's
+    cost axis honest (defaults auto-fill from the provider catalog below)."""
+
     model: str = ""
     temperature: float = 0.0
     max_tokens: int = 8_192

@@ -39,7 +39,12 @@ __all__ = ["ContextManager", "format_state"]
 
 @dataclass
 class _Sandwich:
-    """The assembled context window's structural shape."""
+    """The assembled context window's structural shape.
+
+    Injected blocks (memory / skills / state / reminder) ride *after* the
+    history: they mutate every turn, so parking them behind history keeps
+    the prompt-cache prefix byte-stable — and end position buys recency for
+    instruction-following at no cache cost."""
 
     memory_msg: Message | None = None
     skills_msg: Message | None = None

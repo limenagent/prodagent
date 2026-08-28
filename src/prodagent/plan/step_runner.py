@@ -46,6 +46,9 @@ class ToolExecutor(Protocol):
 
 
 def _call_id(step_id: str, run_id: str) -> str:
+    # Deterministic (not uuid): the call_id ties tool messages to steps across
+    # replays, and spill filenames derive from it — random ids would orphan
+    # them on resume.
     return f"plan_{step_id}_{run_id}"
 
 
@@ -142,6 +145,8 @@ class StepRunner:
                 "idempotency_key", f"{run.run_id}:{step.step_id}:a{step.attempts}"
             )
         if run.pending_handoff is not None:
+            # A sibling in this batch already handed control away — this step
+            # never fires, so report a no-op success with nothing to commit.
             return StepSuccess(
                 step=step,
                 result=ToolResult(ToolOutcome.OK, tool=step.action),

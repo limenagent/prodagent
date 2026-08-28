@@ -113,6 +113,8 @@ class MemoryManager:
 
     async def recall(self, query: str, domain: str | None = None) -> str:
         now = now_utc()
+        # Reads take the write lock too: constraints/documents/facts must load
+        # as one consistent snapshot, never a mid-write mixture.
         async with self._get_write_lock():
             constraints = await self._documents.load_constraints()
             documents = await self._documents.load_memories()
@@ -136,6 +138,8 @@ class MemoryManager:
         recalled: list[str] = []
         seen_ids: set[str] = set()
 
+        # Merge is stage-ordered (rules → entities → exact → semantic), so
+        # hard constraints claim the token budget before fuzzy hits do.
         for stage in self._merge_order:
             for item in by_stage.get(stage, []):
                 stored = item.source_mem
@@ -186,6 +190,8 @@ class MemoryManager:
             logger.info("Memory.classify: skipped (no classifier attached)")
             return
         if is_child_subordinate(run):
+            # A spawned child's transcript folds into its parent's run —
+            # classifying both would double-write the same memories.
             return
 
         texts = reasoning_texts(run)
@@ -193,6 +199,8 @@ class MemoryManager:
             return
 
         records: list[MemoryRecord] = []
+        # Only the tail of the reasoning gets classified — bounding the LLM
+        # cost per run; earlier turns are usually exploratory, not memorable.
         for text in texts[-3:]:
             try:
                 record = await self._classifier.classify(text)

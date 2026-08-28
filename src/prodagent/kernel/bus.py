@@ -244,9 +244,6 @@ class _Pipeline:
 # ── Event vocabulary ──────────────────────────────────────────────────────────
 
 
-# ── Event vocabulary ──────────────────────────────────────────────────────────
-
-
 class HookEvent(StrEnum):
     SESSION_START = "session.start"
     SESSION_END = "session.end"
@@ -333,6 +330,8 @@ InjectorHandler = Callable[..., Any | Awaitable[Any]]
 
 
 def _is_structured_veto(exc: BaseException) -> bool:
+    # Security vetoes pierce even observe/gather paths: a permission denial
+    # must abort the run, never be logged-and-swallowed as observer noise.
     from prodagent.base.errors import SECURITY_VETO_EXCEPTIONS
 
     return isinstance(exc, SECURITY_VETO_EXCEPTIONS)

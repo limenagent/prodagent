@@ -65,6 +65,9 @@ class ErrorLayer(StrEnum):
 
 
 NON_RETRYABLE_REASONS: frozenset[ErrorReason] = frozenset(
+    # Absence from this set means "presumed transient". Retrying a permanent
+    # failure only burns budget and delays the user-visible failure, so the
+    # burden of proof is on listing a reason as retryable.
     {
         ErrorReason.AUTH_INVALID,
         ErrorReason.AUTH_FORBIDDEN,
@@ -251,6 +254,8 @@ def _classify_http(exc: BaseException, *, provider: str, model: str) -> Classifi
     reason = _STATUS_TO_REASON.get(status) if status is not None else None
 
     if reason is None:
+        # 429 is ambiguous at the protocol level: quota means stop for good,
+        # rate limit means back off — so the message body disambiguates.
         if status == 429:
             reason = (
                 ErrorReason.QUOTA_EXHAUSTED

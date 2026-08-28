@@ -44,7 +44,12 @@ def _recency(mem: StoredMemory, now: datetime) -> float:
 
 
 def activation(mem: StoredMemory, now: datetime) -> float:
-    """Activation in ``[0.0, 1.0]``. Higher = more activated."""
+    """Activation in ``[0.0, 1.0]``. Higher = more activated.
+
+    Classic memory-activation shape (ACT-R lineage): exponential base decay
+    with TTL, plus frequency and recency boosts — a memory can outlive its
+    decay curve by staying useful."""
+
     if mem.memory_type in ("constraint", "fact"):
         return 1.0
     if mem.ttl_days is None:

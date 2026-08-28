@@ -36,6 +36,8 @@ class FactStore:
         return await self._facts.list_nodes(label=label)
 
     async def write(self, record: MemoryRecord) -> None:
+        # Facts version in place, not append: the entity is the unit, and its
+        # version counter is the history — unlike soft memories' supersede chain.
         eid = record.entity_id or mem_id(record.content)
         existing = await self.get_node(eid)
         version = (existing["properties"].get("version", 0) + 1) if existing else 1

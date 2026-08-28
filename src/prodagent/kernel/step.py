@@ -194,6 +194,9 @@ class Step:
 
     async def _account(self, run: AgentRun, response: LLMResponse) -> None:
         run.metrics.turn_count += 1
+        # A cached response is a replay — its tokens were already accounted on
+        # first execution — but the turn still counts: the turns axis must see
+        # a run that spins on cache hits, not one that looks free.
         if not getattr(response, "from_cache", False):
             run.add_tokens(
                 response,

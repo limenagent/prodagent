@@ -1,4 +1,10 @@
-"""Blackboard — shared mutable state + declarative triggers."""
+"""Blackboard — shared mutable state + declarative triggers.
+
+The classic blackboard architecture (Hearsay-II lineage): experts watch a
+shared board of versioned slots; when a write matches a trigger's key
+pattern, the matching experts wake and write back. Nothing routes work
+point-to-point — the board *is* the coordination, and knowledge accretes
+slot by slot until a termination policy says the picture is complete."""
 
 from __future__ import annotations
 
@@ -299,15 +305,14 @@ class BlackboardSpec:
     )
     budget: BudgetLedger | None = None
     terminal_check: Callable[[Board], bool] | None = None
+    """Business-level "the board is done" check — e.g. all required keys filled.
+    Checked before each round, independent of TerminationPolicy."""
     conflict_retries: int = 0
     """Reread-retry rounds for an optimistic-version write conflict: the
     expert re-reads the fresh board and recomputes its write this many times
     before the loser is dead-lettered. 0 keeps the historical drop-on-first-
     conflict behavior."""
-    """Business-level "the board is done" check — e.g. all required keys filled.
-    Checked before each round, independent of TerminationPolicy."""
     lock_store: LockStore = field(default_factory=lambda: _in_process_lock())
-
     """Backs buzz_in arbitration. Defaults to the in-process store — this
     primitive is single-process only, but the port stays swappable."""
 

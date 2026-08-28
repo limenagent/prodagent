@@ -60,6 +60,11 @@ _DEFAULT_TOOL_TIMEOUT_S = 3.0
 
 
 def _default_tool_retry_policy() -> RetryPolicy:
+    # max_attempts=1: by default the executor does NOT retry — a YELLOW error
+    # goes back to the model as structured feedback, and the model retries
+    # with awareness (different params, different tool, or backing off). A
+    # blind executor loop would hammer a failing dependency the model might
+    # know how to route around.
     return RetryPolicy(
         max_attempts=1,
         base_delay=1.0,
@@ -69,6 +74,13 @@ def _default_tool_retry_policy() -> RetryPolicy:
 
 
 class ToolDispatcher:
+    """Executes tool-call batches: readonly calls in parallel, writes serial.
+
+    Every result passes the same pipeline — probe (circuit breaker) → approval
+    gate → pre-hooks → invoke (deadline-bounded) → post-hooks — so policy
+    attaches once, not per call site.
+    """
+
     def __init__(
         self,
         tool_map: dict[str, FunctionTool],
@@ -126,6 +138,9 @@ class ToolDispatcher:
 
             meta = self.meta_for(call.name)
             if meta is not None and meta.enforced_idempotent:
+                # Crash-replay may re-fire this call; the host-minted key lets
+                # the tool dedupe the second execution — at-most-once is the
+                # tool's promise, the key is what makes it keepable.
                 run.idempotency_seq += 1
                 call.params.setdefault("idempotency_key", f"{run.run_id}:c{run.idempotency_seq}")
 
@@ -134,6 +149,9 @@ class ToolDispatcher:
             yield ToolCallStartEvent(call=call, run_id=run.run_id)
             logger.debug("AgentLoop[%s] queued tool: %s", run.run_id, call.name)
 
+            # Reads commute, writes don't: readonly calls may race under a
+            # concurrency cap, while side-effecting calls run one at a time so
+            # their observable order matches the order the model asked for.
             if self.is_readonly(call.name):
                 readonly_calls.append((i, call))
             else:

@@ -10,6 +10,12 @@ logger = logging.getLogger(__name__)
 
 
 class IdempotentMessageHandler:
+    """Seen-id set with a TTL — the plane's replay suppression.
+
+    Check-and-remember under one lock: a message is a duplicate exactly when
+    it was admitted before. The TTL bounds memory without a timer thread —
+    expired ids are pruned opportunistically on each check."""
+
     def __init__(self, ttl_seconds: float = 3600.0) -> None:
         self._seen: dict[str, float] = {}
         self._ttl = ttl_seconds

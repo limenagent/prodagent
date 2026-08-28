@@ -25,7 +25,10 @@ def _count_valid_lines(path: Path) -> int:
 
 
 def _read_tail_seq(path: Path) -> int:
-    """Return the ``seq`` of the last complete JSON line in *path*."""
+    """Return the ``seq`` of the last complete JSON line in *path*.
+
+    Scans backwards in 8KB chunks — this runs on every append, so paying
+    O(file) per append would make long streams quadratically slow."""
     if not path.exists():
         return 0
     size = path.stat().st_size

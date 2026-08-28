@@ -48,6 +48,9 @@ class AnthropicAdapter:
             client_kwargs["base_url"] = actual_base_url
             logger.info("AnthropicAdapter: custom base_url=%s", actual_base_url)
 
+        # Gateway/relay keys are bearer tokens that don't look like Anthropic
+        # keys; the SDK picks its auth scheme by which kwarg is set, so the
+        # prefix decides rather than a flag the caller would forget to pass.
         if resolved_key and not resolved_key.startswith("sk-ant-"):
             client_kwargs["auth_token"] = resolved_key
         else:
@@ -325,11 +328,15 @@ class AnthropicAdapter:
         usage = raw.usage
         cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
         cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+        # Anthropic reports input_tokens EXCLUDING cache tokens; the canonical
+        # LLMResponse counts everything, so downstream cost math (which
+        # subtracts the discounted/premium cache lines) starts from one base.
+        input_all = usage.input_tokens + cache_read + cache_write
         return LLMResponse(
             content="\n".join(text_parts),
             tool_calls=tool_calls,
             stop_reason=StopReason.coerce(raw.stop_reason),
-            input_tokens=usage.input_tokens + cache_read + cache_write,
+            input_tokens=input_all,
             output_tokens=usage.output_tokens,
             model=raw.model,
             cache_read_tokens=cache_read,

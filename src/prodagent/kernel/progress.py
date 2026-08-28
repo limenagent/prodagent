@@ -26,6 +26,8 @@ _LIMIT_ONLY_KEYS = frozenset({"limit"})
 
 
 def _tool_fingerprint(call: ToolCall) -> str:
+    # A call that differs only in ``limit`` is still the same call — degenerate
+    # paging (same query, drifting limit) must count as a loop.
     params = {k: v for k, v in call.params.items() if k not in _LIMIT_ONLY_KEYS}
     payload = json.dumps(
         {"name": call.name, "params": params},
@@ -80,6 +82,8 @@ class ProgressMonitor:
             )
 
     def _check_ghost_loop(self, run: AgentRun) -> None:
+        # Ghost loop: turns keep happening but the recent context stops
+        # changing — work with no progress, the quieter sibling of a dead loop.
         current = _context_hash(run)
         self._hashes.append(current)
 

@@ -95,6 +95,8 @@ class SkillResolver:
         Returns ``None`` if approved, otherwise a SUSPENDED/BLOCKED result.
         """
         if not self._hooks or not self._hooks.has_check_handlers(Gate.APPROVAL_REQUEST):
+            # Fail-closed: a HIGH side effect must never run just because the
+            # approver is missing — suspend and let a human wire the gate.
             return ToolResult.suspended(
                 reason=f"Tool '{call.name}' requires human approval before execution",
                 tool=call.name,

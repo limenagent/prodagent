@@ -195,6 +195,8 @@ class OpenAIAdapter:
             if delta_reasoning:
                 reasoning_parts.append(delta_reasoning)
 
+            # The wire fragments one tool call across many deltas (name and
+            # arguments arrive in pieces, keyed by index) — accumulate, parse once.
             for tc_delta in delta.tool_calls or []:
                 idx = tc_delta.index
                 if idx not in tool_call_chunks:
@@ -226,6 +228,9 @@ class OpenAIAdapter:
             content="".join(content_parts),
             tool_calls=tool_calls,
             stop_reason=_map_stop_reason(finish_reason),
+            # OpenAI counts cached tokens INSIDE prompt_tokens — the inverse of
+            # Anthropic's convention; both funnel into the same all-inclusive
+            # canonical form the cost math subtracts from.
             input_tokens=usage_input,
             output_tokens=usage_output,
             model=model_name,

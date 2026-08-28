@@ -43,6 +43,8 @@ class MCPRegistry:
         await self.close_all()
 
     async def connect_all(self) -> None:
+        # One unreachable server degrades its own tools, not the whole
+        # toolbox: connect concurrently, record failures, carry on.
         if not self._configs:
             return
 

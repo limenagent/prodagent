@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["tool"]
 
-# Keys pydantic emits that we strip to keep the tool schema minimal
+# Keys pydantic emits that we strip to keep the tool schema minimal —
+# schema bytes ride in the prompt on every call, so cosmetics cost money.
 _SCHEMA_STRIP_KEYS: frozenset[str] = frozenset({"title", "$defs", "default"})
 
 

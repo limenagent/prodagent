@@ -18,6 +18,8 @@ _SAFE_FILENAME = re.compile(r"^[A-Za-z0-9_.:\-]+$")
 
 
 def safe_filename_component(s: str) -> str:
+    # run_ids / session_ids end up in file paths; this allowlist is the
+    # path-traversal firewall — validate at the seam, not after an escape.
     if not s or not _SAFE_FILENAME.match(s):
         raise ValueError(f"{s!r} contains unsafe characters; allowed: [A-Za-z0-9_.:-]")
     return s
@@ -30,6 +32,10 @@ def write_atomic_json(
     fsync: bool = False,
     indent: int = 2,
 ) -> None:
+    # Write-temp-then-rename: POSIX rename is atomic, so a concurrent reader
+    # sees either the whole old file or the whole new one — never a torn write.
+    # ``fsync=True`` adds power-loss durability (data + parent dir, else the
+    # rename itself may not survive); checkpoints pay for it, caches don't.
     tmp = path.with_suffix(".tmp")
     payload = json.dumps(data, ensure_ascii=False, indent=indent)
     try:
@@ -55,6 +61,8 @@ def write_atomic_json(
 
 
 def read_jsonl(path: Path, *, skip_errors: bool = True) -> Iterator[Any]:
+    # Corrupt lines are skipped by default: a store torn by a crash must lose
+    # the partial tail, not refuse to load every record after it.
     if not path.exists():
         return
     for line in path.read_text(encoding="utf-8").splitlines():

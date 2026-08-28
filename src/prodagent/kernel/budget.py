@@ -99,6 +99,9 @@ def check_budget(
     turn_count = run.turn_count + extra_turns
     elapsed = run.elapsed_seconds()
     total_tokens = run.input_tokens + run.output_tokens + extra_tokens
+    # Cache reads bill at a fraction (10% Anthropic / 50% OpenAI); charging
+    # them at full price would make caching *accelerate* exhaustion — the
+    # one behaviour that must never follow from saving money.
     billable_tokens = total_tokens - run.cache_read_tokens
     cost_usd = run.cost_usd + extra_cost_usd
 
