@@ -51,6 +51,7 @@ KERNEL_EXPECTED = frozenset(
     {
         "prodagent",
         "prodagent.base",
+        "prodagent.base.codec",
         "prodagent.base.config",
         "prodagent.base.errors",
         "prodagent.base.event_log",

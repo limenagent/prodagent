@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeAlias
 
 from typing_extensions import TypeVar
 
+from prodagent.base.codec import dump, load
 from prodagent.base.errors import NON_RETRYABLE_REASONS, ErrorReason
 
 # Vocabulary shared with the base layer lives in base/types.py (base must not
@@ -57,21 +58,11 @@ class ToolCall:
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
     def to_dict(self) -> JsonDict:
-        return {
-            "name": self.name,
-            "params": self.params,
-            "call_id": self.call_id,
-            "metadata": dict(self.metadata) if self.metadata else {},
-        }
+        return dump(self)
 
     @classmethod
     def from_dict(cls, d: JsonDict) -> ToolCall:
-        return cls(
-            name=d["name"],
-            params=d.get("params", {}),
-            call_id=d.get("call_id", ""),
-            metadata=d.get("metadata", {}) or {},
-        )
+        return load(cls, d, defaults={"params": {}})
 
 
 class StopReason(StrEnum):

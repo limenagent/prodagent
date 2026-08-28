@@ -23,7 +23,7 @@ document a checkpoint stores.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 if TYPE_CHECKING:
@@ -129,6 +129,21 @@ AgentEvent: TypeAlias = (
 
 _JSON_SCALARS = (str, int, float, bool, type(None))
 
+_KINDS: dict[str, type] = {
+    c.__name__: c
+    for c in (
+        ThinkTokenEvent,
+        ToolCallStartEvent,
+        ToolResultEvent,
+        StepStartedEvent,
+        StepCompletedEvent,
+        StepFailedEvent,
+        RunCompletedEvent,
+        RunFailedEvent,
+        RunSuspendedEvent,
+    )
+}
+
 
 def _wire_payload(value: object) -> Any:
     """JSON-able form of an opaque event payload: pass primitives/containers
@@ -144,47 +159,18 @@ def _wire_payload(value: object) -> Any:
 
 
 def event_to_wire(event: AgentEvent) -> JsonDict:
-    """One event as a JSON-able dict with a ``type`` discriminator."""
-    kind = type(event).__name__
-    if isinstance(event, ThinkTokenEvent):
-        return {"type": kind, "token": event.token, "run_id": event.run_id}
-    if isinstance(event, ToolCallStartEvent):
-        return {"type": kind, "call": event.call.to_dict(), "run_id": event.run_id}
-    if isinstance(event, ToolResultEvent):
-        return {
-            "type": kind,
-            "name": event.name,
-            "result": _wire_payload(event.result),
-            "run_id": event.run_id,
-        }
-    if isinstance(event, StepStartedEvent):
-        return {
-            "type": kind,
-            "step_id": event.step_id,
-            "action": event.action,
-            "run_id": event.run_id,
-        }
-    if isinstance(event, StepCompletedEvent):
-        return {
-            "type": kind,
-            "step_id": event.step_id,
-            "action": event.action,
-            "result": _wire_payload(event.result),
-            "run_id": event.run_id,
-        }
-    if isinstance(event, StepFailedEvent):
-        return {
-            "type": kind,
-            "step_id": event.step_id,
-            "action": event.action,
-            "error": event.error,
-            "run_id": event.run_id,
-        }
-    if isinstance(event, RunFailedEvent):
-        return {"type": kind, "run": event.run.to_dict(), "error": event.error}
-    if isinstance(event, (RunCompletedEvent, RunSuspendedEvent)):
-        return {"type": kind, "run": event.run.to_dict()}
-    raise TypeError(f"not an AgentEvent: {event!r}")
+    """One event as a JSON-able dict with a ``type`` discriminator.
+
+    Field-driven: every payload is either a string (``run_id``, ``error``,
+    ...) or an opaque object rendered by :func:`_wire_payload` — which is
+    exactly what the per-event branches this replaced did."""
+    cls = type(event)
+    if cls not in _KINDS.values():
+        raise TypeError(f"not an AgentEvent: {event!r}")
+    d: JsonDict = {"type": cls.__name__}
+    for f in fields(event):
+        d[f.name] = _wire_payload(getattr(event, f.name))
+    return d
 
 
 def event_from_wire(d: JsonDict) -> AgentEvent:
@@ -193,27 +179,13 @@ def event_from_wire(d: JsonDict) -> AgentEvent:
     from prodagent.kernel.state import AgentRun
     from prodagent.kernel.types import ToolCall
 
-    kind = d.get("type")
-    if kind == "ThinkTokenEvent":
-        return ThinkTokenEvent(token=d["token"], run_id=d["run_id"])
-    if kind == "ToolCallStartEvent":
-        return ToolCallStartEvent(call=ToolCall.from_dict(d["call"]), run_id=d["run_id"])
-    if kind == "ToolResultEvent":
-        return ToolResultEvent(name=d["name"], result=d["result"], run_id=d["run_id"])
-    if kind == "StepStartedEvent":
-        return StepStartedEvent(step_id=d["step_id"], action=d["action"], run_id=d["run_id"])
-    if kind == "StepCompletedEvent":
-        return StepCompletedEvent(
-            step_id=d["step_id"], action=d["action"], result=d["result"], run_id=d["run_id"]
-        )
-    if kind == "StepFailedEvent":
-        return StepFailedEvent(
-            step_id=d["step_id"], action=d["action"], error=d["error"], run_id=d["run_id"]
-        )
-    if kind == "RunCompletedEvent":
-        return RunCompletedEvent(run=AgentRun.from_dict(d["run"]))
-    if kind == "RunFailedEvent":
-        return RunFailedEvent(run=AgentRun.from_dict(d["run"]), error=d["error"])
-    if kind == "RunSuspendedEvent":
-        return RunSuspendedEvent(run=AgentRun.from_dict(d["run"]))
-    raise ValueError(f"unknown event type on the wire: {kind!r}")
+    cls = _KINDS.get(d.get("type"))
+    if cls is None:
+        raise ValueError(f"unknown event type on the wire: {d.get('type')!r}")
+    # Only two fields need reconstruction — the rest are wire scalars or
+    # opaque payloads that round-trip as-is.
+    rebuild = {"call": ToolCall.from_dict, "run": AgentRun.from_dict}
+    kwargs = {
+        f.name: rebuild[f.name](d[f.name]) if f.name in rebuild else d[f.name] for f in fields(cls)
+    }
+    return cls(**kwargs)

@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
+from prodagent.base.codec import dump, load
+
 __all__ = [
     "DocumentStore",
     "MemoryType",
@@ -84,36 +86,14 @@ class StoredMemory:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> StoredMemory:
-        return cls(
-            id=d.get("id", ""),
-            content=d.get("content", ""),
-            memory_type=d.get("memory_type", "episodic"),
-            domain=d.get("domain", "general"),
-            entity_id=d.get("entity_id", ""),
-            ttl_days=d.get("ttl_days"),
-            created_at=d.get("created_at", ""),
-            superseded=d.get("superseded", False),
-            version=d.get("version", 1),
-            access_count=d.get("access_count", 0),
-            last_access=d.get("last_access", ""),
-            embedding=d.get("embedding"),
+        return load(
+            cls,
+            d,
+            defaults={"id": "", "content": "", "memory_type": MemoryType.EPISODIC.value},
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "content": self.content,
-            "memory_type": self.memory_type.value,
-            "domain": self.domain,
-            "entity_id": self.entity_id,
-            "ttl_days": self.ttl_days,
-            "created_at": self.created_at,
-            "superseded": self.superseded,
-            "version": self.version,
-            "access_count": self.access_count,
-            "last_access": self.last_access,
-            "embedding": self.embedding,
-        }
+        return dump(self)
 
 
 def _coerce_memory_type(value: Any) -> MemoryType:

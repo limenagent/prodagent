@@ -19,6 +19,8 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Any
 
+from prodagent.base.codec import dump, load
+
 # ── Reason vocabulary ─────────────────────────────────────────────────────────
 
 
@@ -228,27 +230,11 @@ class ClassifiedError:
     raw_message: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "reason": self.reason.value,
-            "code": self.code,
-            "retryable": self.retryable,
-            "status_code": self.status_code,
-            "provider": self.provider,
-            "model": self.model,
-            "raw_message": self.raw_message,
-        }
+        return dump(self)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ClassifiedError:
-        return cls(
-            reason=ErrorReason(d["reason"]),
-            code=d.get("code", ""),
-            retryable=d.get("retryable", True),
-            status_code=d.get("status_code"),
-            provider=d.get("provider", ""),
-            model=d.get("model", ""),
-            raw_message=d.get("raw_message", ""),
-        )
+        return load(cls, d)
 
 
 def _status_code_of(exc: BaseException) -> int | None:

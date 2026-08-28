@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
+from prodagent.base.codec import dump, load
 from prodagent.base.errors import BudgetExceeded
 from prodagent.base.text import bound_text
 from prodagent.coordination.infra.stage import (
@@ -51,7 +52,12 @@ from prodagent.coordination.messaging.pipeline import (
     assembly_pipeline,
 )
 from prodagent.kernel.budget import BudgetLedger, HardBudget, open_ledger
-from prodagent.kernel.types import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
+from prodagent.kernel.types import (
+    RunCompletedEvent,
+    RunFailedEvent,
+    RunSuspendedEvent,
+    ToolCall,
+)
 from prodagent.ports.activation import (
     Activation,
     ActivationContext,
@@ -172,36 +178,14 @@ class FloorTurn:
         return not self.text and not self.tool_calls
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "speaker": self.speaker,
-            "round": self.round,
-            "text": self.text,
-            "addressed_to": list(self.addressed_to),
-            "stance": self.stance,
-            "tool_calls": [c.to_dict() for c in self.tool_calls],
-            "cost_usd": self.cost_usd,
-            "tokens": self.tokens,
-            "elapsed_s": self.elapsed_s,
-            "turn_id": self.turn_id,
-            "created_at": self.created_at,
-        }
+        return dump(self)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> FloorTurn:
-        from prodagent.kernel.types import ToolCall
-
-        return cls(
-            speaker=d["speaker"],
-            round=d["round"],
-            text=d.get("text", ""),
-            addressed_to=list(d.get("addressed_to") or []),
-            stance=d.get("stance"),
-            tool_calls=[ToolCall.from_dict(c) for c in d.get("tool_calls") or []],
-            cost_usd=d.get("cost_usd", 0.0),
-            tokens=d.get("tokens", 0),
-            elapsed_s=d.get("elapsed_s", 0.0),
-            turn_id=d.get("turn_id") or str(uuid.uuid4()),
-            created_at=d.get("created_at", time.monotonic()),
+        return load(
+            cls,
+            d,
+            raw={"turn_id": d.get("turn_id") or str(uuid.uuid4())},
         )
 
 
@@ -316,17 +300,6 @@ class SharedFloor(SharedStore, EventSourcedStore):
         if not self.transcript:
             return 0
         return max(t.round for t in self.transcript) + 1
-
-    def turns_for(self, speaker: str) -> list[FloorTurn]:
-        """All turns by ``speaker``, in order."""
-        return [t for t in self.transcript if t.speaker == speaker]
-
-    def last_turn_by(self, speaker: str) -> FloorTurn | None:
-        """Most recent turn by ``speaker``, or None."""
-        for turn in reversed(self.transcript):
-            if turn.speaker == speaker:
-                return turn
-        return None
 
     def recent_turns(self, *, limit: int) -> list[FloorTurn]:
         """Last ``limit`` turns, oldest-first. Caps how much history each

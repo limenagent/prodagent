@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from prodagent.base.codec import dump, load
 from prodagent.base.types import ExecutionMode, Message, MessageList, RunState
 
 if TYPE_CHECKING:
@@ -25,20 +26,14 @@ class TurnRecord:
     ended_at: float | None = None
 
     def to_dict(self) -> JsonDict:
-        d = asdict(self)
-        d["mode"] = self.mode.value
-        d["state"] = self.state.value
-        return d
+        return dump(self)
 
     @classmethod
     def from_dict(cls, d: JsonDict) -> TurnRecord:
-        return cls(
-            run_id=d["run_id"],
-            mode=ExecutionMode(d.get("mode", ExecutionMode.PLAN_FIRST.value)),
-            state=RunState(d.get("state", RunState.RUNNING.value)),
-            final_output=d.get("final_output"),
-            started_at=d.get("started_at", time.time()),
-            ended_at=d.get("ended_at"),
+        return load(
+            cls,
+            d,
+            defaults={"mode": ExecutionMode.PLAN_FIRST.value, "state": RunState.RUNNING.value},
         )
 
 
@@ -104,25 +99,11 @@ class ConversationSession:
             self.turns.append(record)
 
     def to_dict(self) -> JsonDict:
-        return {
-            "session_id": self.session_id,
-            "agent_id": self.agent_id,
-            "messages": list(self.messages),
-            "turns": [t.to_dict() for t in self.turns],
-            "turn_seq": self.turn_seq,
-            "version": self.version,
-        }
+        return dump(self, _raw=frozenset({"messages"}))
 
     @classmethod
     def from_dict(cls, d: JsonDict) -> ConversationSession:
-        return cls(
-            session_id=d["session_id"],
-            agent_id=d.get("agent_id", ""),
-            messages=list(d.get("messages", [])),
-            turns=[TurnRecord.from_dict(t) for t in d.get("turns", [])],
-            turn_seq=d.get("turn_seq", 0),
-            version=d.get("version", 0),
-        )
+        return load(cls, d, _raw=frozenset({"messages"}))
 
 
 __all__ = ["ConversationSession", "TurnAllocation", "TurnRecord"]

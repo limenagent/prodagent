@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Generic
 
 from typing_extensions import TypeVar
 
+from prodagent.base.codec import dump, load
 from prodagent.base.errors import ClassifiedError
 from prodagent.kernel.types import (
     LLMResponse,
@@ -96,7 +97,7 @@ class PendingHandoff:
     written before this field existed load with "" and mint at relay time."""
 
     def to_dict(self) -> JsonDict:
-        return asdict(self)
+        return dump(self)
 
     @classmethod
     def from_dict(cls, d: JsonDict | None) -> PendingHandoff | None:
@@ -104,14 +105,7 @@ class PendingHandoff:
             return None
         if isinstance(d, PendingHandoff):
             return d
-        return cls(
-            peer_name=d.get("peer_name", ""),
-            task=d.get("task", ""),
-            input_refs=dict(d.get("input_refs") or {}),
-            prior_output=d.get("prior_output", ""),
-            peer_run_id=d.get("peer_run_id"),
-            message_id=d.get("message_id", ""),
-        )
+        return load(cls, d)
 
 
 # ── Resume points — where a run is parked awaiting the world ─────────────────
@@ -187,27 +181,13 @@ class RunMetrics:
         return self.cache_read_tokens / max(1, self.input_tokens)
 
     def to_dict(self) -> JsonDict:
-        return {
-            "turn_count": self.turn_count,
-            "input_tokens": self.input_tokens,
-            "output_tokens": self.output_tokens,
-            "cache_read_tokens": self.cache_read_tokens,
-            "cache_write_tokens": self.cache_write_tokens,
-            "cost_usd": self.cost_usd,
-        }
+        return dump(self)
 
     @classmethod
     def from_dict(cls, d: JsonDict | None) -> RunMetrics:
         if d is None:
             return cls()
-        return cls(
-            turn_count=d.get("turn_count", 0),
-            input_tokens=d.get("input_tokens", 0),
-            output_tokens=d.get("output_tokens", 0),
-            cache_read_tokens=d.get("cache_read_tokens", 0),
-            cache_write_tokens=d.get("cache_write_tokens", 0),
-            cost_usd=d.get("cost_usd", 0.0),
-        )
+        return load(cls, d)
 
 
 _RunT = TypeVar("_RunT", default=Any)
