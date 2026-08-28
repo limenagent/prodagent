@@ -58,7 +58,7 @@ class Settler:
             return
 
         if run.state is not RunState.FAILED:
-            run.state = RunState.COMPLETED
+            run.complete()
             await self._validate_structured_output(run)
             await self._admit_output_contract(run)
 
@@ -98,8 +98,10 @@ class Settler:
                 cost_usd=run.cost_usd,
                 state=run.state.value,
             )
-        except SECURITY_VETO_EXCEPTIONS:
-            run.state = RunState.FAILED
+        except SECURITY_VETO_EXCEPTIONS as exc:
+            # The veto itself is the reason — record it before re-raising so
+            # the persisted crash scene says why, not just that.
+            run.fail(exc)
             await self._save_checkpoint(run, checkpoint, hooks)
             raise
 
@@ -122,8 +124,7 @@ class Settler:
 
             run.structured_output = parse_json_as(run.final_output, self._output_schema)
         except Exception as exc:
-            run.state = RunState.FAILED
-            run.last_error = f"structured output validation failed: {exc}"
+            run.fail(f"structured output validation failed: {exc}")
             logger.warning("Settler[%s] structured output parse failed: %s", run.run_id, exc)
 
     async def _admit_output_contract(self, run: AgentRun) -> None:
@@ -148,8 +149,7 @@ class Settler:
             )
         )
         if delivery.status == "rejected":
-            run.state = RunState.FAILED
-            run.last_error = f"contract violation: {delivery.reason}"
+            run.fail(f"contract violation: {delivery.reason}")
             logger.warning(
                 "Settler[%s] root output rejected by contract: %s",
                 run.run_id,

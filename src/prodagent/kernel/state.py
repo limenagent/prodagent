@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Generic
 from typing_extensions import TypeVar
 
 from prodagent.base.codec import dump, load
-from prodagent.base.errors import ClassifiedError
+from prodagent.base.errors import ClassifiedError, ErrorLayer, classify_error
 from prodagent.kernel.types import (
     LLMResponse,
     MessageList,
@@ -267,6 +267,51 @@ class AgentRun(Generic[_RunT]):
     def retry_count(self, tool_name: str) -> int:
         return self.retry_counter.get(tool_name, 0)
 
+    # ── Terminal transitions — the single throat ────────────────────────────
+    # State flips used to live in ~16 scattered assignments; the pairings
+    # (FAILED ↔ last_error, COMPLETED ↔ final_output, RUNNING ↔ no stale
+    # crash scene) held only by convention at every site. They hold here now.
+
+    def complete(self, final_output: str | None = None, *, backfill: bool = False) -> None:
+        """Transition to COMPLETED. A falsy *final_output* keeps whatever is
+        already set; ``backfill=True`` takes the last non-empty assistant
+        content instead — a run cut off by max_tokens still deserves an
+        answer to show."""
+        self.state = RunState.COMPLETED
+        if final_output:
+            self.final_output = final_output
+        if not self.final_output and backfill:
+            for msg in reversed(self.messages):
+                if msg.get("role") == "assistant" and msg.get("content"):
+                    content = msg["content"]
+                    self.final_output = content if isinstance(content, str) else str(content)
+                    break
+
+    def fail(self, reason: str | BaseException) -> None:
+        """Transition to FAILED — the run's crash scene (last_error, and a
+        classified error for exceptions) is part of the pairing, not an
+        optional extra the caller might forget."""
+        self.state = RunState.FAILED
+        self.last_error = str(reason)
+        if isinstance(reason, BaseException):
+            self.error = classify_error(reason, layer=ErrorLayer.RUNTIME)
+
+    def suspend(self, reason: str = "") -> None:
+        """Transition to SUSPENDED — awaiting the world (HITL decision or a
+        relay). Softer pairing than the others: the plan-approval path
+        suspends without a parked call, so the invariant is "awaiting",
+        not "has a resume_point"."""
+        self.state = RunState.SUSPENDED
+        if reason:
+            self.last_error = reason
+
+    def revive(self) -> None:
+        """Back to RUNNING (checkpoint resume) — a revived run must not
+        inherit the previous attempt's crash scene."""
+        self.state = RunState.RUNNING
+        self.last_error = None
+        self.error = None
+
     # ── Resume-point parking — the invariant's single home ──────────────────
 
     def resume_point(self) -> ResumePoint:
@@ -291,7 +336,7 @@ class AgentRun(Generic[_RunT]):
         """
         if self.pending_handoff is not None or self.state is RunState.SUSPENDED:
             return False
-        self.state = RunState.SUSPENDED
+        self.suspend()
         self.pending_tool_call = call
         self.pending_approval_id = request_id
         return True
@@ -301,11 +346,8 @@ class AgentRun(Generic[_RunT]):
         park (a transfer outranks a pending decision) and finishes the run."""
         if self.pending_handoff is not None:
             return False
-        self.state = RunState.COMPLETED
+        self.complete(f"Handed off to {handoff.peer_name}" if handoff.peer_name else "Handed off")
         self.pending_handoff = handoff
-        self.final_output = (
-            f"Handed off to {handoff.peer_name}" if handoff.peer_name else "Handed off"
-        )
         return True
 
     def clear_approval_park(self) -> AwaitingApproval | None:

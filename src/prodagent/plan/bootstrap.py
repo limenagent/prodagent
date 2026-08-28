@@ -11,7 +11,6 @@ from prodagent.base.errors import LLMError, SuspendPendingApproval
 from prodagent.hooks import fire as _fire
 from prodagent.kernel.bus import Gate, HookEvent
 from prodagent.kernel.state import AgentRun
-from prodagent.kernel.types import RunState
 from prodagent.plan.dag import Plan
 
 if TYPE_CHECKING:
@@ -110,8 +109,7 @@ class PlanBootstrap:
         if plan is None:
             if not run.last_error:
                 logger.warning("[PlanExecutor] Failed to parse plan JSON — no steps to execute")
-                run.state = RunState.FAILED
-                run.last_error = "Failed to parse plan JSON — no steps to execute"
+                run.fail("Failed to parse plan JSON — no steps to execute")
         else:
             self._check_budget(run)
         return run, plan
@@ -121,8 +119,7 @@ class PlanBootstrap:
             draft = await self._planner.generate(task, self._system, self._messages, run)
         except LLMError as exc:
             logger.error("[PlanExecutor] planning LLM call failed: %s", exc)
-            run.state = RunState.FAILED
-            run.last_error = str(exc)
+            run.fail(exc)
             return None
         if draft.plan is None:
             return None
@@ -156,9 +153,8 @@ class PlanBootstrap:
                 pending_approval_id=run.pending_approval_id,
             )
         except SuspendPendingApproval as exc:
-            run.state = RunState.SUSPENDED
+            run.suspend(f"plan suspended pending approval: {exc}")
             run.pending_approval_id = exc.request_id
-            run.last_error = f"plan suspended pending approval: {exc}"
             await self._log.save_snapshot(run, plan=plan)
             logger.info(
                 "[Plan] plan=%s SUSPENDED for HITL review (request_id=%s)",
@@ -167,8 +163,7 @@ class PlanBootstrap:
             )
             return None
         if veto.blocked:
-            run.state = RunState.FAILED
-            run.last_error = veto.reason or "plan rejected by HITL reviewer"
+            run.fail(veto.reason or "plan rejected by HITL reviewer")
             run.pending_approval_id = None
             logger.info("[Plan] plan=%s REJECTED by HITL — run fails", plan.plan_id)
             return None

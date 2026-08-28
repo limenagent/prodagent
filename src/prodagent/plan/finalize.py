@@ -29,7 +29,7 @@ def terminal_event(run: AgentRun) -> AgentEvent:
 
 def finalize_run(run: AgentRun, plan: Plan | None) -> None:
     if run.state is RunState.RUNNING:
-        run.state = RunState.COMPLETED
+        run.complete()
     if run.pending_handoff is not None:
         return
     if plan is None:

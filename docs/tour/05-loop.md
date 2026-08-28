@@ -234,6 +234,13 @@ if self._checkpoint_store is not None and run_id:
         return existing
 ```
 
+**快照的边界同样是一门设计。** 一个字段要不要进 checkpoint，判据不是「能不能序列化」，而是**谁拥有这个事实**：
+
+- `checkpoint_version` 不在持久子集里——它是**存储信封的回声**：save 之后由 store 回填，load 时从信封恢复。让 run 自己持久化它，只会存下一个注定过期的值。信封拥有版本号，快照就不该越权。
+- `checkpoint_failed` 也不在里面——它是**进程局部的诊断**：保存失败这件事由事件做持久记录，恢复后的新进程从干净的标志位重新观察。进程拥有这份记忆，快照就不该伪装成数据的一部分。
+
+原则只有一句：**能从别处重建的事实，不做冗余存储；属于进程生命周期的记忆，不冒充为数据。** 快照里每多一个字段，就多一份「两个来源不一致时信谁」的未来债务——而这条边界，恰好可以被一条往返律（`from_dict(to_dict(run)) == run`）永久看守（见 [测试与评估专题 →](../topics/evaluation.md)）。
+
 详见 [崩溃恢复专题 →](../topics/recovery.md)。
 
 ---
@@ -254,6 +261,30 @@ stateDiagram-v2
     COMPLETED --> [*]
     FAILED --> [*]
 ```
+
+### 状态转移只有一个入口
+
+上图里的每条边，在代码里都汇入同一个入口——`AgentRun` 上的四个转移方法：
+
+```python
+run.complete(response.content, backfill=True)   # → COMPLETED，输出为空时回填最后一条 assistant 消息
+run.fail(exc)                                   # → FAILED，异常自动分类为 ClassifiedError
+run.suspend("plan suspended pending approval")  # → SUSPENDED
+run.revive()                                    # → RUNNING，清除上一次尝试的崩溃现场
+```
+
+为什么不把 `state` 字段直接暴露给调用方赋值？因为**状态从来不是孤立出现的，它总是携带着配对物**：
+
+| 转移到 | 必须同时成立 |
+|--------|-------------|
+| `COMPLETED` | `final_output` 有值（被 max_tokens 截断的 run 也会回填最后一条 assistant 内容） |
+| `FAILED` | `last_error` 有值，异常被分类为 `ClassifiedError` 落入崩溃现场 |
+| `SUSPENDED` | 正在等待外部世界（审批决定或 peer 接力） |
+| `RUNNING`（恢复） | 不继承上一次尝试的 `last_error` / `error` |
+
+只要允许裸赋值，这四条配对就得在每一个赋值点上被人记住。调用方一旦漏写一行 `last_error`，落盘的就是一个「不知道为什么失败」的 FAILED——而没有任何测试能从外部察觉这种沉默的残缺。
+
+把转移收进方法，配对就从**约定**升格为**结构**：知识只写一次，违反没有入口。这是「让非法状态不可表示」在最核心数据结构上的落地——与其在所有写点检查正确，不如让正确的写法只有一种。
 
 ---
 

@@ -21,7 +21,6 @@ from prodagent.kernel.types import (
     LLMResponse,
     Message,
     MessageList,
-    RunState,
     StopReason,
     ThinkTokenEvent,
 )
@@ -254,14 +253,7 @@ class Step:
         if response.stop_reason != StopReason.END_TURN and response.tool_calls:
             return False
 
-        run.state = RunState.COMPLETED
-        run.final_output = response.content
-        if not run.final_output:
-            for msg in reversed(run.messages):
-                if msg.get("role") == "assistant" and msg.get("content"):
-                    content = msg["content"]
-                    run.final_output = content if isinstance(content, str) else str(content)
-                    break
+        run.complete(response.content, backfill=True)
         logger.info(
             "Step[%s] completed in %d turns (%.2fs, $%.4f)",
             run.run_id,

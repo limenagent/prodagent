@@ -56,7 +56,10 @@ class FileExperienceStore:
         """
         try:
             text = self._path.read_text(encoding="utf-8")
-            lines = [ln for ln in text.splitlines() if ln.strip()]
+            # Split on "\n" only (see base/io.py's read_jsonl): splitlines()
+            # would tear a record carrying U+0085/U+2028 into two fragments,
+            # and this rewrite path would then persist the damage.
+            lines = [ln for ln in text.split("\n") if ln.strip()]
             if len(lines) > self._max_records:
                 keep = lines[-self._max_records :]
                 tmp = self._path.with_suffix(".tmp")

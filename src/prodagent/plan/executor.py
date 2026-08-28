@@ -344,8 +344,7 @@ class PlanExecutor:
             )
         except LLMError as replan_exc:
             logger.error("[Plan] replan LLM call failed: %s", replan_exc)
-            run.state = RunState.FAILED
-            run.last_error = str(replan_exc)
+            run.fail(replan_exc)
             return True
         if not new_steps:
             logger.warning("[Plan] replan #%d produced no steps — stopping", self._replan_count + 1)

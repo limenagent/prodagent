@@ -23,6 +23,7 @@ from prodagent.kernel.state import (
     make_failed_run,
 )
 from prodagent.kernel.types import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
+from prodagent.ports.runner import InProcessChatRunner
 from prodagent.runtime.compose import (
     find_suspended_peer,
     hop_tool_assemblers,
@@ -45,7 +46,11 @@ if TYPE_CHECKING:
     from prodagent.ports import CheckpointStore, EventLog
     from prodagent.ports.budget_ledger import BudgetLedgerPort
     from prodagent.ports.llm import LLMClient
-    from prodagent.ports.runner import AgentActivation, HandoffActivation, RunnerPort
+    from prodagent.ports.runner import (
+        AgentActivation,
+        HandoffActivation,
+        RunnerPort,
+    )
     from prodagent.runtime.agent import Agent
 
     class _Relay(Protocol):
@@ -154,11 +159,9 @@ class InProcessRunner:
 
     def activate(self, activation: AgentActivation) -> AsyncGenerator[AgentEvent, None]:
         if activation.session_id is not None:
-            # Same as InProcessChatRunner — agent is Any on the port, an Agent here.
-            return cast(
-                "AsyncGenerator[AgentEvent, None]",
-                activation.agent.chat_stream(activation.task, session_id=activation.session_id),
-            )
+            # Session-scoped turns delegate to the chat runner, the local
+            # default that owns that semantics — this used to be a copy of it.
+            return InProcessChatRunner().activate(activation)
         agent = activation.agent
         if self._runtime is not None:
             runtime = replace(

@@ -323,14 +323,22 @@ class BudgetLedger:
         :meth:`release` by the reserving member can bring the total back under
         cap (self-heal)."""
         async with self._lock:
-            self._reserved.turns = max(0, self._reserved.turns - reserved_turns)
-            self._reserved.tokens = max(0, self._reserved.tokens - reserved_tokens)
-            self._reserved.cost_usd = max(0.0, self._reserved.cost_usd - reserved_cost_usd)
+            # A member reconciles back at most what IT reserved: clamp the
+            # shared-pool subtraction at the member's own bucket. Raw amounts
+            # let an over-reconciling caller drain the shared pool while
+            # other members' buckets kept their claims (sum(buckets) >
+            # _reserved — the invariant this class promises).
             bucket = self._reserved_by.get(member)
+            d_turns = min(reserved_turns, bucket.turns) if bucket is not None else 0
+            d_tokens = min(reserved_tokens, bucket.tokens) if bucket is not None else 0
+            d_cost = min(reserved_cost_usd, bucket.cost_usd) if bucket is not None else 0.0
+            self._reserved.turns = max(0, self._reserved.turns - d_turns)
+            self._reserved.tokens = max(0, self._reserved.tokens - d_tokens)
+            self._reserved.cost_usd = max(0.0, self._reserved.cost_usd - d_cost)
             if bucket is not None:
-                bucket.turns = max(0, bucket.turns - reserved_turns)
-                bucket.tokens = max(0, bucket.tokens - reserved_tokens)
-                bucket.cost_usd = max(0.0, bucket.cost_usd - reserved_cost_usd)
+                bucket.turns = max(0, bucket.turns - d_turns)
+                bucket.tokens = max(0, bucket.tokens - d_tokens)
+                bucket.cost_usd = max(0.0, bucket.cost_usd - d_cost)
             self._committed.turns += turns
             self._committed.tokens += tokens
             self._committed.cost_usd += cost_usd

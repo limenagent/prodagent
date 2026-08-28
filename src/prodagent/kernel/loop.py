@@ -15,7 +15,7 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from prodagent.base.config import ContextConfig, LoopConfig
-from prodagent.base.errors import BudgetExceeded, ErrorLayer, InfiniteLoopDetected, classify_error
+from prodagent.base.errors import BudgetExceeded, InfiniteLoopDetected
 from prodagent.base.event_log import Event, RunEventType
 from prodagent.kernel.budget import SAFETY_NET_BUDGET, check_spawn_budget
 from prodagent.kernel.bus import HookEvent, save_and_fire_checkpoint
@@ -157,24 +157,17 @@ class ReactiveLoop:
     async def _settle_terminated(
         self, run: AgentRun, exc: BudgetExceeded | InfiniteLoopDetected
     ) -> AgentEvent:
-        run.state = RunState.FAILED
-        self._record_fault(run, exc)
+        run.fail(exc)
         await self._end_run_span(run, error=str(exc))
         await self._record_terminal(run, RunEventType.RUN_FAILED)
         logger.warning("ReactiveLoop[%s] terminated: %s", run.run_id, exc)
         return RunFailedEvent(run=run, error=str(exc))
 
     async def _settle_unexpected(self, run: AgentRun, exc: BaseException) -> None:
-        run.state = RunState.FAILED
-        self._record_fault(run, exc)
+        run.fail(exc)
         await self._end_run_span(run, error=str(exc))
         await self._record_terminal(run, RunEventType.RUN_FAILED)
         logger.exception("ReactiveLoop[%s] unexpected error", run.run_id)
-
-    @staticmethod
-    def _record_fault(run: AgentRun, exc: BaseException) -> None:
-        run.last_error = str(exc)
-        run.error = classify_error(exc, layer=ErrorLayer.RUNTIME)
 
     @staticmethod
     def _prune_unresolved_tool_uses(run: AgentRun) -> None:
@@ -301,9 +294,7 @@ class ReactiveLoop:
             if existing is not None:
                 if existing.state is not RunState.SUSPENDED:
                     self._prune_unresolved_tool_uses(existing)
-                existing.state = RunState.RUNNING
-                existing.last_error = None
-                existing.error = None
+                existing.revive()
                 logger.info(
                     "ReactiveLoop[%s] resuming from checkpoint: %d messages, turn=%d",
                     run_id,

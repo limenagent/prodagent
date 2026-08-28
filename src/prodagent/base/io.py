@@ -63,9 +63,15 @@ def write_atomic_json(
 def read_jsonl(path: Path, *, skip_errors: bool = True) -> Iterator[Any]:
     # Corrupt lines are skipped by default: a store torn by a crash must lose
     # the partial tail, not refuse to load every record after it.
+    #
+    # Split on "\n" only, NOT str.splitlines(): JSON strings written with
+    # ensure_ascii=False can carry U+0085/U+2028/U+2029 verbatim, and
+    # splitlines() treats those as line breaks — silently corrupting a valid
+    # JSON line into two unparseable halves (a skipped event). The writer
+    # terminates lines with "\n" and nothing else; the reader must agree.
     if not path.exists():
         return
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8").split("\n"):
         line = line.strip()
         if not line:
             continue
