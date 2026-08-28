@@ -22,38 +22,35 @@ import types
 import typing
 from collections.abc import Mapping
 from enum import Enum
-from typing import Any, get_args, get_origin, get_type_hints
+from typing import TYPE_CHECKING, Any, TypeVar, get_args, get_origin, get_type_hints
+
+if TYPE_CHECKING:
+    from _typeshed import DataclassInstance
 
 __all__ = ["dump", "load"]
 
+_T = TypeVar("_T", bound="DataclassInstance")
 
-def dump(obj: Any, *, _raw: frozenset[str] = frozenset()) -> Any:
-    """JSON-able form of a dataclass: field order, enums as values, nested
+
+def dump(obj: DataclassInstance, *, _raw: frozenset[str] = frozenset()) -> dict[str, Any]:
+    """JSON-able dict of a dataclass: field order, enums as values, nested
     dataclasses recursed, list/tuple elements walked. Plain dicts are
     shallow-copied, never walked — their values are already wire-shaped."""
-    if isinstance(obj, Enum):
-        return obj.value
-    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
-        out: dict[str, Any] = {}
-        for f in dataclasses.fields(obj):
-            v = getattr(obj, f.name)
-            out[f.name] = _copy_raw(v) if f.name in _raw else dump(v)
-        return out
-    if isinstance(obj, (list, tuple)):
-        return [dump(v) for v in obj]
-    if isinstance(obj, Mapping):
-        return dict(obj)
-    return obj
+    out: dict[str, Any] = {}
+    for f in dataclasses.fields(obj):
+        v = getattr(obj, f.name)
+        out[f.name] = _copy_raw(v) if f.name in _raw else _walk(v)
+    return out
 
 
 def load(
-    cls: type,
+    cls: type[_T],
     d: Mapping[str, Any],
     *,
     raw: Mapping[str, Any] | None = None,
     defaults: Mapping[str, Any] | None = None,
     _raw: frozenset[str] = frozenset(),
-) -> Any:
+) -> _T:
     """Rebuild a dataclass from its dumped form — the inverse of :func:`dump`.
 
     Per field: the key wins, then a ``raw=`` override, then the field's own
@@ -75,6 +72,20 @@ def load(
     return cls(**kwargs)
 
 
+def _walk(obj: Any) -> Any:
+    """Wire form of one nested value: enums as values, dataclasses recursed
+    through :func:`dump`, list/tuple elements walked, mappings copied."""
+    if isinstance(obj, Enum):
+        return obj.value
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return dump(obj)
+    if isinstance(obj, (list, tuple)):
+        return [_walk(v) for v in obj]
+    if isinstance(obj, Mapping):
+        return dict(obj)
+    return obj
+
+
 def _copy_raw(v: Any) -> Any:
     """Fresh container, same contents — mutation isolation without coercion."""
     if isinstance(v, dict):
@@ -84,11 +95,12 @@ def _copy_raw(v: Any) -> Any:
     return v
 
 
-def _required(f: dataclasses.Field) -> Any:
+def _required(f: dataclasses.Field[Any]) -> Any:
     if f.default is not dataclasses.MISSING:
         return f.default
-    if f.default_factory is not dataclasses.MISSING:  # type: ignore[misc]
-        return f.default_factory()  # type: ignore[misc]
+    if f.default_factory is not dataclasses.MISSING:
+        factory: Any = f.default_factory
+        return factory()
     raise KeyError(f.name)
 
 
@@ -114,17 +126,17 @@ def _coerce(value: Any, ann: Any) -> Any:
         return value
     origin = get_origin(ann)
     if origin in _UNIONS:
-        args = [a for a in get_args(ann) if a is not type(None)]
-        if value is None or not args:
+        non_none = [a for a in get_args(ann) if a is not type(None)]
+        if value is None or not non_none:
             return value
-        return _coerce(value, args[0])
+        return _coerce(value, non_none[0])
     if isinstance(ann, type) and issubclass(ann, Enum):
         return value if isinstance(value, ann) else ann(value)
     if dataclasses.is_dataclass(ann) and isinstance(ann, type):
         return value if isinstance(value, ann) else load(ann, value)
     if origin is list:
-        args = get_args(ann)
-        elem = args[0] if args else None
+        type_args = get_args(ann)
+        elem = type_args[0] if type_args else None
         return [_coerce(v, elem) for v in (value or [])]
     if origin is dict:
         return dict(value or {})

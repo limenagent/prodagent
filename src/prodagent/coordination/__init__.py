@@ -33,4 +33,14 @@ Two subpackages, two different axes:
 The round *bodies* are deliberately not unified — an ensemble picks a
 speaker, a blackboard matches triggers, a queue sweeps leases; forcing them
 identical would erase real semantics. What unifies is everything around them.
+
+These five are presets, not a cage. The atoms underneath are public —
+``infra.store`` (``SharedStore`` / ``EventSourcedStore``), ``infra.stage``
+(``StageDriver`` / ``TerminationPolicy`` with the ``AllPass`` /
+``BoardSatisfied`` / ``Drained`` business strategies), ``ports.activation``
+(``ActivationPolicy``), ``messaging`` (the Crossing pipelines), the budget
+envelope — and a sixth topology is a ``StageDriver`` subclass away.
+``tests/runtime/test_composition_custom_topology.py`` builds one (a
+Board × round-robin review loop, a grid cell none of the five covers) from
+public atoms alone; treat it as the worked recipe.
 """

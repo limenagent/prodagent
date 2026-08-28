@@ -98,7 +98,9 @@ async def test_child_output_capped_by_admission_bound(tmp_path: Path):
 
     result = await pipeline.spawn("responder", "check order 123")
 
-    assert len(result["output"]) <= 2000  # handoff_output_max_chars default
+    # Cap plus the inline truncation marker — a boundary clip is never silent.
+    assert len(result["output"]) <= 2000 + 60
+    assert "truncated" in result["output"]
 
 
 async def test_lenient_contract_violation_still_dead_letters(tmp_path: Path):

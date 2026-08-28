@@ -95,3 +95,50 @@ async def test_no_worker_claiming_anything_reports_no_progress():
     assert drained is not None
     assert drained.reason.reason == "no_progress"
     assert drained.queue_snapshot["pending"] == 1
+
+
+@pytest.mark.asyncio
+async def test_retry_backoff_hides_item_until_visible():
+    """A retried item with backoff is unclaimable until its earliest-visible
+    time; later items stay claimable (skip, not reorder)."""
+    from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
+
+    queue = SharedQueue(
+        [WorkItem(item_id="a", payload=1), WorkItem(item_id="b", payload=2)],
+        dead_letter=InMemoryDeadLetterQueue(max_retries=3),
+        lease_seconds=30.0,
+        retry_backoff_seconds=5.0,
+    )
+    first = await queue.claim_next("w1")
+    assert first is not None and first.item_id == "a"
+    outcome, attempts = await queue.fail(first.item_id, "boom")
+    assert (outcome, attempts) == ("retry", 1)
+
+    # Backoff hides "a"; the next claim skips to "b", order otherwise FIFO.
+    second = await queue.claim_next("w2")
+    assert second is not None and second.item_id == "b"
+
+    # After the backoff window, "a" is claimable again.
+    for item in queue._pending:
+        item.not_before = 0.0
+    again = await queue.claim_next("w3")
+    assert again is not None and again.item_id == "a"
+
+
+@pytest.mark.asyncio
+async def test_zero_backoff_keeps_immediate_retry():
+    """retry_backoff_seconds=0 (default) preserves the historical contract:
+    a retried item is claimable again immediately."""
+    from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
+
+    queue = SharedQueue(
+        [WorkItem(item_id="a", payload=1)],
+        dead_letter=InMemoryDeadLetterQueue(max_retries=3),
+        lease_seconds=30.0,
+    )
+    first = await queue.claim_next("w1")
+    assert first is not None
+    outcome, _ = await queue.fail(first.item_id, "boom")
+    assert outcome == "retry"
+    again = await queue.claim_next("w2")
+    assert again is not None and again.item_id == "a" and again.attempts == 1

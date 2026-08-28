@@ -267,8 +267,10 @@ class SharedFloor(SharedStore, EventSourcedStore):
                 f"Turn speaker {turn.speaker!r} is not a floor member — "
                 f"known: {list(self.members.keys())}"
             )
-        self.transcript.append(turn)
         async with self._lock:
+            # Transcript append and durable record share the lock so their
+            # orders can't interleave under concurrent appends.
+            self.transcript.append(turn)
             await self._record(FloorEventType.TURN_APPENDED, turn=turn.to_dict())
 
     @classmethod

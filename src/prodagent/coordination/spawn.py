@@ -17,6 +17,7 @@ from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from prodagent.base.errors import SECURITY_VETO_EXCEPTIONS, ErrorReason
+from prodagent.base.text import bound_text
 from prodagent.coordination.messaging.contract import (
     DEFAULT_CHILD_CONTRACT,
     MessageContract,
@@ -223,9 +224,14 @@ class Spawn:
 
     def _bound_result(self, payload: Any) -> Any:
         """Cap the child's free-text output — one knob bounds every
-        agent-produced string crossing any boundary."""
+        agent-produced string crossing any boundary. Truncation is marked
+        inline (:func:`prodagent.base.text.bound_text`), never silent — the
+        parent must be able to tell a clipped result from a complete one."""
         if isinstance(payload, Mapping) and isinstance(payload.get("output"), str):
-            return {**payload, "output": payload["output"][: self._handoff_output_max_chars]}
+            return {
+                **payload,
+                "output": bound_text(payload["output"], self._handoff_output_max_chars),
+            }
         return payload
 
     def _result_audit_event(

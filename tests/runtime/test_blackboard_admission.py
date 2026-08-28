@@ -4,8 +4,11 @@ bounded."""
 
 from __future__ import annotations
 
+import pytest
+
 from prodagent.coordination.blackboard import (
     BlackboardSpec,
+    Board,
     BoardWrite,
     BoardWriteEvent,
     Trigger,
@@ -161,3 +164,76 @@ def test_render_value_bounds_non_strings():
     assert len(rendered) <= 250
     assert "truncated" in rendered
     assert _render_value("short", 200) == "short"
+
+
+@pytest.mark.asyncio
+async def test_read_returns_isolated_copy_not_live_reference():
+    """read() deep-copies slot values — a reader mutating its view must never
+    corrupt the board's stored state."""
+    board = Board()
+    await board.write("plan", {"steps": ["a", "b"]})
+
+    view = board.read(["plan"])
+    view["plan"]["steps"].append("hacked")
+
+    assert board.read(["plan"])["plan"]["steps"] == ["a", "b"]
+
+
+async def test_conflict_reread_retry_lands_recomputed_write():
+    """conflict_retries>0: a stale-version loser rereads the fresh board,
+    recomputes against the current version, and lands — no dead letter."""
+    from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
+
+    class _SpyDLQ(InMemoryDeadLetterQueue):
+        def __init__(self) -> None:
+            super().__init__(max_retries=3)
+            self.calls: list[str] = []
+
+        async def on_failure(self, message_id, payload, error):
+            self.calls.append(message_id)
+            return await super().on_failure(message_id, payload, error)
+
+    dlq = _SpyDLQ()
+
+    class _Seeder:
+        name = "seeder"
+
+        def __init__(self) -> None:
+            self.fired = False
+
+        async def try_contribute(self, board, *, trigger):
+            if self.fired:
+                return None
+            self.fired = True
+            return BoardWrite(key="state", value="v0", author="seeder")
+
+    class _RacyExpert:
+        """First contribution carries a stale expected_version; after the
+        conflict it rereads and recomputes against the live version."""
+
+        name = "racy"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def try_contribute(self, board, *, trigger):
+            self.calls += 1
+            if self.calls == 1:
+                return BoardWrite(key="state", value="stale", author="racy", expected_version=0)
+            if self.calls == 2:
+                return BoardWrite(
+                    key="state",
+                    value="fresh",
+                    author="racy",
+                    expected_version=board.version_of("state"),
+                )
+            return None
+
+    seeder, racy = _Seeder(), _RacyExpert()
+    events = await _collect(_spec([seeder, racy], dead_letter=dlq, conflict_retries=2))
+
+    writes = [e.write for e in events if isinstance(e, BoardWriteEvent)]
+    landed = [w for w in writes if w.author == "racy"]
+    assert landed and landed[-1].value == "fresh"
+    assert racy.calls >= 2  # original + at least one reread (later rounds consult again)
+    assert dlq.calls == []  # conflict resolved, nothing archived

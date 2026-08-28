@@ -176,16 +176,19 @@ def event_to_wire(event: AgentEvent) -> JsonDict:
 def event_from_wire(d: JsonDict) -> AgentEvent:
     """Rebuild an event from its wire dict — the inverse of :func:`event_to_wire`
     for JSON-able payloads."""
+    from typing import cast
+
     from prodagent.kernel.state import AgentRun
     from prodagent.kernel.types import ToolCall
 
-    cls = _KINDS.get(d.get("type"))
+    kind = d.get("type")
+    cls = _KINDS.get(kind) if isinstance(kind, str) else None
     if cls is None:
-        raise ValueError(f"unknown event type on the wire: {d.get('type')!r}")
+        raise ValueError(f"unknown event type on the wire: {kind!r}")
     # Only two fields need reconstruction — the rest are wire scalars or
     # opaque payloads that round-trip as-is.
     rebuild = {"call": ToolCall.from_dict, "run": AgentRun.from_dict}
     kwargs = {
         f.name: rebuild[f.name](d[f.name]) if f.name in rebuild else d[f.name] for f in fields(cls)
     }
-    return cls(**kwargs)
+    return cast("AgentEvent", cls(**kwargs))

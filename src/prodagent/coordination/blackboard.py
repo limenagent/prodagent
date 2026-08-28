@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import fnmatch
 import logging
 import time
@@ -154,9 +155,11 @@ class Board(RoundedLockableStore, EventSourcedStore):
             return new_version
 
     def read(self, keys: list[str] | None = None) -> dict[str, Any]:
+        """Values are deep-copied — a reader must never hold a live reference
+        into slot state another coroutine may be overwriting mid-read."""
         if keys is None:
-            return {k: s.value for k, s in self._slots.items()}
-        return {k: self._slots[k].value for k in keys if k in self._slots}
+            return {k: copy.deepcopy(s.value) for k, s in self._slots.items()}
+        return {k: copy.deepcopy(self._slots[k].value) for k in keys if k in self._slots}
 
     def version_of(self, key: str) -> int:
         slot = self._slots.get(key)
@@ -164,7 +167,10 @@ class Board(RoundedLockableStore, EventSourcedStore):
 
     def snapshot(self) -> dict[str, Any]:
         return {
-            "slots": {k: {"value": s.value, "version": s.version} for k, s in self._slots.items()},
+            "slots": {
+                k: {"value": copy.deepcopy(s.value), "version": s.version}
+                for k, s in self._slots.items()
+            },
             "round_count": self._round_count,
             "elapsed_s": time.monotonic() - self.started_at,
         }
@@ -293,6 +299,11 @@ class BlackboardSpec:
     )
     budget: BudgetLedger | None = None
     terminal_check: Callable[[Board], bool] | None = None
+    conflict_retries: int = 0
+    """Reread-retry rounds for an optimistic-version write conflict: the
+    expert re-reads the fresh board and recomputes its write this many times
+    before the loser is dead-lettered. 0 keeps the historical drop-on-first-
+    conflict behavior."""
     """Business-level "the board is done" check — e.g. all required keys filled.
     Checked before each round, independent of TerminationPolicy."""
     lock_store: LockStore = field(default_factory=lambda: _in_process_lock())
@@ -442,6 +453,69 @@ class Blackboard(StageDriver[BoardWriteEvent | BlackboardCompletedEvent]):
 
         return run_one
 
+    async def _commit_write(
+        self, name: str, write: BoardWrite, *, trigger: Trigger, round_num: int
+    ) -> BoardWrite | None:
+        """Admit one expert write through the pipeline and land it on the
+        board, rereading and recomputing on optimistic-version conflicts.
+
+        Returns the write that landed (possibly a recomputed successor of the
+        loser), or ``None`` when the crossing was rejected (no dead letter —
+        the expert's contribution is faulted) or when
+        :attr:`BlackboardSpec.conflict_retries` rounds of reread-retry also
+        conflicted (the loser is dead-lettered, the board carries on)."""
+        candidate = write
+        conflict: BoardVersionConflict | None = None
+        for attempt in range(self._spec.conflict_retries + 1):
+            delivery = await self._write_pipeline.process(
+                Crossing.mint(
+                    direction=Direction.UPSTREAM,
+                    kind=CrossingKind.WRITE,
+                    from_agent=candidate.author,
+                    to=candidate.key,
+                    payload=candidate.value,
+                    trigger=trigger.name,
+                    round=round_num,
+                )
+            )
+            if delivery.status != "delivered":
+                logger.warning(
+                    "[blackboard] write by %s to %r not admitted (%s): %s",
+                    candidate.author,
+                    candidate.key,
+                    delivery.status,
+                    delivery.reason[:120],
+                )
+                return None
+            candidate.value = delivery.crossing.payload
+            try:
+                await self.board.write(
+                    candidate.key, candidate.value, expected_version=candidate.expected_version
+                )
+                return candidate
+            except BoardVersionConflict as exc:
+                conflict = exc
+                if attempt >= self._spec.conflict_retries:
+                    break
+                # Reread-retry: hand the expert the fresh board state and let
+                # it produce a successor candidate against the new version.
+                retry = await self._compute(name, trigger)
+                if retry is None:
+                    break
+                candidate = retry
+        logger.warning(
+            "[blackboard] version conflict on %r by %s: %s — write dropped",
+            candidate.key,
+            candidate.author,
+            conflict,
+        )
+        await self._dlq.on_failure(
+            f"{trigger.name}:{candidate.author}:{candidate.key}",
+            {"kind": "write", "from_agent": candidate.author, "to": candidate.key},
+            str(conflict),
+        )
+        return None
+
     async def _open(self) -> None:
         """Lazy durable setup, run once before the first round. With an event
         log: resume the board from it when ``run_id`` already has events, else
@@ -508,52 +582,13 @@ class Blackboard(StageDriver[BoardWriteEvent | BlackboardCompletedEvent]):
                 for _name, write in results:
                     if write is None:
                         continue
-                    delivery = await self._write_pipeline.process(
-                        Crossing.mint(
-                            direction=Direction.UPSTREAM,
-                            kind=CrossingKind.WRITE,
-                            from_agent=write.author,
-                            to=write.key,
-                            payload=write.value,
-                            trigger=trigger.name,
-                            round=round_num,
-                        )
+                    landed = await self._commit_write(
+                        _name, write, trigger=trigger, round_num=round_num
                     )
-                    if delivery.status != "delivered":
-                        # Rejected by contract or gate — this expert's
-                        # contribution is faulted, the board carries on.
-                        logger.warning(
-                            "[blackboard] write by %s to %r not admitted (%s): %s",
-                            write.author,
-                            write.key,
-                            delivery.status,
-                            delivery.reason[:120],
-                        )
-                        continue
-                    write.value = delivery.crossing.payload
-                    try:
-                        await self.board.write(
-                            write.key, write.value, expected_version=write.expected_version
-                        )
-                    except BoardVersionConflict as exc:
-                        # Lost an optimistic-concurrency race — dead letter the
-                        # losing write and keep the board alive. (Previously
-                        # this escaped to the StageDriver crash guard and
-                        # killed the whole run.)
-                        logger.warning(
-                            "[blackboard] version conflict on %r by %s: %s — write dropped",
-                            write.key,
-                            write.author,
-                            exc,
-                        )
-                        await self._dlq.on_failure(
-                            f"{trigger.name}:{write.author}:{write.key}",
-                            {"kind": "write", "from_agent": write.author, "to": write.key},
-                            str(exc),
-                        )
+                    if landed is None:
                         continue
                     yield BoardWriteEvent(
-                        write=write,
+                        write=landed,
                         trigger_name=trigger.name,
                         board_snapshot=self.board.snapshot(),
                     )

@@ -69,6 +69,23 @@ graph TB
 
 ---
 
+## 设计空间：共享状态 × 激活策略
+
+把五种原语放到一张二维表上，"选型"就变成了"找格子"——行是**成员共享什么状态**，列是**谁被激活、怎么激活**：
+
+| 共享状态 ＼ 激活 | 一次性 | 链式接力 | 轮流发言 | 主持选人 | 并发扇出 | 抢答竞速 | 拉取消费 |
+|---|---|---|---|---|---|---|---|
+| **无**（隔离上下文） | ✅ spawn | ✅ peer | — | — | — | — | — |
+| **追加式转录**（Floor） | — | — | ✅ Ensemble | ✅ Ensemble（Moderated） | ✅ Ensemble（FreeForAll） | — | — |
+| **版本化 KV**（Board） | — | — | ⬜ | ⬜ | ✅ Blackboard（触发扇出） | ✅ Blackboard（buzz_in） | ⬜ |
+| **租约队列**（Queue） | — | — | — | — | — | — | ✅ WorkQueue |
+
+五个 ✅ 是已实现的格点；⬜ 是没人要、所以没实现的格点——比如"版本化 KV + 轮流发言"（评审循环：作者写稿、评审轮流改）直到有人要，它才存在。
+
+这张表也解释了"两个轴不对称"的原因：激活轴被抽象成了 `ActivationPolicy`（一等的、可插拔的），状态轴没有——Floor 的追加转录、Board 的版本化 KV、Queue 的租约，各自携带真实的语义约束（顺序、乐观并发、租期），压成一个接口会把这些语义抹平。所以"造一个新格点"的正确姿势是：**拿一个现成的 store，配一个现成的激活策略，写一个几十行的 `StageDriver` 子类**——`tests/runtime/test_composition_custom_topology.py` 就用 Board + 轮流发言 + `BoardSatisfied` 终止策略组装了一个五个原语都不覆盖的评审循环，全部由公共零件构成，零新机械。
+
+---
+
 ### 1. 委派（Spawn）：父生子，子完成后返回
 
 **适用场景**：父 Agent 是"项目经理"，把子任务派给"专家"执行。
@@ -229,6 +246,8 @@ spec = BlackboardSpec(
     experts=experts,
     triggers=triggers,
     terminal_check=lambda board: "review" in board.read(),  # review key 写入即完成
+    # conflict_retries=2,   # 可选：版本冲突后让 expert 重读黑板、重算写入的次数，
+    #                        # 重试耗尽才进死信；默认 0 = 首次冲突即死信（历史行为）
 )
 
 # 4. 驱动
@@ -254,7 +273,7 @@ class Trigger:
 - Board 是版本化的 `dict[str, BoardSlot]`，写入用乐观并发控制
 - Expert 通过 `try_contribute(board, trigger=...)` 贡献，返回 `BoardWrite` 或 `None`
 - `[BOARD]` 块通过视图注入器进入 expert 上下文
-- 版本冲突的写入进入死信队列，不杀死整个黑板
+- 版本冲突的写入默认进入死信队列，不杀死整个黑板；`conflict_retries>0` 时先走"重读 → 重算 → 重写"——expert 拿到新鲜板面状态重新 `try_contribute`，多数冲突一轮就能解决
 - 支持 per-key 的消息契约（MessageContract）校验
 
 **类比**：团队共用一块白板，有人写需求，有人写方案，有人写反馈，各自看到后更新自己的部分。
@@ -298,6 +317,8 @@ spec = WorkQueueSpec(
     items=[WorkItem(item_id="1", payload="任务 A"),
            WorkItem(item_id="2", payload="任务 B")],
     lease_seconds=30.0,       # 租约超时
+    # retry_backoff_seconds=1.0,  # 可选：重试退避基数（指数增长、封顶 60s），
+    #                              # 默认 0 = 立即重试（历史行为）
     # event_log=...,          # 可选：持久化事件日志，支持崩溃恢复
     # run_id="queue-1",       # 事件日志分区键
 )
@@ -312,6 +333,7 @@ async for event in work_queue_stream(spec):
 | 机制 | 作用 |
 |------|------|
 | **租约（Lease）** | Worker 领取任务后有 30 秒租约，超时未完成自动重新入队 |
+| **重试退避** | `retry_backoff_seconds>0` 时，失败重试的任务在指数退避（封顶 60s）后才可再次认领——毒任务不会在 claim/fail 之间空转烧钱；退避时钟在进程内，崩溃重建后重新起算 |
 | **死信（Dead Letter）** | 重试 N 次（默认 3）仍失败的任务进入死信队列，不阻塞其他任务 |
 | **事件溯源** | 可选 EventLog，每次状态变更追加事件，崩溃后从日志重建（floor / board / queue 三家同一契约，见下文） |
 | **拉模式** | Worker 主动 `claim_next()`，不是 push——空闲 Worker 自然竞争，负载均衡 |
@@ -340,6 +362,31 @@ class Activation:
 | `single_winner` | 全体竞争，只有一个执行，输家零开销 | Blackboard 的 buzz_in 抢答 |
 
 解释这张单子的只有一个地方：`StageDriver._dispatch`（`coordination/infra/stage.py`）。并发批的 fail-fast 取消、抢答的先抢锁再干活，都只写一遍，三种拓扑共享。新增一种协作玩法（LLM 主持人、优先级队列），只需要实现 `ActivationPolicy` 回答"这轮谁上"，不用再写一个轮循环。
+
+### 停不下来的另一面：终止策略
+
+排班回答"谁上"，终止回答"何时散场"。两者都是组合式的——`TerminationPolicy` 永远带着一个硬上限（`MaxRounds`，无人值守也保证会停），再可选挂一个**业务策略**：
+
+```python
+from prodagent.coordination.infra.stage import (
+    AllPass, BoardSatisfied, Drained, MaxRounds, TerminationPolicy,
+)
+
+TerminationPolicy(
+    hard_cap=MaxRounds(max_rounds=10),
+    business=AllPass(min_turns=1),   # 上一轮全员 pass = 无话可说，散场
+)
+```
+
+内置的三个业务策略（都在 `coordination/infra/stage.py`）：
+
+| 策略 | 散场条件 | 适合 |
+|------|---------|------|
+| `AllPass(min_turns=N)` | 上一轮有 ≥N 个发言且全部是 pass | Ensemble：讨论自然收敛 |
+| `BoardSatisfied(check=...)` | 谓词对板面成立 | Blackboard / 自定义拓扑：产物达标 |
+| `Drained()` | store 报告无 pending 无 claimed | 队列型：活干完了 |
+
+两者是 OR，同时触发时业务原因优先（"讨论收敛"比"到轮数上限"信息量大）。语义约定：`max_rounds=N` 意味着第 N 轮没人发言——和预算的轮轴一样，在下一个工作单元之前检查，不做半路拦截。
 
 ### 模型自己开会：run_ensemble / run_work_queue
 
@@ -449,6 +496,49 @@ graph TD
 
 ---
 
+## 异常路径：两条最值得记住的时序
+
+正常流程看组件图就够了，出事的时候要看时序。两条最常问的：
+
+**① 一条消息被 GATE 拒了，会怎样？**（死信是错误边界，不是管道的一个阶段）
+
+```mermaid
+sequenceDiagram
+    participant M as 成员/Expert
+    participant P as Pipeline
+    participant G as Gate 钩子
+    participant D as DeadLetterStore
+    participant S as 舞台/Floor
+
+    M->>P: Crossing（发言/写入）
+    P->>P: ① 去重 → ② 契约 → ③ 截断
+    P->>G: ④ check_blocking
+    G-->>P: blocked（审批拒绝/安全否决）
+    P->>D: 存档（含原因与载荷）
+    P-->>M: delivery.status ≠ delivered
+    Note over S: 舞台继续——这一个成员的贡献丢了，其他成员不受影响
+```
+
+**② Worker 领了任务后崩溃，会怎样？**（租约回收 + 退避重试）
+
+```mermaid
+sequenceDiagram
+    participant W1 as Worker 1
+    participant Q as SharedQueue
+    participant W2 as Worker 2
+
+    W1->>Q: claim_next("t-1")，获得 30s 租约
+    Note over W1: 失联（进程崩溃/挂起），租约到期前无人能认领该任务
+    Q->>Q: 下一轮扫描：租约到期，item 回到 pending<br/>（attempts +1，按 retry_backoff 推迟可见）
+    Q->>W2: claim_next 跳过未到期项，认领 "t-1"
+    W2->>Q: complete("t-1") ✓
+    Note over Q: 重试次数耗尽 → ITEM_DEAD_LETTERED 事件，进死信存档
+```
+
+两条时序的共同点：**失败被隔离在单条消息/单个成员，舞台不死**。这是协作层最重要的一条不变量，`tests/runtime/` 下每个舞台的 admission/dead_letter 套件都在钉它。
+
+---
+
 ## 代码定位
 
 | 东西 | 源码位置 |
@@ -460,6 +550,7 @@ graph TD
 | 队列 WorkQueue（含 AgentWorkMember） | `coordination/work_queue.py` |
 | 舞台机械（派发 + 终止策略 + 耐久开箱） | `coordination/infra/stage.py` |
 | 共享状态契约 + 事件溯源样板 | `coordination/infra/store.py` |
+| 自定义拓扑组装证明（第六格点） | `tests/runtime/test_composition_custom_topology.py` |
 | 舞台工具（run_ensemble / run_blackboard / run_work_queue） | `coordination/infra/stage_tools.py` |
 | 链终态纪律 Settler | `coordination/infra/settle.py` |
 | 消息平面 Crossing | `coordination/messaging/` |

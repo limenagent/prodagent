@@ -86,6 +86,9 @@ __all__ = [
     "StageDriver",
     "RoundCountable",
     "TerminationStrategy",
+    "AllPass",
+    "BoardSatisfied",
+    "Drained",
     "MaxRounds",
     "TerminationPolicy",
     "TerminationReason",
@@ -289,6 +292,72 @@ class TerminationStrategy(Protocol):
         before anyone speaks. ``reason`` None = no verdict, distinct from
         "verdict: stop"."""
         ...
+
+
+@dataclass
+class AllPass:
+    """Business strategy: stop when the most recent *completed* round had at
+    least one turn and every turn in it was a pass (member chose not to
+    speak) — "the floor has nothing left to say".
+
+    Duck-types on ``store.transcript`` (the floor satisfies it); stores
+    without a transcript get no verdict. Compose into
+    ``TerminationPolicy(business=AllPass(), hard_cap=...)`` — without it, an
+    all-pass ensemble burns rounds until the cap."""
+
+    min_turns: int = 1
+    """A round with fewer turns than this doesn't count as a verdict — lets a
+    speaking order warm up before pass-silence can stop the floor."""
+
+    def should_stop(
+        self, store: RoundCountable, *, next_round: int
+    ) -> tuple[bool, TerminationReason | None]:
+        transcript = getattr(store, "transcript", None)
+        if not transcript:
+            return False, None
+        last_round = store.round_count() - 1
+        turns = [t for t in transcript if t.round == last_round]
+        if len(turns) < self.min_turns or not all(t.is_pass() for t in turns):
+            return False, None
+        return True, TerminationReason(
+            reason="convergence",
+            detail=f"All of round {last_round}'s {len(turns)} turn(s) were passes — floor converged",
+        )
+
+
+@dataclass
+class BoardSatisfied:
+    """Business strategy: stop when a predicate over the store holds — the
+    composable form of ``BlackboardSpec.terminal_check``, lifted into the
+    termination policy so it can OR with other business strategies."""
+
+    check: Callable[[Any], bool]
+
+    def should_stop(
+        self, store: RoundCountable, *, next_round: int
+    ) -> tuple[bool, TerminationReason | None]:
+        if not self.check(store):
+            return False, None
+        return True, TerminationReason(
+            reason="convergence", detail="Board satisfied terminal_check"
+        )
+
+
+@dataclass
+class Drained:
+    """Business strategy: stop when the store reports drained (no pending,
+    no claimed) — the composable form of the work queue's natural stop, so a
+    custom store can gain the same semantics in the policy layer."""
+
+    def should_stop(
+        self, store: RoundCountable, *, next_round: int
+    ) -> tuple[bool, TerminationReason | None]:
+        is_drained = getattr(store, "is_drained", None)
+        if not callable(is_drained) or not is_drained():
+            return False, None
+        return True, TerminationReason(
+            reason="convergence", detail="Store drained — no pending or claimed items"
+        )
 
 
 @dataclass

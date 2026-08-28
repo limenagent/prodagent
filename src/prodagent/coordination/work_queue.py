@@ -83,6 +83,10 @@ class WorkItem:
     item_id: str
     payload: Any
     attempts: int = 0
+    not_before: float = 0.0
+    """Earliest monotonic time this item is claimable again — set by the
+    retry backoff, 0.0 when never failed. Transient, never event-sourced: a
+    queue rebuilt from its log restarts backoff cleanly."""
 
 
 @dataclass
@@ -152,11 +156,13 @@ class SharedQueue(RoundedLockableStore, EventSourcedStore):
         lease_seconds: float,
         event_log: EventLog | None = None,
         run_id: str = "",
+        retry_backoff_seconds: float = 0.0,
     ) -> None:
         super().__init__()
         self._pending: deque[WorkItem] = deque(items)
         self._claimed: dict[str, _ClaimInfo] = {}
         self._completed: list[str] = []
+        self._retry_backoff_seconds = retry_backoff_seconds
         # Local mirror of dead-lettered item ids — fail() is the only path that
         # dead-letters, so this count is authoritative without a store round-trip
         # per snapshot()/fingerprint() (the driver polls both every round).
@@ -172,11 +178,20 @@ class SharedQueue(RoundedLockableStore, EventSourcedStore):
         self._last_seq = 0
 
     async def claim_next(self, worker_name: str) -> WorkItem | None:
+        """Claim the first eligible item (FIFO among visible ones — items in
+        retry backoff are skipped, not reordered)."""
         async with self._lock:
             if not self._pending:
                 return None
-            item = self._pending.popleft()
-            lease_expires_at = time.monotonic() + self._lease_seconds
+            now = time.monotonic()
+            index = next(
+                (i for i, item in enumerate(self._pending) if item.not_before <= now), None
+            )
+            if index is None:
+                return None
+            item = self._pending[index]
+            del self._pending[index]
+            lease_expires_at = now + self._lease_seconds
             self._claimed[item.item_id] = _ClaimInfo(
                 worker=worker_name,
                 item=item,
@@ -212,6 +227,12 @@ class SharedQueue(RoundedLockableStore, EventSourcedStore):
             item.attempts += 1
             outcome = await self._dead_letter.on_failure(item_id, {"payload": item.payload}, error)
             if outcome == "retry":
+                if self._retry_backoff_seconds > 0:
+                    # Exponential per-attempt delay, capped — a flaky item
+                    # backs off instead of hot-looping through claim/fail.
+                    item.not_before = time.monotonic() + min(
+                        self._retry_backoff_seconds * 2 ** (item.attempts - 1), 60.0
+                    )
                 self._pending.append(item)
             else:
                 self._dead_lettered.append(item_id)
@@ -420,6 +441,9 @@ class WorkQueueSpec:
     can be declared on ``AgentConfig.work_queues`` and run by the model."""
     lease_seconds: float = 30.0
     dead_letter: DeadLetterStore = field(default_factory=lambda: _in_memory_dlq())
+    retry_backoff_seconds: float = 0.0
+    """Base delay before a retried item is claimable again (exponential per
+    attempt, capped at 60s). 0.0 keeps the historical immediate-retry."""
 
     termination: TerminationPolicy = field(
         default_factory=lambda: TerminationPolicy(hard_cap=MaxRounds(max_rounds=100))
@@ -532,6 +556,7 @@ class WorkQueue(StageDriver[WorkQueueEvent]):
             lease_seconds=spec.lease_seconds,
             event_log=spec.event_log,
             run_id=spec.run_id,
+            retry_backoff_seconds=spec.retry_backoff_seconds,
         )
         self._budget = spec.budget
         self._opened = False
