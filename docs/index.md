@@ -1,174 +1,61 @@
-# prodagent — 一份你真的能读完的工业级 Agent 实现
+# prodagent · 从 Python 基础，到独立设计工业级 Agent 框架
 
-> **约 2.9 万行 · 14 个包 · 1,300+ 个离线测试 · 核心仅 4 个依赖**
->
-> 循环、预算、恢复、审批、权限、可观测、测试、多 Agent 协作——每个机制都小到一次读懂，完整到能上生产。
-
----
-
-## 这不是又一个 Agent 框架
-
-市面上的 Agent 项目走两个极端：
-
-| | 黑盒框架（LangChain / AutoGen） | 教学玩具（几十行 ReAct 演示） | **prodagent** |
-|---|---|---|---|
-| 功能完整度 | 高 | 低 | **高** |
-| 代码可读性 | 抽象层厚，改不动核心 | 清晰但缺生产机制 | **约 2.9 万行，按学习顺序排列** |
-| 预算 / 恢复 / 审批 | 无或绑死云上 | 无 | **内建，默认开启** |
-| 企业级特性 | 绑死它们的云 | 无 | **权限 / 可观测 / 多 Agent，可拆解搬运** |
-| 你学会的是 | 它的 API | ReAct 概念 | **一套能上生产的 Agent 设计心智模型** |
-
-**prodagent 卡在中间。** 它是一个可以上生产的库，同时整个代码库小到你可以从头读到尾，在脑子里建立完整的心智模型。
+> **生产级 LLM Agent 框架——小到能读完，完整到能上生产。**
+> 约 2.9 万行 · 14 个包 · 1,300+ 离线测试 · 核心仅 4 个依赖
 
 ---
 
-## 你会得到什么
+## 你会用 LangChain，但你能设计一个 Agent 系统吗？
 
-### 一套完整的生产级 Agent 设计心智模型
+2026 年的 Agent 岗位分层很清楚：初级岗"熟练使用 LangChain、会写 prompt"，三个月上手，供给最卷；高级岗和架构师岗"从 0 到 1 构建生产级 Agent 系统"，薪资翻两三倍，能接住的人很少。
 
-不是零散的知识点，而是从一次 `chat()` 调用开始，经过 **循环 → 预算 → 工具调度 → 审批 → 权限校验 → 检查点 → 消息平面 → 上下文压缩 → 记忆召回 → 可观测追踪**，到最终返回的完整生命周期。
+面试没人问你"AgentExecutor 怎么初始化"，他们问的是：一个 `while True` 调模型的循环，上生产前要加多少层护甲？四轴预算怎么同时生效？进程被 `kill -9` 后怎么断点续跑？模型调了不存在的工具怎么防？
 
-读完你能在白板上画出整个 Agent 的运行时架构，并且说清每一层**为什么存在、去掉会怎样、替代方案是什么**。
+这些问题，论文给不了答案，API 文档也给不了。解法散落在 issue 讨论、云厂商文档、某个框架的源码里——你得自己翻几十万行、自己拼。
 
-### 每个机制都能现场调试
+**这本书已经帮你串好了。**它讲解**如何从 0 设计一个工业级 Agent 框架**，并附带一个完整的参考实现——prodagent 本体。Python、计算机基础、设计模式不单独设章，哪个模块用到就在那一章讲透。检验标准不是"你记住了"，而是：换你来设计，你知道从哪里下手。
 
-整个框架离线可跑。测试不连网，10 个示例的每一轮模型行为都是可复现的脚本。
+## 全书目录
 
-你可以：
-- 在 `chat()` 的调用链打断点，看一次请求到底经过了多少层
-- 改一个预算参数，看它在哪一轮、为什么停下来
-- 把审批门拆掉，看没有保护的 Agent 会做出什么
-- 把权限策略改成全放行，看越权操作会触发什么
+| 部分       | 章 | 主题                                                             |
+|------------|----|------------------------------------------------------------------|
+| 全景       | 1  | [从 10 行 demo 到一个工业级框架](book/ch01.md)                   |
+| 单个 Agent | 2  | [模型层：Agent 的大脑](book/ch02.md)                             |
+|            | 3  | [循环内核：Agent 的心跳](book/ch03.md)                           |
+|            | 4  | [预算：烧钱的闸门](book/ch04.md)                                 |
+|            | 5  | [工具系统：Agent 的手](book/ch05.md)                             |
+|            | 6  | [记忆、压缩与技能](book/ch06.md)                                 |
+|            | 7  | [事件日志与崩溃恢复](book/ch07.md)                               |
+|            | 8  | [规划与 DAG](book/ch08.md)                                       |
+|            | 9  | [审批：不可逆动作的门](book/ch09.md)                             |
+| 多 Agent   | 10 | [多 Agent 协作](book/ch10.md)                                    |
+| 观测与回放 | 11 | [可观测：运行不再黑箱](book/ch11.md)                             |
+|            | 12 | [可回放、可回滚的运行时](book/ch12.md)                           |
+| 附录       | —  | [知识点 · 十条原则 · 取舍 · 术语 · 示例 · API](book/appendix.md) |
 
-> **理解一个机制最深刻的方式是调试它，不是背它的结论。**
+## 三十秒上手
 
----
+```python
+import asyncio
+from prodagent import Agent, AgentConfig, ExecutionMode, tool
 
-## 学习路线
+@tool(name="search", readonly=True)
+async def search(query: str) -> str:
+    """搜索网络信息。"""
+    return f"results for: {query}"
 
-```mermaid
-graph LR
-    A[🚀 5分钟上手] --> B[第一部分<br/>一次调用的生命周期]
-    B --> C[第二部分<br/>生产问题域深度]
-    C --> D[实战示例地图]
-    D --> E[附录<br/>取舍与术语]
+agent = Agent("demo",
+              system_prompt="你是一个 helpful assistant，使用工具回答问题。",
+              tools=[search], mode=ExecutionMode.REACTIVE,
+              config=AgentConfig(name="demo"))
+
+print(asyncio.run(agent.chat("巴黎今天天气如何？")).final_output)
 ```
 
-### 🚀 第一步：[5 分钟上手](start.md)
-
-零文件零旁路，跑通最小 Agent。
-
-### 📖 第一部分：一次调用的生命周期
-
-用七站走完一条完整链路，每站对应源码里的一个包：
-
-| 站 | 主题 | 解决什么问题 | 源码包 |
-|----|------|-------------|--------|
-| ① | [核心词汇](tour/01-core.md) | Agent、Run、Step、Turn、Message 到底是什么关系 | `kernel/types` |
-| ② | [端口与契约](tour/02-ports.md) | 为什么用 Protocol 而不是继承？17 个端口怎么分工 | `ports/` |
-| ③ | [模型层](tour/03-llm.md) | LLMClient 端口、流式回调、缓存边界、定价模型 | `llm/` |
-| ④ | [工具系统](tour/04-tools.md) | `@tool` 装饰器、参数校验、只读并行/写串行、工具幻觉防御 | `tooling/` |
-| ⑤ | [循环内核](tour/05-loop.md) | think→act 原子、死循环检测、终止与恢复 | `kernel/` |
-| ⑥ | [规划与 DAG](tour/06-plan.md) | REACTIVE vs PLAN_FIRST + Workflow，动态 DAG 断点续跑 | `plan/` `runtime/` |
-| ⑦ | [多 Agent 协作](tour/07-multiagent.md) | 委派/接力/Ensemble/黑板/队列五种原语，统一消息平面 | `coordination/` |
-
-### 🔧 第二部分：生产问题域
-
-| 领域 | 主题 | 核心机制 |
-|------|------|---------|
-| 运行时稳定性 | [崩溃恢复](topics/recovery.md) | checkpoint + 乐观版本控制，kill -9 后续跑不重复 |
-| | [四轴预算](topics/budget.md) | turns/seconds/tokens/cost 任一触顶即停，子 Agent 实时汇总 |
-| | [HITL 审批](topics/approval.md) | HIGH 副作用工具挂起，拒绝触发增量重规划 |
-| 上下文与记忆 | [五级压缩](topics/compression.md) | 按 token 占比分级牺牲，关键约束不被压缩掉 |
-| | [四通道记忆](topics/memory.md) | 规则/实体/精确/语义并行召回 + 冲突裁决 |
-| | [技能闭环](topics/skills.md) | 成功 run 蒸馏成 runbook，越用越稳 |
-| 多 Agent 治理 | [策略与治理](topics/governance.md) | 死循环兜底、消息不丢不重不乱序、Gate 权限拦截 |
-| 可观测与测试 | [全链路追踪](topics/observability.md) | Span 决策快照 + 29 个 HookEvent + EventLog |
-| | [测试与回归](topics/evaluation.md) | FakeLLM 驱动的 1,300+ 确定性离线测试 |
-| 框架底座与外部适配 | [框架底座与装配](topics/foundation.md) | 懒加载/原子写/错误三面体 + 唯一组装根 + 能力墨盒 |
-| | [后端适配器](topics/backends.md) | 一个端口如何被 file/postgres/redis/neo4j 实现 |
-| | [MCP 外部工具](topics/mcp.md) | 远端工具经 stdio/HTTP 接入，与本地工具同一条流水线 |
-
-### 🧭 深度阅读（上帝视角）
-- [架构全景](architecture.md) — 七层分层、四条红线、六边形架构、一次 chat() 的数据旅程
-- [心智模型](mental-model.md) — 一次 `chat()` 调用经过的 12 个阶段
-- [设计哲学](design-philosophy.md) — 贯穿全库的 10 条核心原则
-
-### 🎯 实战：[10 个端到端示例](examples.md)
-
-每个示例对应一个真实生产场景，教一个完整的机制组合。
-
-### 📚 附录
-
-- [设计取舍](decisions.md) — 每个关键决策的"为什么不选另一种"
-- [术语表](glossary.md) — 快速查阅
-- [API 参考](reference.md) — 核心 API 速查
+零配置零 API key（默认 FakeLLM，完全离线）：`pip install prodagent` 即装即跑。接真实模型、一键上生产护甲，见[序章](book/ch00.md)。
 
 ---
 
-## 核心能力速览
+**前置要求**：会 Python 的变量、函数、类，会用命令行。不需要 AI 背景——用到的概念，书里会在你需要的那一刻教。
 
-| 能力 | 一句话 | 关键源码 |
-|------|--------|---------|
-| **裸核默认** | `Agent()` 零文件起步；`production()` 一键全套护甲 | `base/config.py` |
-| **四轴硬预算** | 任一轴触顶即停，子 Agent 花销实时汇总到总账 | `kernel/budget.py` |
-| **崩溃恢复** | checkpoint + 乐观并发，断点续跑不重复执行 | `ports/checkpoint.py` |
-| **HITL 审批** | HIGH 工具挂起等人，拒绝→增量重规划 | `hooks/approval/` |
-| **Gate 权限** | 9 个拦截点，check_blocking fail-closed | `kernel/bus.py` `hooks/bundles/security/` |
-| **两种模式 + Workflow** | REACTIVE / PLAN_FIRST 按复杂度选，Workflow 手写确定性 DAG | `runtime/` `plan/` |
-| **五协作原语** | 委派/接力/Ensemble/黑板/队列覆盖主流拓扑 | `coordination/` |
-| **统一消息平面** | 去重→契约→截断→Gate→死信，不丢不重不乱序 | `coordination/messaging/` |
-| **五级上下文压缩** | 按 token 占比分级牺牲，语义损失有明确边界 | `cognition/context/` |
-| **四通道记忆** | 规则/实体/精确/语义并行召回 + 冲突裁决 | `cognition/memory/` |
-| **全链路可观测** | AgentSpan + 29 个 HookEvent + EventLog 事件溯源 | `hooks/bundles/observability.py` |
-| **确定性测试** | FakeLLM 预设脚本，1,300+ 测试全离线零 flaky | `llm/fake.py` `tests/` |
-| **可替换后端** | 17 个可替换端口（ports 目录共 20 个 Protocol），file+memory 零依赖起步 | `ports/` `backends/` |
-| **MCP 桥接** | 外部工具经 stdio/HTTP 接入，不用逐个写适配 | `mcp/` |
-
----
-
-## 包目录即学习顺序
-
-```
-src/prodagent/
-├── base/          ← 基础工具：配置、异常、类型、事件模型
-├── ports/         ← 17 个可替换端口（ports 目录共 20 个 Protocol，六边形架构）
-├── llm/           ← 模型适配器：OpenAI/Anthropic/Fake + 定价 + 缓存
-├── tooling/       ← 工具系统：装饰器、调度、注册、可靠性、技能解析
-├── kernel/        ← 内核：循环、步骤、预算、事件总线、状态
-├── runtime/       ← 运行时：Agent 装配、工厂、父运行时
-├── plan/          ← 规划：动态 DAG、PlanExecutor、Workflow
-├── coordination/  ← 多 Agent：spawn/peer/ensemble/blackboard/work_queue
-├── cognition/     ← 认知：上下文压缩、四通道记忆
-├── hooks/         ← 横切：审批、安全 bundle、可观测 bundle、审计
-├── skills/        ← 技能：runbook 蒸馏与召回
-├── backends/      ← 端口实现：file/memory/postgres/redis/neo4j
-├── mcp/           ← MCP 桥接：stdio/HTTP 外部工具
-└── playground/    ← 可视化（叶子节点，被 import-linter 隔离）
-```
-
----
-
-## 安装
-
-```bash
-pip install prodagent
-# 核心仅 4 个依赖：anyio / httpx / pydantic / typing-extensions
-# 按需加装：
-pip install "prodagent[openai,anthropic]"   # 模型 provider
-pip install "prodagent[playground]"          # 可视化
-pip install "prodagent[postgres,redis,neo4j]" # 生产后端
-```
-
-模型配置三选一：
-- `USE_FAKE_LLM=1` — 完全离线，学习/测试用
-- `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` — 任意 OpenAI 兼容端点
-- `ANTHROPIC_API_KEY` — Anthropic 原生
-
----
-
-## 下一步
-
-👉 **[从 5 分钟上手开始 →](start.md)**
-
-或者直接跳进 [第一部分 · 一次调用的生命周期](tour/index.md)。
+**👉 [从序章开始，读完你能独立设计一个工业级 Agent 框架 →](book/ch00.md)**

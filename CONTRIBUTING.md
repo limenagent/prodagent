@@ -341,17 +341,9 @@ pytest tests/ --cov=src/prodagent --cov-report=term-missing
 - `README.md` — 项目门面（中文）
 - `README.en.md` — 项目门面（英文）
 - `docs` — mkdocs 文档站
-  - `docs/index.md` — 文档首页
-  - `docs/start.md` — 5 分钟上手
-  - `docs/tour` — 七站之旅
-  - `docs/topics` — 生产问题域专题
-  - `docs/architecture.md` — 架构全景
-  - `docs/design-philosophy.md` — 设计哲学
-  - `docs/mental-model.md` — 心智模型
-  - `docs/decisions.md` — 设计取舍
-  - `docs/glossary.md` — 术语表
-  - `docs/examples.md` — 示例地图
-  - `docs/reference.md` — API 参考
+  - `docs/index.md` — 书首页（总入口）
+  - `docs/book/` — 本书：序章 + 12 章 + 附录（知识点/原则/取舍/术语/示例速查 + API 参考）
+  - `docs/decisions.md`、`docs/topics/compress_threshold.md` — 两份深度档案（取舍全录 / 压缩阈值数学建模），不进构建
 
 ### 文档风格
 

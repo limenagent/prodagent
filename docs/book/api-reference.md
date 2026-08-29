@@ -1,4 +1,4 @@
-# API 参考
+# 附录 · API 参考
 
 > 核心 API 速查。详细接口签名和 docstring 请参考源码或运行 `mkdocs serve` 查看自动生成文档。
 
@@ -420,6 +420,6 @@ from prodagent.base.errors import (
 
 ## 回到
 
-- [学习路线首页 →](tour/index.md)
-- [设计取舍 →](decisions.md)
-- [术语表 →](glossary.md)
+→ [回到书首页](../index.md) · [附录速查](appendix.md)
+- [附录 · 关键取舍速查 →](appendix.md)
+- [附录 · 术语表 →](appendix.md)
