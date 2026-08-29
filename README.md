@@ -2,13 +2,13 @@
 
 > **生产级 LLM Agent 框架——小到能读完，完整到能上生产，美到想收藏。**
 >
-> 25,000 行 · 14 个包 · 1,182 个离线测试 · 核心仅 4 个依赖
+> 约 2.9 万行 · 14 个包 · 1,300+ 个离线测试 · 核心仅 4 个依赖
 
 [![PyPI](https://img.shields.io/pypi/v/prodagent?color=blue&logo=pypi&logoColor=white)](https://pypi.org/project/prodagent/)
 [![Python](https://img.shields.io/pypi/pyversions/prodagent?logo=python&logoColor=white)](https://pypi.org/project/prodagent/)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/limenagent/prodagent/ci.yml?logo=github&label=CI)](https://github.com/limenagent/prodagent/actions)
-[![Tests](https://img.shields.io/badge/tests-1%2C182-offline-green)]()
+[![Tests](https://img.shields.io/badge/tests-1%2C300%2B-offline-green)]()
 [![Dependencies](https://img.shields.io/badge/core%20deps-4-purple)]()
 
 **中文** · [English](README.en.md) · 极客时间专栏[《生产级 Agent 排雷实战》](http://gk.link/a/12L6Q)配套框架
@@ -52,10 +52,10 @@
 | | 黑盒框架（LangChain / AutoGen） | 教学玩具（几十行 ReAct） | **prodagent** |
 |---|---|---|---|
 | 功能完整度 | 高 | 低 | **高** |
-| 代码可读性 | 抽象层厚，改不动核心 | 清晰但缺生产机制 | **25,000 行，按学习顺序排列** |
+| 代码可读性 | 抽象层厚，改不动核心 | 清晰但缺生产机制 | **约 2.9 万行，按学习顺序排列** |
 | 预算 / 恢复 / 审批 | 无或绑死云上 | 无 | **内建，默认开启** |
 | 核心依赖 | 数十个（间接） | 1-2 个 | **4 个** |
-| 测试 | 依赖真实 API | 几乎没有 | **1,182 个，全离线可复现** |
+| 测试 | 依赖真实 API | 几乎没有 | **1,300+ 个，全离线可复现** |
 | 企业级特性 | 绑死它们的云 | 无 | **权限 / 可观测 / 评估，可拆解搬运** |
 | 你学会的是 | 它的 API | ReAct 概念 | **Agent 系统的设计心智模型** |
 
@@ -120,11 +120,11 @@ Agent.chat()
 
 | 指标 | 值 | 说明 |
 |------|-----|------|
-| 代码行数 | **25,000** | 整个 codebase，小到可以从头读到尾 |
+| 代码行数 | **约 2.9 万** | 整个 codebase，小到可以从头读到尾 |
 | 包数量 | **14** | 按学习顺序排列，每个包一个职责 |
-| 离线测试 | **1,182** | 零 API key、零网络、零 flaky，FakeLLM 精确复现 |
+| 离线测试 | **1,300+** | 零 API key、零网络、零 flaky，FakeLLM 精确复现 |
 | 核心依赖 | **4** | anyio / httpx / pydantic / typing-extensions |
-| 协议端口 | **14** | Protocol 抽象，后端可替换（file/memory/postgres/redis/neo4j） |
+| 协议端口 | **17（共 20 Protocol）** | 17 个可替换端口 + 3 个内部协作契约，后端可换（file/memory/postgres/redis/neo4j） |
 | 执行模式 | **3** | REACTIVE / PLAN_FIRST / Workflow |
 | 协作原语 | **5** | 委派 / 接力 / 投票 / 黑板 / 工作队列 |
 | 总线协议 | **3** | fire（观察）/ check（拦截）/ collect（注入） |
@@ -148,7 +148,23 @@ Agent.chat()
 7. **单 Agent 是默认**——先把单 Agent 的上下文管理做好（记忆、压缩、技能），实在搞不定再拆多 Agent。很多"需要多 Agent"的场景，其实是单 Agent 的上下文管理没做好。
 8. **所有拓扑共用一个消息平面**——五种协作原语的通信都走 `Crossing` 管道：去重 → 契约 → 安全 → 审计 → 死信。在一个地方解决"不丢不重不乱序"，比在五个拓扑里各写一遍更可靠。
 9. **乐观并发恢复**——checkpoint + 版本控制，`kill -9` 后续跑不重复执行。不需要分布式锁，因为一个 Run 通常只有一个执行者，冲突概率极低。
-10. **全离线可复现**——1,182 个测试零 API key、零网络。FakeLLM 精确控制每一轮输出，测试确定性场景。理解一个机制最深刻的方式是调试它，不是背它的结论。
+10. **全离线可复现**——1,300+ 个测试零 API key、零网络。FakeLLM 精确控制每一轮输出，测试确定性场景。理解一个机制最深刻的方式是调试它，不是背它的结论。
+
+---
+
+## 架构之美：五个反复出现的母题
+
+真正让一个代码库"美到想收藏"的，不是功能多，而是**同一套设计智慧在不同地方反复出现、每次都恰到好处**。prodagent 里有五个这样的母题，看懂它们，就拿到了读整个框架的钥匙：
+
+| 母题 | 一句话 | 在哪能看到 |
+|------|--------|-----------|
+| **组装根唯一** | "用哪些零件"只在一处决定，是一张可通读的清单，测试与生产不会悄悄不一致 | `runtime/compose.py`，详见[框架底座与装配](docs/topics/foundation.md) |
+| **机制与横切分离** | 循环只往前走，审批/可观测/记忆全挂在一条三协议总线上，循环不知道它们的名字 | `kernel/bus.py`，见七站第 ⑤ 站 |
+| **同构只写一遍** | 三种协作舞台共用一套生命周期骨架，变化的"一轮干什么"留给子类——新增玩法变成填空题 | `coordination/infra/`，见七站第 ⑦ 站 |
+| **边界做翻译（防腐层）** | 外部世界的方言在边界上翻译成内部标准语言：MCP 工具进来后与本地工具毫无分别 | `mcp/bridge.py`，详见 [MCP 专题](docs/topics/mcp.md) |
+| **契约可执行** | "换存储不换行为"不是口号——同一套一致性考卷，内存/文件/PG/Redis 谁都得考满分 | `tests/backends/conformance/`，详见[后端适配器](docs/topics/backends.md) |
+
+这五件事的共同点是：**把容易错、重复、靠人记住的东西，沉到唯一一处，并用工具或测试钉死。** 想完整感受这套"克制的美感"，推荐按 [框架底座与装配](docs/topics/foundation.md) → [后端适配器](docs/topics/backends.md) → [MCP 外部工具](docs/topics/mcp.md) 的顺序读三篇深度专题。
 
 ---
 
@@ -192,7 +208,7 @@ pip install "prodagent[postgres,redis,neo4j]" # 生产后端
 | 站 | 主题 | 解决什么问题 | 源码包 |
 |----|------|-------------|--------|
 | ① | [核心词汇](docs/tour/01-core.md) | Agent、Run、Step、Turn、Message 到底是什么关系 | `kernel/types` |
-| ② | [端口与契约](docs/tour/02-ports.md) | 为什么用 Protocol 而不是继承？14 个端口怎么分工 | `ports/` |
+| ② | [端口与契约](docs/tour/02-ports.md) | 为什么用 Protocol 而不是继承？17 个端口怎么分工 | `ports/` |
 | ③ | [模型层](docs/tour/03-llm.md) | LLMClient 端口、流式回调、缓存边界、定价模型 | `llm/` |
 | ④ | [工具系统](docs/tour/04-tools.md) | `@tool` 装饰器、参数校验、只读并行/写串行、工具幻觉防御 | `tooling/` |
 | ⑤ | [循环内核](docs/tour/05-loop.md) | think→decide→execute 原子、死循环检测、终止与恢复 | `kernel/` |
@@ -212,8 +228,11 @@ pip install "prodagent[postgres,redis,neo4j]" # 生产后端
 | 多 Agent 治理 | [策略与治理](docs/topics/governance.md) | 死循环兜底、消息不丢不重不乱序、权限策略引擎 |
 | 可观测与评估 | [全链路追踪](docs/topics/observability.md) | OpenTelemetry 兼容 span，CoT 思维链落盘 |
 | | [评估与回归](docs/topics/evaluation.md) | 离线评测 + 线上 Trace 自动打分，LLM-as-judge 校准 |
+| 底座与外部适配 | [框架底座与装配](docs/topics/foundation.md) | base 工艺点、唯一组装根、自装配墨盒、叶子隔离 |
+| | [后端适配器](docs/topics/backends.md) | 五族后端、三种并发控制、同一套一致性考卷 |
+| | [MCP 外部工具](docs/topics/mcp.md) | 防腐层四件翻译，远端工具变"一等公民" |
 
-### 🎯 实战：[9 个端到端示例](docs/examples.md)
+### 🎯 实战：[10 个端到端示例](docs/examples.md)
 
 每个示例对应一个真实生产场景，教一个完整的机制组合。
 
@@ -223,6 +242,9 @@ pip install "prodagent[postgres,redis,neo4j]" # 生产后端
 - [设计哲学](docs/design-philosophy.md) — 10 条核心原则，每条配"为什么"和"反例"
 - [心智模型](docs/mental-model.md) — 一次调用的完整生命周期，比七站更深入的源码对照
 - [设计取舍](docs/decisions.md) — 每个关键决策的"为什么不选另一种"
+- [框架底座与装配](docs/topics/foundation.md) — 懒加载、原子写、组装根、自装配墨盒，读懂全仓库的"工艺感"
+- [后端适配器](docs/topics/backends.md) — 内存/文件/Postgres/Redis/Neo4j 如何无缝替换，行为还不走样
+- [MCP 外部工具](docs/topics/mcp.md) — 一层防腐层，让外部工具和本地工具走同一套调度/审批/熔断
 - [术语表](docs/glossary.md) — 快速查阅
 - [API 参考](docs/reference.md) — 自动生成的接口文档
 
@@ -233,7 +255,7 @@ pip install "prodagent[postgres,redis,neo4j]" # 生产后端
 ```
 src/prodagent/
 ├── base/          ← 基础工具：配置、异常、重试、事件日志
-├── ports/         ← 14 个 Protocol 端口（六边形架构的"左"侧）
+├── ports/         ← 17 个可替换端口（六边形架构的"左"侧，共 20 个 Protocol）
 ├── llm/           ← 模型适配器：OpenAI/Anthropic/Fake + 定价
 ├── tooling/       ← 工具系统：装饰器、调度、注册、可靠性
 ├── kernel/        ← 内核：循环、步骤、预算、事件总线、状态
@@ -265,7 +287,7 @@ src/prodagent/
 ### 贡献者友好的设计
 
 - **每个模块都有高质量注释**——注释解释的是"为什么"而不是"做什么"
-- **1,182 个离线测试**——改代码后跑 `pytest`，30 秒内知道有没有破坏
+- **1,300+ 个离线测试**——改代码后跑 `pytest`，30 秒内知道有没有破坏
 - **清晰的 Protocol 边界**——加新后端 = 实现一个 Protocol，不动核心
 - **import-linter 强制分层**——CI 自动检查依赖方向，不会不小心搞乱架构
 

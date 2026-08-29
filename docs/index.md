@@ -1,6 +1,6 @@
 # prodagent — 一份你真的能读完的工业级 Agent 实现
 
-> **25,000 行 · 14 个包 · 1,000+ 个离线测试 · 核心仅 4 个依赖**
+> **约 2.9 万行 · 14 个包 · 1,300+ 个离线测试 · 核心仅 4 个依赖**
 >
 > 循环、预算、恢复、审批、权限、可观测、测试、多 Agent 协作——每个机制都小到一次读懂，完整到能上生产。
 
@@ -13,7 +13,7 @@
 | | 黑盒框架（LangChain / AutoGen） | 教学玩具（几十行 ReAct 演示） | **prodagent** |
 |---|---|---|---|
 | 功能完整度 | 高 | 低 | **高** |
-| 代码可读性 | 抽象层厚，改不动核心 | 清晰但缺生产机制 | **25,000 行，按学习顺序排列** |
+| 代码可读性 | 抽象层厚，改不动核心 | 清晰但缺生产机制 | **约 2.9 万行，按学习顺序排列** |
 | 预算 / 恢复 / 审批 | 无或绑死云上 | 无 | **内建，默认开启** |
 | 企业级特性 | 绑死它们的云 | 无 | **权限 / 可观测 / 多 Agent，可拆解搬运** |
 | 你学会的是 | 它的 API | ReAct 概念 | **一套能上生产的 Agent 设计心智模型** |
@@ -32,7 +32,7 @@
 
 ### 每个机制都能现场调试
 
-整个框架离线可跑。测试不连网，9 个示例的每一轮模型行为都是可复现的脚本。
+整个框架离线可跑。测试不连网，10 个示例的每一轮模型行为都是可复现的脚本。
 
 你可以：
 - 在 `chat()` 的调用链打断点，看一次请求到底经过了多少层
@@ -84,9 +84,17 @@ graph LR
 | | [技能闭环](topics/skills.md) | 成功 run 蒸馏成 runbook，越用越稳 |
 | 多 Agent 治理 | [策略与治理](topics/governance.md) | 死循环兜底、消息不丢不重不乱序、Gate 权限拦截 |
 | 可观测与测试 | [全链路追踪](topics/observability.md) | Span 决策快照 + 29 个 HookEvent + EventLog |
-| | [测试与回归](topics/evaluation.md) | FakeLLM 驱动的 1,000+ 确定性离线测试 |
+| | [测试与回归](topics/evaluation.md) | FakeLLM 驱动的 1,300+ 确定性离线测试 |
+| 框架底座与外部适配 | [框架底座与装配](topics/foundation.md) | 懒加载/原子写/错误三面体 + 唯一组装根 + 能力墨盒 |
+| | [后端适配器](topics/backends.md) | 一个端口如何被 file/postgres/redis/neo4j 实现 |
+| | [MCP 外部工具](topics/mcp.md) | 远端工具经 stdio/HTTP 接入，与本地工具同一条流水线 |
 
-### 🎯 实战：[9 个端到端示例](examples.md)
+### 🧭 深度阅读（上帝视角）
+- [架构全景](architecture.md) — 七层分层、四条红线、六边形架构、一次 chat() 的数据旅程
+- [心智模型](mental-model.md) — 一次 `chat()` 调用经过的 12 个阶段
+- [设计哲学](design-philosophy.md) — 贯穿全库的 10 条核心原则
+
+### 🎯 实战：[10 个端到端示例](examples.md)
 
 每个示例对应一个真实生产场景，教一个完整的机制组合。
 
@@ -113,8 +121,8 @@ graph LR
 | **五级上下文压缩** | 按 token 占比分级牺牲，语义损失有明确边界 | `cognition/context/` |
 | **四通道记忆** | 规则/实体/精确/语义并行召回 + 冲突裁决 | `cognition/memory/` |
 | **全链路可观测** | AgentSpan + 29 个 HookEvent + EventLog 事件溯源 | `hooks/bundles/observability.py` |
-| **确定性测试** | FakeLLM 预设脚本，1,000+ 测试全离线零 flaky | `llm/fake.py` `tests/` |
-| **可替换后端** | 17 个 Protocol 端口，file+memory 零依赖起步 | `ports/` `backends/` |
+| **确定性测试** | FakeLLM 预设脚本，1,300+ 测试全离线零 flaky | `llm/fake.py` `tests/` |
+| **可替换后端** | 17 个可替换端口（ports 目录共 20 个 Protocol），file+memory 零依赖起步 | `ports/` `backends/` |
 | **MCP 桥接** | 外部工具经 stdio/HTTP 接入，不用逐个写适配 | `mcp/` |
 
 ---
@@ -124,7 +132,7 @@ graph LR
 ```
 src/prodagent/
 ├── base/          ← 基础工具：配置、异常、类型、事件模型
-├── ports/         ← 17 个 Protocol 端口（六边形架构）
+├── ports/         ← 17 个可替换端口（ports 目录共 20 个 Protocol，六边形架构）
 ├── llm/           ← 模型适配器：OpenAI/Anthropic/Fake + 定价 + 缓存
 ├── tooling/       ← 工具系统：装饰器、调度、注册、可靠性、技能解析
 ├── kernel/        ← 内核：循环、步骤、预算、事件总线、状态

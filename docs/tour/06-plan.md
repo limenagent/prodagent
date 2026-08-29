@@ -246,7 +246,38 @@ graph LR
 3. RUNNING 节点重置为 PENDING（不知道执行到哪了，安全起见重做）
 4. 按依赖关系继续执行
 
-DAG 状态存在 AgentRun 里，和消息历史一起序列化到 checkpoint。Plan 的状态变更还可以通过 EventLog 追加写入，支持事件溯源重建。
+DAG 状态存在 AgentRun 里，和消息历史一起序列化到 checkpoint。Plan 的状态变更还会通过 EventLog 一条条追加写入。两者结合，就是 prodagent 的恢复方式——**快照打底 + 尾部事件重放**（`base/event_log.py::hybrid_restore`）：
+
+```mermaid
+graph LR
+    CK["checkpoint 快照<br/>（含 last_seq=100）"] --> R["从快照还原状态"]
+    EL["EventLog<br/>第 101 条之后的事件"] --> R
+    R --> NOW["得到崩溃前的最新状态"]
+```
+
+> **小白加餐：什么是事件溯源（Event Sourcing）？** 与其只存"当前结果"，不如把"导致结果的每一次变化（事件）"按顺序记下来；当前状态 = 从空状态开始，依次把每个事件"折叠（fold/reduce）"进去得到。你可以把它想成银行流水：余额是结果，但流水（事件）才是事实，任何时候都能靠流水把余额重新算出来。负责折叠的函数叫 **reducer**，它是纯函数——`(当前状态, 一个事件) → 新状态`，同样的事件序列必然得到同样的结果，所以极其好测。
+
+**为什么要"快照 + 重放"混合，而不是只选一种？**
+
+- 只靠事件重放：跑了几千个事件后，每次恢复都要从头折叠一遍，越来越慢；
+- 只靠快照：两次快照之间的变化会丢，也无法验证快照和事件是否一致。
+
+prodagent 的折中是：checkpoint 里存一份快照**和它对应的事件序号 `last_seq`**；恢复时先拿快照打底，**只重放序号之后的那一小段尾部事件**。如果连可用快照都没有（比如第一次恢复），才退化为"从空状态全量重放"。这和数据库里"WAL + checkpoint"、Kafka 里"日志压缩"是同一种经典智慧——**用定期快照截断重放长度，用事件流保证不丢增量。**
+
+---
+
+## 开场与收场：bootstrap 与 finalize
+一次 PLAN_FIRST 运行，真正的执行器（`PlanExecutor`）只负责"按 DAG 跑步骤"这一件事；而**跑之前的准备**和**跑完后的收尾**被刻意拆到两个地方，保证执行器足够纯粹：
+
+| 阶段 | 文件 | 职责 |
+|------|------|------|
+| 开场 `PlanBootstrap` | `plan/bootstrap.py` | 解决"初始的 (run, plan) 从哪来"：是新建并调用 Planner 生成 DAG，还是从 checkpoint 恢复；生成后还要过一遍 HITL 审批门（计划也可以要求人批准） |
+| 收场 `finalize` | `plan/finalize.py` | 一组**纯函数**：把终态翻译成对外的流事件（完成/失败/挂起），并从"终态步骤（terminal step）"的输出回填 `run.final_output` |
+
+这里有两个和前面一脉相承的设计：
+
+1. **开场把"新建 vs 恢复"收敛在一处。** 调用方不必关心这次是全新规划还是断点续跑，`prepare()` 内部判断；HITL 审批门也放在开场而不是散在执行循环里——因为"计划能不能开始执行"本就是开场该回答的问题。
+2. **收场用纯函数。** `finalize_run` 不做 IO、不产生副作用，只根据 run/plan 的现状决定终态和最终输出。纯函数意味着给定输入输出唯一，可以脱离整个框架单独测，也不会因为"收尾时又触发了什么副作用"而产生诡异 bug。你会发现这和 reducer、和 kernel 的纯度追求是同一条审美的延续：**把有副作用的部分缩到最小，把可推理、可测试的纯逻辑留下来。**
 
 ---
 
@@ -285,7 +316,7 @@ PLAN_FIRST: for node in ready_nodes: Step.run()  (按 DAG 调度)
 Workflow:   for node in ready_nodes: function/llm/tool  (编译为 Plan 后由 PLAN_FIRST 执行)
 ```
 
-`Step` 的"想→做→记账"逻辑是共用的，经过了框架 1,000+ 个测试的验证。两种模式的差异只在"什么时候调用 Step"和"调用哪个 Step"。
+`Step` 的"想→做→记账"逻辑是共用的，经过了框架 1,300+ 个测试的验证。两种模式的差异只在"什么时候调用 Step"和"调用哪个 Step"。
 
 > 这就是为什么把 kernel 从 runtime 拆出来——核心循环逻辑只写一次、测一次，两种模式共享。
 
@@ -301,6 +332,9 @@ Workflow:   for node in ready_nodes: function/llm/tool  (编译为 Plan 后由 P
 | Planner（模型输出 DAG） | `plan/planner.py` |
 | PlanExecutor（DAG 调度） | `plan/executor.py` |
 | StepRunner（单步执行） | `plan/step_runner.py` |
+| 开场（准备/恢复/计划审批门） | `plan/bootstrap.py` |
+| 收场（终态/最终输出，纯函数） | `plan/finalize.py` |
+| 快照+尾部重放的混合还原 | `base/event_log.py::hybrid_restore` |
 | Workflow 构建器 | `plan/workflow.py` |
 | Plan 事件溯源 | `plan/event_log.py` |
 | Agent 装配与模式选择 | `runtime/agent.py` `runtime/factory.py` |

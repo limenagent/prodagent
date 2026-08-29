@@ -115,16 +115,29 @@ Span 是**决策快照**——记录"在什么上下文下做了什么决策、�
 # base/observability.py
 @dataclass
 class AgentSpan:
+    # —— 身份与位置 ——
     span_id: str
+    trace_id: str                 # 同一条 trace（可跨多 Agent）
     run_id: str
-    parent_span_id: str | None    # 支持嵌套（spawn 子 Agent）
-    agent_name: str
-    event: str                    # 对应的 HookEvent
+    parent_span_id: str | None = None   # 支持嵌套（spawn 子 Agent）
+    action: str                   # 这一步在做什么（对应触发的动作）
+    # —— 决策上下文：为什么模型这么选 ——
+    input_payload: dict[str, Any] # 输入快照
+    system_prompt_version: str = ""
+    retrieved_context: list[str] = field(default_factory=list)
+    llm_reasoning: str = ""
+    # —— 结果与成本 ——
+    output: Any = None
+    error: str | None = None
+    latency_ms: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+    sampled: bool = True          # 是否被采样保留
     timestamp: float
-    data: dict[str, Any]          # 事件数据（工具名、参数、结果摘要等）
-    duration_ms: float | None     # 耗时
-    status: str                   # ok / error / blocked / suspended
 ```
+
+字段分三组，正好对应"决策快照"这个定位：**身份与位置**（它属于哪条 trace、哪个 run、挂在哪个父 span 下）、**决策上下文**（当时的输入、召回了什么、模型的推理是什么——回答"为什么这么选"）、**结果与成本**（输出、错误、耗时、token、花费）。落日志时 `to_log_line()` 只摘出定位和成本等关键字段，避免每行都写入庞大的输入快照。
 
 ### SpanExporter 端口
 

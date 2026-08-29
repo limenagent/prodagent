@@ -92,6 +92,8 @@ self._progress = ProgressMonitor(
 
 指纹存在 `AgentRun.fingerprints` 上，随 checkpoint 持久化——恢复后死循环检测的历史不丢。
 
+> **小白加餐：指纹为什么不能直接 `hash(参数)`？** 工具参数是一个 dict，而 Python 里 dict 的键顺序不保证固定、`datetime/Decimal` 这类对象也没法直接哈希——如果直接序列化，"语义相同、键顺序不同"的两次调用可能得到不同指纹，死循环就漏检了。prodagent 统一走 `base/types.py::stable_serialize` 先把对象归一化成确定形态再做指纹，保证**语义相同 ⇒ 指纹相同**。这个"稳定序列化"是底座提供的公共能力，不止死循环检测在用（见[框架底座与装配](../topics/foundation.md)）。另外注意它**刻意剔除 `limit` 这类分页参数**：判断"是不是在原地打转"要看意图，而不是看翻页页码——这是把领域判断编码进指纹，而不是无脑哈希全部字段。
+
 ---
 
 ## ③ 上下文组装：不是简单的 messages 列表

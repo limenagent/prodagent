@@ -131,8 +131,15 @@
 
 | 术语 | 定义 |
 |------|------|
-| **端口（Port）** | Protocol 接口，定义核心与外部世界的契约。共 17 个；AgentSpec、事件编解码、Activation 这些跨进程传递的定义也在这层。 |
+| **端口（Port）** | Protocol 接口，定义核心与外部世界的契约。可替换端口共 17 个（`ports/` 目录下一共 20 个 Protocol，另 3 个是内部协作契约 StageStore / ActivationPolicy / SpendView）；AgentSpec、事件编解码、Activation 这些跨进程传递的定义也在这层。 |
 | **适配器（Adapter）** | 端口的具体实现（file/postgres/redis/neo4j 等）。 |
+| **组装根（Composition Root）** | 全仓库唯一决定"一个 Agent 由哪些零件拼成"的地方，即 `runtime/compose.py`；也是唯一读取 profile、唯一被允许点名 coordination 的 runtime 文件。 |
+| **三个插座** | 扩展能力的全部三种入口：端口替换（实现 Protocol）、总线挂载（注册 hook）、执行器替换（实现 LeafExecutor）。 |
+| **HookBundle（墨盒）** | 自装配能力包，只暴露一个 `attach(agent, fw, registry)`；记忆/学习/可观测/安全各是一个墨盒，组装根按 profile 清单挂载。 |
+| **懒加载（lazy_package）** | 基于 PEP 562 模块级 `__getattr__`，符号第一次被访问时才 import 对应模块，让 `import prodagent` 保持轻量。 |
+| **原子写** | 先写临时文件再 `os.replace` 改名，读者只会看到完整旧文件或完整新文件，不会看到写一半的撕裂内容。 |
+| **full jitter 退避** | 重试间隔在 `[0, 基数×2^n]` 随机取，打散同时失败的多个 Agent，避免"惊群"再次压垮上游。 |
+| **MCP** | Model Context Protocol，外部工具经 stdio/HTTP 接入的标准；bridge 把远端工具适配成本地 FunctionTool，走同一条调度流水线。 |
 | **BackendConfig** | 后端选择配置，用字符串字面量约束可选值。 |
 | **bare()** | 裸核 profile：无持久化、无审批、无缓存、无压缩。 |
 | **production()** | 生产 profile：file 后端 + 压缩 + spill + 审批门 + 缓存。 |

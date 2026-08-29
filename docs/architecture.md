@@ -79,13 +79,14 @@ prodagent 的核心架构模式是**六边形架构（Hexagonal Architecture / P
 
 ### 17 个端口全景
 
-prodagent 定义了 14 个 Protocol 端口，每一个都是一个"我需要什么能力"的契约：
+prodagent 一共定义了 20 个 Protocol：其中 17 个是可替换的能力/存储端口（下表，也就是正文常说的"17 个端口"），另外 3 个（`StageStore` / `ActivationPolicy` / `SpendView`）是框架内部协作时用的辅助契约，一般不需要用户实现。每一个端口，本质上都是一份"我需要什么能力"的契约：
 
 | 端口 | 职责 | 现有实现 | 你可以替换成 |
 |------|------|---------|------------|
 | `LLMClient` | 模型调用（流式/结构化/缓存） | OpenAI / Anthropic / Fake | 任何有 `async complete()` 的客户端 |
 | `RunnerPort` | 激活一个 agent 执行一次 run（spawn 子任务、舞台成员发言） | RunLoop（进程内） | 分布式 runtime / 远端 worker |
 | `Tool` | 工具执行 | FunctionTool / MCP工具 | 你的自定义工具类 |
+| `LeafExecutor` | 执行器（一种执行模式 = 一个 LeafExecutor） | ReactiveLoop / PlanExecutor | 你自己的状态机/BFS 执行器 |
 | `CheckpointStore` | 运行状态快照（崩溃恢复） | file / postgres / memory | MySQL / DynamoDB |
 | `EventLog` | 事件追加日志（PLAN_FIRST状态） | file / postgres / memory | Kafka / Kinesis |
 | `SessionStore` | 多轮会话存储 | file / postgres | Redis / 你的会话服务 |
@@ -98,6 +99,7 @@ prodagent 定义了 14 个 Protocol 端口，每一个都是一个"我需要什�
 | `SpanExporter` | 链路追踪导出 | file / postgres | OpenTelemetry / Jaeger |
 | `Transport` | 多Agent消息传输 | in-process | NATS / gRPC / Kafka |
 | `ExperienceStore` | 经验/技能存储 | file | 你的知识库 |
+| `BudgetLedgerPort` | 多 Agent 共享预算账本（含只读视图 `SpendView`） | 内核 BudgetLedger | 跨进程的全局账本服务 |
 
 ### 后端选型的哲学：每种数据去它该去的地方
 
@@ -681,7 +683,7 @@ prodagent 的架构之美在于几个"恰好"：
 
 4. **恰好的默认**——bare profile 零文件起步，production() 一键全套。不是"默认全关让你自己开"（太麻烦），也不是"默认全开"（太重）。默认够用，升级一键。
 
-5. **恰好的测试**——1,182 个全离线测试。不是"测试覆盖 100%"（为了覆盖率写无意义的测试），也不是"只测 happy path"。每个机制都有对应的测试，测试是可复现的、确定性的、快速的。
+5. **恰好的测试**——1,300+ 个全离线测试。不是"测试覆盖 100%"（为了覆盖率写无意义的测试），也不是"只测 happy path"。每个机制都有对应的测试，测试是可复现的、确定性的、快速的。
 
 > **架构不是设计出来的，是演化出来的。** prodagent 的架构经历了多次重构（kernel 从 runtime 拆出来、messaging 平面从各拓扑抽出来、三协议总线从事件系统演化出来）。每一次重构都是因为"当前架构不够用了"，而不是"为了重构而重构"。最终的架构是"恰好够用"的——不超前设计，也不落后于需求。
 

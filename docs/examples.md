@@ -1,4 +1,4 @@
-# 9 个端到端示例
+# 10 个端到端示例
 
 > 从 20 行的 Hello World 到 300 行的多 Agent 辩论，每个示例都可独立运行。
 
@@ -141,6 +141,16 @@ agent = Agent(
 - 死信队列处理失败任务
 - 可选 EventLog 事件溯源
 - 多 Worker 并行处理
+
+---
+
+## 10. council — 模型自己召集协作
+**演示**：主持人 Agent 同时声明一个评审组（ensemble）和一个杂务队列（work queue），由模型在对话中自己决定什么时候开会、什么时候派活——和调用 `spawn_agent` 是同一种体验。
+**涉及机制**：
+- `run_ensemble` / `run_work_queue` 舞台工具（声明即生成）
+- Ensemble 成员在共享 floor 上轮流表态，拿回完整 transcript
+- WorkQueue 按租约认领、失败重试、超限进死信，拿回完成清单
+- 成员与工人都是普通 Agent（经 `AgentFloorMember` / `AgentWorkMember` 适配）
 
 ---
 

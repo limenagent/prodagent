@@ -227,6 +227,12 @@ async def run_batch(self, run, tool_calls):
 
 这是"安全优先"的默认策略。
 
+**"并行"不等于"无限并行"。** 只读工具虽然一起跑，但外面套了一个 `asyncio.Semaphore(readonly_concurrency)`（默认 8）：
+
+> **小白加餐：信号量（Semaphore）是什么？** 可以把它想成停车场入口的"剩余车位"计数器——最多放 8 辆车（并发请求）进去，第 9 辆在门口等，有车出来才放行。为什么需要它？如果模型一轮喊出 100 个只读工具，无上限地同时发请求，可能瞬间打爆你自己依赖的下游 API（或触发对方限流）。信号量用一行代码给并发度装了个天花板。
+
+写操作则严格一个接一个（`for ... await`），因为它们之间可能有先后依赖，乱序会产生竞态。
+
 ---
 
 ## 执行前的关卡
@@ -282,6 +288,18 @@ OpenAI 格式的 tool 消息，必须带 `tool_call_id` 与之前的 assistant �
 ---
 
 ## 工具注册与检索
+### 五个来源，同名"先到先得"
+一跳里真正给模型用的工具，其实来自五个地方，按顺序合并：**内联工具 → 注册表工具 → MCP 远端工具 → spill 回读工具 → spawn/peer/舞台工具**。合并动作由 `tooling/merge.py` 的 `merge_tools_by_name` 完成，规则极其简单——**按名字去重，已经存在的名字，后来者不再覆盖**：
+
+```python
+def merge_tools_by_name(existing, new):
+    names = {t.name for t in existing}
+    for tool in new:
+        if tool.name not in names:     # 同名：先在列表里的赢
+            existing.append(tool); names.add(tool.name)
+```
+
+为什么要刻意规定"谁先谁后"？因为来源多了就可能**撞名**——比如你内联定义了一个 `search`，MCP 服务器也提供一个 `search`，到底用哪个？prodagent 的答案是"离开发者越近优先级越高"：你亲手传的内联工具最先入列、天然胜出，远端 MCP 工具不能悄悄顶替它。**优先级不靠隐式覆盖，而靠"合并顺序 + 名字唯一"这条显式规则**，读 `factory.py` 的合并链就能一眼推出结果，不需要记忆任何特殊情况。
 
 ### 静态注册
 
@@ -325,6 +343,27 @@ agent = Agent("demo", tools=[search, fetch, send_email])
 
 **为什么默认不重试？** 框架层的盲目重试只会用同样的参数再砸一次失败的依赖；而模型看到「timeout，建议换参数或退避」的结构化错误 + hint，能做出更聪明的决定。错误的最佳处理者是有上下文的那一方。
 
+### 熔断器：CLOSED / OPEN / HALF_OPEN 三态
+一个已经挂掉的工具如果还被反复调用，每一次都要白白走完"发请求 → 等超时 → 报错"，烧掉的是真金白银的轮次、token 和时间。熔断器（circuit breaker）的思路和家里的空气开关一样：**线路短路了就先断开，别让故障扩散**。prodagent 为每个工具单独维护一个三态状态机（`tooling/reliability/circuit_breaker.py`）：
+
+```mermaid
+stateDiagram-v2
+    [*] --> CLOSED
+    CLOSED --> OPEN: 滑动窗口内失败 ≥ 阈值(默认3)
+    OPEN --> HALF_OPEN: 恢复期(默认60s)到，放一个探测请求
+    HALF_OPEN --> CLOSED: 探测成功（清空失败记录，恢复）
+    HALF_OPEN --> OPEN: 探测又失败（立刻断开）
+```
+
+- **CLOSED（闭合，正常放行）**：请求正常通过，同时把每次失败的**单调时间戳**塞进一个 `deque`；
+- **OPEN（断开，快速失败）**：窗口内失败数达到阈值就断开，之后对这个工具的调用**立刻返回一个可重试错误**，不再真的去碰下游；
+- **HALF_OPEN（半开，只放一个探测）**：过了恢复期，只放**恰好一个**探测请求去"试水"——成功就 CLOSED 恢复，失败就立刻回到 OPEN。
+
+这里有两个值得初学者品味的细节：
+
+1. **为什么用"滑动窗口"而不是"累计失败次数"？** 如果只数总数，那工具半年前失败过 2 次、今天又失败 1 次，难道也要熔断？`deque` 里只保留最近 `window_seconds`（默认 300 秒）内的失败记录，每次统计前先把窗口外的旧记录从队首弹走——衡量的是"**最近**是不是一直在失败"，而不是"历史上有没有失败过"。
+2. **为什么半开时只放一个探测？** 如果恢复期一到就把积压的请求全放出去，而下游其实还没好，等于又给了它致命一击。只放一个探测，是用最小代价判断"恢复了没有"。
+
 这些都是可选的 wrapper，不影响核心工具逻辑。
 
 ---
@@ -357,6 +396,7 @@ agent = Agent("demo", tools=[search, fetch, send_email])
 | @tool 装饰器 | `tooling/decorator.py` |
 | FunctionTool | `tooling/base.py` |
 | ToolDispatcher | `tooling/dispatcher.py` |
+| 多来源工具合并（同名去重） | `tooling/merge.py` |
 | 工具注册 | `tooling/registry.py` |
 | 工具语义检索 | `tooling/search.py` |
 | 可靠性增强 | `tooling/reliability/` |

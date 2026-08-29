@@ -237,7 +237,7 @@ await with_http_retry(
 
 ## FakeLLM：精确可复现的测试模型
 
-这是 prodagent 工程化的关键。框架的 1,000+ 个测试全部用 FakeLLM，零 API key、零网络。
+这是 prodagent 工程化的关键。框架的 1,300+ 个测试全部用 FakeLLM，零 API key、零网络。
 
 ```python
 from prodagent.kernel.types import LLMResponse, StopReason, ToolCall
@@ -277,10 +277,32 @@ fake.add_route("Planner", [LLMResponse(content="计划...")])
 **为什么这很重要？** 因为 Agent 的行为是多轮的、有状态的。用真实 API 测试会遇到：
 - 非确定性（同样的输入可能得到不同输出）
 - 速率限制
-- 成本（1,000+ 个测试跑一次可能花几十美元）
+- 成本（1,300+ 个测试跑一次可能花几十美元）
 - 慢（每个测试等几秒到几十秒）
 
 FakeLLM 让测试**确定性、零成本、毫秒级完成**。
+
+---
+
+## 结构化输出：让模型稳定吐出 JSON
+你让模型"只返回一个 JSON 对象"，它却常常回你一句"好的，结果如下："再附上一段 ```json 代码块，甚至在 JSON 外面裹一层解释文字。如果直接 `json.loads(response.content)`，这些"不听话"的输出会让程序当场报错。prodagent 用**三层防线**把这件事做稳：
+
+```mermaid
+graph LR
+    A["模型文本<br/>可能裹着散文/代码围栏"] --> B["① 配平扫描<br/>extract_json_object"]
+    B --> C["② 解析+校验<br/>json.loads → pydantic"]
+    C -->|失败| D["③ 把错误喂回<br/>让模型自己改，重试"]
+    C -->|成功| E["得到类型安全的对象"]
+    D --> A
+```
+
+**第一道：配平扫描，而不是正则。** `extract_json_object` 先剥掉 markdown 围栏，然后从第一个 `{` 或 `[` 开始逐个字符扫描，用一个深度计数器找到**第一个括号配平**的片段。这里有两个小白容易忽略、但缺一不可的细节：要正确处理字符串内部出现的括号（字符串里的 `{` 不能计数），还要处理转义符 `\`。这也是为什么**不能用一个正则去"匹配 JSON"**——JSON 可以任意嵌套，正则处理不了嵌套层级。
+
+**第二道：解析 + 校验。** `parse_json_as` 把"提取 → `json.loads` → pydantic `model_validate`"串成三步，任何一步失败都统一成 `StructuredOutputError`，而不是把三种不同的异常漏给上层。
+
+> **小白加餐：pydantic 是什么？** 它是一个"用类型注解做运行时校验"的库：你声明一个类（字段名、类型、约束），把字典丢给 `model_validate`，它要么返回一个类型安全的对象，要么精确告诉你哪个字段不对。等于让 Python 这种动态语言在"系统边界处"拥有了静态校验。
+
+**第三道：把错误当成反馈，让模型自我修正。** 最体现设计思想的是 `complete_structured`：校验失败时它**不抛给用户、也不放弃**，而是把上一轮回答和校验错误一起追加回对话，补一句"你上次的输出没通过校验，这是错误原因，请只返回符合 schema 的 JSON"，然后重试（默认 2 次）。你会发现这和[工具错误返回结构化结果而不是抛异常](../decisions.md)是同一种哲学——**模型会犯错，这是常态；框架要做的是给它"看着错误改正"的机会，而不是让整个循环崩掉。**
 
 ---
 
@@ -292,6 +314,7 @@ FakeLLM 让测试**确定性、零成本、毫秒级完成**。
 # LLM_BASE_URL + LLM_API_KEY + LLM_MODEL → 任意 OpenAI 兼容端点
 # ANTHROPIC_API_KEY → Anthropic 原生
 ```
+**选择有确定的优先级**：Fake > OpenAI 兼容 > Anthropic 原生 > Fake 兜底（见 `llm/providers.py`）。注意一个刻意的设计——**框架不内置任何厂商清单**：它不关心你的 `LLM_BASE_URL` 指向 DeepSeek、Qwen、Moonshot 还是你自建的 vLLM 网关，"端点归你所有，框架不站队"。这样新增一家模型厂商时，框架一行代码都不用改。这也是端口思维在模型层的延续：**变化最频繁的东西（厂商、模型名、价格），用配置和数据承载，而不是用代码分支承载。**
 
 prodagent 不绑定特定模型。你可以：
 - 开发时用 FakeLLM，完全离线
@@ -329,6 +352,7 @@ prodagent 不绑定特定模型。你可以：
 | 缓存客户端 | `llm/cache.py` |
 | 定价表 | `llm/pricing.py` |
 | 模型自动检测 | `llm/providers.py` |
+| 结构化输出（配平扫描/校验/自纠重试） | `llm/structured_output.py` |
 
 ---
 

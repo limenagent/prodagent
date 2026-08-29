@@ -179,6 +179,16 @@ Spill后: read_file("big.log") → "[结果已溢出，spill_id=abc123，摘要:
 
 这和压缩是互补的：压缩是"把已有内容变短"，spill 是"把超长内容移出去"。
 
+几个容易忽略、但很见功力的细节：
+
+1. **占位符不是一句"已省略"，而是一张"取件指引"。** 消息里会保留前 2000 字预览，并明确告诉模型：需要细节就调用 `read_tool_result`，传入 `path` 和 `grep_pattern` 去文件里检索——**不要只信预览**。这样模型既不会被超长结果撑爆，又始终保留"按需取回全文"的能力，信息没有真正丢失，只是换了个地方放。
+2. **回读路径是一道安全边界。** `resolve()` 会把路径严格限制在 spill 目录内：拒绝符号链接、拒绝 `../` 逃逸（用 `Path.relative_to(base)` 判定）。这和[框架底座](../topics/foundation.md)里"在接缝处设防"的路径防火墙是同一条安全原则——模型可以决定读哪个溢出文件，但不能借这个通道读到系统别处的文件。
+3. **目录懒创建，且用了双重检查锁定。** spill 目录第一次真正需要时才建；`threading.Lock` 里再判一次 `None`，保证多线程并发时也只建一个目录。写文件用排他模式 `open(path, "x")`（文件已存在就跳过），让"同一个工具结果重复溢出"天然幂等，不会覆盖已有内容。
+
+> **小白加餐：双重检查锁定（double-checked locking）。** 想"只初始化一次"，朴素写法要么每次都加锁（慢），要么不加锁（并发时可能初始化多次）。标准做法是：锁外先看一眼是不是已经初始化（快路径免锁），没有才进锁，**进锁后再检查一次**（防止等待锁的过程中别人已经初始化好了）。一次冗余判断，换来"只建一次"的正确性。
+
+**延伸**：压缩到底该在上下文用到多满时触发，才最省钱？这背后是一个带缓存折扣的成本优化问题，[《上下文压缩最优触发点：数学建模与多厂商数值分析》](compress_threshold.md)给出了完整推导和各家模型的数值结论，感兴趣可以深挖。
+
 ---
 
 ## 与记忆系统的关系
@@ -207,7 +217,9 @@ Spill后: read_file("big.log") → "[结果已溢出，spill_id=abc123，摘要:
 | 五级压缩管道（HistoryCompressor + 各 Stage） | `cognition/context/compression/pipeline.py` |
 | 工具结果压缩（规则式） | `cognition/context/compression/formatting.py` |
 | LLM 摘要器 | `cognition/context/compression/summarizer.py` |
-| Spill 存储 | `cognition/context/spill.py` |
+| Spill 存储（含回读路径安全约束） | `cognition/context/spill.py` |
+| 追加时的超长工具结果处理 | `cognition/context/tool_results.py` |
+| 回读内置工具 read_tool_result | `tooling/builtin/read_tool_result.py` |
 | ContextConfig（阈值配置） | `base/config.py` |
 
 ---

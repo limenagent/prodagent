@@ -287,7 +287,7 @@ os.environ["USE_FAKE_LLM"] = "1"
 **理由**：
 - 真实 API 有延迟、有成本、有 rate limit、可能 flaky
 - FakeLLM 可以精确控制每一轮的输出，测试确定性场景
-- 1,182 个测试如果连真实 API，跑一次可能要几小时、花几十美元
+- 1,300+ 个测试如果连真实 API，跑一次可能要几小时、花几十美元
 - 离线测试可以在 CI 里频繁跑，每次 commit 都验证
 
 **FakeLLM 不是"简化版"**，它可以精确模拟：
@@ -363,4 +363,4 @@ test_work_queue_lease_timeout_requeue
 
 - 想查术语？→ [术语表 →](glossary.md)
 - 想看 API？→ [API 参考 →](reference.md)
-- 想回到首页？→ [学习路线 →](tour/index.md)
+- 想回到首页？→ [学习路线 →](index.md)

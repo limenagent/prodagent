@@ -91,7 +91,7 @@ prodagent 全部用 Protocol。原因：
 
 ## 17 个端口全景
 
-prodagent 在 `ports/__init__.py` 中导出了 17 个 Protocol 端口（外加 `LockToken`、`SpendView` 两个辅助类型），按职责分组：
+prodagent 在 `ports/__init__.py` 中导出了 17 个可替换的 Protocol 端口（`ports/` 目录下一共 20 个 Protocol，另 3 个是内部协作契约 `StageStore` / `ActivationPolicy` / `SpendView`；外加 `LockToken` 这样的非 Protocol 辅助类型），按职责分组：
 
 ### 模型与执行
 
@@ -136,6 +136,11 @@ prodagent 在 `ports/__init__.py` 中导出了 17 个 Protocol 端口（外加 `
 | `BudgetLedgerPort` | 多 Agent 共享预算账本（含 `SpendView`） | 内核 `BudgetLedger` |
 
 > **注意**：`LLMConfig` 是和 `LLMClient` 定义在同一个文件里的 dataclass，不是 Protocol 端口。它是端口契约的一部分——配置即契约。
+
+### 另外 3 个 Protocol：不是给你换后端用的
+`ports/` 目录下一共 20 个 Protocol，除了上面 17 个"可替换端口"，还有 3 个**框架内部协作时用的契约**：`StageStore`（三种舞台共享状态的存储约定）、`ActivationPolicy`（这轮谁发言的排班策略）、`SpendView`（预算账本对外暴露的只读视图）。它们平时不直接面向使用者，但**同样放在 ports 而不是实现层**，原因和下面的跨进程定义一致——协作层（coordination）只依赖契约、不依赖某个具体实现，将来把协作搬到分布式进程里时，换一个实现就行，协作代码一行不改。这也说明判断"该不该放 ports"的标准不是"用户会不会换它"，而是"**上层是不是只该依赖它的抽象**"。
+
+> **小白加餐：`@runtime_checkable` 是什么？** 普通 Protocol 主要用于静态类型检查；加上 `@runtime_checkable` 后，你还能在运行时用 `isinstance(x, LLMClient)` 判断"x 是不是长得像这个端口"。注意它检查的是**结构**（有没有要求的方法），不是继承关系——这正是"结构化子类型（鸭子类型的静态版本）"的含义：不要求你"是我的子类"，只要求你"有我要的样子"。
 
 ---
 
@@ -300,7 +305,7 @@ class MyInternalLLM:
 
 ### 场景 3：我想做单元测试
 
-用 FakeLLM + memory 后端，零外部依赖，1,000+ 个测试全离线跑。这就是为什么 prodagent 的测试不 flaky。
+用 FakeLLM + memory 后端，零外部依赖，1,300+ 个测试全离线跑。这就是为什么 prodagent 的测试不 flaky。
 
 ---
 

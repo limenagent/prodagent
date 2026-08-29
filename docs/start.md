@@ -272,7 +272,7 @@ agent = Agent(
 )
 ```
 
-**为什么这很重要？** 因为框架的 1,000+ 个测试全部用 FakeLLM，零 API key、零网络、零 flaky。你也可以用它精确复现某个 bug 场景。
+**为什么这很重要？** 因为框架的 1,300+ 个测试全部用 FakeLLM，零 API key、零网络、零 flaky。你也可以用它精确复现某个 bug 场景。
 
 多 Agent 场景下，用 `RoutingFakeLLM` 按 Agent 名称路由不同的响应序列：
 
@@ -306,6 +306,6 @@ budget = HardBudget(
 ## 下一步
 
 - 想理解底层机制？→ [第一部分 · 一次调用的生命周期](tour/index.md)
-- 想看真实场景？→ [9 个端到端示例](examples.md)
+- 想看真实场景？→ [10 个端到端示例](examples.md)
 - 想深入某个生产问题？→ [第二部分 · 生产问题域](index.md)
 - 想理解设计思想？→ [设计哲学](design-philosophy.md)

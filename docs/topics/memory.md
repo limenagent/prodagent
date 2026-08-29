@@ -112,6 +112,22 @@ graph TD
 
 **为什么需要这个通道**：不是所有记忆都能结构化。有些经验是模糊的、关联性的，适合向量检索。这是大多数框架唯一的记忆通道，prodagent 把它作为四个通道之一。
 
+#### 默认不依赖任何模型：哈希伪向量
+很多人以为"语义检索 = 调一个 embedding 大模型 API"。prodagent 的默认实现偏偏不——`cognition/memory/embedder.py` 的 `HashEmbedder` 用经典的**哈希技巧（hashing trick）**在本地、离线、确定性地造出向量：
+
+```python
+def embed(self, text):
+    vec = [0.0] * 256                              # 固定 256 维
+    for token in tokenize_cjk(text):              # 复用底座的中英文分词
+        idx = blake2b(token) % 256                # 每个词哈希到某一维
+        vec[idx] += 1.0                           # 该维 +1（词袋）
+    return L2 归一化(vec)                          # 之后用余弦相似度比较
+```
+
+两篇文本用到的词越接近，落到相同维度的次数就越多，余弦相似度（`cosine`）就越高——用零依赖、零网络的方式近似了"语义相近"。它当然不如真正的神经网络 embedding 准，但对个人助手这种规模的记忆库完全够用，而且**让整个记忆系统离线可跑、测试零 flaky**（和 FakeLLM 是同一种追求）。更关键的是它只是个**默认值**：`MemoryManager(embedder=...)` 支持构造器注入，生产环境你可以换成任意真实 embedding 客户端，四个通道一行都不用改——又一次"默认够用、升级换实现"的端口思维。
+
+> **小白加餐：什么是余弦相似度？** 把一段文本看成高维空间里的一个箭头（向量），两个箭头方向越一致、夹角越小，就越相似。余弦相似度算的就是这个夹角的余弦，范围 -1~1，越接近 1 越像。因为比较的是"方向"而不是"长度"，长文本和短文本也能公平比较，所以要先做 L2 归一化把长度拉成 1。
+
 ---
 
 ## 冲突裁决
@@ -189,6 +205,12 @@ activation = 指数衰减（按 TTL） + 频率加成（按召回次数） + 近
 
 每次召回成功，被召回的记忆要记一笔「访问次数 +1」——这是下一次激活的燃料。但这笔记账走后台队列异步落盘，检索路径上没有一次写盘。原则是：**读操作保持纯读，副作用异步落地**——否则召回越有用、记忆库越热，检索反而越慢，好的行为会惩罚自己。
 
+具体实现是 `cognition/memory/touch_worker.py` 的 `TouchBackWorker`：召回时只把记忆 id `put_nowait` 进一个内存队列就立刻返回；一个后台 `asyncio.Task` 串行地从队列取 id、调用 `touch_memory` 落盘。两个细节值得学：
+
+> **小白加餐：asyncio 后台任务。** `asyncio.create_task` 会把一个协程扔到事件循环里"抽空并行跑"，主流程不必 `await` 它——这正是"不阻塞召回"的实现方式。但后台任务绝不能反噬主流程：它内部 `try/except` 把写盘失败降级成一条 warning（强化是锦上添花，失败了不该让召回报错），关闭时用 `aclose()` 取消任务并干净收尾。**把"重要但不紧急、失败可容忍"的副作用挪到后台，是让关键路径又快又稳的通用手法。**
+
+写入侧还有两个容易忽略的角色：`MemoryClassifier` 用一次轻量 LLM 调用把原始文本提炼成结构化 `MemoryRecord`（输入长度、输出 token 都被严格限界，避免分类本身烧钱）；`FactStore` 则是图存储 `GraphStore` 之上的**异步门面**——因为后端可能是网络另一头的 Neo4j，所以它的每个方法都是 async，绝不让一次网络阻塞卡住记忆流水线。
+
 ### 可逆的遗忘
 
 冲突裁决的败者不被告别——被打上 `superseded` 标记，留在原地。两种时候你会感谢这个设计：审计时想追问「这条记忆为什么不再生效」（答案在胜者身上，链条完整）；以及裁决误判时想整体回滚（败者还在，恢复是改一个布尔值，不是做数据恢复）。**删除毁掉历史，淘汰保留历史**——对一套会自主学习的系统，历史就是它做过的所有决定的证据链。
@@ -220,7 +242,8 @@ activation = 指数衰减（按 TTL） + 频率加成（按召回次数） + 近
 | 四通道（Rule/Entity/Exact/Semantic） | `cognition/memory/channels.py` |
 | 记忆分类 | `cognition/memory/classification.py` |
 | 冲突裁决 | `cognition/memory/conflict.py` |
-| 嵌入器 | `cognition/memory/embedder.py` |
+| 嵌入器（默认哈希伪向量，可换真 embedding） | `cognition/memory/embedder.py` |
+| 后台强化工人（不阻塞召回） | `cognition/memory/touch_worker.py` |
 | 事实存储 | `cognition/memory/facts.py` |
 | 遗忘曲线 | `cognition/memory/forgetting.py` |
 | 存储模型（MemoryRecord/MemoryType） | `ports/document.py` |
