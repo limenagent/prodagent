@@ -58,6 +58,8 @@ class AgentSpec:
         return ""
 
     def to_dict(self) -> JsonDict:
+        """Hand-written (curated, not codec-dumped): the wire projection a
+        remote roster resolves. Nested specs recurse; budget is a plain dict."""
         return {
             "name": self.name,
             "description": self.description,
@@ -73,6 +75,7 @@ class AgentSpec:
 
     @classmethod
     def from_dict(cls, d: JsonDict) -> AgentSpec:
+        """Inverse of ``to_dict`` — the receiving side of a remote spawn."""
         from prodagent.kernel.budget import HardBudget
 
         budget = d.get("budget")
@@ -103,8 +106,8 @@ def spec_from_any(obj: Any) -> AgentSpec:
     """Spec of anything spec-shaped: an AgentSpec as-is, or any object with a
     ``spec()`` projection (the live Agent)."""
     if isinstance(obj, AgentSpec):
-        return obj
+        return obj  # already the wire form — no projection needed
     spec = getattr(obj, "spec", None)
     if callable(spec):
-        return cast("AgentSpec", spec())
-    raise TypeError(f"cannot derive an AgentSpec from {obj!r}")
+        return cast("AgentSpec", spec())  # a live Agent projects itself
+    raise TypeError(f"cannot derive an AgentSpec from {obj!r}")  # neither — wiring bug

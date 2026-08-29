@@ -1,3 +1,15 @@
+"""The ``@tool`` decorator — authoring syntax, nothing more.
+
+One decorated function yields a ``FunctionTool`` complete with a JSON
+schema inferred from its signature (docstring becomes description, type
+hints become parameter types). Pydantic's schema extras — ``title``,
+``$defs``, ``default`` — are stripped and ``$ref``s inlined, because the
+schema rides in the prompt on every call: cosmetic bytes cost real tokens.
+``readonly`` and a ``MEDIUM``/``HIGH`` side-effect level are rejected at
+decoration time — a tool that claims to be both parallel-safe and
+approval-worthy is a lie the framework refuses to host.
+"""
+
 from __future__ import annotations
 
 import inspect
@@ -40,6 +52,8 @@ def _resolve_refs(schema: Any, defs: dict[str, Any], _depth: int = 0) -> Any:
 
 
 def _strip_schema_extras(schema: Any) -> Any:
+    """Remove pydantic's cosmetic keys and inline ``$ref``s — the model
+    doesn't need them and every byte rides in the prompt."""
     if isinstance(schema, dict):
         defs = schema.get("$defs", {})
         if defs:
@@ -82,6 +96,10 @@ def tool(
     readonly: bool = False,
     meta: ToolMeta | None = None,
 ) -> FunctionTool | Callable[[Callable[..., Any]], FunctionTool]:
+    """Wrap a function as a ``FunctionTool`` — bare or with options. This is
+    the authoring surface; everything mechanical (schema inference, adapter
+    caching, incompatibility checks) happens here once, not in the loop."""
+
     def _make(fn: Callable[..., Any]) -> FunctionTool:
         tool_name = name or (meta.name if meta else fn.__name__)
         doc = description or (inspect.getdoc(fn) or "")
@@ -118,6 +136,9 @@ def tool(
 
 
 def _infer_schema(fn: Callable[..., Any], name: str, description: str) -> ToolSchema:
+    """Signature → JSON schema: type hints become parameter types (fallback
+    string on failure — a usable schema now beats a perfect one never), and
+    parameters without defaults become required."""
     properties: dict[str, Any] = {}
     required: list[str] = []
 

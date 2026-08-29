@@ -11,6 +11,7 @@ _ASCII_WORD = re.compile(r"[A-Za-z][A-Za-z0-9_-]{1,}")
 
 
 def tokenize_cjk(text: str, *, min_len: int = 2) -> list[str]:
+    """Tokenize mixed CJK/ASCII text for lexical matching."""
     # CJK text has no word boundaries; character n-grams (2..3) buy recall
     # without shipping a segmenter — precision is the embedder's job.
     if not text:
@@ -19,10 +20,13 @@ def tokenize_cjk(text: str, *, min_len: int = 2) -> list[str]:
     pos = 0
     for m in _CJK_RUN.finditer(text):
         if m.start() > pos:
+            # ASCII words between CJK runs tokenize the normal way.
             for w in _ASCII_WORD.findall(text[pos : m.start()]):
                 if len(w) >= min_len:
                     tokens.append(w.lower())
         run = m.group()
+        # Each contiguous CJK run yields its 2-grams and 3-grams — recall
+        # without a segmenter; precision is the embedder's job.
         for n in (2, 3):
             if len(run) < n:
                 continue
@@ -30,6 +34,7 @@ def tokenize_cjk(text: str, *, min_len: int = 2) -> list[str]:
                 tokens.append(run[i : i + n])
         pos = m.end()
     if pos < len(text):
+        # Trailing ASCII tail after the last CJK run.
         for w in _ASCII_WORD.findall(text[pos:]):
             if len(w) >= min_len:
                 tokens.append(w.lower())

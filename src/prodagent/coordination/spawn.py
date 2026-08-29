@@ -64,6 +64,9 @@ STATE_HANDOFF_REJECTED = "handoff_rejected"
 
 
 def child_run_id_for(parent_run_id: str | None, name: str) -> str | None:
+    """Deterministic child run id (``parent::name``) — same name always maps
+    to the same id, so replayed spawns correlate and checkpoint collision
+    checks catch an orphan from a prior attempt."""
     from prodagent.kernel.state import child_run_id
 
     return child_run_id(parent_run_id, name) if parent_run_id else None
@@ -91,6 +94,8 @@ class ChildResult:
 def short_result(
     name: str, state: str, message: str, *, failed_reason: str | None = None
 ) -> ChildResult:
+    """A one-line ChildResult — the shape every synthetic outcome (timeout,
+    crash, contract refusal) folds into, so the parent always reads one type."""
     return ChildResult(agent=name, state=state, output=message, failed_reason=failed_reason)
 
 
@@ -266,6 +271,10 @@ class Spawn:
         input_refs: dict[str, str] | None = None,
         idempotency_key: str = "",
     ) -> dict[str, Any]:
+        """The ``spawn_agent`` tool body: dispatch (DOWNSTREAM, dies pre-flight
+        on rejection) → enveloped execution → admission (UPSTREAM). Every
+        abnormal ending — unknown name, budget refusal, timeout, suspension —
+        returns a structured dict the parent's model reads, never a raise."""
         spec = self._spec_map.get(name)
         if spec is None:
             return ToolError.from_reason(
@@ -334,6 +343,10 @@ class Spawn:
         input_refs: dict[str, str] | None,
         idempotency_key: str,
     ) -> HandoffPacket:
+        """Assemble the DOWNSTREAM whitelist: task, inherited constraints,
+        the child's own tools, input handles. There is deliberately no field
+        for the parent's conversation — the child sees the packet, not the
+        parent's context."""
         packet_kwargs: dict[str, Any] = {
             "task_description": task,
             "constraints": list(self._constraints),
@@ -447,6 +460,8 @@ class Spawn:
         )
         if delivery.status == "rejected":
             if delivery.stage == "gate":
+                # A security veto names a different outcome than a contract
+                # mismatch — the parent reasons differently about each.
                 return short_result(
                     name,
                     STATE_HANDOFF_REJECTED,
@@ -473,6 +488,10 @@ class Spawn:
     async def _run_with_timeout(
         self, spec: Agent, task: str, packet: HandoffPacket, child_run_id: str | None
     ) -> ChildResult:
+        """Wall-clock clamp on the child — its own budget's seconds axis, not
+        a guess. A timeout is a *result*, not an exception: the parent reads
+        "the child ran past its clock" and decides (typically: don't blind-
+        retry the same spawn)."""
         timeout = (
             spec.budget_config.max_seconds
             if spec.budget_config is not None
@@ -496,6 +515,10 @@ class Spawn:
     async def _run_child(
         self, spec: Agent, task: str, packet: HandoffPacket, child_run_id: str | None
     ) -> ChildResult:
+        """One activation through the RunnerPort — where the child executes
+        (this process or another machine) is the port implementation's
+        business. The stream is reduced to its terminal run; every field the
+        parent might bill on or resume from carries into the ChildResult."""
         child_task = packet.to_task_prompt()
 
         try:
@@ -546,6 +569,9 @@ class Spawn:
             await self._hooks.fire(event, **fields)
 
     def build_tool(self) -> FunctionTool:
+        """The ``spawn_agent`` FunctionTool — roster schema from spec
+        projections, idempotency enforced (the host-minted key dedupes
+        crash-replays at the tool boundary)."""
         schema = build_spawn_tool_schema([a.spec() for a in self._spec_map.values()])
         meta = ToolMeta(
             name="spawn_agent",

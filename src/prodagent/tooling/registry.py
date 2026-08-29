@@ -1,3 +1,5 @@
+"""The registry — where tool visibility is budgeted (tiering + breaker)."""
+
 from __future__ import annotations
 
 import logging
@@ -48,6 +50,10 @@ class ToolRegistry:
         )
 
     def register(self, tool: FunctionTool, *, tier: str = "l2", role: str = "general") -> None:
+        """File a tool under a tier (l1 core / l2 domain / l3 cold). Every
+        tier feeds ``_all`` — callability is unconditional; only *visibility*
+        is tiered. L3 registration invalidates the search index so it
+        rebuilds with the newcomer."""
         self._all[tool.name] = tool
         if tier == "l1":
             self._l1_core.append(tool)
@@ -65,13 +71,18 @@ class ToolRegistry:
         intent: str = "",
         force_l3_query: str | None = None,
     ) -> list[FunctionTool]:
+        """Compute this hop's visible menu: L1 always, L2 by role, L3 only
+        when a query surfaces it into a still-lean list — then breaker-filter
+        (a tripped tool is callable but hidden until it recovers)."""
         active: list[FunctionTool] = []
         for t in self._l1_core:
-            if await self._breaker.is_available(t.name):
+            if await self._breaker.is_available(t.name):  # core tools hide too when tripped
                 active.append(t)
         active_names = {t.name for t in active}
 
         for t in self._l2_domain.get(role, []):
+            # name check first: a tool can sit in both L1 and a role's L2 —
+            # first mount wins, no duplicates in the schema list.
             if t.name not in active_names and await self._breaker.is_available(t.name):
                 active.append(t)
                 active_names.add(t.name)

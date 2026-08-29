@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 
 
 class ApprovalHooks:
+    """The approval cartridge: provide the gate on the bus's typed slot and
+    mount it as the APPROVAL_REQUEST checker — HIGH side-effect tools
+    suspend through here (fail-closed when no approver answers)."""
+
     def __init__(
         self,
         *,
@@ -36,6 +40,8 @@ class ApprovalHooks:
         return self._gate
 
     def attach(self, hooks: HookRegistry) -> None:
+        """Provide the gate, then register the checker exactly once per
+        registry (re-attaching a shared gate must not double-veto)."""
         self._hooks = hooks
         hooks.provide(ApprovalProvider, self._gate)
         if self._gate.is_wired_to(hooks):

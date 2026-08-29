@@ -1,3 +1,14 @@
+"""Deterministic test models — why the whole test suite runs offline.
+
+Agent behaviour is multi-turn and stateful; testing it against a real API
+buys nondeterminism, rate limits, dollars, and seconds per case. These
+adapters buy the opposite: scripted FIFO responses, word-by-word streaming,
+optional latency — plus routing, because a spawn fan-out pops a single
+shared queue in nondeterministic order. ``RoutingFakeLLM`` gives each agent
+its own FIFO keyed by system-prompt marker, so concurrent agents read
+*their* script, not whichever response the event loop handed them first.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -52,14 +63,19 @@ class FakeLLMAdapter:
         config: LLMConfig | None = None,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
     ) -> LLMResponse:
+        """Pop the next scripted response (or synthesize an echo of the last
+        user message) and stream it word-by-word, mirroring what a real
+        adapter's on_chunk cadence looks like to consumers."""
         if self._latency_ms > 0:
             await asyncio.sleep(self._latency_ms / 1_000)
 
         self._call_count += 1
 
         if self._queue:
-            response = self._queue.popleft()
+            response = self._queue.popleft()  # scripted turn: consume FIFO
         else:
+            # Queue drained: echo the last user message — obvious in output,
+            # so a test that overruns its script fails visibly, not silently.
             last_user = next(
                 (m["content"] for m in reversed(messages) if m.get("role") == "user"),
                 self._default_content,
@@ -80,6 +96,9 @@ class FakeLLMAdapter:
 
 
 def script(*turns: dict[str, Any]) -> FakeLLMAdapter:
+    """Multi-turn scripts in the small: ``{"tool": ...}`` / ``{"tools": ...}``
+    / ``{"content": ...}`` per turn, FIFO. The 80% of test cases that don't
+    need hand-built LLMResponse objects."""
     responses: list[LLMResponse] = []
     for turn in turns:
         if "tool" in turn:
@@ -198,6 +217,9 @@ class RoutingFakeLLM:
         return self._default
 
     def _resolve(self, system: str) -> _AgentQueue:
+        """First registered marker contained in the system prompt wins;
+        anything unmatched falls to the default queue — routing fails loud
+        only if the test asserted on the wrong queue."""
         for marker, queue in self._queues.items():
             if marker in system:
                 return queue

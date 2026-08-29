@@ -468,8 +468,6 @@ graph LR
     GATE --> DLQ{"⑤ 失败?"}
     DLQ -->|是| DEAD["DeadLetterStore"]
     DLQ -->|否| RECEIVER["接收方"]
-    style PIPE fill:#fff3e0,stroke:#e65100,stroke-width:2px
-    style DEAD fill:#ffebee,stroke:#c62828
 ```
 
 **核心概念**：

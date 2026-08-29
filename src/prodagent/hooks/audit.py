@@ -71,6 +71,9 @@ class AuditLogger:
         return self._exporter
 
     async def record(self, span: AgentSpan) -> None:
+        """Export one span — sampling drops non-error spans (errors always
+        through: a failure you sampled away is a failure you can't diagnose),
+        and the scrubber's redaction happens here, at the sink, once."""
         if not self._force_log_unsampled and not span.sampled and not span.error:
             return
 
@@ -93,6 +96,8 @@ class AuditLogger:
         trace_id: str | None = None,
         parent_span_id: str | None = None,
     ) -> AgentSpan:
+        """Mint a span. Passing the parent's ``trace_id``/``span_id`` nests —
+        that threading is what turns isolated records into one tree per run."""
         resolved_trace = trace_id or _new_trace_id()
         resolved_parent = None if root else parent_span_id
         return AgentSpan(
@@ -117,5 +122,7 @@ class AuditLogger:
             return True
         if self._sample_rate <= 0.0:
             return False
+        # Hash the trace id into [0,1) and compare — a pseudo-random but
+        # stable coin flip per trace, no RNG state to persist.
         bucket = int(trace_id[:8], 16) % 10_000 / 10_000
         return bucket < self._sample_rate

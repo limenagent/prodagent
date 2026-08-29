@@ -13,4 +13,6 @@ def now_utc() -> datetime:
 
 
 def now_timestamp() -> str:
+    """ISO-8601 UTC string — the storage/display form. One format, so
+    timestamps written by one code path parse in every other."""
     return now_utc().isoformat()

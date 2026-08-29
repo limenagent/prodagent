@@ -1,3 +1,9 @@
+"""MCP layer 2b — http transport: the server is a URL.
+
+One persistent httpx session; responses may arrive as plain JSON or as an
+SSE stream (the Accept header allows both), and each request carries its
+own id for correlation. Same wire contract as stdio — different pipe."""
+
 from __future__ import annotations
 
 import asyncio

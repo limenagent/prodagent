@@ -1,3 +1,11 @@
+"""Summariser — the LLM call the compression pipeline escalates to.
+
+Structured summaries (focus + done-list at history level, focus + key
+result at topic level), returned as bare JSON and rendered into the
+labelled ``[HISTORY SUMMARY]`` / ``[TOPIC SUMMARY]`` block that replaces
+the older turns. Without an LLM the summariser degrades to empty string —
+compression then falls back to mechanical fitting, never blocks."""
+
 from __future__ import annotations
 
 import logging
@@ -44,6 +52,8 @@ class Summariser:
     async def summarise(
         self, messages: MessageList, *, level: CompressionLevel = CompressionLevel.HISTORY_SUMMARY
     ) -> str:
+        """One structured summary of ``messages`` at the given level; empty
+        when there is nothing to summarise or no LLM to summarise with."""
         if not messages or self._llm is None:
             return ""
         return await self._summarise_with_llm(self._llm, messages, level=level)

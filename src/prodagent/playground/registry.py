@@ -50,6 +50,9 @@ _V = TypeVar("_V")
 
 
 class _LRUCache(Generic[_K, _V]):
+    """Bounded recent-runs cache — the live-run window is memory, not truth
+    (storage owns truth), so it can afford to evict."""
+
     def __init__(self, maxsize: int) -> None:
         self._maxsize = maxsize
         self._data: OrderedDict[_K, _V] = OrderedDict()
@@ -364,15 +367,24 @@ class RunRegistry:
                 logger.warning("[playground] failed to close backend registry", exc_info=True)
 
     async def reconstruct(self, run_id: str) -> ReconstructResult:
+        """Rebuild an agent for a run the process never saw — the stateless
+        HTTP story. Any unrecognized run_id is chased back through session
+        and checkpoint storage (every example, probed) and the factories
+        rebuilt from the discovered spec; a chain parked mid-relay resumes
+        at the suspended peer instead of the root."""
         if not run_id:
             raise RunReconstructError("empty run_id", run_id, status_code=400)
         if is_child_run_id(run_id):
+            # Children ("parent::child") are resumed through their root —
+            # approving a child directly would bypass the parent's chain.
             raise RunReconstructError(
                 "child run_id cannot be resumed directly — approve via the root run",
                 run_id,
                 status_code=400,
             )
 
+        # Session first: a chat-style run's truth lives in the session store
+        # (its checkpoint may be absent in bare profiles).
         spec, session = await self._find_session(run_id)
         if spec is not None and session is not None and spec.factory is not None:
             agent = spec.factory(run_id)
@@ -389,6 +401,8 @@ class RunRegistry:
 
         target_run_id = run.run_id
         if run.state is not RunState.SUSPENDED and run.pending_handoff is not None:
+            # Root finished its hop and parked a handoff; the suspended PEER
+            # is where the chain actually continues — resume there.
             peer_id = await self._resolve_suspended_peer(spec, run)
             if peer_id is not None:
                 target_run_id = peer_id
@@ -416,6 +430,9 @@ class RunRegistry:
         return _summary_from(spec.name, run)
 
     async def list_all_runs(self) -> list[RunSummary]:
+        """Every run on disk across all examples — the run list is a storage
+        query, so a server restart (or a different replica) shows the same
+        history. One example's scan failure degrades to that example only."""
         results = await asyncio.gather(
             *(self._scan_example(s) for s in self._specs.values()),
             return_exceptions=True,

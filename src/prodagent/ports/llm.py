@@ -28,7 +28,13 @@ class LLMClient(Protocol):
         tools: list[dict[str, Any]] | None = None,
         config: LLMConfig | None = None,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
-    ) -> LLMResponse: ...
+    ) -> LLMResponse:
+        """One model call → one canonical response. ``on_chunk`` streams
+        text tokens as they arrive (real-time output / reasoning traces)
+        without changing the return shape — adapters choose whether to
+        actually stream. Config may be ``None``; the adapter's default
+        then applies."""
+        ...
 
 
 @dataclass(frozen=True)
@@ -44,17 +50,24 @@ class PricingTable:
 
 
 def token_cost_usd(response: LLMResponse, pricing: PricingTable) -> float:
+    """Cost of one response under a pricing table — the single formula every
+    budget and ledger settles with. Four token classes, four price lines:
+    plain input and output at list rate, cache-read at a discount, cache-
+    write at a premium (providers bundle cache tokens into input_tokens,
+    so the plain-input base excludes them)."""
     cache_read = response.cache_read_tokens or 0
     cache_write = response.cache_write_tokens or 0
     # Providers count cache tokens inside input_tokens; they carry their own
     # (discounted / premium) price lines, so the plain-input base excludes them.
     input_billed = max(0, response.input_tokens - cache_read - cache_write)
     cost = (
+        # four token classes, four price lines — never a blended average
         input_billed / 1_000_000 * pricing.input_rate_per_million
         + response.output_tokens / 1_000_000 * pricing.output_rate_per_million
         + cache_read / 1_000_000 * (pricing.input_rate_per_million * pricing.cache_read_discount)
         + cache_write / 1_000_000 * (pricing.input_rate_per_million * pricing.cache_write_premium)
     )
+    # clamp at zero: refunds (negative cache adjustments) are not a thing here
     return max(0.0, cost)
 
 

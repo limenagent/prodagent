@@ -56,6 +56,7 @@ class FactStore:
         )
 
     async def load_all(self) -> list[StoredMemory]:
+        """Every Fact node as a StoredMemory — recall's entity-channel corpus."""
         out: list[StoredMemory] = []
         for node in await self.list_nodes(label="Fact"):
             p = node["properties"]

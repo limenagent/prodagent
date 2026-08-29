@@ -49,11 +49,18 @@ class FileCheckpointStore:
         return best
 
     async def save(self, run: AgentRun, expected_version: int | None = None) -> None:
+        """flock-guarded read-modify-write: latest version + 1, atomically
+        renamed into place; a mismatched ``expected_version`` is a
+        ``VersionConflict``. Disk work runs on a thread — file IO must never
+        block the event loop a store serves."""
         await asyncio.to_thread(self._save_sync, run, expected_version)
 
     def _save_sync(self, run: AgentRun, expected_version: int | None) -> None:
         try:
             with _exclusive(self._lock_path(run.run_id)):
+                # Read-modify-write under the cross-process lock: latest
+                # version is read INSIDE the critical section, so two writers
+                # can never both believe they are writing vN.
                 current_version = self._latest_version(run.run_id)
 
                 if expected_version is not None and expected_version != current_version:
@@ -63,7 +70,7 @@ class FileCheckpointStore:
                         f"A concurrent writer persisted a newer snapshot — reload and rebase."
                     )
 
-                new_version = current_version + 1
+                new_version = current_version + 1  # append-only versions — nothing overwritten
                 target = self._path(run.run_id, new_version)
                 envelope: dict[str, Any] = {
                     "schema_version": SCHEMA_VERSION,
@@ -90,6 +97,8 @@ class FileCheckpointStore:
             )
 
     async def load(self, run_id: str, version: int | None = None) -> AgentRun | None:
+        """Latest (or named) version; envelope's version rides back on the
+        run so the next save's optimistic check starts from the truth."""
         return await asyncio.to_thread(self._load_sync, run_id, version)
 
     def _load_sync(self, run_id: str, version: int | None = None) -> AgentRun | None:
@@ -134,6 +143,8 @@ class FileCheckpointStore:
         return run
 
     async def list_versions(self, run_id: str) -> list[int]:
+        """Version history is one file per version — listing is a glob, and
+        every version is forever forkable."""
         return await asyncio.to_thread(self._list_versions_sync, run_id)
 
     def _list_versions_sync(self, run_id: str) -> list[int]:

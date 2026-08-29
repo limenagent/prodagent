@@ -63,6 +63,10 @@ class Peer:
         task: str,
         input_refs: dict[str, str] | None = None,
     ) -> ToolResult:
+        """The tool body behind every ``handoff_to_<peer>``: an unknown peer
+        is a structured error (the model reads the roster and corrects), a
+        known one parks a HANDOFF outcome the dispatcher turns into a
+        pending handoff."""
         if peer_name not in self._spec_map:
             return ToolResult.from_error(
                 ToolError.from_reason(
@@ -192,6 +196,9 @@ async def find_suspended_peer(
     store: CheckpointStore | None,
     root_run_id: str,
 ) -> tuple[str, str] | None:
+    """Resume discovery for a chain that parked mid-relay: the root's
+    pending handoff plus a peer checkpoint still in SUSPENDED. Returns
+    ``(peer_name, peer_run_id)`` or ``None`` (fresh start)."""
     if store is None:
         return None
     root = await store.load(root_run_id)

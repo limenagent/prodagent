@@ -1,3 +1,10 @@
+"""Result shaping — the mechanical (non-LLM) shrinking of tool outputs.
+
+Oversized results collapse head+tail around an omitted middle, prefixed by
+a signal-field hint (status/counts/URLs extracted from the JSON) so the
+model keeps the verdict of a result it can no longer read in full. Rule-
+based on purpose: this runs on the hot assembly path, every turn."""
+
 from __future__ import annotations
 
 import json

@@ -99,6 +99,9 @@ class InProcessChatRunner:
 
     def activate(self, activation: AgentActivation) -> AsyncGenerator[AgentEvent, None]:
         if activation.session_id is None:
+            # The port accepts bare activations too; this implementation is
+            # session-scoped by design — misrouting here would fork a member
+            # that should speak as itself.
             raise ValueError(
                 "InProcessChatRunner activates session-scoped member turns — "
                 f"pass session_id (agent={activation.agent!r})"

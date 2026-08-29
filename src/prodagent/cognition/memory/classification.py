@@ -1,3 +1,12 @@
+"""MemoryClassifier — deciding what deserves to be remembered.
+
+Every run produces transcript text; almost none of it is memory. This
+module is the gate: an LLM call distils at most ONE reusable record from a
+candidate text — a distilled rule/fact/preference/event, never a narration
+of what the agent did — and "none" is the expected majority verdict. The
+prompt encodes the bar (self-contained, concise, durable); the parser
+tolerates the ways models wrap JSON despite instructions."""
+
 from __future__ import annotations
 
 import asyncio

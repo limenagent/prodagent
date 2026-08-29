@@ -90,6 +90,8 @@ def _parse_skill_file(path: Path) -> SkillContent:
 
     description = str(meta.get("description", ""))
     if not description:
+        # No front-matter description: fall back to the first heading line —
+        # the catalogue always needs a one-liner per skill.
         for line in body.splitlines():
             stripped = line.lstrip("#").strip()
             if stripped:
@@ -182,12 +184,14 @@ class SkillRegistry:
         """
         history_dir = self._history_dir(name)
         if history_dir is None or not history_dir.exists():
-            return False
+            return False  # in-memory registry (or never archived) — nothing to restore
         candidates = sorted(history_dir.glob(f"*_v{to_version}.md"))
         if not candidates:
-            return False
-        content = _parse_skill_file(candidates[-1])
-        self.register(content)
+            return False  # that version was never archived
+        content = _parse_skill_file(candidates[-1])  # latest snapshot of that version
+        self.register(
+            content
+        )  # re-register archives the current one — rollback is never destructive
         logger.info("Skill %r rolled back to v%s from %s", name, to_version, candidates[-1])
         return True
 

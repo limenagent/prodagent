@@ -13,7 +13,6 @@ graph LR
     A --> T1["工具1"]
     A --> T2["工具2"]
     A --> M["记忆"]
-    style A fill:#ffebee,stroke:#c62828
 ```
 
 一个 Agent 可能跑 20 轮，每轮调一次模型、执行多个工具。出了问题：

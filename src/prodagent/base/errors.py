@@ -190,6 +190,9 @@ class LLMError(AgentError):
 
 
 SECURITY_VETO_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    # The one family that must never be swallowed as "tool failed, carry on":
+    # wherever these surface (dispatchers, pipelines, retry loops), they
+    # re-raise — a security stop outranks graceful degradation.
     PermissionDenied,
     PromptInjectionDetected,
     SensitiveContentDetected,
@@ -241,6 +244,9 @@ class ClassifiedError:
 
 
 def _status_code_of(exc: BaseException) -> int | None:
+    """Dig a status out of either shape providers throw — on the exception
+    itself, or on its ``.response``. Duck-typing keeps the classifier free
+    of any SDK import."""
     status: int | None = getattr(exc, "status_code", None)
     if status is not None:
         return status
@@ -249,6 +255,9 @@ def _status_code_of(exc: BaseException) -> int | None:
 
 
 def _classify_http(exc: BaseException, *, provider: str, model: str) -> ClassifiedError:
+    """Map a transport/HTTP exception onto the vocabulary by status code,
+    falling back to exception type (timeout / connection), then UNKNOWN —
+    which stays retryable, per the presumed-transient default."""
     status = _status_code_of(exc)
     message = str(exc)
     reason = _STATUS_TO_REASON.get(status) if status is not None else None
@@ -280,12 +289,21 @@ def _classify_http(exc: BaseException, *, provider: str, model: str) -> Classifi
 
 
 def _classify_llm(exc: BaseException, *, provider: str, model: str) -> ClassifiedError:
+    """HTTP classification, then provider-message refinement: context-window
+    and content-policy failures don't map to status codes — every provider
+    reports them in prose, so the message body is the signal."""
     classified = _classify_http(exc, provider=provider, model=model)
     message = classified.raw_message.lower()
+    # Prose sniffing: these two failure families carry no status code — every
+    # provider reports them in the message body, so the body is the signal.
     if "context_length" in message or "context window" in message or "maximum context" in message:
-        return replace(classified, reason=ErrorReason.CONTEXT_OVERFLOW, retryable=False)
+        return replace(
+            classified, reason=ErrorReason.CONTEXT_OVERFLOW, retryable=False
+        )  # unfixable by retry
     if "content_policy" in message or "content policy" in message or "safety" in message:
-        return replace(classified, reason=ErrorReason.CONTENT_BLOCKED, retryable=False)
+        return replace(
+            classified, reason=ErrorReason.CONTENT_BLOCKED, retryable=False
+        )  # policy, not fault
     return classified
 
 

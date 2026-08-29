@@ -12,7 +12,10 @@ if TYPE_CHECKING:
 class CacheStore(Protocol):
     """Idempotent response cache for LLM complete calls."""
 
-    async def get(self, key: str) -> LLMResponse | None: ...
+    async def get(self, key: str) -> LLMResponse | None:
+        """Cached response for ``key`` or ``None`` — a miss is the normal
+        path, never an exception."""
+        ...
 
     async def set(self, key: str, response: LLMResponse) -> None:
         """Overwrites silently on conflict."""

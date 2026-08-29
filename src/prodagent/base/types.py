@@ -50,20 +50,25 @@ MessageList: TypeAlias = list[Message]
 
 
 def stable_serialize(obj: object) -> object:
-    """Best-effort stable JSON pre-serializer for fingerprint / hash computation."""
+    """Best-effort stable JSON pre-serializer for fingerprint / hash computation.
+
+    The codec's job is "reversible"; this one's is "comparable" — it renders
+    datetimes/Decimals/paths into deterministic strings so semantically
+    equal inputs always hash equal, the precondition dead-loop detection
+    and cache keys rely on."""
     import datetime
     import decimal
     import pathlib
 
     if isinstance(obj, (datetime.datetime, datetime.date, datetime.time)):
-        return obj.isoformat()
+        return obj.isoformat()  # canonical, timezone-explicit string form
     if isinstance(obj, datetime.timedelta):
-        return repr(obj)
+        return repr(obj)  # isoformat doesn't exist for timedelta; repr is stable
     if isinstance(obj, decimal.Decimal):
-        return str(obj)
+        return str(obj)  # preserves exact digits — float() would round-trip badly
     if isinstance(obj, pathlib.PurePath):
         return str(obj)
-    return repr(obj)
+    return repr(obj)  # last resort: repr is deterministic for most builtins
 
 
 class RunState(StrEnum):

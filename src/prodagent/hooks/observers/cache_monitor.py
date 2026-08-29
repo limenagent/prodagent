@@ -35,9 +35,9 @@ class CacheMonitorHooks:
         **_: Any,
     ) -> None:
         if turn <= self._warmup_turns:
-            return
+            return  # nothing to hit cache against in the first turns — don't judge yet
         if cache_hit_ratio >= self._threshold:
-            return
+            return  # healthy — clear the tracked set below stays for a fresh start
         if run_id in self._warned_runs:
             return
         self._warned_runs.add(run_id)

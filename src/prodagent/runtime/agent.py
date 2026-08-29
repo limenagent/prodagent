@@ -218,6 +218,11 @@ class Agent:
         resume: bool = False,
         mode: ExecutionMode | None = None,
     ) -> AsyncGenerator[AgentEvent, None]:
+        """One conversational turn as an event stream. Session-scoped: the
+        session allocates (or resumes) the run identity, the transcript folds
+        back into the session when a terminal event lands, and the session
+        persists under optimistic versioning — two concurrent turns on one
+        session conflict loudly instead of last-write-wins."""
         if resume and not session_id:
             raise ValueError("resume=True requires an explicit session_id")
 
@@ -245,6 +250,9 @@ class Agent:
             initial_messages=messages,
         ):
             if isinstance(event, (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)):
+                # Fold the finished transcript back and persist before the
+                # consumer sees the terminal event — a crash right after
+                # still leaves a resumable session on disk.
                 session.complete_turn(run_id, resolved_mode, event.run)
                 await store.save(session, expected_version=session.version)
             yield event
@@ -257,6 +265,9 @@ class Agent:
         resume: bool = False,
         mode: ExecutionMode | None = None,
     ) -> AgentRun:
+        """Stream-and-settle convenience over ``chat_stream`` — reduces the
+        stream to its terminal run (a synthetic FAILED one if the stream
+        somehow ends bare)."""
         if message is None and not resume:
             raise ValueError(
                 "chat() requires a message (or resume=True with an explicit session_id). "
@@ -276,6 +287,10 @@ class Agent:
         *,
         approver_id: str = "",
     ) -> None:
+        """Answer an approval request this agent's run is parked on. The
+        decision lands in the store; resumption happens by re-driving the
+        session (``resume=True``) — no in-process waiter is woken, which is
+        what lets the deciding human be on another machine."""
         from prodagent.hooks.approval import ApprovalDecision
 
         gate = self._find_approval_gate()
@@ -287,6 +302,8 @@ class Agent:
         await gate.submit_decision(request_id, ApprovalDecision(decision), approver_id=approver_id)
 
     def _find_approval_gate(self) -> ApprovalProvider | None:
+        """Locate the approval provider in wiring order: the bus's typed
+        slot first, then an explicitly configured one."""
         from prodagent.hooks.approval import ApprovalProvider
 
         # Idempotent wire-first: what a probe sees is what a run would use.
@@ -326,6 +343,10 @@ class Agent:
         session_id: str,
         mode: ExecutionMode | None,
     ) -> tuple[ConversationSession, str, ExecutionMode, MessageList]:
+        """Open a fresh turn: allocate the run id (a SUSPENDED predecessor
+        is resumed instead — see ``start_turn``), guard against an orphan
+        checkpoint stealing the id, and persist the session before any work
+        starts, so a crash mid-turn finds a resumable record."""
         resolved_mode = mode or self.config.mode
         store = self._ensure_session_store_resolved()
         session = await store.load(session_id)
@@ -385,6 +406,9 @@ class Agent:
     # -- Prompt & context -------------------------------------------------
 
     def build_system_prompt(self) -> str:
+        """Compose the per-agent system prompt: identity header, context,
+        hard constraints, skills index. The ``# {name} Agent`` header is
+        load-bearing — RoutingFakeLLM routes test scripts on it."""
         parts: list[str] = []
         if self.config.name:
             parts.append(f"# {self.config.name} Agent")
@@ -425,6 +449,9 @@ class Agent:
     # -- Tools ------------------------------------------------------------
 
     async def resolve_tools(self) -> list[Tool]:
+        """This agent's base tool set: inline tools first, then registry
+        visibility (L1/L2/L3 + breaker filtering) merged by name — inline
+        wins by merge order, the "closest to the developer" rule."""
         active_tools: list[Tool] = list(self.config.tools)
         if self.config.tool_registry is not None:
             registry_tools = await self.config.tool_registry.get_active_tools(
@@ -436,6 +463,11 @@ class Agent:
     # -- Hooks ------------------------------------------------------------
 
     def attach_default_hooks(self) -> HookRegistry | None:
+        """Idempotent hook wiring: an explicitly passed registry is only
+        user-wired onto it; otherwise the profile's bundle manifest mounts
+        (each cartridge attaches itself), then user accumulations wire on
+        top. A bundle that fails to attach logs and steps aside — one bad
+        cartridge must not take the agent down."""
         if self.config.hooks is not None:
             self._wire_hooks(self.config.hooks)
             return self.config.hooks
@@ -509,6 +541,8 @@ class Agent:
     # -- Fork / spawn -----------------------------------------------------
 
     def peer_named(self, name: str) -> Agent | None:
+        """Roster lookup by name — what a handoff descriptor resolves
+        against on the receiving side."""
         for peer in self.config.peers:
             if peer.name == name:
                 return peer
@@ -524,6 +558,9 @@ class Agent:
         return forked
 
     def _runtime_overrides(self, runtime: ParentRuntime) -> dict[str, Any]:
+        """The field-replacement set a fork takes from the parent's wiring —
+        exactly the ParentRuntime subset (budget, stores, llm, hooks), never
+        the parent's per-hop state."""
         return {
             "llm": runtime.llm,
             "hooks": runtime.hooks,
@@ -543,6 +580,9 @@ class Agent:
         checkpoint: CheckpointStore | None = None,
         event_log: EventLog | None = None,
     ) -> Agent:
+        """Fork this agent as the next link of a peer chain: the fork runs
+        under the *parent's* wiring (hooks, extensions, stores) but keeps
+        its own peers — the chain can continue past it."""
         runtime = ParentRuntime(
             llm=self.config.llm,
             hooks=parent.hooks,
@@ -567,6 +607,8 @@ class Agent:
         return forked
 
     def fork_as_spawn(self, runtime: ParentRuntime) -> Agent:
+        """Fork as a spawned child: takes the parent's wiring wholesale —
+        a child has no peers of its own to preserve."""
         return self._fork(
             **self._runtime_overrides(runtime),
             extensions=list(self.config.extensions),

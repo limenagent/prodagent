@@ -49,6 +49,8 @@ def cache_key_for(
     if config is not None:
         if getattr(config, "temperature", 0.0) > 0.0:
             return ""  # Non-deterministic — caller should skip caching.
+        # Only identity-bearing settings enter the key: two calls that differ
+        # merely in timeout must still share a cache entry.
         cfg_part = json.dumps(
             {
                 "model": config.model,
@@ -91,6 +93,9 @@ class CachingLLMClient:
         self._framework_config = framework_config
 
     def _resolve_store(self) -> Any:
+        """Late-resolve the store on first use — lets compose wrap the LLM
+        before backends exist, without paying factory work when every call
+        misses anyway."""
         if self._store is None:
             from prodagent.backends.factory import resolve_cache
             from prodagent.base.config import FrameworkConfig
@@ -108,11 +113,16 @@ class CachingLLMClient:
         config: LLMConfig | None = None,
         on_chunk: ChunkCallback | None = None,
     ) -> LLMResponse:
+        """Lookup → miss → inner call → best-effort store. A cache hit still
+        fires ``on_chunk`` (so streaming UIs behave) and returns a flagged
+        copy the billing path skips — replayed tokens were paid for once."""
         key = cache_key_for(messages, system=system, tools=tools, config=config)
-        store = self._resolve_store() if key else None
+        store = self._resolve_store() if key else None  # "" key = uncachable, no store work
         if key and store is not None:
             cached = await store.get(key)
             if cached is not None:
+                # Replay the content through on_chunk so streaming UIs can't
+                # tell a cache hit from a live call.
                 if on_chunk is not None and cached.content:
                     await on_chunk(cached.content)
                 return _copy_with_cache_flag(cached)
@@ -129,10 +139,13 @@ class CachingLLMClient:
             try:
                 await store.set(key, response)
             except Exception as exc:  # noqa: BLE001 — cache write failure is best-effort
+                # A cache that can't write is a slower pass-through, never an
+                # error the caller should see.
                 logger.warning("CachingLLMClient: store.set failed: %s", exc)
         return response
 
     def unwrap(self) -> LLMClient:
+        """Peel the wrapper — compose uses this to avoid double-wrapping."""
         return self._inner
 
 

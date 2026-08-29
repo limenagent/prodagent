@@ -57,6 +57,8 @@ def _write_env(env: dict[str, str], path: Path) -> None:
 
 
 def main() -> int:
+    """Interactive flow: pick a path, collect values, write ``.env`` — the
+    zero-config on-ramp for a first playground run."""
     print("=" * 60)
     print("  prodagent playground — LLM config")
     print("=" * 60)

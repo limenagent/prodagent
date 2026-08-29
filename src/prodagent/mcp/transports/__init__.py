@@ -1,3 +1,5 @@
+"""Transports — how to reach an MCP server (stdio child process / http URL)."""
+
 from __future__ import annotations
 
 from prodagent.mcp.transports._base import Transport

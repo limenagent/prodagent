@@ -1,3 +1,10 @@
+"""Five-level compression — escalate only as the window fills.
+
+NONE → tool-result compress → history summary → topic summary → emergency:
+each stage runs only when the budget tracker says the previous one wasn't
+enough, so cheap mechanical shrinking happens long before any LLM
+summarisation is spent. Re-exported surface for the pipeline stages."""
+
 from __future__ import annotations
 
 from prodagent.cognition.context.compression.formatting import CHARS_PER_TOKEN

@@ -1,3 +1,15 @@
+"""Conflict adjudication — when a new memory contradicts an old one.
+
+Writing a memory is not always an append: the world changes, and a fresh
+record can contradict one already stored. The pipeline here finds the
+collision (an embedding top-K candidate filter — cheap pre-selection), asks
+an LLM whether a real contradiction exists, and if so supersedes the loser.
+Supersession, not deletion: the old record stays, flagged, so history
+remains auditable and the decision reversible — facts version in place
+instead (their entity is the unit), which is FactStore's business.
+
+"""
+
 from __future__ import annotations
 
 import json

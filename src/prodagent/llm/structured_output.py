@@ -1,3 +1,17 @@
+"""Structured output — three lines of defence against "almost-JSON".
+
+Ask a model to return only JSON and it will still answer with prose, code
+fences, or both. Rather than hoping harder, this module defends in depth:
+① a balanced-brace scanner (not a regex — JSON nests arbitrarily, and braces
+inside strings must not count) that peels fences and finds the first
+parseable object; ② extract → ``json.loads`` → pydantic validation folded
+into one ``StructuredOutputError``; ③ the self-correction loop — validation
+failures are appended back into the conversation so the *model* fixes its
+own output, the same philosophy as tool errors returning structured results:
+model mistakes are routine; the framework's job is a chance to correct, not
+a crash.
+"""
+
 from __future__ import annotations
 
 import json
@@ -20,6 +34,7 @@ class StructuredOutputError(Exception):
 
 
 def extract_json_object(text: str) -> str:
+    """Pull the first valid JSON object/array out of model output."""
     # Models wrap JSON in prose and markdown fences despite instructions;
     # scan for the first balanced object/array instead of assuming clean
     # output — and keep scanning past prose that merely looks balanced.
@@ -61,31 +76,31 @@ def extract_json_object(text: str) -> str:
         for i in range(start, len(text)):
             c = text[i]
             if escape:
-                escape = False
+                escape = False  # previous char was "\", this one is literal
                 continue
             if c == "\\":
-                escape = True
+                escape = True  # next char is escaped — skip its meaning
                 continue
             if c == '"':
-                in_string = not in_string
+                in_string = not in_string  # string boundaries toggle string mode
                 continue
             if in_string:
-                continue
+                continue  # braces inside strings must NOT count toward depth
             if c == open_ch:
                 depth += 1
             elif c == close_ch:
                 depth -= 1
                 if depth == 0:
-                    end = i
+                    end = i  # first balanced close — candidate found
                     break
         if end == -1:
             if first_candidate is not None:
-                return first_candidate
+                return first_candidate  # nothing later balanced either — settle for the first
             raise ValueError(f"Unmatched {open_ch}{close_ch} in output")
 
         candidate = text[start : end + 1]
         if first_candidate is None:
-            first_candidate = candidate
+            first_candidate = candidate  # remember the first balanced span as fallback
         try:
             json.loads(candidate)
             return candidate
@@ -144,6 +159,8 @@ async def complete_structured(
                 max_retries + 1,
                 exc,
             )
+            # Self-correction: append the failed answer + the validator's
+            # complaint so the next call fixes *this* error, not a generic one.
             conversation = conversation + [
                 {"role": "assistant", "content": text},
                 {

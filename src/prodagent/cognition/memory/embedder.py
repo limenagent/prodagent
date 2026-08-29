@@ -38,6 +38,10 @@ class HashEmbedder:
     """Bag-of-hashed-tokens pseudo-vectors — swap for a real embedder in production."""
 
     def embed(self, text: str) -> list[float]:
+        """Token hashes scatter into a 256-dim bag-of-tokens vector,
+        L2-normalized — cosine over these approximates lexical overlap.
+        Deterministic and offline by design (recall must not depend on a
+        network embedder); swap in a real embedder where semantics matter."""
         vec = [0.0] * _DIM
         for token in tokenize_cjk(text):
             h = hashlib.blake2b(token.encode(), digest_size=4).digest()

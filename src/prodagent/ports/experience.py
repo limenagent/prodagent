@@ -22,9 +22,15 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class ExperienceStore(Protocol):
-    async def record(self, record: ExperienceRecord) -> None: ...
+    async def record(self, record: ExperienceRecord) -> None:
+        """Append one run's outcome — the raw material skill distillation
+        learns from."""
+        ...
 
-    async def load_all(self) -> list[ExperienceRecord]: ...
+    async def load_all(self) -> list[ExperienceRecord]:
+        """Every recorded experience; the synthesiser filters, the store
+        doesn't."""
+        ...
 
 
 def conversation_messages(run: AgentRun) -> list[dict[str, Any]]:
@@ -92,15 +98,20 @@ class ExperienceRecord:
 
 
 def _outcome_for(run: AgentRun) -> ExperienceOutcome:
+    """Grade a finished run for the learning loop's benefit."""
     if run.state == RunState.COMPLETED:
         output = str(run.final_output or "").strip()
         if not output:
+            # "Completed" with nothing to show taught nobody anything.
             return ExperienceOutcome.PARTIAL
         if not run.tool_history:
+            # No tools used means no procedure to distil — answering isn't
+            # a learnable skill.
             return ExperienceOutcome.PARTIAL
         return ExperienceOutcome.SUCCESS
     if run.state == RunState.FAILED:
         return ExperienceOutcome.FAILURE
+    # SUSPENDED / still-running: not a verdict yet.
     return ExperienceOutcome.PARTIAL
 
 

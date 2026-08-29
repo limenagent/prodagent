@@ -23,6 +23,10 @@ __all__ = ["LearningHooks"]
 
 
 class LearningHooks:
+    """The learning cartridge: record every finished run as an experience,
+    then (in the background, off the session's critical path) let the
+    synthesizer distil corroborated successes into skill patches."""
+
     def __init__(
         self,
         synthesizer: SkillSynthesizer | None = None,
@@ -63,10 +67,15 @@ class LearningHooks:
         self._tasks: set[asyncio.Task[None]] = set()
 
     def attach(self, hooks: HookRegistry) -> None:
+        """One listener: SESSION_END fans out the loop, everything else is
+        the background task's business."""
         self._hooks = hooks
         hooks.register_event(HookEvent.SESSION_END, self._on_session_end)
 
     async def flush(self, timeout: float = 30.0) -> None:
+        """Drain in-flight synthesis at shutdown — bounded wait, and stragglers
+        are left running rather than cancelled (a half-written skill file is
+        worse than a slow exit)."""
         if not self._tasks:
             return
         pending = list(self._tasks)
@@ -85,6 +94,9 @@ class LearningHooks:
             )
 
     async def _on_session_end(self, *, run: AgentRun | None = None, **_: Any) -> None:
+        """Record + spawn the background patch. Subordinate children are
+        skipped — their transcript folds into the parent, whose own end
+        carries the whole story."""
         if run is None:
             return
         from prodagent.kernel.state import is_child_subordinate

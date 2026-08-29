@@ -1,3 +1,11 @@
+"""MCP layer 3 — the client: handshake, list tools, call tools.
+
+One client owns one server connection end to end. Protocol-version
+negotiation is honest about disagreement (log and continue on the server's
+version); a failed handshake closes the half-open transport so ``connect``
+is always a clean slate; tool discovery caches — the roster is stable for
+a session, and every reconnect invalidates it."""
+
 from __future__ import annotations
 
 import contextlib
@@ -19,6 +27,9 @@ _CLIENT_VERSION = "1.0.0"
 
 @dataclass
 class MCPToolInfo:
+    """One remote tool as the protocol describes it — name, schema, and the
+    server's own risk annotations (the bridge's classification input)."""
+
     name: str
     description: str
     input_schema: dict[str, Any] = field(default_factory=dict)
@@ -62,12 +73,17 @@ class MCPClient:
         return self._connected
 
     async def connect(self) -> None:
+        """Open the transport and complete the initialize handshake; on any
+        failure the transport is closed and rebuilt so the client object
+        stays reusable."""
         if self._connected:
             return
         await _connect_transport(self._transport, self._config)
         try:
             await self._handshake()
         except BaseException:
+            # Half-open connection: close and swap in a fresh transport so
+            # the next connect() starts clean, not atop a broken pipe.
             with contextlib.suppress(Exception):
                 await self._transport.close()
             self._transport = _build_transport(self._config)
@@ -94,6 +110,9 @@ class MCPClient:
         )
         server_version = result.get("protocolVersion", _PROTOCOL_VERSION)
         if server_version != _PROTOCOL_VERSION:
+            # Negotiation, not enforcement: the server's version wins (the
+            # protocol is designed for this); we log the divergence rather
+            # than fail — tool calls are largely version-stable.
             logger.info(
                 "MCP server %r negotiated protocol %s (client prefers %s) — continuing",
                 self._name,
@@ -105,6 +124,8 @@ class MCPClient:
         await self._transport.notify("notifications/initialized")
 
     async def list_tools(self, *, refresh: bool = False) -> list[MCPToolInfo]:
+        """The server's roster, cached after first discovery (``refresh``
+        forces a re-read)."""
         if self._tools is not None and not refresh:
             return self._tools
 

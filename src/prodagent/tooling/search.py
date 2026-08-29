@@ -56,8 +56,13 @@ _SPECIAL_PREFIXES = ("mcp__", "agent__", "skill__", "subtool__")
 
 
 class ToolNameParser:
+    """Split a tool name into matchable word parts."""
+
     @classmethod
     def parse(cls, name: ToolName) -> _ToolNameTokens:
+        """Handle snake_case / camelCase / prefixed names uniformly —
+        ``read_file``, ``readFile`` and ``mcp__read_file`` all yield the
+        parts a query term can hit."""
         for prefix in _SPECIAL_PREFIXES:
             if name.startswith(prefix):
                 normalized = name.replace("__", " ").replace("_", " ")
@@ -122,6 +127,9 @@ class ToolSearchIndex:
         logger.debug("ToolSearchIndex initialized with %d tools", len(tools))
 
     def search(self, query: str, max_results: int = _DEFAULT_MAX_RESULTS) -> list[FunctionTool]:
+        """Rank the cold tier against a query: exact/prefix hits return
+        immediately, otherwise weighted scoring over name parts, description
+        words, and domain."""
         if not self._tools or not query:
             return []
 
@@ -131,7 +139,7 @@ class ToolSearchIndex:
         for name, tool in self._tools.items():
             tokens = self._name_tokens[name]
             if name.lower() == query_lower or tokens.normalized.lower().startswith(query_lower):
-                return [tool]
+                return [tool]  # a direct hit outranks any score arithmetic
 
         query_terms = query_lower.split()
         if not query_terms:

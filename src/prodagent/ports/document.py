@@ -26,7 +26,9 @@ EPISODIC_DEFAULT_TTL_DAYS = 7
 def mem_id(text: str, *, prefix: str = "") -> str:
     # Content-hash identity: writing the same memory twice lands on the same
     # id — dedupe and conflict supersession without a lookup query.
-    h = hashlib.blake2b(text.encode(), digest_size=6).hexdigest()
+    h = hashlib.blake2b(
+        text.encode(), digest_size=6
+    ).hexdigest()  # 6 bytes: short, collision-safe enough
     return f"{prefix}{h}" if prefix else h
 
 
@@ -108,9 +110,29 @@ def _coerce_memory_type(value: Any) -> MemoryType:
 class DocumentStore(Protocol):
     """Storage for CONSTRAINT + PREFERENCE + EPISODIC memories."""
 
-    async def load_constraints(self) -> list[StoredMemory]: ...
-    async def load_memories(self) -> list[StoredMemory]: ...
-    async def save_memories(self, data: list[StoredMemory]) -> None: ...
-    async def append_soft(self, record: MemoryRecord) -> None: ...
-    async def mark_superseded(self, mem_id: str, superseded: bool) -> None: ...
-    async def touch_memory(self, mem_id: str) -> None: ...
+    async def load_constraints(self) -> list[StoredMemory]:
+        """The always-on subset: constraints ride into every context build
+        (recall-free — they gate behaviour, they aren't searched)."""
+        ...
+
+    async def load_memories(self) -> list[StoredMemory]:
+        """Full corpus for recall — the embedder's working set."""
+        ...
+
+    async def save_memories(self, data: list[StoredMemory]) -> None:
+        """Whole-corpus persist (consolidation writes back the full list)."""
+        ...
+
+    async def append_soft(self, record: MemoryRecord) -> None:
+        """Append one soft memory — id is content-derived, so a re-write of
+        the same content lands on the same record (dedupe by construction)."""
+        ...
+
+    async def mark_superseded(self, mem_id: str, superseded: bool) -> None:
+        """Flag a memory as replaced — supersession, not deletion, so history
+        stays auditable."""
+        ...
+
+    async def touch_memory(self, mem_id: str) -> None:
+        """Record an access for recency scoring and decay."""
+        ...

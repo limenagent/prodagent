@@ -24,6 +24,10 @@ def _wrap_recall(recall: Callable[..., Any]) -> Callable[..., Any]:
 
 
 class MemoryHooks:
+    """The memory cartridge: expose the manager on the bus's typed slot,
+    inject its recall at CONTEXT_INJECTOR (L2), run classification at
+    SESSION_END — attach() is the whole wiring, in bundle form."""
+
     def __init__(self, manager: Any) -> None:
         self._manager = manager
 
@@ -33,6 +37,8 @@ class MemoryHooks:
         return self._manager
 
     def attach(self, hooks: HookRegistry) -> None:
+        """Wire every memory touchpoint in one move — duck-typed on the
+        manager so any MemoryProvider-shaped object plugs in the same way."""
         from prodagent.cognition.memory import MemoryProvider
         from prodagent.kernel.bus import HookEvent, InjectionPoint
 

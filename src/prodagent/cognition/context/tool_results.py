@@ -1,3 +1,13 @@
+"""Tool-result reduction — the single throat results pass on append.
+
+Every tool result entering a transcript funnels through
+:func:`reduce_on_append` (the dispatcher's and the plan executor's shared
+path): under the spill threshold it passes through; past it, the payload
+moves to the spill store and the message keeps a bounded preview plus the
+path ``read_tool_result`` can page back through. Serialization here is
+human-shaped on disk (pretty JSON, real newlines) because the spill file's
+reader is a grepping model, not a parser."""
+
 from __future__ import annotations
 
 import json
@@ -75,12 +85,13 @@ def _spill_if_oversized(
     spill_store: ToolResultSpillStore | None,
 ) -> Message:
     if spill_store is None or max_result_chars == float("inf"):
-        return msg
+        return msg  # spill off or explicitly unbounded (read_tool_result pages itself)
     content = str(msg.get("content", ""))
     if not content or _SPILL_MARKER in content:
-        return msg
+        return msg  # already a placeholder — never spill a spill
     if len(content) <= max_result_chars:
-        return msg
+        return msg  # under the threshold: verbatim, zero machinery
+    # Over the line: payload to disk, bounded preview + handle into context.
     spilled = spill_store.spill(
         content=_expand_string_newlines(content), call_id=call_id, tool_name=tool_name
     )
@@ -98,10 +109,10 @@ def reduce_on_append(
     msg: Message = {
         "role": "tool",
         "tool_call_id": call.call_id,
-        "content": _serialize_for_spill(result_wire),
+        "content": _serialize_for_spill(result_wire),  # human-shaped: readable if it does spill
     }
     if cfg is None:
-        return msg
+        return msg  # no context config → no spill threshold → verbatim append
     return _spill_if_oversized(
         msg,
         call.call_id,

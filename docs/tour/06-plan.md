@@ -11,9 +11,6 @@ graph TD
     Q{"任务类型?"} -->|探索式、不确定路径| R["REACTIVE<br/>边走边想"]
     Q -->|有明确步骤、可并行| P["PLAN_FIRST<br/>先规划后执行"]
     Q -->|确定性流程、合规要求固定| W["Workflow<br/>手写静态 DAG"]
-    style R fill:#e8f5e9,stroke:#2e7d32
-    style P fill:#fff3e0,stroke:#e65100
-    style W fill:#e3f2fd,stroke:#1565c0
 ```
 
 REACTIVE 模式很灵活，但不是万能的：
@@ -233,11 +230,6 @@ graph LR
     B --> D["步骤4<br/>⏳ PENDING"]
     C --> E["步骤5<br/>⏳ PENDING"]
     D --> E
-    style A fill:#c8e6c9,stroke:#2e7d32
-    style B fill:#c8e6c9,stroke:#2e7d32
-    style C fill:#ffebee,stroke:#c62828
-    style D fill:#fff3e0,stroke:#e65100
-    style E fill:#fff3e0,stroke:#e65100
 ```
 
 恢复时：
@@ -294,9 +286,6 @@ graph TD
     Q1 -->|不确定| Q4{"任务复杂吗<br/>(>5步)?"}
     Q4 -->|复杂| PLAN
     Q4 -->|简单| REACTIVE
-    style WORKFLOW fill:#e3f2fd,stroke:#1565c0
-    style PLAN fill:#fff3e0,stroke:#e65100
-    style REACTIVE fill:#e8f5e9,stroke:#2e7d32
 ```
 
 **经验法则**：

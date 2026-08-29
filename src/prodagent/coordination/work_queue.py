@@ -184,13 +184,16 @@ class SharedQueue(RoundedLockableStore, EventSourcedStore):
             if not self._pending:
                 return None
             now = time.monotonic()
+            # First VISIBLE item, not first in list: backoff items keep their
+            # FIFO position but are unclaimable until not_before passes — a
+            # poison item can't starve its neighbours, and order is stable.
             index = next(
                 (i for i, item in enumerate(self._pending) if item.not_before <= now), None
             )
             if index is None:
-                return None
+                return None  # everything pending is still backing off
             item = self._pending[index]
-            del self._pending[index]
+            del self._pending[index]  # claimed: leaves pending, lives under lease now
             lease_expires_at = now + self._lease_seconds
             self._claimed[item.item_id] = _ClaimInfo(
                 worker=worker_name,
@@ -207,6 +210,9 @@ class SharedQueue(RoundedLockableStore, EventSourcedStore):
             return item
 
     async def complete(self, item_id: str) -> None:
+        """Settle a claimed item as done — completing an unclaimed item is a
+        worker bug and raises (the alternative, silent success, would eat a
+        double-complete and lose the duplicate)."""
         async with self._lock:
             if self._claimed.pop(item_id, None) is None:
                 raise KeyError(f"complete() on unclaimed item {item_id!r}")
@@ -233,9 +239,11 @@ class SharedQueue(RoundedLockableStore, EventSourcedStore):
                     item.not_before = time.monotonic() + min(
                         self._retry_backoff_seconds * 2 ** (item.attempts - 1), 60.0
                     )
-                self._pending.append(item)
+                self._pending.append(item)  # tail requeue: other items get their turn first
             else:
-                self._dead_lettered.append(item_id)
+                self._dead_lettered.append(
+                    item_id
+                )  # archived for good — never blocks the queue again
             self._resolution_count += 1
             if outcome == "dead_letter":
                 await self._record(
@@ -255,6 +263,8 @@ class SharedQueue(RoundedLockableStore, EventSourcedStore):
             return outcome, item.attempts
 
     def is_drained(self) -> bool:
+        """Nothing pending, nothing in flight — the queue's natural stop
+        (the ``Drained`` termination strategy reads this)."""
         return not self._pending and not self._claimed
 
     async def dead_letters(self) -> list[dict[str, Any]]:
@@ -263,6 +273,8 @@ class SharedQueue(RoundedLockableStore, EventSourcedStore):
         return await self._dead_letter.dead_letters()
 
     def snapshot(self) -> dict[str, Any]:
+        """Counters only — payloads never ride a snapshot (the drain events
+        already recorded them durably)."""
         return {
             "pending": len(self._pending),
             "claimed": len(self._claimed),
@@ -273,6 +285,8 @@ class SharedQueue(RoundedLockableStore, EventSourcedStore):
         }
 
     def _expired_claim_ids(self, now: float) -> list[str]:
+        """Claims whose lease lapsed — a crashed worker's items, recoverable
+        by requeue on the next sweep (attempts already incremented)."""
         return [
             item_id for item_id, claim in self._claimed.items() if claim.lease_expires_at <= now
         ]
@@ -393,6 +407,9 @@ class AgentWorkMember:
         return str(self._agent.name)
 
     async def try_claim_and_run(self, queue: SharedQueue, *, name: str) -> WorkResult | None:
+        """Claim one item; run it as one isolated session activation; report
+        the outcome either way — completion and failure both settle the item,
+        retry policy is the queue's, not the worker's."""
         item = await queue.claim_next(self._agent.name)
         if item is None:
             return None

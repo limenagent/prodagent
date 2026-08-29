@@ -54,6 +54,8 @@ class Event:
 
     @classmethod
     def make(cls, event_type: str, stream_id: str, version: int, **data: Any) -> Event:
+        """Mint an event for appending. ``seq=0`` is the "unassigned"
+        placeholder — the store's append is what stamps the real LSN."""
         return cls(
             seq=0,
             event_id=str(uuid.uuid4()),
@@ -100,11 +102,14 @@ async def hybrid_restore(
     run = await checkpoint_store.load(run_id)
     base = extract_base(run) if run is not None else None
     if base is not None:
+        # Fast path: snapshot as the base, replay only the tail after it.
         state, checkpoint_version, last_seq = base
         post = await event_log.get_after(run_id, since_seq=last_seq)
         for event in post:
-            reducer(state, event)
+            reducer(state, event)  # fold the few events the snapshot missed
         return state, checkpoint_version, post[-1].seq if post else last_seq
+    # No usable snapshot: fold the entire log from an empty state — slower,
+    # but never wrong.
     fresh_state = empty_state()
     events = await event_log.get_events(run_id)
     for event in events:

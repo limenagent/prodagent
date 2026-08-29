@@ -143,8 +143,12 @@ class Pipeline:
                 try:
                     current = await interceptor.intercept(current)
                 except DuplicateCrossing as dup:
+                    # Replay short-circuit: skip every remaining interceptor,
+                    # dead-letter nothing — a replay is not a fault.
                     return Delivery("duplicate", current, dup.reason, "dedupe")
                 except CrossingRejected as rejection:
+                    # Dead letter exactly once, here at the boundary — before
+                    # the primitive learns the outcome.
                     if self._dead_letter is not None:
                         await self._dead_letter.on_failure(
                             current.message_id,
@@ -152,6 +156,8 @@ class Pipeline:
                             rejection.reason,
                         )
                     if not rejection.strict:
+                        # Lenient: the refusal is recorded but the ORIGINAL
+                        # (pre-interceptor) crossing continues onward.
                         logger.warning(
                             "Lenient rejection at %s[%s]: %s — original continues",
                             slot.value,

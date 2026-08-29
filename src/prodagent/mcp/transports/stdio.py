@@ -1,3 +1,11 @@
+"""MCP layer 2a — stdio transport: the server is a child process.
+
+Speaks newline-delimited JSON-RPC over the child's stdin/stdout. A single
+permanent reader task resolves futures by request id, so concurrent calls
+multiplex over one pipe instead of serializing; the child is started in
+its own process group so tearing it down doesn't signal the agent's own
+process tree."""
+
 from __future__ import annotations
 
 import asyncio

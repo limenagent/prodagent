@@ -98,6 +98,9 @@ class Step:
         system: str,
         tools: list[dict[str, Any]] | None,
     ) -> AsyncIterator[AgentEvent]:
+        """One turn of the atom: think (assemble → call → account), then —
+        only if the model asked for tools — act, with budget checked on both
+        sides of the batch (the model call itself may have burned the cap)."""
         response, token_events = await self._think(run, system=system, tools=tools)
         for evt in token_events:
             yield evt
@@ -196,7 +199,7 @@ class Step:
         # A cached response is a replay — its tokens were already accounted on
         # first execution — but the turn still counts: the turns axis must see
         # a run that spins on cache hits, not one that looks free.
-        if not getattr(response, "from_cache", False):
+        if not getattr(response, "from_cache", False):  # getattr: non-caching clients lack the flag
             run.add_tokens(
                 response,
                 cost_usd=self._llm_config.cost_for_response(response)
@@ -205,6 +208,8 @@ class Step:
             )
 
         if response.reasoning_content:
+            # Non-streaming path still surfaces the reasoning as one THINK
+            # event, so observers see it exactly once either way.
             await _fire(
                 self._bus, HookEvent.THINK, text=response.reasoning_content, run_id=run.run_id
             )
@@ -229,6 +234,8 @@ class Step:
         )
 
         if response.content or response.tool_calls:
+            # Skip fully-empty assistant turns — some providers emit them on
+            # tool-only responses, and an empty turn pollutes the transcript.
             msg: Message = {"role": "assistant", "content": response.content}
             if response.thinking_blocks:
                 # Raw blocks ride on the message so a tool-use continuation can
@@ -249,7 +256,11 @@ class Step:
             run.messages.append(msg)
 
     def _end_turn(self, run: AgentRun, response: LLMResponse) -> bool:
-        """True when the model stopped without asking for tools — run is done."""
+        """True when the model stopped without asking for tools — run is
+        done. The tool_calls guard matters: some providers report
+        END_TURN-ish stops *with* pending calls, and dropping those would
+        strand a tool_use with no result. Backfill ensures even a
+        max_tokens-cut run leaves the user an answer."""
         if response.stop_reason != StopReason.END_TURN and response.tool_calls:
             return False
 

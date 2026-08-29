@@ -32,6 +32,10 @@ class HandoffPacket:
     prior_output_max_chars: int = CROSSING_OUTPUT_MAX_CHARS
 
     def to_task_prompt(self) -> str:
+        """Render the receiving side's task prompt. Bounded by construction:
+        prior output passes through ``bound_text`` and input refs are named
+        as handles to resolve, never inlined — the prompt can't smuggle an
+        unbounded history."""
         lines = [self.task_description.strip(), ""]
         if self.prior_output:
             trimmed = bound_text(self.prior_output, self.prior_output_max_chars)

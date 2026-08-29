@@ -1,4 +1,11 @@
-"""Plan — the runtime, self-revising DAG that PLAN_FIRST execution produces."""
+"""Plan — the runtime, self-revising DAG that PLAN_FIRST execution produces.
+
+Unlike a static task graph, this DAG is a living document: the planner
+(model or hand-written Workflow) drafts it, execution advances per-node
+status, and replans rewrite it *by version* — replaced steps turn OBSOLETE
+instead of disappearing, so the event log can replay every revision and
+resume never mistakes "never ran" for "ran and was scrapped".
+"""
 
 from __future__ import annotations
 
@@ -13,6 +20,8 @@ from prodagent.kernel.types import StepStatus
 
 @dataclass
 class PlanStep:
+    """One DAG node: what to run, what it waits for, and how far it got."""
+
     step_id: str
     action: str = ""
     params: dict[str, Any] = field(default_factory=dict)
@@ -27,11 +36,18 @@ class PlanStep:
 
     version_created: int = 1
     replaces_step_id: str | None = None
+    """Replan lineage: the step this one replaced. Completed steps may carry
+    side effects (a sent email, a written row) — replans must reroute around
+    them, never re-execute them."""
 
     def to_dict(self) -> dict[str, Any]:
+        """Checkpoint form: full fidelity — every status/output/lineage field
+        resume depends on."""
         return asdict(self)
 
     def to_hook_dict(self, *, include_terminal: bool = False) -> dict[str, Any]:
+        """Hook/event form: only what an observer needs. Slimmer than
+        ``to_dict`` on purpose — hooks fire per step, payload bytes add up."""
         d: dict[str, Any] = {
             "id": self.step_id,
             "action": self.action,
@@ -50,11 +66,19 @@ class Plan:
         self.plan_id = plan_id or str(uuid.uuid4())
         self.version: int = 1
         self._steps: dict[str, PlanStep] = {}
+        # Reverse index (dependency -> dependents) so "what becomes ready
+        # when this step lands" is a lookup, not a graph rescan.
         self._dependents: dict[str, list[str]] = {}
         self.task_input: str = ""
 
     @classmethod
     def from_state(cls, state: dict[str, Any], *, plan_id: str) -> Plan:
+        """Checkpoint-restore path: the resume half of crash recovery.
+
+        The RUNNING→PENDING reset below is the DAG-level resume rule: a node
+        found mid-flight at crash time has unknown partial state, so it is
+        redone; COMPLETED nodes are never re-executed (their side effects
+        already happened)."""
         plan = cls(plan_id=plan_id)
         plan.version = state.get("version", 1)
         for sid, sd in state.get("steps", {}).items():
@@ -82,6 +106,8 @@ class Plan:
         return plan
 
     def add_steps(self, steps: list[PlanStep]) -> None:
+        """Initial insertion (planner output / Workflow compile). Validates
+        acyclicity before any step lands — a bad batch mutates nothing."""
         self._assert_acyclic(steps)
         for s in steps:
             s.version_created = self.version
@@ -107,12 +133,12 @@ class Plan:
 
         self._assert_acyclic(new_steps)
 
-        self.version += 1
+        self.version += 1  # every replan advances the plan's version — lineage, not bookkeeping
         for ns in new_steps:
             if ns.replaces_step_id:
                 old = self._steps.get(ns.replaces_step_id)
                 if old:
-                    old.status = StepStatus.OBSOLETE
+                    old.status = StepStatus.OBSOLETE  # replaced, not deleted — history replays
             ns.version_created = self.version
             self._steps[ns.step_id] = ns
             self._index_deps(ns)
@@ -129,6 +155,9 @@ class Plan:
         return list(self._steps.values())
 
     def get_parallel_ready(self) -> list[PlanStep]:
+        """PENDING nodes whose dependencies are all COMPLETED — the wave the
+        executor fans out concurrently. Read-only tools racing inside a step
+        is a lower-level concern; *this* is the DAG's parallelism unit."""
         return [
             s for s in self._steps.values() if s.status is StepStatus.PENDING and self._deps_done(s)
         ]
@@ -154,12 +183,19 @@ class Plan:
         return True
 
     def is_complete(self) -> bool:
+        """OBSOLETE counts as done: a node scrapped by replan neither ran nor
+        failed — it simply stopped mattering."""
         return all(
             s.status in (StepStatus.COMPLETED, StepStatus.OBSOLETE) for s in self._steps.values()
         )
 
     def mark_downstream_obsolete(self, failed_step_id: str) -> list[str]:
-        """COMPLETED dependents are skipped but traversed so their own PENDING downstream still gets obsoleted."""
+        """On failure, quarantine everything that (transitively) depended on
+        the failed node — their inputs will never materialize.
+
+        COMPLETED dependents are skipped but traversed so their own PENDING
+        downstream still gets obsoleted: a finished step's failure-cousins
+        down the chain are just as doomed as direct dependents."""
         obsolete: list[str] = []
         queue: deque[str] = deque(self._dependents.get(failed_step_id, ()))
         seen: set[str] = set(queue)
@@ -180,12 +216,17 @@ class Plan:
         return obsolete
 
     def to_state(self) -> dict[str, Any]:
+        """The dict that rides inside the checkpoint's plan cursor — version
+        plus every step's full state, so ``from_state`` can rebuild losslessly."""
         return {
             "version": self.version,
             "steps": {s.step_id: s.to_dict() for s in self.steps},
         }
 
     def resolve_params(self, step: PlanStep) -> dict[str, Any]:
+        """Expand ``{{step_id.output}}`` template refs in a step's params into
+        upstream outputs, right before the step runs — data flows along the
+        DAG's edges without the executor knowing any wiring."""
         result = _resolve(step.params, step, self)
         return result if isinstance(result, dict) else {}
 
@@ -219,6 +260,8 @@ class Plan:
                     ready.append(child)
 
         if processed != len(live):
+            # Nodes that never reached in-degree 0 are exactly the cycle's
+            # members — name them so the model's replan can target the loop.
             cycle = sorted(sid for sid, deg in in_degree.items() if deg > 0)
             raise ValueError(f"Cycle detected in plan DAG. Participating nodes: {cycle}")
 
@@ -228,6 +271,11 @@ _LOOSE_TEMPLATE_RE = re.compile(r"\{\{[^}]*\}\}")
 
 
 def _resolve(value: Any, step: PlanStep, plan: Plan) -> Any:
+    """Recursive template expansion over params. Whole-string refs preserve
+    the referenced value's type (a dict stays a dict); embedded refs must
+    stringify. Unknown-but-template-looking syntax is a hard error with the
+    offender named — silent passthrough would surface much later as a tool
+    receiving the literal string ``"{{x.output}}"``."""
     if isinstance(value, dict):
         return {k: _resolve(v, step, plan) for k, v in value.items()}
     if isinstance(value, list):
@@ -252,6 +300,12 @@ def _resolve(value: Any, step: PlanStep, plan: Plan) -> Any:
 
 
 def _lookup(ref: str, step: PlanStep, plan: Plan) -> Any:
+    """Resolve one ``{{...}}`` reference against the plan's completed steps.
+
+    Two extra rules beyond plain lookup: ``{{task}}`` reaches the original
+    user task, and referring to a step that is not COMPLETED is an error —
+    the DAG scheduler only runs dependency-satisfied nodes, so hitting this
+    means the graph and the ref disagree (a bug, not a race)."""
     parts = ref.split(".")
     dep_id = parts[0]
     rest = parts[1:]

@@ -18,6 +18,10 @@ class DeadLetterStore(Protocol):
         message_id: str,
         payload: dict[str, Any],
         error: str,
-    ) -> Literal["dead_letter", "retry"]: ...
+    ) -> Literal["dead_letter", "retry"]:
+        """Record a delivery failure and rule on the message's fate: park it
+        (dead_letter) or hand it back for another attempt (retry). The store
+        owns the retry budget so callers can't each invent their own."""
+        ...
 
     async def dead_letters(self) -> list[dict[str, Any]]: ...

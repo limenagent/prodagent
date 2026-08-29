@@ -19,9 +19,6 @@ graph TD
     G -->|从第 3 轮开始| I["但第 3 轮的工具调用<br/>到底执行了没有？"]
     G -->|不知道| J["状态全丢了"]
 
-    style E fill:#ffebee,stroke:#c62828,stroke-width:2px
-    style H fill:#ffebee,stroke:#c62828
-    style I fill:#fff3e0,stroke:#e65100
 ```
 
 难点在于：

@@ -60,6 +60,14 @@ class PlanBootstrap:
     async def prepare(
         self, task: str, run_id: str | None, *, parent_run_id: str | None = None
     ) -> tuple[AgentRun, Plan | None]:
+        """Resolve the initial (run, plan) pair — new or resumed, caller never
+        cares which.
+
+        Three sources in priority order: a resumable event-log state (crash
+        recovery), a preset Workflow plan (hand-written, model never plans),
+        and the LLM planner (the model drafts the DAG). Keeping the choice
+        here means the executor starts every run the same way: with a (run,
+        plan) pair in hand."""
         rid = run_id or str(uuid.uuid4())
         run = AgentRun(run_id=rid, task=task, parent_run_id=parent_run_id)
         run.messages = list(self._messages)
@@ -115,6 +123,9 @@ class PlanBootstrap:
         return run, plan
 
     async def _generate_plan(self, task: str, rid: str, run: AgentRun) -> Plan | None:
+        """Ask the planner LLM for a DAG draft. The raw model text is kept on
+        the transcript — the draft is auditable evidence of what the plan
+        was derived from, not just the parsed result."""
         try:
             draft = await self._planner.generate(task, self._system, self._messages, run)
         except LLMError as exc:
@@ -140,6 +151,13 @@ class PlanBootstrap:
         return plan
 
     async def gate(self, plan: Plan, run: AgentRun) -> Plan | None:
+        """The plan-level HITL approval gate — "may this plan run at all?"
+
+        Lives in the bootstrap (not the execution loop) because whether a
+        plan may start is an opening question. Three outcomes: approved
+        (plan returned), awaiting review (run SUSPENDED, snapshot saved so
+        resume re-enters here), rejected (run fails — the reviewer's reason
+        is the failure)."""
         if self._hooks is None:
             return plan
         try:

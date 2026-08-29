@@ -1,3 +1,11 @@
+"""The adapter picker — env vars in, one LLMClient out.
+
+Priority is fixed and legible: Fake > OpenAI-compatible > Anthropic > Fake
+fallback. Swapping providers is a configuration change, never a code
+change; the function-body imports keep provider SDKs out of memory for
+everyone who never selects them.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -15,6 +23,9 @@ def create_llm_client(
     *,
     force_fake: bool = False,
 ) -> LLMClient:
+    """Env → adapter, in fixed priority (Fake > OpenAI-compatible >
+    Anthropic > Fake fallback). Adapter SDKs import inside the branches:
+    selecting nothing pays for nothing."""
     # A library does not touch global logging configuration — if httpx/openai
     # chatter bothers you, quiet those loggers in your own logging setup.
 

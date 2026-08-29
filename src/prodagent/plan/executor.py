@@ -1,4 +1,12 @@
-"""Plan-then-execute mode for agent phases."""
+"""PlanExecutor — commit to a DAG, then run it wave by wave.
+
+The executor proper does exactly one thing: schedule ready steps, respect
+dependencies, replan on failure. Everything around that — where the initial
+(run, plan) comes from, whether humans approved it, how the end state is
+translated into stream events — lives in ``bootstrap.py`` and
+``finalize.py``, so this class stays pure scheduling and stays the same
+whether the plan came from an LLM or a hand-written Workflow.
+"""
 
 from __future__ import annotations
 
@@ -151,6 +159,10 @@ class PlanExecutor:
         run_id: str | None = None,
         parent_run_id: str | None = None,
     ) -> AsyncGenerator[AgentEvent, None]:
+        """The whole lifecycle in four moves: prepare (new or resumed) →
+        HITL gate → execute waves → finalize. Whatever happens inside —
+        suspend, handoff, budget death — the terminal event at the end is
+        guaranteed: no stream ends without one."""
         run, plan = await self._bootstrap.prepare(task, run_id, parent_run_id=parent_run_id)
         if plan is not None:
             plan = await self._bootstrap.gate(plan, run)
@@ -165,8 +177,13 @@ class PlanExecutor:
         plan: Plan,
         run: AgentRun,
     ) -> AsyncGenerator[AgentEvent, None]:
-        # No while-True over an LLM-authored graph: step count × replans
-        # bounds the loop, with a little slop for replan churn.
+        """The wave loop: each pass dispatches every dependency-satisfied step
+        (concurrently), then handles failures — possibly via replan, which
+        merges new steps and lets the next pass pick them up.
+
+        No while-True over an LLM-authored graph: step count × replans
+        bounds the loop, with a little slop for replan churn."""
+
         max_iterations = len(plan.steps) * _MAX_ITERS_PER_STEP + _MAX_ITERS_SLOP
 
         for _ in range(max_iterations):
@@ -253,6 +270,10 @@ class PlanExecutor:
 
     @staticmethod
     def _classify_outcomes(outcomes: list[StepOutcome]) -> _BatchResult:
+        """Fold a batch into one summary. Successes and failures accumulate;
+        suspend/handoff keep only the first — the batch stops at either, so
+        a second one cannot logically exist."""
+
         batch = _BatchResult()
         for oc in outcomes:
             match oc:
@@ -271,6 +292,9 @@ class PlanExecutor:
         batch: _BatchResult,
         run_id: str,
     ) -> Iterator[AgentEvent]:
+        """Translate one batch into stream events. On suspend/handoff only
+        the successes that did land are reported — the run is pausing, and
+        un-launched steps keep their PENDING status for the resume."""
         if batch.handoff is not None or batch.suspended is not None:
             for succ in batch.successes:
                 yield StepCompletedEvent(
@@ -301,6 +325,10 @@ class PlanExecutor:
         plan: Plan,
         run: AgentRun,
     ) -> bool:
+        """Only the *primary* failure gets a replan — one LLM replan per wave.
+        Secondary failures are recorded as-is: the replan will see the whole
+        failed neighbourhood anyway, and parallel replans would race each
+        other into conflicting merges."""
         primary, *secondary = failures
         for fail in secondary:
             await self._record_failure(fail, plan, run, replan=False)
@@ -314,6 +342,13 @@ class PlanExecutor:
         *,
         replan: bool = True,
     ) -> bool:
+        """Incremental replanning — PLAN_FIRST's most valuable property.
+
+        On failure the doomed downstream is obsoleted (never deleted), the
+        planner is handed the failure and proposes *replacement* steps, and
+        the merge keeps completed steps untouched: they may carry side
+        effects that must not re-fire. Returns True (stop the run) when
+        replanning is exhausted, disabled, or the planner itself failed."""
         step = failure.step
         exc = failure.error
         step.status = StepStatus.FAILED

@@ -364,6 +364,7 @@ class PublicTextOnly:
     the same, so one long-winded member can't blow another's context window."""
 
     def project(self, turn: FloorTurn, *, viewer: str) -> FloorTurn:
+        """Text only (capped); tool calls and internal metrics stripped."""
         # Speaker sees its own turn verbatim — no point truncating your own words.
         if viewer == turn.speaker:
             return turn
@@ -397,6 +398,7 @@ class SelectiveToolExposure:
     max_chars: int = 4000
 
     def project(self, turn: FloorTurn, *, viewer: str) -> FloorTurn:
+        """Whitelisted tool calls only; absent-from-map tools default-deny."""
         if viewer == turn.speaker:
             return turn
         text = bound_text(turn.text, self.max_chars)
@@ -463,6 +465,7 @@ class RoundRobin:
     order — deterministic."""
 
     def next_speaker(self, floor: SharedFloor) -> str | None:
+        """The member after the last speaker, wrapping — pure position, no state."""
         names = floor.member_names()
         if not names:
             return None

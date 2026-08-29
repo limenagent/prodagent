@@ -29,6 +29,10 @@ class BackendRegistry:
 
     @classmethod
     def for_config(cls, fw: FrameworkConfig) -> BackendRegistry:
+        """One registry per config object — every store resolved under the
+        same ``FrameworkConfig`` shares one set of clients/pools, and a
+        ``dataclasses.replace``-derived config still shares the original's
+        (the field rides on the config; see ``FrameworkConfig``)."""
         reg: BackendRegistry | None = fw._backend_registry
         if reg is None:
             reg = cls()
@@ -36,6 +40,8 @@ class BackendRegistry:
         return reg
 
     def redis_async_client(self) -> Any:
+        """Lazily-created shared async Redis client (created on first use —
+        configs that never touch Redis never build a connection)."""
         if self._redis_async is None:
             from prodagent.backends.redis import redis_client_from_env
 
@@ -43,6 +49,7 @@ class BackendRegistry:
         return self._redis_async
 
     def redis_sync_client(self) -> Any:
+        """Lazily-created shared sync Redis client."""
         if self._redis_sync is None:
             from prodagent.backends.redis import redis_client_from_env
 

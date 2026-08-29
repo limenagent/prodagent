@@ -1,4 +1,11 @@
-"""Resolve ``prodagent.ports`` implementations from ``FrameworkConfig``."""
+"""factory — the dispatch desk turning ``FrameworkConfig`` into backends.
+
+Every port has a ``resolve_xxx()`` here, and none of them branches on
+implementation: the mapping lives as *data* (``_BACKENDS``, one row per
+port per medium — import path, constructor args pulled from config, kwargs),
+so adding a backend is a table entry, not a new if-chain. Driver imports
+happen inside ``_resolve`` at selection time — an unselected backend's SDK
+is never imported, which is what keeps optional dependencies optional."""
 
 from __future__ import annotations
 
@@ -131,6 +138,10 @@ def _r(method: str) -> Get:
 
 
 _BACKENDS: dict[str, dict[str, Spec]] = {
+    # port → kind → ("module:Class", [args from ctx], {kwargs from ctx}).
+    # ctx carries the framework config and the shared-client registry, so a
+    # postgres store constructor receives the *pooled* connection, not a
+    # fresh one — pooling policy stays in registry.py, one home.
     "checkpoint": {
         "file": ("prodagent.backends.file.checkpoint:FileCheckpointStore", [_o("runs_dir")], {}),
         "postgres": (
@@ -225,6 +236,10 @@ _BACKENDS: dict[str, dict[str, Spec]] = {
 
 
 def _resolve(port: str, framework_config: FrameworkConfig | None, *, expect: type[Any]) -> Any:
+    """One resolver for every port: read the configured kind, look up its
+    spec row, import the class (function-body import — optional deps), build
+    with config-sourced args, and structurally verify the result actually
+    satisfies the port before handing it back."""
     fw = _fw(framework_config)
     kind = getattr(fw.backend, port)
     spec = _BACKENDS.get(port, {}).get(kind)
@@ -235,8 +250,13 @@ def _resolve(port: str, framework_config: FrameworkConfig | None, *, expect: typ
 
     from prodagent.backends.registry import BackendRegistry
 
-    ctx = {"fw": fw, "reg": BackendRegistry.for_config(fw)}
-    cls = getattr(importlib.import_module(module_name), class_name)
+    ctx = {
+        "fw": fw,
+        "reg": BackendRegistry.for_config(fw),
+    }  # pooled clients flow in, not fresh ones
+    cls = getattr(
+        importlib.import_module(module_name), class_name
+    )  # the optional-dependency moment
     result = cls(*[a(ctx) for a in args], **{k: v(ctx) for k, v in kwargs.items()})
     if not isinstance(result, expect):
         raise TypeError(
@@ -247,48 +267,59 @@ def _resolve(port: str, framework_config: FrameworkConfig | None, *, expect: typ
 
 
 def resolve_checkpoint(framework_config: FrameworkConfig | None = None) -> CheckpointStore:
+    """Checkpoint store per ``fw.backend.checkpoint`` (file default)."""
     return cast("CheckpointStore", _resolve("checkpoint", framework_config, expect=CheckpointStore))
 
 
 def resolve_session_store(framework_config: FrameworkConfig | None = None) -> SessionStore:
+    """Session store per ``fw.backend.session`` (file default)."""
     return cast("SessionStore", _resolve("session", framework_config, expect=SessionStore))
 
 
 def resolve_event_log(framework_config: FrameworkConfig | None = None) -> EventLog:
+    """Event log per ``fw.backend.event_log`` (file default)."""
     return cast("EventLog", _resolve("event_log", framework_config, expect=EventLog))
 
 
 def resolve_span_exporter(framework_config: FrameworkConfig | None = None) -> SpanExporter:
+    """Span exporter per ``fw.backend.span`` (file default)."""
     return cast("SpanExporter", _resolve("span", framework_config, expect=SpanExporter))
 
 
 def resolve_document(framework_config: FrameworkConfig | None = None) -> DocumentStore:
+    """Memory-document store per ``fw.backend.document`` (file default)."""
     return cast("DocumentStore", _resolve("document", framework_config, expect=DocumentStore))
 
 
 def resolve_cache(framework_config: FrameworkConfig | None = None) -> CacheStore:
+    """LLM response cache per ``fw.backend.cache`` (memory default)."""
     return cast("CacheStore", _resolve("cache", framework_config, expect=CacheStore))
 
 
 def resolve_approval(framework_config: FrameworkConfig | None = None) -> ApprovalStore:
+    """Approval store per ``fw.backend.approval`` (memory default)."""
     return cast("ApprovalStore", _resolve("approval", framework_config, expect=ApprovalStore))
 
 
 def resolve_lock(framework_config: FrameworkConfig | None = None) -> LockStore:
+    """Lock store per ``fw.backend.lock`` (memory default)."""
     return cast("LockStore", _resolve("lock", framework_config, expect=LockStore))
 
 
 def resolve_dead_letter(framework_config: FrameworkConfig | None = None) -> DeadLetterStore:
+    """Dead-letter store per ``fw.backend.dead_letter`` (memory default)."""
     return cast(
         "DeadLetterStore", _resolve("dead_letter", framework_config, expect=DeadLetterStore)
     )
 
 
 def resolve_graph(framework_config: FrameworkConfig | None = None) -> GraphStore:
+    """Graph store per ``fw.backend.graph`` (file default, neo4j for graphs)."""
     return cast("GraphStore", _resolve("graph", framework_config, expect=GraphStore))
 
 
 def resolve_experience(framework_config: FrameworkConfig | None = None) -> ExperienceStore:
+    """Experience store per ``fw.backend.experience`` (JSONL file)."""
     return cast("ExperienceStore", _resolve("experience", framework_config, expect=ExperienceStore))
 
 

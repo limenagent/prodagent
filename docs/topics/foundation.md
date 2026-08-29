@@ -18,9 +18,6 @@ graph TD
     B --> C["hooks 墨盒<br/>一整套能力 = 一个会自己插上总线的 bundle"]
     B --> D["base 第 0 层<br/>没有立场的纯工具：序列化/时间/IO/重试/懒加载"]
     C --> D
-    style D fill:#e8eaf6,stroke:#3949ab
-    style B fill:#e8f5e9,stroke:#2e7d32
-    style C fill:#fff3e0,stroke:#e65100
 ```
 
 我们自底向上，先看最不起眼、却最能体现工程审美的 `base/`。
@@ -235,7 +232,6 @@ graph LR
     R -->|handoff/spawn| PR["ParentRuntime 穿家产"]
     PR --> F
     R -->|结束| S["Settler 一次性结算终态"]
-    style C fill:#e8f5e9,stroke:#2e7d32
 ```
 
 ---

@@ -286,7 +286,9 @@ class BudgetLedger:
         async with self._lock:
             bucket = self._reserved_by.get(member)
             if bucket is None:
-                return
+                return  # nothing outstanding under this member — release is a no-op
+            # Clamp at the member's own bucket: releasing more than was
+            # reserved would inflate someone else's headroom.
             d_turns = min(reserved_turns, bucket.turns)
             d_tokens = min(reserved_tokens, bucket.tokens)
             d_cost = min(reserved_cost_usd, bucket.cost_usd)

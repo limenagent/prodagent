@@ -1,4 +1,11 @@
-"""Pure functions for settling a finished plan run."""
+"""Finalize — pure functions for settling a finished plan run.
+
+No IO, no side effects: given the run and plan as they ended, decide the
+terminal stream event and where ``final_output`` comes from. Pure on
+purpose — settling logic that can't trigger anything can be tested alone
+and can't produce "the ending caused another bug" surprises. The mirror
+half of ``bootstrap.py``: opening answers "where did this start", this
+answers "how does it end"."""
 
 from __future__ import annotations
 
@@ -20,6 +27,9 @@ if TYPE_CHECKING:
 
 
 def terminal_event(run: AgentRun) -> AgentEvent:
+    """The one event every stream consumer ends on — suspension and failure
+    included. A stream that just stops leaves consumers guessing; this
+    guarantees they never have to."""
     if run.state is RunState.SUSPENDED:
         return RunSuspendedEvent(run=run)
     if run.state is RunState.FAILED:
@@ -28,6 +38,11 @@ def terminal_event(run: AgentRun) -> AgentEvent:
 
 
 def finalize_run(run: AgentRun, plan: Plan | None) -> None:
+    """Settle the run's final output. Priority: the plan's designated
+    terminal step (``is_terminal=True``) speaks for the plan; without one,
+    the last step to complete does — in a DAG, output flows downhill, so
+    the sink is the answer. A pending handoff keeps the handoff message:
+    the peer continues the story, this run's output is not the ending."""
     if run.state is RunState.RUNNING:
         run.complete()
     if run.pending_handoff is not None:

@@ -50,6 +50,10 @@ def _tool_reference(tool_schemas: list[dict[str, Any]]) -> str:
 
 
 def _replan_user_prompt(plan: Plan, failed_step: PlanStep, error: str) -> str:
+    """The recovery prompt's core: failure, its error, and — critically —
+    the completed/obsolete census. "Do not repeat" is not a courtesy; a
+    model that re-proposes a completed step would re-fire its side effects
+    at merge time."""
     completed = (
         "\n".join(
             f"  {s.step_id}: {s.action} → COMPLETED"
@@ -100,6 +104,9 @@ class Planner:
         messages: MessageList,
         run: AgentRun,
     ) -> PlanDraft:
+        """One planning call. Returns the draft *with raw text* — parse
+        success and raw evidence travel together so a bad plan is auditable
+        against what the model actually said."""
         messages = list(messages) + [{"role": "user", "content": task}]
         raw = await self._call_llm(messages, self._build_system(system, self._planning_system), run)
         return PlanDraft(plan=self._parse_plan(raw), raw_text=raw)
@@ -113,6 +120,9 @@ class Planner:
         original_messages: MessageList,
         run: AgentRun,
     ) -> list[PlanStep]:
+        """One recovery call — replacement steps only, never a full re-plan.
+        The prompt shows what survived (completed), what died (obsolete), and
+        what broke; ``Plan.merge`` then re-links the lineage."""
         clean: MessageList = []
         # Replanning needs the narrative, not the raw tool dumps — strip tool
         # turns so the recovery prompt stays about what happened, not payloads.

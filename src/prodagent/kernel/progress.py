@@ -63,6 +63,10 @@ class ProgressMonitor:
         self._hashes: collections.deque[str] = collections.deque(maxlen=stall_threshold)
 
     def check(self, run: AgentRun, new_call: ToolCall | None = None) -> None:
+        """Entry point for both guards: with a call, hunt repeated
+        fingerprints (dead loop); without one, hunt an unchanged context
+        hash (ghost loop). Raises ``InfiniteLoopDetected`` — that's the
+        contract; callers treat it as a terminal budget-class failure."""
         if new_call is not None:
             self._check_dead_loop(run, new_call)
         else:
@@ -70,7 +74,9 @@ class ProgressMonitor:
 
     def _check_dead_loop(self, run: AgentRun, new_call: ToolCall) -> None:
         fp = _tool_fingerprint(new_call)
-        count = run.push_fingerprint(fp, window=self._window_size)
+        count = run.push_fingerprint(
+            fp, window=self._window_size
+        )  # window lives on the run → checkpointed
 
         if count >= self._repeat_threshold:
             raise InfiniteLoopDetected(
@@ -88,6 +94,8 @@ class ProgressMonitor:
         self._hashes.append(current)
 
         if len(self._hashes) >= self._stall_threshold and len(set(self._hashes)) == 1:
+            # Every recent context hash identical = turns keep happening but
+            # nothing changes — work with no progress.
             raise InfiniteLoopDetected(
                 f"Ghost loop: context hash unchanged for {self._stall_threshold} consecutive turns",
                 run_id=run.run_id,

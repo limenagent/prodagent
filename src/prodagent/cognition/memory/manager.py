@@ -1,3 +1,14 @@
+"""MemoryManager — the orchestrator of the four recall channels.
+
+Recall is channel-parallel and budget-bounded: rules are force-recalled,
+facts come back by entity, keyword and embedding channels score the soft
+corpus; hits merge stage-ordered under one token budget, then the
+forgetting filter (activation ≥ floor) has the final word. Recall also
+reinforces — touched memories queue through a background worker, so
+strengthening never blocks remembering. Write-side: classify the run's
+reasoning texts (at most one record each), adjudicate conflicts, persist.
+Documents and facts live behind their ports; this class owns the policy."""
+
 from __future__ import annotations
 
 import asyncio

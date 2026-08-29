@@ -1,3 +1,19 @@
+"""Native Anthropic SDK adapter — a translator, not a policy maker.
+
+Everything here exists because the Anthropic wire speaks its own dialect and
+the kernel speaks one canonical form. Three translations carry the weight:
+usage tokens fold into the all-inclusive convention (Anthropic reports
+``input_tokens`` *excluding* cache tokens — the opposite of OpenAI — so both
+funnel into the same base the cost math subtracts from); ``finish_reason``
+maps onto the Anthropic-vocabulary ``StopReason`` the loop branches on; and
+thinking blocks round-trip verbatim with their signatures, because a
+tool-use continuation that re-sends thinking without the original signature
+is an API error. Cache breakpoints (``cache_control: ephemeral``) are stamped
+at the boundary the ContextManager computes — prompt caching is an
+optimization with observable effects, layered here at the adapter, never
+inside the loop.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -80,6 +96,9 @@ class AnthropicAdapter:
         config: LLMConfig | None = None,
         on_chunk: ChunkCallback | None = None,
     ) -> LLMResponse:
+        """Canonical history → Anthropic wire → canonical response. The
+        retry wrapper sees a *guarded* chunk callback, so a mid-stream
+        failure after first delivery surfaces instead of replaying."""
         cfg = config or self._default_config
         normalised = cast(
             "MessageList",
@@ -150,9 +169,11 @@ class AnthropicAdapter:
         for i, msg in enumerate(messages):
             role = msg.get("role")
             content = msg.get("content")
-            at_boundary = i == cache_boundary_index
+            at_boundary = i == cache_boundary_index  # the one message the cache prefix ends on
 
             if role == "tool":
+                # Anthropic wants tool results batched inside ONE user turn —
+                # accumulate instead of appending each as its own message.
                 pending_tool_results.append(
                     {
                         "type": "tool_result",
@@ -222,6 +243,9 @@ class AnthropicAdapter:
         return result
 
     def _build_system(self, system: str | list[dict[str, Any]], cfg: LLMConfig) -> Any:
+        """System prompt in block form with the cache breakpoint on the last
+        block — the stable prefix (system + tools) is exactly what caching
+        should pin, and it only pays when prompt caching is on."""
         if not system:
             return None
         if isinstance(system, str):
@@ -241,6 +265,9 @@ class AnthropicAdapter:
         tools: list[dict[str, Any]] | None,
         cfg: LLMConfig,
     ) -> dict[str, Any]:
+        """Request kwargs, including the thinking-mode accommodations: no
+        temperature (the API pins it), and max_tokens bumped above the
+        thinking budget rather than rejecting the config mid-run."""
         kwargs: dict[str, Any] = {
             "model": cfg.model,
             "max_tokens": cfg.max_tokens,
@@ -286,6 +313,9 @@ class AnthropicAdapter:
         cfg: LLMConfig,
         on_chunk: Callable[[str], Awaitable[None]] | None,
     ) -> LLMResponse:
+        """One streamed call; the full message is fetched after the stream
+        ends because usage and tool_use blocks only arrive on the final
+        message, not in text chunks."""
         kwargs = self._build_kwargs(messages, system, tools, cfg)
         async with self._client.messages.stream(**kwargs) as stream:
             async for text in stream.text_stream:
@@ -296,6 +326,9 @@ class AnthropicAdapter:
 
     @staticmethod
     def _parse_message(raw: Any) -> LLMResponse:
+        """Final SDK message → canonical ``LLMResponse``: content blocks
+        partition into text / thinking / tool_use, usage folds into the
+        all-inclusive token convention, stop vocabulary coerced."""
         tool_calls: list[ToolCall] = []
         text_parts: list[str] = []
         thinking_parts: list[str] = []
@@ -326,6 +359,8 @@ class AnthropicAdapter:
                 )
 
         usage = raw.usage
+        # getattr with defaults: older SDK versions lack the cache fields —
+        # absence means zero, not error.
         cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
         cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
         # Anthropic reports input_tokens EXCLUDING cache tokens; the canonical

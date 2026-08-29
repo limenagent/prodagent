@@ -30,9 +30,13 @@ class RetryPolicy:
     def delay(self, attempt: int) -> float:
         """Compute sleep duration (seconds) before *attempt* (1-based)."""
         if self.backoff is Backoff.FIXED:
-            return self.base_delay
+            return self.base_delay  # predictable cadence, no growth
 
+        # Exponential growth clamped at max_delay — the clamp keeps a long
+        # retry chain from waiting hours between attempts.
         exponential = min(self.base_delay * (2.0 ** (attempt - 1)), self.max_delay)
         if self.backoff is Backoff.JITTERED:
+            # Full jitter: uniform in [0, exponential] so concurrent retryers
+            # that failed together don't realign on the same retry instant.
             return random.uniform(0.0, exponential)
         return exponential

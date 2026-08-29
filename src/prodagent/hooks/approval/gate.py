@@ -67,6 +67,10 @@ class ApprovalGate:
         run_id: str = "",
         pending_approval_id: str | None = None,
     ) -> ApprovalDecision:
+        """Return the decision if it already exists; otherwise mint the
+        request, persist it, and raise ``SuspendPendingApproval`` — the
+        parking path. Resume order: in-process deferred → durable store →
+        re-request (a lost decision re-prompts rather than guesses)."""
         # Resume: submit_decision() populated _deferred; resumed evaluate() returns it.
         if pending_approval_id is not None:
             decision = self._deferred.pop(pending_approval_id, None)
@@ -92,7 +96,9 @@ class ApprovalGate:
                 pending_approval_id,
             )
 
-        request_id = str(uuid.uuid4())
+        request_id = str(uuid.uuid4())  # fresh identity for a fresh ask — never reuse a parked one
+        # The formatter renders tool-specific context (diffs, affected counts)
+        # so the human approves *this* change, not a generic tool name.
         formatted = self._fmt.format(
             call,
             old_content=call.params.get("old_content") if call.params else None,
@@ -128,6 +134,9 @@ class ApprovalGate:
         decision: ApprovalDecision,
         approver_id: str = "",
     ) -> None:
+        """Land a decision out-of-band: deferred for an in-process resume,
+        persisted for a cross-node one. No waiter is signalled — resumption
+        is driven by re-invoking the run, not by waking this process."""
         # Unknown ids are allowed: a decision may be pre-submitted for a
         # request minted before a crash (id restored from checkpoint).
         req = self._pending.get(request_id)

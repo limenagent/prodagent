@@ -139,6 +139,10 @@ class AppState:
     async def reconstruct_for_approve(
         self, run_id: str, decision: str
     ) -> RunContext | dict[str, str]:
+        """Approve/reject a run this process may never have driven: reconstruct
+        from storage, and treat "already settled" as an idempotent success for
+        approve but a 409 for reject (a reject arriving after completion can't
+        un-run the tool — the caller must know)."""
         try:
             result = await self.registry.reconstruct(run_id)  # type: ignore[union-attr]
         except RunReconstructError as exc:
@@ -179,10 +183,15 @@ class AppState:
         *,
         label: str,
     ) -> None:
+        """Pump one run's event stream onto its SSE queue until a terminal
+        event lands. Handoff continuations are skipped here — the chain
+        driver owns them; this surface reports each hop's own ending."""
         ctx.driving = True
         try:
             async for event in stream_method(run_id=run_id):
                 if isinstance(event, RunSuspendedEvent):
+                    # Park: surface the approval id so the UI can render the
+                    # approve/reject controls; the stream ends here.
                     ctx.suspended = True
                     ctx.pending_request_id = event.run.pending_approval_id
                     await ctx.queue.put(
@@ -195,7 +204,7 @@ class AppState:
                     return
                 if isinstance(event, RunCompletedEvent):
                     if event.run.pending_handoff is not None:
-                        continue
+                        continue  # mid-chain hop completion — the chain's own ending follows
                     ctx.final_output = event.run.final_output
                     await ctx.queue.put(
                         {

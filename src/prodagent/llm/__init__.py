@@ -57,6 +57,10 @@ async def stream_text(
     config: LLMConfig | None = None,
     include_reasoning: bool = False,
 ) -> tuple[LLMResponse, str]:
+    """complete() + the assembled text — for callers that want the answer
+    string but must keep the response for accounting. Streams internally
+    so the fallback text (empty content, reasoning-only replies) is still
+    reconstructible from chunks."""
     chunks: list[str] = []
 
     async def _append(chunk: str) -> None:

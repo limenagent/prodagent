@@ -42,6 +42,8 @@ class GraphModel:
         labels: list[str] | None = None,
         properties: dict[str, Any] | None = None,
     ) -> None:
+        """Insert-or-merge: re-adding a node unions labels and overlays
+        properties — recall paths may upsert the same entity many times."""
         existing = self.nodes.get(node_id)
         if existing is None:
             self.nodes[node_id] = _Node(node_id, labels or [], properties or {})
@@ -85,8 +87,8 @@ class GraphModel:
         depth: int = 1,
     ) -> list[dict[str, Any]]:
         if node_id not in self.nodes:
-            return []
-        seen: set[str] = {node_id}
+            return []  # absent start is an empty walk, not an error
+        seen: set[str] = {node_id}  # visit guard — also collapses diamond paths
         frontier = [node_id]
         out: list[dict[str, Any]] = []
         for _ in range(depth):
@@ -94,15 +96,17 @@ class GraphModel:
             for n in frontier:
                 for e in self.out_edges.get(n, []):
                     if rel is not None and e.rel != rel:
-                        continue
+                        continue  # edge filtered: not the relationship being walked
                     if e.dst not in seen:
                         seen.add(e.dst)
                         out.append(self.nodes[e.dst].to_dict())
                         nxt.append(e.dst)
-            frontier = nxt
+            frontier = nxt  # one BFS level per pass = depth-bounded by construction
         return out
 
     def delete_node(self, node_id: str) -> None:
+        """Remove the node *and* its incident edges in both directions — a
+        dangling edge to a missing node would poison every traversal."""
         self.nodes.pop(node_id, None)
         self.out_edges.pop(node_id, None)
         for src, edges in list(self.out_edges.items()):
@@ -120,6 +124,8 @@ class GraphModel:
         nodes_data: list[dict[str, Any]],
         edges_data: list[dict[str, Any]],
     ) -> None:
+        """Bulk rebuild from the wire shape — the file backend's whole
+        persistence story is ``dump to JSONL, load_from back``."""
         for n in nodes_data:
             self.nodes[n["id"]] = _Node(n["id"], n.get("labels", []), n.get("properties", {}))
         for e in edges_data:

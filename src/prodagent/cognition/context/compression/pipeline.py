@@ -1,3 +1,13 @@
+"""The compression pipeline — escalate one stage at a time, never more.
+
+A chain of stages ordered least → most aggressive; the compressor runs the
+first stage the fill ratio hasn't outgrown, and every stage ends with the
+same mechanical guarantee: whatever it produced *fits* the budget (tool
+pairs kept atomic — an orphaned tool_result is a provider error, not a
+savings). Stage selection is pure threshold arithmetic; only the summarise
+stages spend an LLM call, and by then the cheap mechanical shrinks have
+already been tried."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -25,6 +35,8 @@ __all__ = [
 
 
 def fit_budget(messages: MessageList, budget: int, counter: TokenCounter) -> MessageList:
+    """The one fitting primitive every stage ends with: keep the most recent
+    tool-pair-atomic groups that fit, drop older ones whole."""
     groups = _group_tool_pairs(messages)
     kept = fit_within_budget(
         groups, budget, lambda group: sum(counter.count_message(m) for m in group)
@@ -52,6 +64,7 @@ def _group_tool_pairs(messages: MessageList) -> list[list[Message]]:
         is_tool_result = "tool_call_id" in msg
 
         if is_assistant_with_calls:
+            # A tool_use parent opens a group; its results must land inside.
             if current_group is not None:
                 groups.append(current_group)
             current_group = [msg]
@@ -59,14 +72,17 @@ def _group_tool_pairs(messages: MessageList) -> list[list[Message]]:
         elif is_tool_result:
             call_id = str(msg.get("tool_call_id", ""))
             if current_group is not None and call_id in open_tool_ids:
-                current_group.append(msg)
+                current_group.append(msg)  # pairs with the open parent — same group
             else:
+                # Orphan result (its parent was already trimmed away): its
+                # own group, so dropping it never strands a sibling.
                 if current_group is not None:
                     groups.append(current_group)
                     current_group = None
                     open_tool_ids = set()
                 groups.append([msg])
         else:
+            # Plain user/assistant message closes any open tool group.
             if current_group is not None:
                 groups.append(current_group)
                 current_group = None
@@ -114,16 +130,21 @@ class HistoryCompressor:
         chosen: Stage | None = None
         for stage in self._stages:
             if stage.should_skip(ratio, ctx.config):
-                continue
+                continue  # fill ratio outgrew this stage — escalate
             chosen = stage
             break
         if chosen is None:
+            # Every stage skipped (shouldn't happen — the final stage never
+            # skips) — mechanical fit is the safe floor.
             return fit_budget(messages, budget, ctx.counter), CompressionLevel.NONE
 
         return await chosen.apply(messages, budget, ctx)
 
 
 class NoCompressionStage:
+    """Below the first threshold: fit by dropping oldest groups, no content
+    is rewritten — the window is big enough that plain trimming suffices."""
+
     level: CompressionLevel = CompressionLevel.NONE
 
     def should_skip(self, ratio: float, cfg: ContextConfig) -> bool:

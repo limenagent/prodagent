@@ -1,4 +1,10 @@
-"""Unified configuration for the framework."""
+"""Unified configuration for the framework.
+
+One object so "what this agent runs on" can be read, diffed, and swapped as
+a value. ``profile`` is the key every default-resolution site consults —
+and only ``runtime/compose.py`` reads it, so bare vs production can never
+silently disagree (see docs/topics/foundation.md).
+"""
 
 from __future__ import annotations
 
@@ -125,9 +131,9 @@ def production(framework_config: FrameworkConfig | None = None) -> FrameworkConf
     what these flags attach — is the manifest in ``runtime/compose.py``.
     """
     fw = framework_config or FrameworkConfig.from_env()
-    fw.profile = "production"
-    fw.context.compression = True
-    fw.context.spill_tool_results = True
+    fw.profile = "production"  # the key every default-resolution site reads
+    fw.context.compression = True  # long runs need the five-level ladder on
+    fw.context.spill_tool_results = True  # oversized tool results go to disk, not context
     return fw
 
 
@@ -155,6 +161,8 @@ class FrameworkConfig:
 
     @classmethod
     def default(cls) -> FrameworkConfig:
+        """All-defaults config: the bare profile, zero env inspection — the
+        deterministic baseline tests fork from via ``dataclasses.replace``."""
         return cls()
 
     @classmethod
@@ -173,6 +181,8 @@ class FrameworkConfig:
             "yes",
         )
         if os.getenv("PRODAGENT_BACKEND", "").lower() == "prod":
+            # One switch flips the durable/in-flight stores to their
+            # multi-replica engines; per-kind overrides below still win.
             for field_name, prod_default in _PROD_BACKEND_DEFAULTS.items():
                 setattr(fw.backend, field_name, prod_default)
 

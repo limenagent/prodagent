@@ -1,3 +1,11 @@
+"""Spill — oversized tool results move to disk, context keeps the handle.
+
+A result too large for the window is written to a per-agent spill directory
+and replaced in the transcript by a bounded ``<spilled>`` placeholder
+carrying the path; ``read_tool_result`` is the way back in (grep + paging).
+Path safety is structural: resolution is confined to the store's directory,
+so a model-supplied path can only ever name a spilled file."""
+
 from __future__ import annotations
 
 import hashlib
@@ -21,6 +29,8 @@ _SPILLED_PATH_RE = re.compile(r"<spilled\b[^>]*\bpath='([^']+)'")
 
 
 def extract_spilled_path(content: str) -> str | None:
+    """Pull the path back out of a ``<spilled>`` placeholder — how tooling
+    recognizes "already spilled, nothing left to shrink" downstream."""
     if not content or not content.lstrip().startswith("<spilled"):
         return None
     m = _SPILLED_PATH_RE.search(content)
@@ -46,6 +56,9 @@ class SpilledResult:
         self.original_tokens = original_tokens
 
     def placeholder(self, preview_chars: int = _PREVIEW_BYTES) -> str:
+        """What stays in context after the spill: provenance header, a
+        head-bounded preview, and the standing instruction to page with
+        ``read_tool_result`` — the preview is a teaser, not the data."""
         preview = _truncate_at_boundary(_read_head(self.path, preview_chars), preview_chars)
         return (
             f"<spilled tool={self.tool_name!r} call_id={self.call_id!r} "
@@ -95,6 +108,8 @@ class ToolResultSpillStore:
         call_id: str,
         tool_name: str,
     ) -> SpilledResult:
+        """Write once per call_id (``x`` mode — replays don't rewrite), name
+        derived from the call so resume finds the same file."""
         path = self.dir / f"{_safe_name(call_id)}.txt"
         if not path.exists():
             try:
@@ -124,18 +139,25 @@ class ToolResultSpillStore:
         """Confine ``path`` to the spill directory; refuse symlinks and escapes."""
         raw = Path(path)
         if not raw.is_absolute():
+            # Relative model-supplied paths: take only the final component —
+            # "sub/dir/escape.txt" becomes "escape.txt", still inside.
             raw = self.dir / raw.name
         if raw.is_symlink():
+            # Defence 1: a symlink planted in the spill dir could point anywhere.
             raise ValueError(f"refusing to follow symlink in spill dir: {path!r}")
         target = raw.resolve()
         base = self.dir.resolve()
         try:
+            # Defence 2: after resolving everything, the result must still be
+            # under the spill dir (catches ".." and nested tricks).
             target.relative_to(base)
         except ValueError as exc:
             raise ValueError(f"refusing to read path outside spill dir: {path!r}") from exc
         return target
 
     def read_raw(self, path: str | Path) -> str | None:
+        """Resolved read for ``read_tool_result`` — the only doorway back
+        into a spilled payload."""
         resolved = self.resolve(path)
         if not resolved.exists():
             return None

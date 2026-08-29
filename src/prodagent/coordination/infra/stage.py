@@ -205,10 +205,14 @@ class StageDriver(Generic[E]):
           buzz-in semantics, lifted from Blackboard so any primitive can use it.
         """
         if activation.dispatch == "serial":
+            # Order is the semantics here (round-robin, moderator picks) —
+            # strictly one at a time.
             return [(m, await run_one(m)) for m in activation.members]
         if activation.dispatch == "concurrent":
             tasks = [asyncio.ensure_future(run_one(m)) for m in activation.members]
             try:
+                # gather preserves member order regardless of completion
+                # order — downstream streams stay deterministic.
                 results = await asyncio.gather(*tasks)
             except BaseException:
                 for task in tasks:

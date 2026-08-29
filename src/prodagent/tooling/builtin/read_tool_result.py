@@ -1,3 +1,12 @@
+"""``read_tool_result`` — the read-back channel for spilled results.
+
+When a tool result is too large for context, the spill store moves it to
+disk and leaves a short ``<spilled>`` placeholder behind; this tool is the
+only way back to the full content. It is shaped for how a model should
+browse a huge file: grep for signatures first, page with offset/limit, and
+get an explicit "stop paging" answer at the end instead of empty silence.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -37,6 +46,8 @@ def _make_matcher(pattern: str) -> Callable[[str], bool]:
         rx = re.compile(pattern, re.IGNORECASE)
         return lambda ln: rx.search(ln) is not None
     except re.error:
+        # The model sent a malformed regex — fall back to substring match
+        # instead of failing the whole read.
         sub = pattern.lower()
         return lambda ln: sub in ln.lower()
 
@@ -44,6 +55,9 @@ def _make_matcher(pattern: str) -> Callable[[str], bool]:
 def _query_lines(
     text: str, *, grep_pattern: str | None, offset: int, limit: int, name: str
 ) -> tuple[str, int, int]:
+    """Grep-then-page over spilled text: every response carries totals and
+    an explicit out-of-range message, so the model learns when to stop
+    paging instead of probing with empty results."""
     lines = text.splitlines()
     if grep_pattern:
         match = _make_matcher(grep_pattern)
@@ -78,7 +92,12 @@ def _query_lines(
 
 
 def make_read_tool_result(spill_store: ToolResultSpillStore) -> FunctionTool:
-    # One tool per agent — spill store is per-agent, so the tool closes over it.
+    """Build the per-agent read-back tool closing over its spill store.
+
+    One tool per agent — spill store is per-agent, so the tool closes over
+    it. Marked readonly (it only reads spill files) with an unbounded
+    ``max_result_chars``: the tool already pages; truncating its pages
+    would hide the very totals that tell the model where the end is."""
 
     async def _read_tool_result(
         path: Annotated[

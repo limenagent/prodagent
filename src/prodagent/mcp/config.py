@@ -1,3 +1,10 @@
+"""MCP layer 1 — declare servers; secrets stay in the environment.
+
+Configuration is data, validated at construction: a stdio entry without a
+command or an http entry without a URL fails here, loudly, at load time —
+not as a mystery at first call. ``${VAR}`` expansion runs over every string
+so tokens never have to live in the config file itself."""
+
 from __future__ import annotations
 
 import os
@@ -24,6 +31,10 @@ def _expand_value(value: Any) -> Any:
 
 @dataclass
 class MCPServerConfig:
+    """One server's connection recipe: which transport, where, and how
+    long a call may run (the timeout is per call — a hung remote tool must
+    not hang the agent)."""
+
     name: str
     transport: TransportKind = "stdio"
     # stdio
@@ -56,6 +67,10 @@ class MCPServerConfig:
 
     @classmethod
     def from_dict(cls, name: str, entry: dict[str, Any]) -> MCPServerConfig:
+        """Parse one entry from the standard ``mcpServers`` shape, env-
+        expanded. Dialect aliases ("streamable-http"/"sse" → http) are
+        accepted; a ``url`` without a ``type`` is an error that names its
+        fix rather than a silent stdio guess."""
         raw = {k: _expand_value(v) for k, v in entry.items()}
 
         raw_type = raw.pop("type", None)
@@ -93,6 +108,8 @@ class MCPServerConfig:
 
 
 def load_mcp_servers(spec: dict[str, Any] | str) -> list[MCPServerConfig]:
+    """Load configs from an inline dict or a JSON/YAML file path; disabled
+    entries are dropped here so downstream never sees them."""
     if isinstance(spec, str):
         import json
 

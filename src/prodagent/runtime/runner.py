@@ -80,6 +80,8 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_llm(agent: Agent) -> LLMClient:
+    """Configured client or env-resolved default, then profile-wrapped —
+    the one place a hop's LLM identity is decided."""
     from prodagent.backends.factory import resolve_llm
     from prodagent.runtime.compose import wrap_llm
 
@@ -166,6 +168,8 @@ class InProcessRunner:
         if self._runtime is not None:
             runtime = replace(
                 self._runtime,
+                # Chain budget wins if declared; otherwise the child's own
+                # config supplies the ceiling (never both — no double cap).
                 budget=self._runtime.budget or agent.budget_config,
             )
             agent = agent.fork_as_spawn(runtime)
@@ -248,6 +252,9 @@ async def _resolve_initial_context(agent: Agent, root_run_id: str, task: str) ->
 async def _resume_peer_context(
     agent: Agent, root_run_id: str, resume_peer: tuple[str, str]
 ) -> RunContext:
+    """Rebuild the hop context for a chain that was parked mid-relay: the
+    named peer forks under the root's wiring and continues under its own
+    suspended run id — crash recovery for multi-hop runs."""
     peer_name, peer_run_id = resume_peer
     peer_spec = agent.peer_named(peer_name)
     if peer_spec is None:
@@ -305,6 +312,11 @@ class RunLoop:
         self._relay: _Relay | None = None  # built lazily via the compose seam
 
     async def run(self) -> AsyncGenerator[AgentEvent, None]:
+        """Hop loop: prepare executor → stream to a terminal event →
+        finalize the hop (fold spawn accounting, mark peer continuations,
+        drain observers) → relay a handoff into the next hop, or settle the
+        whole chain. Cancellation still finalizes — a killed chain leaves a
+        settled FAILED run on disk, never a dangling one."""
         overall_final_run: AgentRun | None = None
         settle_hooks: HookRegistry | None = None
 
@@ -427,6 +439,9 @@ class RunLoop:
         checkpoint: Any,
         hooks: HookRegistry | None,
     ) -> None:
+        """Chain-terminal settlement through the compose seam — the settler
+        (coordination's) owns output-schema validation, contract checks and
+        the final checkpoint; this driver only knows when the chain is over."""
         settler = make_settler(
             agent_name=self._root_agent.name,
             root_run_id=self._root_run_id,
@@ -442,6 +457,10 @@ class RunLoop:
         hooks: HookRegistry | None,
         spawn_acc: SpawnAccumulator | None,
     ) -> None:
+        """Per-hop wrap-up: a bare run becomes a synthetic FAILED one (no
+        dangling state), spawn accounting folds into the run, SESSION_END
+        fires, and background observers flush — except subordinate children,
+        whose drained output folds upward instead of writing separately."""
         if run is None:
             run = make_failed_run(ctx.run_id, ctx.task)
 
@@ -469,9 +488,9 @@ class RunLoop:
             owner = getattr(handler, "__self__", None)
             flush = getattr(owner if owner is not None else handler, "flush", None)
             if flush is None:
-                continue
+                continue  # not every SESSION_END listener has buffers to drain
             if is_child_subordinate(run):
-                continue
+                continue  # children fold upward; their spans ride the parent's flush
             try:
                 await flush()
             except Exception as exc:  # noqa: BLE001 — best-effort drain

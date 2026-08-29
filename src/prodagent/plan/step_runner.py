@@ -1,4 +1,13 @@
-"""Single-step runner for PLAN_FIRST execution."""
+"""StepRunner — one DAG step: resolve params, execute, classify the outcome.
+
+A step is to PLAN_FIRST what a tool round is to REACTIVE, and it funnels
+into the same throat: the identical dispatcher pipeline (approval gate,
+hooks, breaker, spill truncation), so policy behaves the same in both
+execution modes. What is plan-specific is the outcome algebra — a tool
+result maps onto one of four step outcomes (success / failed / suspended /
+handoff), and the parking rules for the last two live behind one lock so
+concurrently-gathered steps can't double-park a run.
+"""
 
 from __future__ import annotations
 
@@ -133,6 +142,10 @@ class StepRunner:
         plan: Plan,
         run: AgentRun,
     ) -> StepOutcome:
+        """Execute one step and classify its outcome — never raises step
+        failures (they return as :class:`StepFailed` data); only cancellation
+        escapes. SUSPENDED/HANDOFF park the run before returning, which is
+        what makes resume exact: the parked call is retried, not re-planned."""
         await self._start(step, plan, run)
         call = ToolCall(
             name=step.action,
@@ -184,6 +197,7 @@ class StepRunner:
             return StepHandoff(step=step, handoff=run.pending_handoff, call=call)
 
         if result.outcome is ToolOutcome.SUSPENDED:
+            # Park before returning: resume retries this exact call.
             await self._park_suspended(step, result, call, plan, run)
             return StepSuspended(
                 step=step,
@@ -193,6 +207,8 @@ class StepRunner:
             )
 
         if result.outcome in (ToolOutcome.ABORT, ToolOutcome.RETRY):
+            # RED and YELLOW both become a plan-step failure here — the plan
+            # has no per-step retry loop; replanning IS the recovery.
             error_msg = result.error.message if result.error is not None else ""
             if error_msg and result.error is not None and result.error.hint:
                 error_msg = f"{error_msg} — hint: {result.error.hint}"
@@ -214,6 +230,9 @@ class StepRunner:
         return StepSuccess(step=step, result=result, call=call, tool_message=tool_message)
 
     async def _start(self, step: PlanStep, plan: Plan, run: AgentRun) -> None:
+        """RUNNING is recorded in the event log before the tool fires — if the
+        process dies mid-execution, restore sees RUNNING and resets the step
+        to PENDING (redo), never silently skipping it."""
         step.status = StepStatus.RUNNING
         step.attempts += 1
         await self._log.record_step_started(plan, run, step.step_id)

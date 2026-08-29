@@ -1,3 +1,15 @@
+"""ToolDispatcher — the execution side of the tool system.
+
+Batches run under one safety default: reads commute so they race in
+parallel under a concurrency cap, writes serialize so their observable
+order matches what the model asked for. Every call — success, timeout,
+hallucinated name, or rejected by policy — settles into a ``ToolResult``
+the model can read; nothing escapes as an exception to break the loop. By
+default the executor does *not* retry: a YELLOW error is feedback for the
+model, which knows far better than a blind retry loop whether to change
+parameters, switch tools, or back off.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -122,6 +134,10 @@ class ToolDispatcher:
         run: AgentRun,
         calls: list[ToolCall],
     ) -> AsyncIterator[AgentEvent]:
+        """Execute the model's requested calls for one turn. Emits a start
+        event per call and a result event per settled call; suspension or
+        handoff stops the batch and balance-marks the never-dispatched
+        siblings so the transcript stays wire-valid."""
         readonly_concurrency = (
             self._loop_config.readonly_concurrency
             if self._loop_config
@@ -346,6 +362,9 @@ class ToolDispatcher:
         approval gate (gated on ``meta``) no-ops for it.
         """
         if call.name == GET_SKILL_TOOL_NAME:
+            # get_skill has no ToolMeta (no schema, no side-effect level) —
+            # it shares the pipeline for uniformity, and the meta-gated
+            # stages simply no-op for it.
             meta = None
 
             async def invoke() -> tuple[ToolResult, float]:
@@ -353,6 +372,9 @@ class ToolDispatcher:
         else:
             fn_tool = self._tool_map.get(call.name)
             if fn_tool is None:
+                # Hallucinated tool name: structured error + the roster, so
+                # the model corrects itself next turn instead of the loop
+                # crashing here.
                 return ToolResult.from_error(
                     ToolError.from_reason(
                         ErrorReason.TOOL_NOT_AVAILABLE,
@@ -406,6 +428,9 @@ class ToolDispatcher:
         invoke: Callable[[], Awaitable[tuple[ToolResult, float]]],
         run_id: str,
     ) -> ToolResult:
+        """The per-call gauntlet in fixed order: approval gate (HIGH only)
+        → pre-hooks (vetoable) → invoke → post-hooks (vetoable). Any stage
+        may block; blocked is a ``ToolResult``, never an exception."""
         if meta is not None and meta.side_effect_level is SideEffectLevel.HIGH:
             blocked = await self._skill_resolver.gate_approval(call, meta)
             if blocked is not None:
@@ -424,6 +449,9 @@ class ToolDispatcher:
         return result
 
     async def dispatch_with_retry(self, call: ToolCall, run: AgentRun) -> ToolResult:
+        """Serial-path wrapper honoring the retry policy — which defaults to
+        max_attempts=1 (no retries): YELLOW errors are the model's feedback,
+        and RED/terminal outcomes never earn a second attempt."""
         policy = self._retry_policy
         max_retries = policy.max_attempts - 1
         run.reset_retry(call.name)
@@ -503,6 +531,9 @@ class ToolDispatcher:
     async def _invoke(
         self, call: ToolCall, fn_tool: FunctionTool, meta: ToolMeta | None, run_id: str
     ) -> tuple[ToolResult, float]:
+        """Deadline-bounded invocation; every failure mode — timeout,
+        transient transport, unexpected exception — settles into a
+        classified ``ToolResult`` and a breaker record, never a raise."""
         start = time.time()
         timeout = meta.timeout_seconds if meta is not None else _DEFAULT_TOOL_TIMEOUT_S
 

@@ -14,7 +14,6 @@ graph LR
     D --> B
     B -->|某一轮| E["模型输出最终答案"]
 
-    style B fill:#ffebee,stroke:#c62828
 ```
 
 这个循环有三个失控风险：
@@ -165,8 +164,6 @@ graph TD
 
     Ledger -->|已花 $0.8 + 预占 $0.3 = $1.1 > $1.0| REJECT["拒绝子 Agent C<br/>spawn_budget_exhausted"]
 
-    style Ledger fill:#fff3e0,stroke:#e65100,stroke-width:2px
-    style REJECT fill:#ffebee,stroke:#c62828
 ```
 
 ### 三阶段记账：reserve / commit / release

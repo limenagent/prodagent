@@ -200,11 +200,17 @@ class MultiAgentRun:
         return self._terminal
 
     def start(self) -> None:
+        """Spawn the drive task exactly once — a double-start would pump one
+        adapter into two queues."""
         if self._task is not None:
             raise RuntimeError(f"run {self.run_id} already started")
         self._task = asyncio.create_task(self._drive(), name=f"multiagent:{self.run_id}")
 
     async def _drive(self) -> None:
+        """The invariant pump: seed roster → started → every primitive event
+        through ``map_event`` → exactly one terminal envelope, even when the
+        adapter itself crashes (the failure becomes a ``failed`` envelope,
+        never a silently-stuck stream)."""
         # Seed the roster before any primitive event fires.
         await self._emit_roster(self.adapter.initial_participants(), phase=None)
         await self._emit(

@@ -128,6 +128,11 @@ class ReactiveLoop:
         run_id: str | None = None,
         parent_run_id: str | None = None,
     ) -> AsyncGenerator[AgentEvent, None]:
+        """Drive the loop to a terminal state and always emit exactly one
+        terminal event. Budget/loop deaths settle into ``RunFailedEvent``;
+        unexpected exceptions settle the run *and* re-raise (the caller
+        learns what broke, the checkpoint records that it broke); the
+        ``finally`` checkpoint fires on every path."""
         run = await self._resolve_run(task, run_id=run_id, parent_run_id=parent_run_id)
         logger.info("ReactiveLoop[%s] stream started: %r", run.run_id, task[:80])
         await self._begin_run_span(run, task)
@@ -226,6 +231,8 @@ class ReactiveLoop:
         self,
         run: AgentRun,
     ) -> AsyncGenerator[AgentEvent, None]:
+        """The heartbeat: parked-call replay (if resuming a suspension),
+        then Step after Step until a terminal flag lands on the run."""
         # Resuming a SUSPENDED run: retry the exact call awaiting approval instead of asking the LLM again.
         park = run.clear_approval_park()
         if park is not None:
@@ -278,6 +285,9 @@ class ReactiveLoop:
         run_id: str | None,
         parent_run_id: str | None = None,
     ) -> AgentRun:
+        """Where a run comes from: seeded messages (chat turn) → checkpoint
+        resume (dangling tool turns pruned, crash scene cleared) → fresh.
+        Order matters — a chat turn never accidentally resumes a checkpoint."""
         if self._initial_messages is not None:
             resolved_run_id = run_id or str(uuid.uuid4())
             run = AgentRun(run_id=resolved_run_id, task=task, parent_run_id=parent_run_id)

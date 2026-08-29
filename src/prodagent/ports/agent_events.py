@@ -149,13 +149,13 @@ def _wire_payload(value: object) -> Any:
     """JSON-able form of an opaque event payload: pass primitives/containers
     through, convert ``to_dict`` dataclasses, stringify the rest."""
     if isinstance(value, _JSON_SCALARS):
-        return value
+        return value  # already wire-native
     if isinstance(value, (dict, list)):
-        return value
+        return value  # trusted as wire-shaped (callers build them that way)
     to_dict = getattr(value, "to_dict", None)
     if callable(to_dict):
-        return to_dict()
-    return str(value)
+        return to_dict()  # dataclasses that know their own wire form
+    return str(value)  # opaque object — text beats crashing the stream
 
 
 def event_to_wire(event: AgentEvent) -> JsonDict:
@@ -184,7 +184,7 @@ def event_from_wire(d: JsonDict) -> AgentEvent:
     kind = d.get("type")
     cls = _KINDS.get(kind) if isinstance(kind, str) else None
     if cls is None:
-        raise ValueError(f"unknown event type on the wire: {kind!r}")
+        raise ValueError(f"unknown event type on the wire: {kind!r}")  # refuse, don't guess
     # Only two fields need reconstruction — the rest are wire scalars or
     # opaque payloads that round-trip as-is.
     rebuild = {"call": ToolCall.from_dict, "run": AgentRun.from_dict}

@@ -246,6 +246,7 @@ class SynthesisResult:
 
     @property
     def ok(self) -> bool:
+        """A verdict is a success iff a skill came out of it."""
         return self.skill is not None
 
 
@@ -336,6 +337,8 @@ class SkillSynthesizer:
         if last is not None:
             elapsed = time.time() - last
             if elapsed < self._overwrite_cooldown_seconds:
+                # Gate 1 — cooldown: two successes in quick succession are
+                # often the same run's echoes, not independent corroboration.
                 return (
                     f"rate_limited: skill {name!r} was auto-overwritten {elapsed:.0f}s ago "
                     f"(< {self._overwrite_cooldown_seconds:.0f}s cooldown)"
@@ -346,6 +349,8 @@ class SkillSynthesizer:
             # rather than blocking every overwrite indefinitely.
             return None
 
+        # Gate 2 — corroboration: count independent successful runs whose
+        # tags overlap the existing skill's (same problem neighbourhood).
         records = await self._store.load_all()
         existing_tags = set(existing.card.tags)
         corroborating = sum(

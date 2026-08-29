@@ -1,3 +1,12 @@
+"""ContextManager — assemble what the model sees, budget every slice.
+
+The model never sees the raw transcript: each turn's view is built fresh —
+state block, recalled memory (budget-pruned when it overflows its share),
+invoked-skill runbooks, compressed history — stacked as a sandwich whose
+history-first ordering keeps the prompt-cache prefix byte-stable while the
+mutable blocks ride at the end for instruction recency. The full history
+stays untouched on the run; only this view compresses."""
+
 from __future__ import annotations
 
 import logging
@@ -70,6 +79,7 @@ class _Sandwich:
 
 
 def format_state(run: AgentRun) -> str:
+    """The L1 state line — the run's own vitals, recomposed every turn."""
     return (
         f"Turn: {run.turn_count} | "
         f"State: {run.state.value} | "
@@ -251,6 +261,8 @@ class ContextManager:
         skills_block: str,
         history: MessageList,
     ) -> _Sandwich:
+        """Stack the blocks in sandwich order — history first (cache-stable
+        prefix), injections last (see :class:`_Sandwich`)."""
         return _Sandwich(
             memory_msg={"role": "user", "content": f"[MEMORY]\n{memory_block}"}
             if memory_block

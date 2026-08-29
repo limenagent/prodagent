@@ -1,4 +1,13 @@
-"""Shared type definitions."""
+"""The kernel's nouns — one canonical vocabulary for every execution mode.
+
+Calls, responses, results, and stream events live here so both executors
+(REACTIVE's Step, PLAN_FIRST's steps) branch on the same shapes. Where
+providers disagree, this module picks one canon: ``StopReason`` speaks
+Anthropic's vocabulary and every adapter maps into it, unknowns coerced
+rather than raised. Words shared with the base layer (``Message``,
+``RunState``, ...) are defined in ``base/types`` and re-exported — base
+must never import kernel.
+"""
 
 from __future__ import annotations
 
@@ -42,7 +51,11 @@ GET_SKILL_TOOL_NAME = "get_skill"
 
 @dataclass
 class ToolCall:
-    """Single tool invocation requested by the model."""
+    """Single tool invocation requested by the model.
+
+    Note the vocabulary: ``params`` (not ``args``), and ``call_id`` is the
+    correlation key that ties a tool result message back to its request —
+    providers reject a tool_result with no matching id."""
 
     name: ToolName
     params: ToolParams
@@ -82,13 +95,13 @@ class StopReason(StrEnum):
         GLM ``finish_reason``); callers shouldn't crash on a new one.
         """
         if isinstance(raw, cls):
-            return raw
+            return raw  # already canonical
         if not raw:
-            return cls.END_TURN
+            return cls.END_TURN  # absent stop reason ≈ model finished
         try:
             return cls(raw)
         except ValueError:
-            return cls.END_TURN
+            return cls.END_TURN  # unknown provider value: degrade, never crash
 
 
 @dataclass
@@ -233,6 +246,9 @@ class ToolError:
         hint: str = "",
         severity: ErrorSeverity | None = None,
     ) -> ToolError:
+        """Convenience constructor that derives severity from the reason via
+        the NON_RETRYABLE table — callers state *what* failed, the shared
+        table decides how the loop should treat it."""
         if severity is None:
             severity = (
                 ErrorSeverity.RED if reason in NON_RETRYABLE_REASONS else ErrorSeverity.YELLOW
@@ -324,6 +340,10 @@ class ToolResult(Generic[_T]):
         )
 
     def to_wire(self) -> JsonDict:
+        """The dict the model actually reads as a tool result. One shape per
+        outcome — errors carry reason/hint for self-correction, suspensions
+        carry the approval id, handoffs carry the peer; a plain ``OK`` value
+        passes through as itself when it's already a dict."""
         if self.outcome is ToolOutcome.OK:
             v = self.value
             return v if isinstance(v, dict) else {"result": v}

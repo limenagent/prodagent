@@ -1,4 +1,13 @@
-"""Event-sourcing + checkpoint persistence for PLAN_FIRST execution."""
+"""PlanEventLog — event sourcing + checkpoint persistence for PLAN_FIRST.
+
+Recovery here is snapshot-based with tail replay: the checkpoint stores a
+plan snapshot *and the event seq it was taken at* (``last_seq``); restore
+folds the snapshot first, then replays only the events after it. Snapshots
+truncate replay length; the event stream guarantees no increment is lost —
+the same trade a WAL-plus-checkpoint database makes. Every mutation of the
+plan (created / started / completed / failed / suspended / replanned) is
+one appended event, so any state is reproducible from the log alone.
+"""
 
 from __future__ import annotations
 
@@ -45,7 +54,10 @@ def _set_plan(run: AgentRun, *, state: Any, last_seq: int) -> None:
 
 
 def apply_event(state: dict[str, Any], event: Event) -> None:
-    """Reducer for ``hybrid_restore``."""
+    """Reducer for ``hybrid_restore`` — a pure ``(state, event) → state``
+    fold. Same event sequence, same state, every time: that determinism is
+    what makes crash recovery trustworthy and the reducer testable alone."""
+
     steps = state.setdefault("steps", {})
     match event.event_type:
         case PlanEventType.PLAN_CREATED:
@@ -238,6 +250,11 @@ class PlanEventLog:
         checkpoint_plan: Plan | None = None,
         **data: Any,
     ) -> int:
+        """The one serialized mutation path: append with the optimistic
+        tail-check, advance the cursor to the returned seq, and — for the
+        events resume parks on (completed / suspended / replanned) — write
+        a fresh snapshot under it. Locking here keeps append and checkpoint
+        from interleaving across the concurrently-running steps of a wave."""
         async with self._lock:
             seq = await append_expected(
                 self._events,

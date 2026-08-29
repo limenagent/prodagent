@@ -1,3 +1,15 @@
+"""FunctionTool — how a plain Python function becomes a callable tool.
+
+The model is not a programmer: it will misspell parameters, pass wrong
+types, and invent tool names. This module's stance is that such mistakes
+are routine, not exceptional — bad parameters come back as a structured
+``ToolResult`` carrying a correction hint (the model reads it and fixes
+itself next turn), and per-parameter coercion failures degrade to a warning
+plus the raw value rather than a crash. Schema generation, signature
+caching, and TypeAdapter construction all happen once at build time, so the
+per-call path stays free of reflective work.
+"""
+
 from __future__ import annotations
 
 import inspect
@@ -80,6 +92,10 @@ class FunctionTool:
         self._adapters = _build_adapters(fn, name)
 
     def _cache_signature(self, fn: Callable[..., Any]) -> None:
+        """Snapshot the valid/required parameter sets once — per-call
+        unexpected/missing detection is then two set operations, no
+        reflection on the hot path. A ``**kwargs`` tool disables the check
+        (any name is legal)."""
         sig = inspect.signature(fn)
         self._has_var_keyword = any(
             p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
@@ -96,8 +112,12 @@ class FunctionTool:
             )
 
     async def __call__(self, *, run_id: str = "", **kwargs: Any) -> ToolResult:
+        """One invocation through the forgive-first gauntlet: coerce what's
+        coercible, reject structurally-wrong params as a structured error
+        (the model reads the hint and self-corrects next turn), and only
+        then call the function."""
         if self.inject_run_id and "run_id" not in kwargs:
-            kwargs["run_id"] = run_id
+            kwargs["run_id"] = run_id  # host context in, before coercion sees it
         kwargs = self._coerce_params(kwargs)
 
         if not self._has_var_keyword:
@@ -132,6 +152,7 @@ class FunctionTool:
         return coerce_result(raw, tool=self.name)
 
     def _coerce_params(self, kwargs: ToolParams) -> ToolParams:
+        """Per-parameter best-effort coercion via the cached TypeAdapters."""
         if not self._adapters:
             return kwargs
         coerced = dict(kwargs)
@@ -142,6 +163,9 @@ class FunctionTool:
             try:
                 coerced[param_name] = adapter.validate_python(val)
             except ValidationError:
+                # Degrade, don't crash: the tool may accept the raw value
+                # itself, and if not, the model sees the failure and adapts —
+                # either way a thrown exception here would kill the whole turn.
                 logger.warning(
                     "Tool %r: could not coerce parameter %r from %s; passing raw value",
                     self.name,
@@ -182,6 +206,8 @@ def coerce_result(raw: Any, *, tool: ToolName = "") -> ToolResult[Any]:
     if isinstance(raw, ToolError):
         return ToolResult.from_error(raw, tool=tool)
     if isinstance(raw, dict):
+        # Control-flow markers: a plain function can still steer the loop by
+        # returning these dict shapes — no framework types required of it.
         if raw.get("suspended"):
             return ToolResult.suspended(
                 reason=raw.get("reason", ""),
@@ -202,10 +228,12 @@ def coerce_result(raw: Any, *, tool: ToolName = "") -> ToolResult[Any]:
             err_val = raw.get("error")
             message = raw.get("message", "")
             if isinstance(err_val, str) and not message:
-                message = err_val
+                message = err_val  # tolerate {"error": "text"} as the message form
             try:
                 reason = ErrorReason(raw_reason)
             except ValueError:
+                # Unknown reason strings degrade to UNKNOWN (still retryable)
+                # rather than crashing the tool boundary.
                 reason = ErrorReason.UNKNOWN
                 message = message or f"invalid ErrorReason: {raw_reason!r}"
             return ToolResult.from_error(

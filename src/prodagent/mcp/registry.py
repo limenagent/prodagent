@@ -1,3 +1,11 @@
+"""MCPRegistry — N connections, each on its own footing.
+
+Owns the fleet for one agent hop: connects every configured server
+concurrently, and treats a server that won't connect as *its own* problem —
+the failure is recorded, that server's tools are absent, and everything
+else proceeds. An async context manager so the hop's exit stack closes
+every connection it opened."""
+
 from __future__ import annotations
 
 import asyncio
@@ -78,6 +86,9 @@ class MCPRegistry:
         self._clients.clear()
 
     async def get_tools(self) -> list[FunctionTool]:
+        """Discover + adapt every connected server's tools, keeping one
+        server's discovery failure to itself — same isolation rule as
+        connect: the toolbox loses that server's tools, nothing else."""
         from prodagent.mcp.bridge import adapt_mcp_tools
 
         tools: list[FunctionTool] = []

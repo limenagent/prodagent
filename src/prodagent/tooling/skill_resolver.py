@@ -1,3 +1,5 @@
+"""Skill loading as a tool — the model pulls runbooks on demand."""
+
 from __future__ import annotations
 
 import logging

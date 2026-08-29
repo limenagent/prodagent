@@ -1,3 +1,16 @@
+"""OpenAI-compatible adapter — one client for every OpenAI-shaped endpoint.
+
+The framework ships no vendor list: DeepSeek, Qwen, Moonshot, Groq, Ollama,
+self-hosted gateways — anything speaking the chat-completions dialect works
+through this file unchanged, because what varies (endpoint, model, price)
+arrives as configuration, not code. Dialect notes the translation absorbs:
+``prompt_tokens`` already *includes* cached tokens (the inverse of
+Anthropic's convention — both adapters land on the same all-inclusive
+canonical form), streaming fragments each tool call across deltas (name and
+arguments arrive in pieces — accumulate, parse once), and stop vocabulary
+maps onto the Anthropic-named ``StopReason`` the loop branches on.
+"""
+
 from __future__ import annotations
 
 import json
@@ -72,6 +85,8 @@ class OpenAIAdapter:
         config: LLMConfig | None = None,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
     ) -> LLMResponse:
+        """Canonical history → chat-completions wire → canonical response,
+        under the shared guarded-retry wrapper."""
         cfg = config or self._default_config
         full_messages = self._build_messages(messages, system)
         guard = DeliveryGuard()
@@ -122,6 +137,8 @@ class OpenAIAdapter:
 
     @staticmethod
     def _build_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Canonical schema → the ``function`` envelope this dialect wants;
+        ``input_schema`` or ``parameters``, whichever the source carries."""
         return [
             {
                 "type": "function",
@@ -142,6 +159,9 @@ class OpenAIAdapter:
         cfg: LLMConfig,
         on_chunk: Callable[[str], Awaitable[None]] | None,
     ) -> LLMResponse:
+        """Consume the chunk stream once, accumulating text, reasoning,
+        usage, and tool-call fragments; parse tool arguments only after the
+        stream ends (they arrive in pieces)."""
         kwargs: dict[str, Any] = {
             "model": cfg.model,
             "messages": messages,
@@ -171,13 +191,15 @@ class OpenAIAdapter:
             chunk_count += 1
 
             if chunk.usage:
+                # Usage rides the FINAL chunk (stream_options.include_usage);
+                # keep overwriting — the last write is the real one.
                 usage_input = chunk.usage.prompt_tokens or 0
                 usage_output = chunk.usage.completion_tokens or 0
                 details = getattr(chunk.usage, "prompt_tokens_details", None)
                 if details is not None:
                     usage_cache_read = getattr(details, "cached_tokens", 0) or 0
             if not chunk.choices:
-                continue
+                continue  # usage-only chunks carry no content
             choice = chunk.choices[0]
             delta = choice.delta
             if choice.finish_reason:
@@ -188,7 +210,7 @@ class OpenAIAdapter:
             if delta.content:
                 content_parts.append(delta.content)
                 if on_chunk is not None:
-                    await on_chunk(delta.content)
+                    await on_chunk(delta.content)  # stream text out as it arrives
 
             # o1/o3/deepseek-r1-style models stream reasoning_content separately
             delta_reasoning = getattr(delta, "reasoning_content", "") or ""
@@ -250,6 +272,8 @@ _OPENAI_STOP_MAP: dict[str, StopReason] = {
 
 
 def _map_stop_reason(finish_reason: str | None) -> StopReason:
+    """finish_reason → canonical StopReason; unknowns coerce to END_TURN
+    instead of crashing the loop on a provider's new value."""
     if not finish_reason:
         return StopReason.END_TURN
     return _OPENAI_STOP_MAP.get(finish_reason, StopReason.coerce(finish_reason))

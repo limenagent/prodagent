@@ -67,6 +67,8 @@ def top_k_by_cosine(
     domain: str | None = None,
     exclude_id: str | None = None,
 ) -> list[tuple[float, StoredMemory]]:
+    """Score memories by cosine to the query vector, top-k, above the floor —
+    superseded and out-of-domain records never even score."""
     scored: list[tuple[float, StoredMemory]] = []
     for mem in mems:
         if mem.superseded:

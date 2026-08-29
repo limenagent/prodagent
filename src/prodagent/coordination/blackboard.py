@@ -168,10 +168,13 @@ class Board(RoundedLockableStore, EventSourcedStore):
         return {k: copy.deepcopy(self._slots[k].value) for k in keys if k in self._slots}
 
     def version_of(self, key: str) -> int:
+        """A slot's current version (0 when absent) — what an expert echoes
+        back for the optimistic write check."""
         slot = self._slots.get(key)
         return slot.version if slot is not None else 0
 
     def snapshot(self) -> dict[str, Any]:
+        """Serializable whole-board view — hooks, views, event payloads."""
         return {
             "slots": {
                 k: {"value": copy.deepcopy(s.value), "version": s.version}
@@ -228,6 +231,8 @@ class Trigger:
     mode: Literal["event", "buzz_in"] = "event"
 
     def matches(self, changed_keys: list[str]) -> bool:
+        """fnmatch per pattern against the drained change list; ``keys=[]``
+        matches everything (the kickoff/poller shape)."""
         if not self.keys:
             return True
         return any(fnmatch.fnmatch(k, pattern) for k in changed_keys for pattern in self.keys)
@@ -245,6 +250,8 @@ class BlackboardPolicy:
         self._triggers = triggers
 
     async def next_activations(self, ctx: ActivationContext) -> list[Activation]:
+        """One Activation per matched trigger, this round — the Trigger list
+        as seen through the activation-port vocabulary."""
         changed = list(ctx.changed_keys)
         matched = [t for t in self._triggers.values() if t.matches(changed)]
         return [
@@ -638,6 +645,8 @@ class _BoardViewSlot:
 
 
 def _format_board_block(slot: _BoardViewSlot) -> str:
+    """Render the ``[BOARD]`` context block — the expert's window onto the
+    shared state, bounded per value."""
     if not slot.snapshot:
         return ""
     lines = [f"[BOARD] trigger: {slot.trigger_name}", "state:"]
@@ -696,6 +705,9 @@ class AgentBlackboardMember:
         return self._view_pipe
 
     async def try_contribute(self, board: Board, *, trigger: Trigger) -> BoardWrite | None:
+        """One expert turn: board view in (through the plane), agent speaks,
+        proposed write out (through the plane) — PASS or a refused crossing
+        become ``None``, occupying no write slot."""
         delivery = await self._view_pipeline().process(
             Crossing.mint(
                 direction=Direction.DOWNSTREAM,

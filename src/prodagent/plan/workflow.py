@@ -37,6 +37,12 @@ class _StepSpec:
 
 
 class Workflow:
+    """A plan *builder*, not a third execution mode: you hand-write the DAG
+    in code, ``compile()`` turns it into the same ``Plan`` a model could
+    have drafted, and a PLAN_FIRST agent executes it. The model never plans
+    — for compliance pipelines the path is fixed by design, and "which step
+    runs next" is auditable from source alone."""
+
     def __init__(self) -> None:
         self._specs: list[_StepSpec] = []
         self._llm: LLMClient | None = None
@@ -64,6 +70,10 @@ class Workflow:
         is_terminal: bool = False,
         params: dict[str, Any] | None = None,
     ) -> Any:
+        """Register a plain-function step (usable as a decorator), or an
+        Agent as a sub-task (compiled to a ``spawn_agent`` action). Function
+        parameters whose names match dependencies auto-bind to that step's
+        output — the wiring reads like ordinary function calls."""
         if fn is None:
 
             def _decorator(f: Callable[..., Any] | Agent) -> Any:
@@ -118,6 +128,10 @@ class Workflow:
         config: LLMConfig | None = None,
         timeout_ms: float | None = None,
     ) -> None:
+        """Register a model step: the LLM answers *this step's* prompt and
+        nothing else — it processes input, it never decides flow. Default
+        timeout is the LLM config's own deadline plus a margin, so the
+        dispatcher doesn't kill a call the client would have finished."""
         tool_obj = self._make_llm_tool(
             name,
             prompt,
@@ -148,6 +162,8 @@ class Workflow:
         depends_on: list[str] | None = None,
         is_terminal: bool = False,
     ) -> None:
+        """Register a step that calls an already-registered tool by name —
+        no wrapper is generated; the plan references the live tool directly."""
         self._specs.append(
             _StepSpec(
                 step_id=name,
@@ -160,6 +176,8 @@ class Workflow:
         )
 
     def compile(self) -> Plan:
+        """Freeze the specs into a ``Plan``. Acyclicity is validated here —
+        a hand-written cycle fails loudly at compile, not as a hang at run."""
         plan = Plan()
         steps = [
             PlanStep(
@@ -176,6 +194,8 @@ class Workflow:
 
     @property
     def tools(self) -> list[FunctionTool]:
+        """Wrappers this workflow brings (function + LLM steps). The agent
+        merges them into its tool set so the plan's actions all resolve."""
         return [s.tool for s in self._specs if s.tool is not None]
 
     def _wrap_function(self, fn: Callable[..., Any], step_id: str) -> FunctionTool:
@@ -277,5 +297,7 @@ class Workflow:
             ):
                 continue
             if pname in deps:
+                # Name match = data-flow edge: the parameter binds to that
+                # dependency's output, declared without any wiring syntax.
                 params[pname] = f"{{{{{pname}.output}}}}"
         return params

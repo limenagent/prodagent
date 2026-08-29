@@ -1,3 +1,12 @@
+"""Context budgeting — the token arithmetic compression answers to.
+
+Two ideas: the window is *layered* (L0 system / L1 state / L2 memory / L3
+history, each with a configured share), and counting is deliberately
+approximate — a CJK-aware estimator that overestimates, because a gate that
+trips early costs a little compression while a gate that trips late costs
+an overflowed request. ``fit_within_budget`` keeps the most-recent tail:
+when history must shrink, the oldest turns go first."""
+
 from __future__ import annotations
 
 from enum import Enum, StrEnum
@@ -53,6 +62,9 @@ class TokenCounter:
             return 0
         cjk = cjk_char_count(text)
         ascii_chars = len(text) - cjk
+        # Rough per-token sizes: ~1.5 chars per CJK token, ~4 per ASCII word
+        # — deliberately overestimating so the compression gate trips early
+        # rather than after the request already overflowed.
         return max(1, int(cjk / 1.5) + ascii_chars // 4)
 
     def count_message(self, msg: Message) -> int:
@@ -72,6 +84,10 @@ class TokenCounter:
 
 
 class ContextBudget:
+    """Per-layer spend against per-layer shares of one window. ``spent()``
+    excludes the constraint reminder and safety margin — the compressor's
+    trigger reads actual payload size, not padded size."""
+
     def __init__(self, config: ContextConfig, max_tokens: int) -> None:
         self._cfg = config
         self._max = max_tokens

@@ -34,6 +34,8 @@ class AgentSpan:
         return asdict(self)
 
     def to_log_line(self) -> str:
+        """Compact single-line form for file/console sinks — the fields an
+        operator scans for, not the full payload."""
         return json.dumps(
             {
                 "span_id": self.span_id,

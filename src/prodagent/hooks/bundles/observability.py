@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 
 
 class SpanObserverHooks:
+    """The observability cartridge: every hook event becomes span bookkeeping
+    — session/loop spans bracket the timeline, tool calls nest under them,
+    and every unhandled event still lands as an instant span so nothing on
+    the bus is invisible."""
+
     def __init__(
         self,
         *,
@@ -41,6 +46,8 @@ class SpanObserverHooks:
         self._run_traces: dict[str, str] = {}
 
     def attach(self, hooks: HookRegistry) -> None:
+        """Register for *every* HookEvent: dedicated handlers where a span's
+        lifecycle needs pairing, a generic instant handler for the rest."""
         from prodagent.kernel.bus import HookEvent
 
         dedicated = {

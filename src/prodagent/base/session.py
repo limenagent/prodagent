@@ -71,8 +71,12 @@ class ConversationSession:
         resume = last is not None and last.state is RunState.SUSPENDED
         self.messages.append(Message(role="user", content=message))
         if resume:
+            # A suspended run keeps its original run_id so checkpoints, ledger
+            # reservations and approval requests stay correlated.
             assert last is not None  # resume implies last_turn exists
             if mode != last.mode:
+                # Resuming under a different executor would orphan the parked
+                # state (a plan cursor in a reactive run) — refuse.
                 raise ValueError(
                     f"session {self.session_id} has a SUSPENDED run under "
                     f"{last.mode}; cannot resume with mode={mode}"
@@ -81,13 +85,15 @@ class ConversationSession:
             is_new = False
         else:
             self.turn_seq += 1
-            run_id = f"{self.session_id}:{self.turn_seq}"
+            run_id = f"{self.session_id}:{self.turn_seq}"  # deterministic, human-greppable turn id
             is_new = True
             self.turns.append(TurnRecord(run_id=run_id, mode=mode, state=RunState.RUNNING))
         return TurnAllocation(run_id, mode, list(self.messages), is_new)
 
     def complete_turn(self, run_id: str, mode: ExecutionMode, run: AgentRun) -> None:
         """Fold the Run's finished transcript back into the Session."""
+        # The run's transcript replaces the session's wholesale — the turn's
+        # working copy becomes the conversation's new truth.
         self.messages = list(run.messages)
         record = TurnRecord(
             run_id=run_id,

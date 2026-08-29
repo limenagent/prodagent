@@ -53,6 +53,10 @@ class Settler:
         checkpoint: CheckpointStore | None,
         hooks: HookRegistry | None,
     ) -> None:
+        """Drive whatever state the chain left to a durable, observed end:
+        suspended runs park (checkpoint only); finished runs validate,
+        contract-admit, persist, then pass the RUN_COMPLETE gate — a veto
+        there fails the run *with the veto recorded* before re-raising."""
         if run.state is RunState.SUSPENDED:
             await self._save_checkpoint(run, checkpoint, hooks)
             return

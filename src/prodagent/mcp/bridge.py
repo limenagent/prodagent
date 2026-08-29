@@ -1,3 +1,17 @@
+"""MCP layer 4 — the bridge: an anti-corruption layer, the real protagonist.
+
+A remote MCP server is a black box with its own names, its own error codes,
+and no idea what a ToolMeta is. Four translations happen here so that once
+across the boundary, a remote tool is indistinguishable from a local one:
+names get a ``mcp__<server>__<tool>`` prefix (no collisions, provenance
+visible); risk is classified from the protocol's own annotations with a
+conservative default (unknown ⇒ MEDIUM write); each tool carries its own
+concurrency semaphore (a remote's slowness is throttled per tool, not
+flooding the dispatcher); errors map from JSON-RPC codes onto the
+framework's reasons so retry policy still means something. First-class
+citizenship is not a special lane — it is this translation plus the same
+dispatcher pipeline every local tool already flows through."""
+
 from __future__ import annotations
 
 import asyncio
@@ -69,6 +83,9 @@ async def adapt_mcp_tools(
     readonly_patterns: list[str] | None = None,
     max_concurrency: int = 8,
 ) -> list[FunctionTool]:
+    """Discover a server's tools and bridge each into a FunctionTool — the
+    one function that turns "an MCP server" into "tools the dispatcher
+    already knows how to schedule, gate, and break on"."""
     timeout_ms = client.config.timeout_ms
     patterns = readonly_patterns or []
     tools = await client.list_tools()
@@ -108,11 +125,13 @@ def _classify_risk(
     """Prefer the MCP protocol's own annotations; fall back to substring matching
     only when the server didn't provide a hint."""
     if info.read_only_hint is True:
-        return True, SideEffectLevel.LOW
+        return True, SideEffectLevel.LOW  # server's own annotation: parallel-safe
     if info.destructive_hint is True:
-        return False, SideEffectLevel.HIGH
+        return False, SideEffectLevel.HIGH  # server flagged destructive: approval territory
     if any(p in info.name.lower() for p in patterns):
-        return True, SideEffectLevel.LOW
+        return True, SideEffectLevel.LOW  # name-based pattern match (caller's hint list)
+    # No signal at all: conservative default — treated as a write (serial,
+    # no approval unless the default level says otherwise).
     return False, default_level
 
 
@@ -125,6 +144,10 @@ def _make_tool(
     max_concurrency: int,
     timeout_ms: int,
 ) -> FunctionTool:
+    """Build one bridged tool: qualified name, translated meta (risk from
+    the server's own annotations), server's schema under our name, and a
+    call wrapper that never lets a remote exception escape — failures
+    return as translated ``ToolError`` dicts the model can read."""
     qname = qualified_name(info.server_name, info.name)
     semaphore = asyncio.Semaphore(max_concurrency)
     meta = ToolMeta(

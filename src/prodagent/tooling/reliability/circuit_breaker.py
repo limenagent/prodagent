@@ -1,3 +1,5 @@
+"""The per-tool circuit breaker — fail fast while a dependency is down."""
+
 from __future__ import annotations
 
 import asyncio
@@ -69,6 +71,8 @@ class ToolCircuitBreaker:
 
     def _maybe_transition_half_open(self, s: _ToolBreakerState, name: ToolName) -> bool:
         last = s.failures[-1] if s.failures else 0.0
+        # The recovery window counts from the LAST failure, not from when the
+        # breaker opened — every new failure restarts the wait.
         if time.monotonic() - last >= self._recovery:
             s.state = BreakerState.HALF_OPEN
             logger.info("ToolBreaker[%s]: HALF_OPEN — probe request allowed", name)
@@ -76,6 +80,9 @@ class ToolCircuitBreaker:
         return False
 
     async def is_available(self, name: ToolName) -> bool:
+        """Is calling this tool worth it right now? True in CLOSED, and in
+        OPEN only once the recovery window has elapsed (the caller then
+        races for the single HALF_OPEN probe slot)."""
         async with self._get_lock(name):
             s = self._state(name)
             if s.state is BreakerState.OPEN:
@@ -84,6 +91,9 @@ class ToolCircuitBreaker:
             return True
 
     async def try_acquire_probe(self, name: ToolName) -> bool:
+        """Admission ticket for one call. HALF_OPEN admits exactly one
+        in-flight probe — if the dependency is still down, the blast radius
+        of finding out is one request, not the whole backlog."""
         async with self._get_lock(name):
             s = self._state(name)
             if s.state is BreakerState.CLOSED:
@@ -101,6 +111,8 @@ class ToolCircuitBreaker:
             self._state(name).probe_in_flight = False
 
     async def record_success(self, name: ToolName) -> None:
+        """One success is proof of recovery: failures cleared, state CLOSED.
+        No gradual ramp — either the dependency answers or it doesn't."""
         async with self._get_lock(name):
             s = self._state(name)
             if s.state is not BreakerState.CLOSED:
@@ -110,17 +122,23 @@ class ToolCircuitBreaker:
             s.probe_in_flight = False
 
     async def record_failure(self, name: ToolName) -> None:
+        """Timestamp one failure. The deque is a sliding window, not a
+        counter: eviction drops records older than ``window_seconds``, so
+        "has *recently* kept failing" is the question answered — a tool
+        that failed twice last quarter doesn't trip anything."""
         async with self._get_lock(name):
             s = self._state(name)
-            s.failures.append(time.monotonic())
+            s.failures.append(time.monotonic())  # monotonic: wall-clock jumps can't fake recency
             s.probe_in_flight = False
 
             if s.state is BreakerState.HALF_OPEN:
+                # The probe itself failed — straight back to OPEN, no window
+                # recount needed (the failure was just appended).
                 s.state = BreakerState.OPEN
                 logger.warning("ToolBreaker[%s]: probe failed → OPEN", name)
                 return
 
-            s.evict(self._window)
+            s.evict(self._window)  # drop failures older than the window before counting
             if len(s.failures) >= self._threshold and s.state is BreakerState.CLOSED:
                 s.state = BreakerState.OPEN
                 logger.warning(

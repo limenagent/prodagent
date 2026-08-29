@@ -74,6 +74,8 @@ async def collect_final_run(
 
 
 def child_run_id(parent_run_id: str, child_name: str) -> str:
+    """Child ids embed their parent's (``parent::child``) — attribution for
+    accounting and governance readable from the id alone."""
     return f"{parent_run_id}{CHILD_SEPARATOR}{child_name}"
 
 
@@ -381,6 +383,8 @@ class AgentRun(Generic[_RunT]):
         many times it now occurs within that window (the dead-loop count)."""
         self.fingerprints.append(fp)
         if len(self.fingerprints) > window:
+            # Slide: keep only the newest `window` fingerprints — ancient
+            # repeats must not count against a current loop.
             del self.fingerprints[: len(self.fingerprints) - window]
         return self.fingerprints.count(fp)
 
@@ -389,6 +393,9 @@ class AgentRun(Generic[_RunT]):
         return self.metrics.input_tokens + self.metrics.output_tokens
 
     def elapsed_seconds(self) -> float:
+        """Two clocks, one rule: monotonic while the process lives (NTP
+        can't bend it), wall-clock after a checkpoint restore (monotonic is
+        process-relative) — so a resumed run's seconds axis still binds."""
         if self.monotonic_start is not None:
             return time.monotonic() - self.monotonic_start
         return time.time() - self.start_time

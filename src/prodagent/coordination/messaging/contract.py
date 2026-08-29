@@ -28,6 +28,9 @@ class MessageContract:
     value_type: type | None = None
 
     def validate(self, result: Mapping[str, Any] | Any) -> tuple[bool, str | None]:
+        """Check a payload against the declared shape. Returns
+        ``(ok, why-not)`` — a rejection reason is data for the dead-letter
+        record, never a raise."""
         if self.value_type is not None and not isinstance(result, self.value_type):
             return (
                 False,
