@@ -15,11 +15,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 from prodagent.base.config import ContextConfig, LoopConfig
+from prodagent.base.determinism import new_uuid4, now_wall
 from prodagent.base.errors import SECURITY_VETO_EXCEPTIONS, ErrorLayer, ErrorReason, classify_error
 from prodagent.base.retry import Backoff, RetryPolicy
 from prodagent.kernel.bus import Gate, HookEvent
@@ -286,8 +286,6 @@ class ToolDispatcher:
     def _is_handoff(result: ToolResult, call: ToolCall, run: AgentRun) -> bool:
         if result.outcome is not ToolOutcome.HANDOFF:
             return False
-        import uuid
-
         from prodagent.kernel.state import PendingHandoff
 
         h = result.handoff or {}
@@ -296,7 +294,7 @@ class ToolDispatcher:
                 peer_name=h.get("peer", ""),
                 task=h.get("task", ""),
                 input_refs=dict(h.get("input_refs") or {}),
-                message_id=str(uuid.uuid4()),
+                message_id=new_uuid4(),
             )
         )
         run.tool_history = [c for c in run.tool_history if c is not call]
@@ -534,7 +532,7 @@ class ToolDispatcher:
         """Deadline-bounded invocation; every failure mode — timeout,
         transient transport, unexpected exception — settles into a
         classified ``ToolResult`` and a breaker record, never a raise."""
-        start = time.time()
+        start = now_wall()
         timeout = meta.timeout_seconds if meta is not None else _DEFAULT_TOOL_TIMEOUT_S
 
         async def _raw(c: ToolCall) -> ToolResult:
@@ -574,10 +572,10 @@ class ToolDispatcher:
         else:
             await self._record_breaker(call.name, failure=False)
 
-        return result, (time.time() - start) * 1000
+        return result, (now_wall() - start) * 1000
 
     async def _invoke_skill(self, call: ToolCall, run_id: str) -> tuple[ToolResult, float]:
-        start = time.time()
+        start = now_wall()
         try:
             result = await asyncio.wait_for(
                 self._skill_resolver.resolve(call, run_id), timeout=_DEFAULT_TOOL_TIMEOUT_S
@@ -596,7 +594,7 @@ class ToolDispatcher:
             result = await self._fail_tool(exc, call, code="tool_execution_error", message=str(exc))
         else:
             await self._record_breaker(call.name, failure=False)
-        return result, (time.time() - start) * 1000
+        return result, (now_wall() - start) * 1000
 
     async def _fail_tool(
         self, exc: BaseException, call: ToolCall, *, code: str, message: str, hint: str = ""

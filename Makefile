@@ -92,6 +92,12 @@ lint: _ensure_uv
 	uv run ruff format --check src/prodagent tests; \
 	uv run mypy src/prodagent
 
+# Determinism boundary (Replay law), report-only until the soak ends —
+# in-domain time/random/ids must come from prodagent.base.determinism.
+lint-determinism: _ensure_uv
+	@export PATH="$$HOME/.local/bin:$$PATH"; \
+	uv run ruff check --select TID251 src/prodagent tests
+
 format: _ensure_uv
 	@export PATH="$$HOME/.local/bin:$$PATH"; \
 	uv sync --extra dev; \

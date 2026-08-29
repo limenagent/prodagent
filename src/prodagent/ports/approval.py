@@ -9,10 +9,11 @@ re-invoking the run, not by awaiting the decision in-process.
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
+
+from prodagent.base.determinism import now_wall
 
 
 class ApprovalDecision(StrEnum):
@@ -31,7 +32,7 @@ class ApprovalRequest:
     params: dict[str, object]
     context_summary: str
     run_id: str = ""
-    created_at: float = field(default_factory=time.time)
+    created_at: float = field(default_factory=now_wall)
     decision: ApprovalDecision | None = None
     decided_at: float | None = None
     approver_id: str | None = None

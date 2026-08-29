@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
+from prodagent.base.determinism import now_monotonic
 from prodagent.base.errors import BudgetExceeded
 
 if TYPE_CHECKING:
@@ -194,7 +194,7 @@ class BudgetLedger:
     """Per-member reservation buckets — sum never exceeds ``_reserved``."""
 
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    _start_monotonic: float = field(default_factory=time.monotonic)
+    _start_monotonic: float = field(default_factory=now_monotonic)
 
     @property
     def committed(self) -> _Spend:
@@ -227,7 +227,7 @@ class BudgetLedger:
 
     def elapsed_seconds(self) -> float:
         """Wall-clock since this BudgetLedger was created — the 'seconds' axis."""
-        return time.monotonic() - self._start_monotonic
+        return now_monotonic() - self._start_monotonic
 
     def is_exhausted(self) -> bool:
         """Cheap lock-free pre-check — pollable between rounds/hops.

@@ -9,11 +9,11 @@ from __future__ import annotations
 import logging
 import re
 import threading
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from prodagent.base.determinism import now_wall
 from prodagent.base.io import safe_filename_component
 from prodagent.kernel.types import GET_SKILL_TOOL_NAME
 
@@ -166,7 +166,7 @@ class SkillRegistry:
             return
         try:
             history_dir.mkdir(parents=True, exist_ok=True)
-            path = history_dir / f"{int(time.time())}_v{content.card.version}.md"
+            path = history_dir / f"{int(now_wall())}_v{content.card.version}.md"
             path.write_text(_to_markdown(content), encoding="utf-8")
             logger.info("Skill archived before overwrite: %s", path)
         except OSError:

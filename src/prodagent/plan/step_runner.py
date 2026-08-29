@@ -14,11 +14,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
-import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
+from prodagent.base.determinism import new_uuid4, now_monotonic
 from prodagent.base.errors import SuspendPendingApproval, ToolAbortError, ToolBlockedError
 from prodagent.hooks import fire as _fire
 from prodagent.kernel.bus import HookEvent
@@ -268,7 +267,7 @@ class StepRunner:
             wire = result.to_wire()
             step.status = StepStatus.COMPLETED
             step.output_ref = wire
-            step.completed_at = time.monotonic()
+            step.completed_at = now_monotonic()
             logger.info("[Plan] step=%s action=%s → COMPLETED", step.step_id, step.action)
             await self._log.record_step_completed(plan, run, step.step_id, wire)
             await _fire(
@@ -307,7 +306,7 @@ class StepRunner:
                     peer_name=peer,
                     task=h.get("task", ""),
                     input_refs=dict(h.get("input_refs") or {}),
-                    message_id=str(uuid.uuid4()),
+                    message_id=new_uuid4(),
                 )
             ):
                 return

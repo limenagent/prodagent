@@ -7,6 +7,14 @@ and the kernel's in-process BudgetLedger (``prodagent.kernel.budget``);
 both satisfy their port structurally, like every backend.
 """
 
+from prodagent.base.determinism import (
+    IdPort,
+    RandomPort,
+    SystemIds,
+    SystemRandomness,
+    SystemTime,
+    TimePort,
+)
 from prodagent.ports.activation import (
     Activation,
     ActivationContext,
@@ -60,6 +68,12 @@ __all__ = [
     "DeadLetterStore",
     "DispatchMode",
     "DocumentStore",
+    "IdPort",
+    "RandomPort",
+    "SystemIds",
+    "SystemRandomness",
+    "SystemTime",
+    "TimePort",
     "EventLog",
     "ExperienceStore",
     "GraphStore",

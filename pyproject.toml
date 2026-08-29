@@ -112,6 +112,33 @@ line-length = 100
 select = ["E", "W", "F", "I", "UP", "B", "SIM", "TCH"]
 ignore = ["E501", "B008"]
 
+# ── Determinism boundary (Replay law) ─────────────────────────────────────
+# TID251 is intentionally NOT in `select`: the ban runs report-only
+# (`ruff check --select TID251`, CI annotates without failing) for a soak
+# period, then flips to error. In-domain code draws time/random/ids from
+# prodagent.base.determinism accessors instead.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"time.time".msg = "draw from prodagent.base.determinism.now_wall — replay needs one clock seam"
+"time.monotonic".msg = "draw from prodagent.base.determinism.now_monotonic — replay needs one clock seam"
+"uuid.uuid4".msg = "draw from prodagent.base.determinism.new_uuid4 — replay re-mints recorded ids"
+"random.uniform".msg = "draw from prodagent.base.determinism.random_uniform — replay needs one randomness seam"
+"random.random".msg = "draw from prodagent.base.determinism (grow the port) — replay needs one randomness seam"
+"datetime.datetime.now".msg = "draw from prodagent.base.time.now_utc — replay needs one clock seam"
+
+# Domain attribution table: where the real sources stay legal. coordination
+# folds into the boundary at U7; runtime is the assembly root; hooks carry
+# observer timestamps (excluded projections); backends are live Effect
+# implementations; playground is the UI surface; determinism itself is the
+# sanctioned implementation; tests mint fixtures freely.
+[tool.ruff.lint.per-file-ignores]
+"src/prodagent/base/determinism.py" = ["TID251"]
+"src/prodagent/coordination/**" = ["TID251"]
+"src/prodagent/runtime/**" = ["TID251"]
+"src/prodagent/hooks/**" = ["TID251"]
+"src/prodagent/backends/**" = ["TID251"]
+"src/prodagent/playground/**" = ["TID251"]
+"tests/**" = ["TID251"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["prodagent"]
 

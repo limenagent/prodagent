@@ -6,10 +6,10 @@ import asyncio
 import json
 import logging
 import re
-import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from prodagent.base.determinism import now_wall
 from prodagent.llm import LLMClient, LLMConfig, noop_chunk
 from prodagent.llm.structured_output import extract_json_object
 from prodagent.ports.experience import (
@@ -314,7 +314,7 @@ class SkillSynthesizer:
         if result.skill is not None:
             self._register_or_merge(result.skill)
             if existing is not None:
-                self._last_overwrite_at[result.skill.card.name] = time.time()
+                self._last_overwrite_at[result.skill.card.name] = now_wall()
             contra = (
                 f" — {len(result.skill.contradictions)} contradiction(s) flagged"
                 if result.skill.contradictions
@@ -335,7 +335,7 @@ class SkillSynthesizer:
         """
         last = self._last_overwrite_at.get(name)
         if last is not None:
-            elapsed = time.time() - last
+            elapsed = now_wall() - last
             if elapsed < self._overwrite_cooldown_seconds:
                 # Gate 1 — cooldown: two successes in quick succession are
                 # often the same run's echoes, not independent corroboration.

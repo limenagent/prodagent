@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import random
 from dataclasses import dataclass
 from enum import StrEnum
+
+from prodagent.base.determinism import random_uniform
 
 
 class Backoff(StrEnum):
@@ -38,5 +39,5 @@ class RetryPolicy:
         if self.backoff is Backoff.JITTERED:
             # Full jitter: uniform in [0, exponential] so concurrent retryers
             # that failed together don't realign on the same retry instant.
-            return random.uniform(0.0, exponential)
+            return random_uniform(0.0, exponential)
         return exponential

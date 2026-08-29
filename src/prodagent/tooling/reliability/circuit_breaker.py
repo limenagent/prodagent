@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from collections import deque
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
+
+from prodagent.base.determinism import now_monotonic
 
 if TYPE_CHECKING:
     from prodagent.kernel.types import ToolName
@@ -29,7 +30,7 @@ class _ToolBreakerState:
     probe_in_flight: bool = False
 
     def evict(self, window: float) -> None:
-        cutoff = time.monotonic() - window
+        cutoff = now_monotonic() - window
         while self.failures and self.failures[0] < cutoff:
             self.failures.popleft()
 
@@ -73,7 +74,7 @@ class ToolCircuitBreaker:
         last = s.failures[-1] if s.failures else 0.0
         # The recovery window counts from the LAST failure, not from when the
         # breaker opened — every new failure restarts the wait.
-        if time.monotonic() - last >= self._recovery:
+        if now_monotonic() - last >= self._recovery:
             s.state = BreakerState.HALF_OPEN
             logger.info("ToolBreaker[%s]: HALF_OPEN — probe request allowed", name)
             return True
@@ -87,7 +88,7 @@ class ToolCircuitBreaker:
             s = self._state(name)
             if s.state is BreakerState.OPEN:
                 last = s.failures[-1] if s.failures else 0.0
-                return time.monotonic() - last >= self._recovery
+                return now_monotonic() - last >= self._recovery
             return True
 
     async def try_acquire_probe(self, name: ToolName) -> bool:
@@ -128,7 +129,7 @@ class ToolCircuitBreaker:
         that failed twice last quarter doesn't trip anything."""
         async with self._get_lock(name):
             s = self._state(name)
-            s.failures.append(time.monotonic())  # monotonic: wall-clock jumps can't fake recency
+            s.failures.append(now_monotonic())  # monotonic: wall-clock jumps can't fake recency
             s.probe_in_flight = False
 
             if s.state is BreakerState.HALF_OPEN:
@@ -158,6 +159,6 @@ class ToolCircuitBreaker:
                 "state": s.state.value,
                 "failures": len(s.failures),
                 "seconds_since_last_failure": (
-                    round(time.monotonic() - last, 1) if last is not None else None
+                    round(now_monotonic() - last, 1) if last is not None else None
                 ),
             }

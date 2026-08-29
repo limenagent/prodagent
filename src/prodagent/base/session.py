@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from prodagent.base.codec import dump, load
+from prodagent.base.determinism import now_wall
 from prodagent.base.types import ExecutionMode, Message, MessageList, RunState
 
 if TYPE_CHECKING:
@@ -22,7 +22,7 @@ class TurnRecord:
     mode: ExecutionMode
     state: RunState
     final_output: str | None = None
-    started_at: float = field(default_factory=time.time)
+    started_at: float = field(default_factory=now_wall)
     ended_at: float | None = None
 
     def to_dict(self) -> JsonDict:
@@ -100,7 +100,7 @@ class ConversationSession:
             mode=mode,
             state=run.state,
             final_output=run.final_output,
-            ended_at=time.time(),
+            ended_at=now_wall(),
         )
         if self.last_turn is not None and self.last_turn.run_id == run_id:
             self.turns[-1] = record  # SUSPENDED turn resumed to completion/suspend

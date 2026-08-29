@@ -11,10 +11,10 @@ terminal events.
 from __future__ import annotations
 
 import logging
-import uuid
 from typing import TYPE_CHECKING, Any
 
 from prodagent.base.config import ContextConfig, LoopConfig
+from prodagent.base.determinism import new_uuid4
 from prodagent.base.errors import BudgetExceeded, InfiniteLoopDetected
 from prodagent.base.event_log import Event, RunEventType
 from prodagent.kernel.budget import SAFETY_NET_BUDGET, check_spawn_budget
@@ -273,7 +273,7 @@ class ReactiveLoop:
         run_id: str | None,
         parent_run_id: str | None = None,
     ) -> AgentRun:
-        resolved_run_id = run_id or str(uuid.uuid4())
+        resolved_run_id = run_id or new_uuid4()
         run = AgentRun(run_id=resolved_run_id, task=task, parent_run_id=parent_run_id)
         run.messages.append(Message(role="user", content=task))
         return run
@@ -289,7 +289,7 @@ class ReactiveLoop:
         resume (dangling tool turns pruned, crash scene cleared) → fresh.
         Order matters — a chat turn never accidentally resumes a checkpoint."""
         if self._initial_messages is not None:
-            resolved_run_id = run_id or str(uuid.uuid4())
+            resolved_run_id = run_id or new_uuid4()
             run = AgentRun(run_id=resolved_run_id, task=task, parent_run_id=parent_run_id)
             run.messages = list(self._initial_messages)
             logger.info(

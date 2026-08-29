@@ -10,11 +10,11 @@ resume never mistakes "never ran" for "ran and was scrapped".
 from __future__ import annotations
 
 import re
-import uuid
 from collections import deque
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from prodagent.base.determinism import new_uuid4
 from prodagent.kernel.types import StepStatus
 
 
@@ -63,7 +63,7 @@ class Plan:
     """Versioned, self-revising DAG of PlanSteps."""
 
     def __init__(self, plan_id: str | None = None) -> None:
-        self.plan_id = plan_id or str(uuid.uuid4())
+        self.plan_id = plan_id or new_uuid4()
         self.version: int = 1
         self._steps: dict[str, PlanStep] = {}
         # Reverse index (dependency -> dependents) so "what becomes ready

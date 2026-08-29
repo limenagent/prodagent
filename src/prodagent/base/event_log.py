@@ -5,11 +5,11 @@ File-backed EventLog implementation lives in prodagent.backends.file.event_log.
 
 from __future__ import annotations
 
-import time
-import uuid
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
+
+from prodagent.base.determinism import new_uuid4, now_wall
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -58,11 +58,11 @@ class Event:
         placeholder — the store's append is what stamps the real LSN."""
         return cls(
             seq=0,
-            event_id=str(uuid.uuid4()),
+            event_id=new_uuid4(),
             event_type=event_type,
             stream_id=stream_id,
             version=version,
-            timestamp=time.time(),
+            timestamp=now_wall(),
             data=data,
         )
 

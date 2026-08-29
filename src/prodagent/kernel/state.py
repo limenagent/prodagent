@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Generic
 
 from typing_extensions import TypeVar
 
 from prodagent.base.codec import dump, load
+from prodagent.base.determinism import now_monotonic, now_wall
 from prodagent.base.errors import ClassifiedError, ErrorLayer, classify_error
 from prodagent.kernel.types import (
     LLMResponse,
@@ -204,9 +204,9 @@ class AgentRun(Generic[_RunT]):
     state: RunState = RunState.RUNNING
 
     metrics: RunMetrics = field(default_factory=RunMetrics)
-    start_time: float = field(default_factory=time.time)
+    start_time: float = field(default_factory=now_wall)
     """Wall-clock start — persisted for display and as the resume baseline."""
-    monotonic_start: float | None = field(default_factory=time.monotonic, repr=False, compare=False)
+    monotonic_start: float | None = field(default_factory=now_monotonic, repr=False, compare=False)
     """NTP-immune in-process anchor for :meth:`elapsed_seconds`. ``None`` on a
     run deserialized from a checkpoint (monotonic clocks are process-relative),
     in which case elapsed falls back to wall-clock against ``start_time`` —
@@ -397,8 +397,8 @@ class AgentRun(Generic[_RunT]):
         can't bend it), wall-clock after a checkpoint restore (monotonic is
         process-relative) — so a resumed run's seconds axis still binds."""
         if self.monotonic_start is not None:
-            return time.monotonic() - self.monotonic_start
-        return time.time() - self.start_time
+            return now_monotonic() - self.monotonic_start
+        return now_wall() - self.start_time
 
     def add_tokens(self, response: LLMResponse, *, cost_usd: float) -> None:
         """cost_usd is pre-computed by the caller from the model's pricing,
@@ -469,7 +469,7 @@ class AgentRun(Generic[_RunT]):
             parent_run_id=d.get("parent_run_id"),
             tool_failures=d.get("tool_failures", 0),
             last_action=d.get("last_action"),
-            start_time=d.get("start_time", time.time()),
+            start_time=d.get("start_time", now_wall()),
             monotonic_start=None,  # process-relative clock meaningless across a restore
             retry_counter=dict(d.get("retry_counter", {})),
             fingerprints=list(d.get("fingerprints", [])),

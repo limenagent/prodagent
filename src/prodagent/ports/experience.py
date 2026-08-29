@@ -9,11 +9,11 @@ type lives with the port (ports must not import feature packages).
 from __future__ import annotations
 
 import json
-import time
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from prodagent.base.determinism import now_wall
 from prodagent.kernel.types import RunState
 
 if TYPE_CHECKING:
@@ -59,7 +59,7 @@ class ExperienceRecord:
     turn_count: int
     elapsed_seconds: float
     tags: list[str]
-    timestamp: float = field(default_factory=time.time)
+    timestamp: float = field(default_factory=now_wall)
     metadata: dict[str, Any] = field(default_factory=dict)
     session_transcript: list[dict[str, Any]] = field(default_factory=list)
 

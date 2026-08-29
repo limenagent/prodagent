@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import copy
 import logging
-import uuid
 from typing import TYPE_CHECKING, Any
 
+from prodagent.base.determinism import new_uuid4
 from prodagent.base.errors import LLMError, SuspendPendingApproval
 from prodagent.hooks import fire as _fire
 from prodagent.kernel.bus import Gate, HookEvent
@@ -68,7 +68,7 @@ class PlanBootstrap:
         and the LLM planner (the model drafts the DAG). Keeping the choice
         here means the executor starts every run the same way: with a (run,
         plan) pair in hand."""
-        rid = run_id or str(uuid.uuid4())
+        rid = run_id or new_uuid4()
         run = AgentRun(run_id=rid, task=task, parent_run_id=parent_run_id)
         run.messages = list(self._messages)
 
