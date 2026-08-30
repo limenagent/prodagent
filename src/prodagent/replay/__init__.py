@@ -15,13 +15,17 @@ from prodagent.replay.cassette import (
     derive_cassette,
     tool_request_hash,
 )
+from prodagent.replay.engine import CassetteLLMClient, CassettePlayer, replay_tools
 
 __all__ = [
     "CASSETTE_SCHEMA_VERSION",
     "Cassette",
     "CassetteHeader",
+    "CassetteLLMClient",
     "CassetteMismatch",
+    "CassettePlayer",
     "CassetteRecord",
     "derive_cassette",
+    "replay_tools",
     "tool_request_hash",
 ]
