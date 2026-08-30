@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
 
@@ -32,6 +32,14 @@ class AgentSpan:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> AgentSpan:
+        """Inverse of :meth:`to_dict` — the projection-rebuild path: span
+        facts replayed from the WAL become live spans again. Unknown keys
+        from newer formats are ignored (the reader-is-liberal discipline)."""
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in d.items() if k in known})
 
     def to_log_line(self) -> str:
         """Compact single-line form for file/console sinks — the fields an

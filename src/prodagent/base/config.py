@@ -160,7 +160,7 @@ class FrameworkConfig:
     _backend_registry: Any = field(default=None, repr=False, compare=False)
 
     blobs_dir: str = ".prodagent/blobs"
-    """Content-addressed bodies for oversized boundary facts (U-L3)."""
+    """Content-addressed bodies for oversized boundary facts."""
     boundary_blob_threshold_bytes: int = 65_536
     """Facts whose serialized form exceeds this spill to ``blobs_dir`` and
     leave a ``{"$blob": digest}`` pointer in the log line. Pointer-style

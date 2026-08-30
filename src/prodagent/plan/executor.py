@@ -165,7 +165,7 @@ class PlanExecutor:
         suspend, handoff, budget death — the terminal event at the end is
         guaranteed: no stream ends without one."""
         run, plan = await self._bootstrap.prepare(task, run_id, parent_run_id=parent_run_id)
-        with run_scope(run.run_id):
+        with run_scope(run.run_id, self._log.event_log):
             # Boundary facts attribute to this run — same discipline as the
             # REACTIVE loop (the recorder reads the identity from here).
             if plan is not None:

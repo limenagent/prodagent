@@ -140,7 +140,7 @@ class ReactiveLoop:
 
         # Boundary facts attribute to this run: the recorder wrapping the LLM
         # client reads the identity from here (base.run_context).
-        with run_scope(run.run_id):
+        with run_scope(run.run_id, self._event_log):
             try:
                 async for event in self._loop_events(run):
                     yield event

@@ -1,4 +1,4 @@
-"""Boundary-recording laws — the unified fact pipeline (REPLAY-PLAN U-L2).
+"""Boundary-recording laws — the unified fact pipeline.
 
 Law 1 (the headline): everything the model saw is derivable from the WAL —
 every LLM call's fingerprint observed by the client appears as an
@@ -166,7 +166,7 @@ async def test_plan_first_records_boundary_facts_through_dispatcher() -> None:
 
 
 async def test_oversized_tool_result_spills_to_blob_pointer() -> None:
-    """U-L3 spill law: a fact too big for the log line leaves a digest
+    """Spill law: a fact too big for the log line leaves a digest
     pointer; the body round-trips whole; small facts stay inline."""
     big_body = "x" * 80_000 + "终点 sentinel"
 

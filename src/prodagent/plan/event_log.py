@@ -104,6 +104,12 @@ class PlanEventLog:
         self._hooks = hooks
         self._lock = asyncio.Lock()
 
+    @property
+    def event_log(self) -> EventLog:
+        """The WAL this domain log rides on — the driver exposes it to the
+        run scope so observers (span recording) reach the fact pipeline."""
+        return self._events
+
     async def has_events(self, run_id: str) -> bool:
         return bool(await self._events.get_events(run_id))
 

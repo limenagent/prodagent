@@ -41,7 +41,7 @@ class RunEventType(StrEnum):
 class BoundaryEventType(StrEnum):
     """Boundary Q&A facts — what the outside world was asked and answered.
 
-    The unified fact pipeline (REPLAY-PLAN U-L2): every LLM response and
+    The unified fact pipeline: every LLM response and
     every tool result a run received, recorded on the run's boundary stream
     (``<run_id>#boundary``) by the recording wrappers. These events are the
     raw material the cassette derives from, and the evidence behind the
@@ -58,6 +58,22 @@ def boundary_stream(run_id: str) -> str:
     marker stream the way ``::`` separates a child run — stream_id is the
     fan-out key, sibling streams are how concurrent writers stay single."""
     return f"{run_id}#boundary"
+
+
+class SpanEventType(StrEnum):
+    """Span facts — decision snapshots recorded on the run's spans stream.
+
+    The projection criterion's truth side: a span is a
+    fact of the run (recorded once, on ``<run_id>#spans``), and the
+    exporter's output — spans.jsonl, a span table, an OTLP stream — is a
+    cache over it, deletable and rebuildable (``rebuild_spans``)."""
+
+    SPAN_RECORDED = "SpanRecorded"
+
+
+def spans_stream(run_id: str) -> str:
+    """Stream id of a run's span facts — sibling of the boundary stream."""
+    return f"{run_id}#spans"
 
 
 @dataclass

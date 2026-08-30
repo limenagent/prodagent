@@ -9,10 +9,12 @@ import uuid
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
+from prodagent.base.event_log import Event, SpanEventType, spans_stream
 from prodagent.base.observability import AgentSpan as AgentSpan
+from prodagent.base.run_context import current_event_log
 
 if TYPE_CHECKING:
-    from prodagent.ports.observability import SpanExporter
+    from prodagent.ports.observability import EventLog, SpanExporter
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +52,13 @@ class LogExporter:
 
 
 class AuditLogger:
-    """Structured audit sink; pass a custom ``scrubber=`` to opt into redaction."""
+    """Structured audit sink; pass a custom ``scrubber=`` to opt into redaction.
+
+    A recorded span is a *fact* first: with an event log in reach
+    (injected explicitly, or picked up from the run scope the driver opened),
+    every span lands once on ``<run_id>#spans`` and the exporter becomes a
+    projection cache — deletable and rebuildable via :func:`rebuild_spans`.
+    """
 
     def __init__(
         self,
@@ -59,21 +67,30 @@ class AuditLogger:
         sample_rate: float = 1.0,
         scrubber: Any = None,
         force_log_unsampled: bool = False,
+        event_log: EventLog | None = None,
     ) -> None:
         self._exporter = exporter
         self._sample_rate = max(0.0, min(1.0, sample_rate))
         self._scrubber = scrubber or PassthroughScrubber()
         self._force_log_unsampled = force_log_unsampled
+        self._event_log = event_log
 
     def _resolved_exporter(self) -> SpanExporter:
         if self._exporter is None:
             self._exporter = LogExporter()
         return self._exporter
 
+    def _resolved_event_log(self) -> EventLog | None:
+        if self._event_log is not None:
+            return self._event_log
+        return current_event_log()
+
     async def record(self, span: AgentSpan) -> None:
-        """Export one span — sampling drops non-error spans (errors always
+        """Record one span — sampling drops non-error spans (errors always
         through: a failure you sampled away is a failure you can't diagnose),
-        and the scrubber's redaction happens here, at the sink, once."""
+        and the scrubber's redaction happens here, at the sink, once. The
+        fact lands on the WAL before any exporter sees it: a failed export
+        costs a cache miss, never a lost span."""
         if not self._force_log_unsampled and not span.sampled and not span.error:
             return
 
@@ -84,7 +101,24 @@ class AuditLogger:
             output=scrubber.scrub_any(span.output),
             llm_reasoning=scrubber.scrub_any(span.llm_reasoning),
         )
-        await self._resolved_exporter().export(scrubbed)
+        log = self._resolved_event_log()
+        if log is not None and scrubbed.run_id:
+            try:
+                await log.append(
+                    Event.make(
+                        SpanEventType.SPAN_RECORDED,
+                        stream_id=spans_stream(scrubbed.run_id),
+                        version=0,
+                        span=scrubbed.to_dict(),
+                    )
+                )
+            except Exception:  # noqa: BLE001 — fact recording must not kill the observer
+                logger.exception("[spans] failed to record span fact for %s", scrubbed.run_id)
+        try:
+            await self._resolved_exporter().export(scrubbed)
+        except Exception:  # noqa: BLE001 — a projection outage costs a cache miss, never a lost span
+            logger.exception("[spans] export failed; the fact is already on the WAL")
+
 
     def span(
         self,
@@ -126,3 +160,18 @@ class AuditLogger:
         # stable coin flip per trace, no RNG state to persist.
         bucket = int(trace_id[:8], 16) % 10_000 / 10_000
         return bucket < self._sample_rate
+
+
+async def rebuild_spans(
+    event_log: EventLog, exporter: SpanExporter, run_id: str
+) -> int:
+    """The projection criterion, executable: rebuild a run's span cache from
+    its span facts. Returns how many spans were re-exported — delete the
+    exporter's output, run this, and the cache is back."""
+    count = 0
+    for event in await event_log.get_events(spans_stream(run_id)):
+        if event.event_type != SpanEventType.SPAN_RECORDED:
+            continue
+        await exporter.export(AgentSpan.from_dict(event.data["span"]))
+        count += 1
+    return count

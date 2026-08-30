@@ -1,6 +1,6 @@
 """ReplicatedEventLog — the dual-write tier: local truth, async shipping.
 
-The cross-machine topology of the fact pipeline (REPLAY-PLAN U-L4): a
+The cross-machine topology of the fact pipeline: a
 process writes its WAL synchronously to a LOCAL log (fast, survives in-process
 reads and recovery on the same host) while a background shipper drains
 batches to a SHARED log through ``replicate`` — pre-sequenced, idempotent

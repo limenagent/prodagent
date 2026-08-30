@@ -19,9 +19,12 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-__all__ = ["current_run_id", "run_scope"]
+    from prodagent.ports.observability import EventLog
+
+__all__ = ["current_event_log", "current_run_id", "run_scope"]
 
 _run_id: ContextVar[str | None] = ContextVar("prodagent_run_id", default=None)
+_event_log: ContextVar[EventLog | None] = ContextVar("prodagent_event_log", default=None)
 
 
 def current_run_id() -> str | None:
@@ -30,16 +33,26 @@ def current_run_id() -> str | None:
     return _run_id.get()
 
 
+def current_event_log() -> EventLog | None:
+    """The WAL of the run executing on this task — observers that live above
+    the drivers (the span recorder) reach the fact pipeline through here
+    instead of holding a store of their own."""
+    return _event_log.get()
+
+
 @contextmanager
-def run_scope(run_id: str) -> Iterator[None]:
-    """Attribute everything awaited inside the block to ``run_id``.
+def run_scope(run_id: str, event_log: EventLog | None = None) -> Iterator[None]:
+    """Attribute everything awaited inside the block to ``run_id`` (and,
+    when given, expose the run's WAL to observers on this task).
 
     Drivers open one scope around the run they drive; nested scopes
     (a child activation inside a parent's stream) shadow correctly because
     each driver opens its own before yielding control.
     """
-    token = _run_id.set(run_id)
+    id_token = _run_id.set(run_id)
+    log_token = _event_log.set(event_log)
     try:
         yield
     finally:
-        _run_id.reset(token)
+        _event_log.reset(log_token)
+        _run_id.reset(id_token)

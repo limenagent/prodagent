@@ -143,10 +143,10 @@ class RunContext:
 
         self.checkpoint = resolve_checkpoint(fw, cfg.checkpoint)
         self.event_log = resolve_event_log(fw, cfg.event_log)
-        # Spill target for oversized boundary facts (U-L3) — the profile
+        # Spill target for oversized boundary facts — the profile
         # decision lives in compose with every other one.
         self.blob_store = resolve_blob_store(fw, cfg.blob_store, event_log=self.event_log)
-        # Boundary recorder (REPLAY-PLAN U-L2): with an event log configured,
+        # Boundary recorder: with an event log configured,
         # every LLM answer this hop's client gives lands on the driving run's
         # boundary stream. One wrap point covers all three execution modes —
         # they share this client. Off-scope calls (background distillation)

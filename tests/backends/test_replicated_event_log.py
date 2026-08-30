@@ -1,4 +1,4 @@
-"""Laws for ``ReplicatedEventLog`` — the dual-write tier of U-L4.
+"""Laws for ``ReplicatedEventLog`` — the dual-write tier.
 
 1. Suffix-transfer law: after flush, the shared store answers ``get_after``
    exactly as the local one does, for every cursor — the cross-machine
@@ -91,7 +91,7 @@ async def test_rpo_law_window_counts_and_flush_drives_to_zero() -> None:
 
 
 async def test_takeover_another_machine_recovers_from_shared_side() -> None:
-    """The U-L4 acceptance test: process A writes locally + ships; process A
+    """The acceptance test: process A writes locally + ships; process A
     dies; process B — seeing only the shared store and the checkpoint —
     folds the same state."""
     from prodagent.base.event_log import hybrid_restore

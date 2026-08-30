@@ -1,4 +1,4 @@
-"""Laws for the content-addressed blob store — the object room of U-L3.
+"""Laws for the content-addressed blob store — the object room.
 
 1. Round-trip law: what ``put`` accepted, ``get`` returns, byte for byte.
 2. Identity law: same content → same digest (idempotence, dedupe); different

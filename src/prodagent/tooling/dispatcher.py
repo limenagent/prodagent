@@ -140,14 +140,14 @@ class ToolDispatcher:
         self._agent_id = agent_id
         self._agent_name = agent_name
         self._retry_policy = retry_policy or _default_tool_retry_policy()
-        # Boundary-recorder wiring (REPLAY-PLAN U-L2): when set, every
-        # dispatched result lands on the run's boundary stream. Set once at
+        # Boundary-recorder wiring: when set, every dispatched result lands
+        # on the run's boundary stream. Set once at
         # construction (the factory is the only production construction
         # site), never reconfigured — ReactiveLoop re-runs configure_batch
         # for its progress monitor and must not clobber this.
         self._event_log = event_log
-        # U-L3: oversized result bodies spill to the blob store, leaving a
-        # digest pointer in the fact line.
+        # Oversized result bodies spill to the blob store, leaving a digest
+        # pointer in the fact line.
         self._blob_store = blob_store
         self._blob_threshold = blob_threshold_bytes
         self._skill_resolver = skill_resolver or SkillResolver(

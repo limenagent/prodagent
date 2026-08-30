@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 class BlobStore(Protocol):
     """Content-addressed blob store — the object room for oversized facts.
 
-    The boundary streams' pointer target (REPLAY-PLAN U-L3): a fact too big
+    The boundary streams' pointer target: a fact too big
     for the hot log line lives here once, keyed by its sha256 digest; the
     log record holds only ``{"$blob": digest}``. Same content → same digest
     → stored once, shared by every projection that wants it (span and
