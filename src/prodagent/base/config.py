@@ -159,6 +159,13 @@ class FrameworkConfig:
     # a replaced config must keep sharing the original's connection pools.
     _backend_registry: Any = field(default=None, repr=False, compare=False)
 
+    blobs_dir: str = ".prodagent/blobs"
+    """Content-addressed bodies for oversized boundary facts (U-L3)."""
+    boundary_blob_threshold_bytes: int = 65_536
+    """Facts whose serialized form exceeds this spill to ``blobs_dir`` and
+    leave a ``{"$blob": digest}`` pointer in the log line. Pointer-style
+    truncation only, never dropped bytes — replay needs whole answers."""
+
     @classmethod
     def default(cls) -> FrameworkConfig:
         """All-defaults config: the bare profile, zero env inspection — the

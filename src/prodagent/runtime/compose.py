@@ -29,10 +29,32 @@ if TYPE_CHECKING:
     from prodagent.hooks.bundles.base import HookBundle
     from prodagent.ports import CheckpointStore, EventLog, SessionStore
     from prodagent.ports.llm import LLMClient
+    from prodagent.ports.persistence import BlobStore
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["wrap_llm", "resolve_checkpoint", "resolve_event_log", "resolve_session_store"]
+__all__ = [
+    "resolve_blob_store",
+    "resolve_checkpoint",
+    "resolve_event_log",
+    "resolve_session_store",
+    "wrap_llm",
+]
+
+
+def resolve_blob_store(
+    fw: FrameworkConfig, explicit: BlobStore | None, *, event_log: EventLog | None
+) -> BlobStore | None:
+    """Spill target for oversized boundary facts. Production with an event
+    log: the file blob store (big bodies belong on disk). Bare or log-less:
+    ``None`` — facts stay inline (bare records nothing anyway)."""
+    if explicit is not None:
+        return explicit
+    if fw.profile != "production" or event_log is None:
+        return None
+    from prodagent.backends.file.blob import FileBlobStore
+
+    return FileBlobStore(fw.blobs_dir)
 
 
 def wrap_llm(llm: LLMClient, fw: FrameworkConfig) -> LLMClient:

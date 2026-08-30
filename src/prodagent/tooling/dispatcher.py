@@ -18,6 +18,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
+from prodagent.base.blobs import DEFAULT_THRESHOLD_BYTES, spill_value
 from prodagent.base.config import ContextConfig, LoopConfig
 from prodagent.base.determinism import new_uuid4, now_wall
 from prodagent.base.errors import SECURITY_VETO_EXCEPTIONS, ErrorLayer, ErrorReason, classify_error
@@ -77,6 +78,7 @@ if TYPE_CHECKING:
     from prodagent.kernel.state import AgentRun
     from prodagent.kernel.types import AgentEvent
     from prodagent.ports.observability import EventLog
+    from prodagent.ports.persistence import BlobStore
     from prodagent.skills.registry import SkillRegistry
     from prodagent.tooling.base import FunctionTool
     from prodagent.tooling.registry import ToolRegistry
@@ -125,6 +127,8 @@ class ToolDispatcher:
         spill_store: ToolResultSpillStore | None = None,
         progress_monitor: ProgressMonitor | None = None,
         event_log: EventLog | None = None,
+        blob_store: BlobStore | None = None,
+        blob_threshold_bytes: int = DEFAULT_THRESHOLD_BYTES,
     ) -> None:
         self._tool_map = tool_map
         self._loop_config = loop_config
@@ -142,6 +146,10 @@ class ToolDispatcher:
         # site), never reconfigured — ReactiveLoop re-runs configure_batch
         # for its progress monitor and must not clobber this.
         self._event_log = event_log
+        # U-L3: oversized result bodies spill to the blob store, leaving a
+        # digest pointer in the fact line.
+        self._blob_store = blob_store
+        self._blob_threshold = blob_threshold_bytes
         self._skill_resolver = skill_resolver or SkillResolver(
             skills=skills,
             hooks=hooks,
@@ -395,6 +403,10 @@ class ToolDispatcher:
         if self._event_log is None or not run_id:
             return
         try:
+            value = _json_safe(result.value)
+            if self._blob_store is not None:
+                value = await spill_value(value, self._blob_store,
+                                          threshold_bytes=self._blob_threshold)
             await self._event_log.append(
                 Event.make(
                     BoundaryEventType.TOOL_RECORDED,
@@ -403,7 +415,7 @@ class ToolDispatcher:
                     request={"tool": call.name, "args": dict(call.params)},
                     response={
                         "outcome": result.outcome.value,
-                        "value": _json_safe(result.value),
+                        "value": value,
                         "error": str(result.error) if result.error is not None else None,
                     },
                     meta={"idempotency_key": call.params.get("idempotency_key")},

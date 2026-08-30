@@ -20,7 +20,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from prodagent.backends.memory.blob import InMemoryBlobStore
 from prodagent.backends.memory.event_log import InMemoryEventLog
+from prodagent.base.blobs import BLOB_REF_KEY, fetch_ref
 from prodagent.base.event_log import BoundaryEventType, RunEventType, boundary_stream
 from prodagent.base.run_context import current_run_id
 from prodagent.kernel.loop import ReactiveLoop
@@ -161,3 +163,39 @@ async def test_plan_first_records_boundary_facts_through_dispatcher() -> None:
     tool_events = [e for e in boundary if e.event_type == BoundaryEventType.TOOL_RECORDED]
     assert len(tool_events) == 1
     assert tool_events[0].data["request"]["tool"] == "probe"
+
+
+async def test_oversized_tool_result_spills_to_blob_pointer() -> None:
+    """U-L3 spill law: a fact too big for the log line leaves a digest
+    pointer; the body round-trips whole; small facts stay inline."""
+    big_body = "x" * 80_000 + "终点 sentinel"
+
+    async def big_fn(**_: Any) -> str:
+        return big_body
+
+    big_tool = FunctionTool(
+        name="big",
+        fn=big_fn,
+        meta=ToolMeta(name="big", is_readonly=True, side_effect_level=SideEffectLevel.LOW),
+        schema={"name": "big", "description": "big", "parameters": {"type": "object", "properties": {}}},
+    )
+    log = InMemoryEventLog()
+    blobs = InMemoryBlobStore()
+    dispatcher = ToolDispatcher({"big": big_tool}, event_log=log, blob_store=blobs)
+    spy = _HashSpy([{"tool": "big", "params": {}}, {"content": "done"}])
+    loop = ReactiveLoop(RecordingLLMClient(spy, log, blobs=blobs), dispatcher, event_log=log)
+    run_id = await _drive(loop)
+
+    boundary = await log.get_events(boundary_stream(run_id))
+    tool_event = next(e for e in boundary if e.event_type == BoundaryEventType.TOOL_RECORDED)
+    value = tool_event.data["response"]["value"]
+    assert isinstance(value, dict) and BLOB_REF_KEY in value, "big fact is a pointer"
+    assert await fetch_ref(value, blobs) == big_body, "pointer resolves to the whole body"
+
+    # Small facts stay inline — the threshold is not a blanket transformation.
+    small = next(
+        e
+        for e in await log.get_events(boundary_stream(run_id))
+        if e.event_type == BoundaryEventType.LLM_RECORDED
+    )
+    assert not isinstance(small.data["request"]["messages"], dict), "small facts inline"

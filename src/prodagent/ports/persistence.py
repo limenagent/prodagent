@@ -28,6 +28,34 @@ if TYPE_CHECKING:
 # ════════════ from checkpoint.py ════════════
 
 @runtime_checkable
+class BlobStore(Protocol):
+    """Content-addressed blob store — the object room for oversized facts.
+
+    The boundary streams' pointer target (REPLAY-PLAN U-L3): a fact too big
+    for the hot log line lives here once, keyed by its sha256 digest; the
+    log record holds only ``{"$blob": digest}``. Same content → same digest
+    → stored once, shared by every projection that wants it (span and
+    cassette both point at one body — "store the big body once" is the
+    dedupe that keeps the fact pipeline affordable).
+
+    Capabilities:
+      BASE (required): put, get
+    """
+
+    async def put(self, text: str) -> str:
+        """Store ``text`` under its sha256 hex digest, return the digest.
+
+        Idempotent by construction — same content, same digest, one body.
+        """
+        ...
+
+    async def get(self, digest: str) -> str | None:
+        """The body for ``digest``, or ``None`` if absent (a miss is the
+        normal path, never an exception)."""
+        ...
+
+
+@runtime_checkable
 class CheckpointStore(Protocol):
     """Durable snapshot path — save and resume a run.
 

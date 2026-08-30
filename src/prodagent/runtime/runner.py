@@ -51,6 +51,7 @@ if TYPE_CHECKING:
         RunnerPort,
     )
     from prodagent.ports.llm import LLMClient
+    from prodagent.ports.persistence import BlobStore
     from prodagent.runtime.agent import Agent
 
     class _Relay(Protocol):
@@ -101,6 +102,7 @@ class RunContext:
     llm: LLMClient = field(init=False)
     checkpoint: CheckpointStore | None = field(init=False, default=None)
     event_log: EventLog | None = field(init=False, default=None)
+    blob_store: BlobStore | None = field(init=False, default=None)
     spill_store: ToolResultSpillStore | None = field(init=False, default=None)
     stack: contextlib.AsyncExitStack = field(default_factory=contextlib.AsyncExitStack)
     budget_ledger: BudgetLedger | None = None
@@ -133,10 +135,17 @@ class RunContext:
 
         # Bare kernel: explicit stores still work; None stays None —
         # nothing resolves, nothing hits disk.
-        from prodagent.runtime.compose import resolve_checkpoint, resolve_event_log
+        from prodagent.runtime.compose import (
+            resolve_blob_store,
+            resolve_checkpoint,
+            resolve_event_log,
+        )
 
         self.checkpoint = resolve_checkpoint(fw, cfg.checkpoint)
         self.event_log = resolve_event_log(fw, cfg.event_log)
+        # Spill target for oversized boundary facts (U-L3) — the profile
+        # decision lives in compose with every other one.
+        self.blob_store = resolve_blob_store(fw, cfg.blob_store, event_log=self.event_log)
         # Boundary recorder (REPLAY-PLAN U-L2): with an event log configured,
         # every LLM answer this hop's client gives lands on the driving run's
         # boundary stream. One wrap point covers all three execution modes —
@@ -148,7 +157,12 @@ class RunContext:
             if not isinstance(self.llm, RecordingLLM):
                 from prodagent.llm.recording import RecordingLLMClient
 
-                self.llm = RecordingLLMClient(self.llm, self.event_log)
+                self.llm = RecordingLLMClient(
+                    self.llm,
+                    self.event_log,
+                    blobs=self.blob_store,
+                    threshold_bytes=fw.boundary_blob_threshold_bytes,
+                )
         return self
 
     async def __aexit__(self, *exc: object) -> None:

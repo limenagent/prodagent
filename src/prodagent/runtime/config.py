@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from prodagent.mcp.config import MCPServerConfig
     from prodagent.plan.dag import Plan
     from prodagent.ports import CheckpointStore, EventLog, SessionStore, Tool
+    from prodagent.ports.persistence import BlobStore
     from prodagent.runtime.agent import Agent
     from prodagent.skills.registry import SkillRegistry
     from prodagent.tooling.registry import ToolRegistry
@@ -45,6 +46,9 @@ class AgentConfig:
     mode: ExecutionMode = ExecutionMode.REACTIVE
     checkpoint: CheckpointStore | None = None
     event_log: EventLog | None = None
+    blob_store: BlobStore | None = None
+    """Explicit spill target for oversized boundary facts; when None and an
+    event log is configured, the runtime resolves one from the profile."""
     session_store: SessionStore | None = None
     spill_store: ToolResultSpillStore | None = None
     output_contract: MessageContract | None = None

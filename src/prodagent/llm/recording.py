@@ -18,6 +18,7 @@ import dataclasses
 import logging
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from prodagent.base.blobs import DEFAULT_THRESHOLD_BYTES, spill_value
 from prodagent.base.event_log import BoundaryEventType, Event, boundary_stream
 from prodagent.base.run_context import current_run_id
 from prodagent.llm.cache import cache_key_for
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
     from prodagent.llm import ChunkCallback, LLMConfig
     from prodagent.ports.llm import LLMClient
     from prodagent.ports.observability import EventLog
+    from prodagent.ports.persistence import BlobStore
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +53,24 @@ class RecordingLLM(Protocol):
 
 
 class RecordingLLMClient:
-    """Wrap an ``LLMClient``; record each answered call on the boundary stream."""
+    """Wrap an ``LLMClient``; record each answered call on the boundary stream.
 
-    def __init__(self, inner: LLMClient, event_log: EventLog) -> None:
+    Oversized fields (messages, tool schemas, the response) spill to
+    ``blobs`` as ``{"$blob": digest}`` pointers when one is configured —
+    pointer-style truncation, never dropped bytes."""
+
+    def __init__(
+        self,
+        inner: LLMClient,
+        event_log: EventLog,
+        *,
+        blobs: BlobStore | None = None,
+        threshold_bytes: int = DEFAULT_THRESHOLD_BYTES,
+    ) -> None:
         self._inner = inner
         self._event_log = event_log
+        self._blobs = blobs
+        self._threshold = threshold_bytes
 
     async def complete(
         self,
@@ -75,6 +90,12 @@ class RecordingLLMClient:
             logger.debug("[boundary] skipping off-run LLM call (%d msgs)", len(messages))
             return response
         try:
+            recorded_response = dict(response.to_dict())
+            if self._blobs is not None:
+                recorded_response["content"] = await spill_value(
+                    recorded_response.get("content"), self._blobs,
+                    threshold_bytes=self._threshold,
+                )
             await self._event_log.append(
                 Event.make(
                     BoundaryEventType.LLM_RECORDED,
@@ -82,12 +103,22 @@ class RecordingLLMClient:
                     version=0,
                     req_hash=cache_key_for(messages, system=system, tools=tools, config=config),
                     request={
-                        "messages": list(messages),
+                        "messages": (
+                            await spill_value(list(messages), self._blobs,
+                                             threshold_bytes=self._threshold)
+                            if self._blobs is not None
+                            else list(messages)
+                        ),
                         "system": system,
-                        "tools": tools or [],
+                        "tools": (
+                            await spill_value(tools or [], self._blobs,
+                                              threshold_bytes=self._threshold)
+                            if self._blobs is not None
+                            else tools or []
+                        ),
                         "config": dataclasses.asdict(config) if config is not None else None,
                     },
-                    response=response.to_dict(),
+                    response=recorded_response,
                 )
             )
         except Exception:  # noqa: BLE001 — recording must never kill the run

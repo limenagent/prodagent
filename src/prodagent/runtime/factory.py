@@ -82,6 +82,8 @@ class LeafExecutorFactory:
             agent_id=agent.name,
             agent_name=agent.name,
             event_log=ctx.event_log,
+            blob_store=ctx.blob_store,
+            blob_threshold_bytes=fw.boundary_blob_threshold_bytes,
         )
         # Both execution modes share this dispatcher, so both get spill
         # truncation — PLAN_FIRST tool results must not accumulate raw in the
