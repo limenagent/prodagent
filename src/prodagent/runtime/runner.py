@@ -137,6 +137,18 @@ class RunContext:
 
         self.checkpoint = resolve_checkpoint(fw, cfg.checkpoint)
         self.event_log = resolve_event_log(fw, cfg.event_log)
+        # Boundary recorder (REPLAY-PLAN U-L2): with an event log configured,
+        # every LLM answer this hop's client gives lands on the driving run's
+        # boundary stream. One wrap point covers all three execution modes —
+        # they share this client. Off-scope calls (background distillation)
+        # skip themselves inside the recorder.
+        if self.event_log is not None:
+            from prodagent.llm.recording import RecordingLLM
+
+            if not isinstance(self.llm, RecordingLLM):
+                from prodagent.llm.recording import RecordingLLMClient
+
+                self.llm = RecordingLLMClient(self.llm, self.event_log)
         return self
 
     async def __aexit__(self, *exc: object) -> None:

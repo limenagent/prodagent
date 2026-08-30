@@ -17,6 +17,7 @@ from prodagent.base.config import ContextConfig, LoopConfig
 from prodagent.base.determinism import new_uuid4
 from prodagent.base.errors import BudgetExceeded, InfiniteLoopDetected
 from prodagent.base.event_log import Event, RunEventType
+from prodagent.base.run_context import run_scope
 from prodagent.kernel.budget import SAFETY_NET_BUDGET, check_spawn_budget
 from prodagent.kernel.bus import HookEvent, save_and_fire_checkpoint
 from prodagent.kernel.bus import fire as _fire
@@ -137,27 +138,30 @@ class ReactiveLoop:
         logger.info("ReactiveLoop[%s] stream started: %r", run.run_id, task[:80])
         await self._begin_run_span(run, task)
 
-        try:
-            async for event in self._loop_events(run):
-                yield event
-        except BudgetExceeded as exc:
-            yield await self._settle_terminated(run, exc)
-        except InfiniteLoopDetected as exc:
-            yield await self._settle_terminated(run, exc)
-        except Exception as exc:
-            await self._settle_unexpected(run, exc)
-            raise
-        else:
-            await self._end_run_span(run)
-            await self._record_terminal(
-                run,
-                RunEventType.RUN_SUSPENDED
-                if run.state is RunState.SUSPENDED
-                else RunEventType.RUN_COMPLETED,
-            )
-        finally:
-            if self._checkpoint_store is not None:
-                await save_and_fire_checkpoint(self._checkpoint_store, run, self._hooks)
+        # Boundary facts attribute to this run: the recorder wrapping the LLM
+        # client reads the identity from here (base.run_context).
+        with run_scope(run.run_id):
+            try:
+                async for event in self._loop_events(run):
+                    yield event
+            except BudgetExceeded as exc:
+                yield await self._settle_terminated(run, exc)
+            except InfiniteLoopDetected as exc:
+                yield await self._settle_terminated(run, exc)
+            except Exception as exc:
+                await self._settle_unexpected(run, exc)
+                raise
+            else:
+                await self._end_run_span(run)
+                await self._record_terminal(
+                    run,
+                    RunEventType.RUN_SUSPENDED
+                    if run.state is RunState.SUSPENDED
+                    else RunEventType.RUN_COMPLETED,
+                )
+            finally:
+                if self._checkpoint_store is not None:
+                    await save_and_fire_checkpoint(self._checkpoint_store, run, self._hooks)
 
     async def _settle_terminated(
         self, run: AgentRun, exc: BudgetExceeded | InfiniteLoopDetected

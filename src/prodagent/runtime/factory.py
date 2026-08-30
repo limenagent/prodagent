@@ -81,6 +81,7 @@ class LeafExecutorFactory:
             skills=agent.skills,
             agent_id=agent.name,
             agent_name=agent.name,
+            event_log=ctx.event_log,
         )
         # Both execution modes share this dispatcher, so both get spill
         # truncation — PLAN_FIRST tool results must not accumulate raw in the

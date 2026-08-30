@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from prodagent.base.errors import LLMError
+from prodagent.base.run_context import run_scope
 from prodagent.hooks import fire as _fire
 from prodagent.kernel.budget import check_spawn_budget
 from prodagent.kernel.bus import HookEvent
@@ -164,13 +165,16 @@ class PlanExecutor:
         suspend, handoff, budget death — the terminal event at the end is
         guaranteed: no stream ends without one."""
         run, plan = await self._bootstrap.prepare(task, run_id, parent_run_id=parent_run_id)
-        if plan is not None:
-            plan = await self._bootstrap.gate(plan, run)
-        if plan is not None:
-            async for event in self._execute_plan_events(plan, run):
-                yield event
-        finalize_run(run, plan)
-        yield terminal_event(run)
+        with run_scope(run.run_id):
+            # Boundary facts attribute to this run — same discipline as the
+            # REACTIVE loop (the recorder reads the identity from here).
+            if plan is not None:
+                plan = await self._bootstrap.gate(plan, run)
+            if plan is not None:
+                async for event in self._execute_plan_events(plan, run):
+                    yield event
+            finalize_run(run, plan)
+            yield terminal_event(run)
 
     async def _execute_plan_events(
         self,

@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 from prodagent.base.config import ContextConfig, LoopConfig
 from prodagent.base.determinism import new_uuid4, now_wall
 from prodagent.base.errors import SECURITY_VETO_EXCEPTIONS, ErrorLayer, ErrorReason, classify_error
+from prodagent.base.event_log import BoundaryEventType, Event, boundary_stream
 from prodagent.base.retry import Backoff, RetryPolicy
 from prodagent.kernel.bus import Gate, HookEvent
 from prodagent.kernel.types import (
@@ -46,6 +47,19 @@ TRANSIENT_EXC: tuple[type[BaseException], ...] = (
 )
 
 
+def _json_safe(value: object) -> object:
+    """Boundary payloads cross json.dumps in the file backend — a tool
+    return that is not plain JSON becomes its repr (facts stay inspectable,
+    streams stay writable)."""
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    try:
+        json.dumps(value)
+        return value
+    except (TypeError, ValueError):
+        return repr(value)
+
+
 def _tool_failure(
     exc: BaseException, call: ToolCall, *, code: str, message: str, hint: str = ""
 ) -> ToolResult:
@@ -62,6 +76,7 @@ if TYPE_CHECKING:
     from prodagent.kernel.progress import ProgressMonitor
     from prodagent.kernel.state import AgentRun
     from prodagent.kernel.types import AgentEvent
+    from prodagent.ports.observability import EventLog
     from prodagent.skills.registry import SkillRegistry
     from prodagent.tooling.base import FunctionTool
     from prodagent.tooling.registry import ToolRegistry
@@ -109,6 +124,7 @@ class ToolDispatcher:
         context_config: ContextConfig | None = None,
         spill_store: ToolResultSpillStore | None = None,
         progress_monitor: ProgressMonitor | None = None,
+        event_log: EventLog | None = None,
     ) -> None:
         self._tool_map = tool_map
         self._loop_config = loop_config
@@ -120,6 +136,12 @@ class ToolDispatcher:
         self._agent_id = agent_id
         self._agent_name = agent_name
         self._retry_policy = retry_policy or _default_tool_retry_policy()
+        # Boundary-recorder wiring (REPLAY-PLAN U-L2): when set, every
+        # dispatched result lands on the run's boundary stream. Set once at
+        # construction (the factory is the only production construction
+        # site), never reconfigured — ReactiveLoop re-runs configure_batch
+        # for its progress monitor and must not clobber this.
+        self._event_log = event_log
         self._skill_resolver = skill_resolver or SkillResolver(
             skills=skills,
             hooks=hooks,
@@ -357,8 +379,40 @@ class ToolDispatcher:
         """Dispatch ``call`` through probe → approval gate → hooks → invoke → hooks.
 
         ``get_skill`` shares this pipeline but carries no ``ToolMeta``, so the
-        approval gate (gated on ``meta``) no-ops for it.
+        approval gate (gated on ``meta``) no-ops for it. This is the single
+        throat every result passes through — which makes it the recording
+        point for boundary facts (one wrapper, every outcome: ok, error,
+        blocked, suspended).
         """
+        result = await self._dispatch_pipeline(call, run_id=run_id)
+        await self._record_boundary(call, result, run_id)
+        return result
+
+    async def _record_boundary(
+        self, call: ToolCall, result: ToolResult, run_id: str
+    ) -> None:
+        """TOOL_RECORDED on ``<run_id>#boundary`` — never raises into dispatch."""
+        if self._event_log is None or not run_id:
+            return
+        try:
+            await self._event_log.append(
+                Event.make(
+                    BoundaryEventType.TOOL_RECORDED,
+                    stream_id=boundary_stream(run_id),
+                    version=0,
+                    request={"tool": call.name, "args": dict(call.params)},
+                    response={
+                        "outcome": result.outcome.value,
+                        "value": _json_safe(result.value),
+                        "error": str(result.error) if result.error is not None else None,
+                    },
+                    meta={"idempotency_key": call.params.get("idempotency_key")},
+                )
+            )
+        except Exception:  # noqa: BLE001 — recording must never kill the dispatch
+            logger.exception("[boundary] failed to record tool call for %s", run_id)
+
+    async def _dispatch_pipeline(self, call: ToolCall, *, run_id: str = "") -> ToolResult:
         if call.name == GET_SKILL_TOOL_NAME:
             # get_skill has no ToolMeta (no schema, no side-effect level) —
             # it shares the pipeline for uniformity, and the meta-gated

@@ -38,6 +38,28 @@ class RunEventType(StrEnum):
     RUN_SUSPENDED = "RunSuspended"
 
 
+class BoundaryEventType(StrEnum):
+    """Boundary Q&A facts — what the outside world was asked and answered.
+
+    The unified fact pipeline (REPLAY-PLAN U-L2): every LLM response and
+    every tool result a run received, recorded on the run's boundary stream
+    (``<run_id>#boundary``) by the recording wrappers. These events are the
+    raw material the cassette derives from, and the evidence behind the
+    model-visible-is-log-derivable law. Turn/step markers keep their own
+    stream untouched — the single-writer discipline there is unaffected
+    because boundary facts flow on a separate stream."""
+
+    LLM_RECORDED = "LlmRecorded"
+    TOOL_RECORDED = "ToolRecorded"
+
+
+def boundary_stream(run_id: str) -> str:
+    """Stream id of a run's boundary facts. ``#`` separates it from the
+    marker stream the way ``::`` separates a child run — stream_id is the
+    fan-out key, sibling streams are how concurrent writers stay single."""
+    return f"{run_id}#boundary"
+
+
 @dataclass
 class Event:
     # ``event_type`` is ``str`` (not ``PlanEventType``) so the log serves any
