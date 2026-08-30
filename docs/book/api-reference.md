@@ -180,8 +180,8 @@ budget = HardBudget(
 
 # 多 Agent 共享账本
 ledger = BudgetLedger(budget=budget)
-await ledger.reserve(member="agent-a", cost_usd=0.3)
-await ledger.commit(member="agent-a", cost_usd=0.25, reserved_cost_usd=0.3)
+await ledger.reserve(member="agent-a", turns=1, cost_usd=0.3)
+await ledger.commit(member="agent-a", turns=1, tokens=0, cost_usd=0.25, reserved_cost_usd=0.3)
 ```
 
 ---
@@ -228,15 +228,18 @@ routing.add("agent-b", [LLMResponse(content="B 的回答")])
 ## 框架配置
 
 ```python
-from prodagent.base.config import FrameworkConfig, BackendConfig, bare, production
+from prodagent.base.config import FrameworkConfig, BackendConfig, production
 
-# 裸核（测试/CLI）
-config = FrameworkConfig(backend=bare())
+# 裸核是默认档位（profile="bare"），不需要任何函数：
+config = FrameworkConfig()          # 不落盘、不挂审批、不开缓存压缩
 
-# 生产全套
-config = FrameworkConfig(backend=production())
+# 生产全套：production() 返回整套 FrameworkConfig（profile 切到 "production"）
+config = production()
 
-# 自定义后端
+# 接到 Agent 上：
+agent = Agent("demo", config=AgentConfig(name="demo", framework=production()))
+
+# 自定义后端：在 FrameworkConfig.backend 上填 BackendConfig
 config = FrameworkConfig(backend=BackendConfig(
     checkpoint="postgres",   # file / postgres
     cache="redis",           # memory / redis
@@ -414,7 +417,7 @@ from prodagent.base.errors import (
 | `prodagent.cognition.*` | 上下文压缩与记忆 |
 | `prodagent.hooks.*` | 审批、安全、可观测 |
 | `prodagent.llm.*` | LLM 适配器、FakeLLM、定价 |
-| `prodagent.base.config` | FrameworkConfig / BackendConfig / bare / production |
+| `prodagent.base.config` | FrameworkConfig / BackendConfig / production |
 
 ---
 

@@ -25,6 +25,30 @@ jobs:
           uv run ruff format --check src/prodagent tests
       - name: Mypy (strict)
         run: uv run mypy src/prodagent
+      # Determinism boundary (Replay law) — report-only soak period: the ban
+      # annotates without failing; flips to a hard error once the domain is
+      # provably clean for a stretch. In-domain code must draw time/random/
+      # ids from prodagent.base.determinism.
+      - name: Determinism boundary (report-only)
+        run: uv run ruff check --select TID251 src/prodagent tests
+        continue-on-error: true
+
+  hashseed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Install dev environment
+        run: uv sync --extra dev
+      # Order-independence under set/dict iteration randomness: the suite
+      # must be green for any hash seed — a seed-flake here is a determinism
+      # leak (Replay law) finding its way into control flow.
+      - name: Pytest under alternate PYTHONHASHSEED
+        run: |
+          PYTHONHASHSEED=1 uv run pytest tests/ -q
+          PYTHONHASHSEED=42 uv run pytest tests/ -q
 
   test:
     runs-on: ubuntu-latest
