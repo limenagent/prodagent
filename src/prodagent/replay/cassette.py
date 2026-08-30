@@ -275,4 +275,15 @@ async def _record_from_fact(event: Event, blobs: BlobStore | None) -> CassetteRe
             response=response,
             meta=meta,
         )
+    if event.event_type == BoundaryEventType.CLOCK_RECORDED:
+        return CassetteRecord(
+            seq=0,
+            kind="clock",
+            # Identity of a clock record is its position, not a request
+            # fingerprint — there is no ask content to hash.
+            req_hash="",
+            request={},
+            response={"port": data.get("port", ""), "value": data.get("value", 0.0)},
+            meta={},
+        )
     return None

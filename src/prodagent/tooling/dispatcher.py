@@ -13,6 +13,7 @@ parameters, switch tools, or back off.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -416,7 +417,19 @@ class ToolDispatcher:
                     response={
                         "outcome": result.outcome.value,
                         "value": value,
+                        # The structured error rides alongside its string
+                        # form — replay reconstructs the ToolError (fields
+                        # like reason and severity steer control flow),
+                        # readers scan the string.
                         "error": str(result.error) if result.error is not None else None,
+                        "error_detail": (
+                            dataclasses.asdict(result.error)
+                            if result.error is not None
+                            else None
+                        ),
+                        "reason": result.reason,
+                        "approval_request_id": result.approval_request_id,
+                        "handoff": dict(result.handoff) if result.handoff else None,
                     },
                     meta={"idempotency_key": call.params.get("idempotency_key")},
                 )

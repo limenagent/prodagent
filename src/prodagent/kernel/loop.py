@@ -14,10 +14,11 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from prodagent.base.config import ContextConfig, LoopConfig
-from prodagent.base.determinism import new_uuid4
+from prodagent.base.determinism import new_uuid4, override
 from prodagent.base.errors import BudgetExceeded, InfiniteLoopDetected
 from prodagent.base.event_log import Event, RunEventType
 from prodagent.base.run_context import run_scope
+from prodagent.base.time_recorder import RecordingTimePort
 from prodagent.kernel.budget import SAFETY_NET_BUDGET, check_spawn_budget
 from prodagent.kernel.bus import HookEvent, save_and_fire_checkpoint
 from prodagent.kernel.bus import fire as _fire
@@ -73,6 +74,7 @@ class ReactiveLoop:
         self._budget = budget or SAFETY_NET_BUDGET
         self._checkpoint_store = checkpoint_store
         self._event_log = event_log
+        self._clock_recorder: RecordingTimePort | None = None
         self._context_manager = context_manager
         self._initial_messages = list(initial_messages) if initial_messages else None
         self._hooks = hooks
@@ -139,8 +141,12 @@ class ReactiveLoop:
         await self._begin_run_span(run, task)
 
         # Boundary facts attribute to this run: the recorder wrapping the LLM
-        # client reads the identity from here (base.run_context).
-        with run_scope(run.run_id, self._event_log):
+        # client reads the identity from here (base.run_context). With an
+        # event log, the clock also records: every time ask inside the run
+        # buffers and flushes to the boundary stream at turn boundaries —
+        # the facts a frozen clock replays.
+        self._clock_recorder = RecordingTimePort() if self._event_log is not None else None
+        with run_scope(run.run_id, self._event_log), override(time_port=self._clock_recorder):
             try:
                 async for event in self._loop_events(run):
                     yield event
@@ -160,6 +166,7 @@ class ReactiveLoop:
                     else RunEventType.RUN_COMPLETED,
                 )
             finally:
+                await self._flush_clock()
                 if self._checkpoint_store is not None:
                     await save_and_fire_checkpoint(self._checkpoint_store, run, self._hooks)
 
@@ -205,6 +212,12 @@ class ReactiveLoop:
     def _check_budget(self, run: AgentRun) -> None:
         check_spawn_budget(run, self._budget, self._budget_ledger)
 
+    async def _flush_clock(self) -> None:
+        """Land buffered clock facts ahead of the marker they precede —
+        call order in the buffer is the order the frozen clock replays."""
+        if self._clock_recorder is not None:
+            await self._clock_recorder.flush(self._event_log)
+
     async def _record_turn(self, run: AgentRun) -> None:
         """Per-turn event + checkpoint — REACTIVE's counterpart to PLAN_FIRST's
         per-step ``_record``. A no-op unless both stores are configured, so an
@@ -213,6 +226,7 @@ class ReactiveLoop:
         ``finally``."""
         if self._event_log is None or self._checkpoint_store is None:
             return
+        await self._flush_clock()
         seq = await self._event_log.append(
             Event.make(RunEventType.TURN_COMPLETED, stream_id=run.run_id, version=0),
             expected_seq=run.cursor("reactive", 0),
@@ -225,6 +239,7 @@ class ReactiveLoop:
         appended before ``stream()``'s ``finally`` writes the last checkpoint."""
         if self._event_log is None:
             return
+        await self._flush_clock()
         seq = await self._event_log.append(
             Event.make(event_type, stream_id=run.run_id, version=0),
             expected_seq=run.cursor("reactive", 0),

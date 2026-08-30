@@ -90,7 +90,11 @@ async def test_derivation_law_cassette_equals_boundary_facts() -> None:
     facts = await log.get_events(boundary_stream(run_id))
     assert len(cassette.records) == len(facts)
     assert [r.seq for r in cassette.records] == list(range(1, len(facts) + 1))
-    assert [r.kind for r in cassette.records] == ["llm", "tool", "llm"]
+    # Clock facts ride along (the loop records its time asks); the decision
+    # kinds keep their order.
+    decision_kinds = [r.kind for r in cassette.records if r.kind != "clock"]
+    assert decision_kinds == ["llm", "tool", "llm"]
+    assert any(r.kind == "clock" for r in cassette.records), "clock facts landed"
     llm_records = [r for r in cassette.records if r.kind == "llm"]
     assert [r.req_hash for r in llm_records] == spy.seen_hashes, "same fingerprints as asked"
     tool_record = next(r for r in cassette.records if r.kind == "tool")

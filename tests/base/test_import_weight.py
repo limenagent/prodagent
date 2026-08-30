@@ -58,6 +58,7 @@ KERNEL_EXPECTED = frozenset(
         "prodagent.base.event_log",
         "prodagent.base.blobs",
         "prodagent.base.run_context",
+        "prodagent.base.time_recorder",
         "prodagent.base.lazy",
         "prodagent.base.retry",
         "prodagent.base.session",

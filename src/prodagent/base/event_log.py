@@ -51,6 +51,7 @@ class BoundaryEventType(StrEnum):
 
     LLM_RECORDED = "LlmRecorded"
     TOOL_RECORDED = "ToolRecorded"
+    CLOCK_RECORDED = "ClockRecorded"
 
 
 def boundary_stream(run_id: str) -> str:

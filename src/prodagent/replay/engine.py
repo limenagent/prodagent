@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from prodagent.kernel.types import LLMResponse
+from prodagent.kernel.types import LLMResponse, ToolError, ToolOutcome, ToolResult
 from prodagent.replay.cassette import Cassette, CassetteMismatch, tool_request_hash
 
 if TYPE_CHECKING:
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["CassetteLLMClient", "CassettePlayer", "cassette_tool"]
+__all__ = ["CassetteLLMClient", "CassettePlayer", "FrozenClock", "cassette_tool"]
 
 
 class CassettePlayer:
@@ -141,17 +141,24 @@ def cassette_tool(name: str, player: CassettePlayer, *, schema: dict[str, Any] |
 def _settle(response: dict[str, Any]) -> Any:
     """Turn a recorded tool response into what a tool function returns.
 
-    ``ok`` returns the recorded value (the dispatcher's coerce throat
-    re-wraps it exactly as it wrapped the original). Anything else is a
-    lifecycle outcome the engine does not re-enact yet — refused loudly,
-    never approximated: a quietly wrong replay is worse than none."""
+    ``ok`` returns the recorded value — the dispatcher's coerce throat
+    re-wraps it exactly as it wrapped the original. Every other outcome is
+    reconstructed as the ``ToolResult`` it was (the recorded structured
+    error, the approval correlation, the handoff descriptor), which coerce
+    passes through untouched — so a replayed suspension re-suspends, a
+    replayed handoff hands off, a replayed error shows the model the same
+    structured feedback."""
     outcome = response.get("outcome", "ok")
     if outcome == "ok":
         return response.get("value")
-    raise NotImplementedError(
-        f"replaying a recorded tool outcome {outcome!r} is not implemented yet — "
-        "the ok path is; suspended/handoff lifecycles come with the "
-        "equivalence-law unit"
+    detail = response.get("error_detail")
+    return ToolResult(
+        outcome=ToolOutcome(outcome),
+        value=response.get("value"),
+        error=ToolError(**detail) if detail else None,
+        reason=response.get("reason", ""),
+        approval_request_id=response.get("approval_request_id", ""),
+        handoff=response.get("handoff"),
     )
 
 
@@ -185,3 +192,37 @@ def replay_tools(cassette: Cassette, player: CassettePlayer) -> dict[str, Any]:
             if name and name not in names:
                 names.append(name)
     return {name: cassette_tool(name, player) for name in names}
+
+
+class FrozenClock:
+    """A ``TimePort`` whose readings come from the tape — never the wall.
+
+    Wall and monotonic readings each replay their recorded sequence, in
+    order. Past the tape's end the clock CLAMPS to the last recorded
+    reading: a replay that asks more clock questions than its recording did
+    still stays offline-deterministic (a frozen clock advancing would be a
+    lie), and any decision that genuinely diverged is caught by the
+    comparator, not by the clock."""
+
+    def __init__(self, cassette: Cassette) -> None:
+        self._readings: dict[str, list[float]] = {"wall": [], "monotonic": []}
+        self._cursors: dict[str, int] = {"wall": 0, "monotonic": 0}
+        for record in cassette.records:
+            if record.kind == "clock":
+                port_name = record.response.get("port")
+                if port_name in self._readings:
+                    self._readings[port_name].append(record.response.get("value", 0.0))
+
+    def _next(self, port_name: str) -> float:
+        readings = self._readings[port_name]
+        index = self._cursors[port_name]
+        if index < len(readings):
+            self._cursors[port_name] = index + 1
+            return readings[index]
+        return readings[-1] if readings else 0.0  # clamp: frozen means frozen
+
+    def wall(self) -> float:
+        return self._next("wall")
+
+    def monotonic(self) -> float:
+        return self._next("monotonic")

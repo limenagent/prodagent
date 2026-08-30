@@ -108,14 +108,40 @@ async def test_zero_egress_law_different_ask_fails_closed() -> None:
 async def test_zero_egress_law_dry_tape_names_the_fallback_refusal() -> None:
     _, cassette = await _live_run()
     player = CassettePlayer(cassette)
-    # No clock records exist on this tape — the ask runs it dry, and the
-    # refusal names the no-fallback contract.
+    # No "random" records exist on any tape — the ask runs it dry, and
+    # the refusal names the no-fallback contract.
     with pytest.raises(CassetteMismatch, match="no fallback"):
-        player.answer("clock", "0" * 64)
+        player.answer("random", "0" * 64)
 
 
-async def test_unreplayed_lifecycles_refuse_loudly() -> None:
+async def test_non_ok_outcomes_reconstruct_their_tool_results() -> None:
+    """The outcome matrix: every recorded lifecycle settles back into the
+    ToolResult it was — a replayed suspension re-suspends with its approval
+    correlation, a replayed handoff hands off, a replayed error shows the
+    model the same structured feedback."""
+    from prodagent.kernel.types import ToolOutcome
     from prodagent.replay.engine import _settle
 
-    with pytest.raises(NotImplementedError, match="not implemented"):
-        _settle({"outcome": "suspended", "value": None})
+    suspended = _settle(
+        {"outcome": "suspended", "value": None, "reason": "awaiting approval",
+         "approval_request_id": "req-7", "error_detail": None}
+    )
+    assert suspended.outcome is ToolOutcome.SUSPENDED
+    assert suspended.approval_request_id == "req-7"
+
+    handoff = _settle(
+        {"outcome": "handoff", "value": None, "reason": "",
+         "handoff": {"peer": "reviewer", "task": "t"}, "error_detail": None}
+    )
+    assert handoff.outcome is ToolOutcome.HANDOFF
+    assert handoff.handoff == {"peer": "reviewer", "task": "t"}
+
+    # Errors ride the retry/abort outcomes with a structured ToolError.
+    errored = _settle(
+        {"outcome": "retry", "value": None,
+         "error_detail": {"reason": "transient", "code": "boom",
+                          "message": "it broke", "hint": "",
+                          "error_severity": "yellow"}}
+    )
+    assert errored.outcome is ToolOutcome.RETRY
+    assert errored.error.code == "boom" and errored.error.message == "it broke"

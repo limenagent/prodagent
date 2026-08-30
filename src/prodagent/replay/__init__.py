@@ -15,7 +15,7 @@ from prodagent.replay.cassette import (
     derive_cassette,
     tool_request_hash,
 )
-from prodagent.replay.engine import CassetteLLMClient, CassettePlayer, replay_tools
+from prodagent.replay.engine import CassetteLLMClient, CassettePlayer, FrozenClock, replay_tools
 from prodagent.replay.strict import (
     ReplayNotEquivalent,
     assert_equivalent,
@@ -35,6 +35,7 @@ __all__ = [
     "ReplayNotEquivalent",
     "assert_equivalent",
     "derive_cassette",
+    "FrozenClock",
     "event_flow_projection",
     "replay_tools",
     "strict_compare",
