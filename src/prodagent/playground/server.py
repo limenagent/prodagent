@@ -58,6 +58,8 @@ if TYPE_CHECKING:
 
     from prodagent.base.session import ConversationSession
     from prodagent.kernel.state import AgentRun
+    from prodagent.ports.observability import EventLog
+    from prodagent.ports.persistence import BlobStore
     from prodagent.runtime.agent import Agent
 
 logger = logging.getLogger(__name__)
@@ -292,12 +294,26 @@ def build_app(
     specs: list[Any] | None = None,
     checkpoint_for: CheckpointFactory | None = None,
     session_store_for: SessionStoreFactory | None = None,
+    event_log: EventLog | None = None,
+    blob_store: BlobStore | None = None,
 ) -> FastAPI:
     state = AppState(
         specs=specs or discover_examples(),
         checkpoint_for=checkpoint_for,
         session_store_for=session_store_for,
     )
+    # The tape deck's data source: the same WAL the driven runs record to.
+    # Default = the production profile's file stores (same directories the
+    # runs write, read through separate instances — the file backend is the
+    # shared medium); tests inject in-memory ones.
+    if event_log is None:
+        from prodagent.backends.file.blob import FileBlobStore
+        from prodagent.backends.file.event_log import FileEventLog
+        from prodagent.base.config import FrameworkConfig
+
+        _fw = FrameworkConfig.from_env()
+        event_log = FileEventLog(_fw.orchestration.events_dir)
+        blob_store = blob_store or FileBlobStore(_fw.blobs_dir)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -306,6 +322,9 @@ def build_app(
             await state.registry.aclose()
 
     app = FastAPI(title="prodagent playground", lifespan=lifespan)
+    from prodagent.playground.tape import build_tape_router
+
+    app.include_router(build_tape_router(state, event_log, blob_store))
     app.state.playground = state
 
     if _STATIC_DIR.exists():
