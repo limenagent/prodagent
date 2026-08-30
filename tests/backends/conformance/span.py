@@ -10,7 +10,7 @@ from collections.abc import Callable
 from typing import TypeAlias
 
 from prodagent.base.observability import AgentSpan
-from prodagent.ports.span import SpanExporter
+from prodagent.ports.observability import SpanExporter
 
 Factory: TypeAlias = Callable[[], SpanExporter]
 

@@ -26,7 +26,7 @@ from prodagent.kernel.types import (
     RunState,
     RunSuspendedEvent,
 )
-from prodagent.ports.agent_spec import AgentSpec
+from prodagent.ports.execution import AgentSpec
 from prodagent.ports.llm import LLMClient
 from prodagent.runtime.config import AgentConfig
 from prodagent.runtime.parent_runtime import ParentRuntime
@@ -522,7 +522,7 @@ class Agent:
 
     def spec(self) -> AgentSpec:
         """Serializable projection of this agent — the wire form for remote
-        spawn and rosters (:class:`prodagent.ports.agent_spec.AgentSpec`).
+        spawn and rosters (:class:`prodagent.ports.execution.AgentSpec`).
         Live wiring (LLM client, hooks, stores, tool callables) stays on
         AgentConfig and never crosses a process boundary."""
         return AgentSpec(

@@ -59,9 +59,22 @@ def test_every_store_port_method_is_async() -> None:
                 inspect.iscoroutinefunction(member)
                 # a plain `def` returning an AsyncGenerator is equally non-blocking
                 or inspect.isasyncgenfunction(member)
+                # ...and so is a plain `def` whose return annotation *is* one:
+                # the idiomatic Protocol shape for async generators (calling
+                # it only constructs the generator; consumption is awaited).
+                # String-matched because ``from __future__ import annotations``
+                # leaves the annotation unevaluated.
+                or _annotated_async_iterator(member)
             ):
                 offenders.append(f"{protocol.__name__}.{name}")
     assert not offenders, f"sync I/O surface on store ports: {offenders}"
+
+
+def _annotated_async_iterator(member: object) -> bool:
+    annotation = inspect.signature(member).return_annotation  # type: ignore[arg-type]
+    if not isinstance(annotation, str):
+        return False
+    return "AsyncIterator" in annotation or "AsyncGenerator" in annotation
 
 
 def test_port_count_is_stable() -> None:

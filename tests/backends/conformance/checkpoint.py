@@ -7,7 +7,7 @@ from typing import TypeAlias
 
 from prodagent.base.errors import VersionConflict
 from prodagent.kernel.state import AgentRun
-from prodagent.ports.checkpoint import CheckpointStore
+from prodagent.ports.persistence import CheckpointStore
 
 Factory: TypeAlias = Callable[[], CheckpointStore]
 

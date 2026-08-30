@@ -7,7 +7,12 @@ import json
 import logging
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+from prodagent.backends._shared.tailing import StreamWakes, tail_stream
 from prodagent.backends.file._locking import _exclusive
 from prodagent.base.errors import VersionConflict
 from prodagent.base.event_log import Event
@@ -67,6 +72,7 @@ class FileEventLog:
         self._dir = Path(directory)
         self._dir.mkdir(parents=True, exist_ok=True)
         self._fsync = fsync
+        self._wakes = StreamWakes()
 
     def _path(self, stream_id: str) -> Path:
         return self._dir / f"{safe_filename_component(stream_id)}.jsonl"
@@ -74,34 +80,61 @@ class FileEventLog:
     def _lock_path(self, stream_id: str) -> Path:
         return self._dir / f"{safe_filename_component(stream_id)}.lock"
 
-    def _append_sync(self, event: Event, expected_seq: int | None) -> int:
-        path = self._path(event.stream_id)
-        with _exclusive(self._lock_path(event.stream_id)):
-            current = _read_tail_seq(path)
-            if expected_seq is not None and current != expected_seq:
-                raise VersionConflict(
-                    f"expected tail seq {expected_seq} for stream {event.stream_id}, "
-                    f"found {current} — concurrent writer won"
-                )
-            event.seq = current + 1
-            record = {
-                "seq": event.seq,
-                "event_id": event.event_id,
-                "event_type": event.event_type,
-                "stream_id": event.stream_id,
-                "version": event.version,
-                "timestamp": event.timestamp,
-                "data": event.data,
-            }
-            with path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(record, ensure_ascii=False) + "\n")
-                f.flush()
-                if self._fsync:
-                    os.fsync(f.fileno())
-            return event.seq
+    def _append_batch_sync(self, events: list[Event], expected_seq: int | None) -> list[int]:
+        """Group commit: one lock/tail-scan/open/flush per stream for the
+        whole batch — the amortization that makes write-behind pipelines
+        cheap. Batch order within a stream is input order."""
+        # Group by stream, preserving first-appearance order for deterministic
+        # lock acquisition (mixed-stream batches come from the buffered tier).
+        grouped: dict[str, list[Event]] = {}
+        for event in events:
+            grouped.setdefault(event.stream_id, []).append(event)
+        checked: set[str] = set()
+        for stream_id, stream_events in grouped.items():
+            path = self._path(stream_id)
+            with _exclusive(self._lock_path(stream_id)):
+                current = _read_tail_seq(path)
+                if stream_id not in checked:
+                    if expected_seq is not None and current != expected_seq:
+                        raise VersionConflict(
+                            f"expected tail seq {expected_seq} for stream {stream_id}, "
+                            f"found {current} — concurrent writer won"
+                        )
+                    checked.add(stream_id)
+                records = []
+                for event in stream_events:
+                    event.seq = current + 1
+                    current = event.seq
+                    records.append(
+                        {
+                            "seq": event.seq,
+                            "event_id": event.event_id,
+                            "event_type": event.event_type,
+                            "stream_id": event.stream_id,
+                            "version": event.version,
+                            "timestamp": event.timestamp,
+                            "data": event.data,
+                        }
+                    )
+                with path.open("a", encoding="utf-8") as f:
+                    f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in records)
+                    f.flush()
+                    if self._fsync:
+                        os.fsync(f.fileno())
+        return [e.seq for e in events]
+
+    async def append_events(
+        self, events: list[Event], expected_seq: int | None = None
+    ) -> list[int]:
+        if not events:
+            return []
+        seqs = await asyncio.to_thread(self._append_batch_sync, events, expected_seq)
+        for stream_id in {e.stream_id for e in events}:
+            self._wakes.notify(stream_id)
+        return seqs
 
     async def append(self, event: Event, expected_seq: int | None = None) -> int:
-        return await asyncio.to_thread(self._append_sync, event, expected_seq)
+        return (await self.append_events([event], expected_seq))[0]
 
     def _load(self, stream_id: str) -> list[Event]:
         path = self._path(stream_id)
@@ -131,3 +164,9 @@ class FileEventLog:
     async def get_after(self, stream_id: str, since_seq: int) -> list[Event]:
         events = await asyncio.to_thread(self._load, stream_id)
         return [e for e in events if e.seq > since_seq]
+
+    def subscribe(self, stream_id: str, since_seq: int = 0) -> AsyncIterator[Event]:
+        # In-process appends wake immediately; the poll fallback in
+        # ``tail_stream`` catches writers in other processes sharing the
+        # same directory.
+        return tail_stream(self.get_after, self._wakes, stream_id, since_seq)

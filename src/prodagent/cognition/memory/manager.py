@@ -48,9 +48,8 @@ if TYPE_CHECKING:
     from prodagent.base.config import FrameworkConfig
     from prodagent.cognition.memory.classification import MemoryClassifier
     from prodagent.kernel.state import AgentRun
-    from prodagent.ports.document import DocumentStore
-    from prodagent.ports.graph import GraphStore
     from prodagent.ports.llm import LLMClient
+    from prodagent.ports.persistence import DocumentStore, GraphStore
 
 logger = logging.getLogger(__name__)
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import RunState
-from prodagent.ports.experience import conversation_messages
+from prodagent.ports.persistence import conversation_messages
 
 
 def _reactive_run() -> AgentRun:

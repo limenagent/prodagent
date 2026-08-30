@@ -16,7 +16,7 @@ from prodagent.hooks.bundles.learning import LearningHooks
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import LLMResponse, MessageList, ToolCall
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.ports.experience import ExperienceRecord
+from prodagent.ports.persistence import ExperienceRecord
 from prodagent.skills.registry import SkillRegistry
 from prodagent.skills.skill_synthesizer import SkillSynthesizer
 

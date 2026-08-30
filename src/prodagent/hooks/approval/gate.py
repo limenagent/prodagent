@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 from prodagent.base.errors import SuspendPendingApproval
 from prodagent.hooks.approval.formatter import ContextAwareApprovalFormatter
-from prodagent.ports.approval import ApprovalDecision, ApprovalRequest, ApprovalStore
+from prodagent.ports.observability import ApprovalDecision, ApprovalRequest, ApprovalStore
 
 logger = logging.getLogger(__name__)
 

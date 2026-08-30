@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TypeAlias
 
-from prodagent.ports.graph import GraphStore
+from prodagent.ports.persistence import GraphStore
 
 Factory: TypeAlias = Callable[[], GraphStore]
 

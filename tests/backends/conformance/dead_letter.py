@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TypeAlias
 
-from prodagent.ports.dead_letter import DeadLetterStore
+from prodagent.ports.messaging import DeadLetterStore
 
 Factory: TypeAlias = Callable[[], DeadLetterStore]
 

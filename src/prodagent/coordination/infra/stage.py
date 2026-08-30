@@ -14,7 +14,7 @@ infrastructure around the loop:
 
 - the lifecycle guard (a raise becomes a terminal ``error`` event; a loop that
   ends without a reason finalizes to ``unknown``);
-- the dispatch interpreter for an :class:`~prodagent.ports.activation.Activation`
+- the dispatch interpreter for an :class:`~prodagent.ports.execution.Activation`
   (serial / concurrent with fail-fast cancel / single-winner lock race);
 - the termination policy (business strategy ∧ mandatory hard cap) and its
   ``TerminationReason`` vocabulary;
@@ -75,8 +75,8 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
 
     from prodagent.kernel.budget import BudgetLedger
-    from prodagent.ports.activation import Activation
-    from prodagent.ports.lock import LockStore, LockToken
+    from prodagent.ports.execution import Activation
+    from prodagent.ports.messaging import LockStore, LockToken
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +187,7 @@ class StageDriver(Generic[E]):
         lock_store: LockStore | None = None,
         lock_scope: str = "",
     ) -> list[tuple[str, Any | None]]:
-        """Run one :class:`~prodagent.ports.activation.Activation`
+        """Run one :class:`~prodagent.ports.execution.Activation`
         per its dispatch mode, returning ``(member, result)`` in member order.
 
         - ``serial`` — one ``run_one`` at a time, in order.

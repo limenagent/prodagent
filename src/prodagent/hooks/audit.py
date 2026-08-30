@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 from prodagent.base.observability import AgentSpan as AgentSpan
 
 if TYPE_CHECKING:
-    from prodagent.ports.span import SpanExporter
+    from prodagent.ports.observability import SpanExporter
 
 logger = logging.getLogger(__name__)
 

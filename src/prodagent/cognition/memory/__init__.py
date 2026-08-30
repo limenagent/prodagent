@@ -29,8 +29,8 @@ _SYMBOL_SOURCES: dict[str, str] = {
     "MemoryType": "prodagent.cognition.memory.storage",
     "StoredMemory": "prodagent.cognition.memory.storage",
     "TouchBackWorker": "prodagent.cognition.memory.touch_worker",
-    "DocumentStore": "prodagent.ports.document",
-    "GraphStore": "prodagent.ports.graph",
+    "DocumentStore": "prodagent.ports.persistence",
+    "GraphStore": "prodagent.ports.persistence",
 }
 
 __all__ = sorted(_SYMBOL_SOURCES)

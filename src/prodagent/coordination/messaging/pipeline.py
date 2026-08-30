@@ -8,7 +8,7 @@ The plane's execution rules, deliberately few:
   would feed the security checkpoint unvalidated shapes; audit must see what
   actually crossed, so it is last. Nobody — users, primitives — reorders.
 - **Dead letter is the error boundary, not a stage.** Every strict rejection
-  is recorded to the :data:`~prodagent.ports.dead_letter.DeadLetterStore`
+  is recorded to the :data:`~prodagent.ports.messaging.DeadLetterStore`
   exactly once, here, before the primitive learns the outcome.
 - **Dedupe short-circuits.** A duplicate skips every remaining interceptor and
   is *not* dead-lettered — a replay is not a fault.
@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     from prodagent.coordination.messaging.contract import MessageContract
     from prodagent.coordination.messaging.idempotency import IdempotentMessageHandler
     from prodagent.kernel.bus import HookEvent, HookRegistry
-    from prodagent.ports.dead_letter import DeadLetterStore
+    from prodagent.ports.messaging import DeadLetterStore
 
 logger = logging.getLogger(__name__)
 

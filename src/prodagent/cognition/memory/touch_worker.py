@@ -15,7 +15,7 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from prodagent.ports.document import DocumentStore
+    from prodagent.ports.persistence import DocumentStore
 
 logger = logging.getLogger(__name__)
 

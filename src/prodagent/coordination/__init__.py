@@ -8,15 +8,15 @@ shared budget) and **what survives a crash** (event sourcing).
 The top level is exactly the five topologies, one self-contained file each
 (spec + shared state + driver + member adapter + events):
 
-- ``spawn``      委派 — a parent delegates to a child and gets a result back
+- ``spawn``      delegate — a parent delegates to a child and gets a result back
                 (``agents=``; the model calls ``spawn_agent``).
-- ``peer``      接力 — control transfers along a chain (``peers=``; tools +
+- ``peer``      relay — control transfers along a chain (``peers=``; tools +
                 the relay in one place, returning a ``HandoffActivation``).
-- ``ensemble``  辩论 — members debate on one shared floor (transcript,
+- ``ensemble``  debate — members debate on one shared floor (transcript,
                 projection, speaking orders, event-sourced resume).
-- ``blackboard`` 黑板 — experts write versioned slots as triggers fire
+- ``blackboard`` board — experts write versioned slots as triggers fire
                 (optimistic versions, buzz-in or fan-out dispatch).
-- ``work_queue`` 队列 — workers claim items under lease; retry and dead
+- ``work_queue`` queue — workers claim items under lease; retry and dead
                 letter are the queue's.
 
 Two subpackages, two different axes:

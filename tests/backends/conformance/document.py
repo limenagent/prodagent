@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TypeAlias
 
-from prodagent.ports.document import DocumentStore, MemoryRecord, MemoryType
+from prodagent.ports.persistence import DocumentStore, MemoryRecord, MemoryType
 
 Factory: TypeAlias = Callable[[], DocumentStore]
 

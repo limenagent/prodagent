@@ -47,9 +47,12 @@ from tests.backends.conformance.document import (
     run_document_touch_conformance,
 )
 from tests.backends.conformance.event_log import (
+    run_event_log_batch_conformance,
+    run_event_log_batch_expected_seq_conformance,
     run_event_log_conformance,
     run_event_log_empty_plan_conformance,
     run_event_log_plan_isolation_conformance,
+    run_event_log_subscribe_conformance,
 )
 from tests.backends.conformance.graph import (
     run_graph_absent_node_neighbors_conformance,
@@ -92,6 +95,9 @@ __all__ = [
     "run_document_supersede_conformance",
     "run_document_touch_conformance",
     "run_event_log_conformance",
+    "run_event_log_subscribe_conformance",
+    "run_event_log_batch_expected_seq_conformance",
+    "run_event_log_batch_conformance",
     "run_event_log_empty_plan_conformance",
     "run_event_log_plan_isolation_conformance",
     "run_graph_absent_node_neighbors_conformance",

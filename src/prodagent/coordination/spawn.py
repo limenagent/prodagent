@@ -39,7 +39,7 @@ from prodagent.kernel.types import (
     ToolError,
     ToolMeta,
 )
-from prodagent.ports.runner import AgentActivation, RunnerPort
+from prodagent.ports.execution import AgentActivation, RunnerPort
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.merge import attach_tools
 
@@ -47,8 +47,8 @@ if TYPE_CHECKING:
     from prodagent.base.config import FrameworkConfig
     from prodagent.kernel.budget import BudgetLedger, HardBudget
     from prodagent.kernel.bus import HookRegistry
-    from prodagent.ports.agent_spec import AgentSpec
-    from prodagent.ports.dead_letter import DeadLetterStore
+    from prodagent.ports.execution import AgentSpec
+    from prodagent.ports.messaging import DeadLetterStore
     from prodagent.runtime.agent import Agent
 
 logger = logging.getLogger(__name__)

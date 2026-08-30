@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from prodagent.backends.memory import (
     InMemoryApprovalStore,
     InMemoryCache,
     InMemoryDeadLetterQueue,
+    InMemoryEventLog,
     InMemoryGraphStore,
     InProcessLockStore,
 )
@@ -19,6 +22,12 @@ from tests.backends.conformance import (
     run_dead_letter_conformance,
     run_dead_letter_escalation_conformance,
     run_dead_letter_message_isolation_conformance,
+    run_event_log_batch_conformance,
+    run_event_log_batch_expected_seq_conformance,
+    run_event_log_conformance,
+    run_event_log_empty_plan_conformance,
+    run_event_log_plan_isolation_conformance,
+    run_event_log_subscribe_conformance,
     run_graph_absent_node_neighbors_conformance,
     run_graph_delete_node_conformance,
     run_graph_edge_idempotent_conformance,
@@ -151,3 +160,31 @@ def test_memory_graph_absent_node_neighbors_conformance():
 
 def test_memory_graph_list_nodes_conformance():
     run_graph_list_nodes_conformance(_mem_graph())
+
+
+def _memory_event_log() -> Any:
+    return lambda: InMemoryEventLog()
+
+
+async def test_memory_event_log_conformance():
+    await run_event_log_conformance(_memory_event_log())
+
+
+async def test_memory_event_log_batch_conformance():
+    await run_event_log_batch_conformance(_memory_event_log())
+
+
+async def test_memory_event_log_batch_expected_seq_conformance():
+    await run_event_log_batch_expected_seq_conformance(_memory_event_log())
+
+
+async def test_memory_event_log_plan_isolation_conformance():
+    await run_event_log_plan_isolation_conformance(_memory_event_log())
+
+
+async def test_memory_event_log_empty_plan_conformance():
+    await run_event_log_empty_plan_conformance(_memory_event_log())
+
+
+async def test_memory_event_log_subscribe_conformance():
+    await run_event_log_subscribe_conformance(_memory_event_log())

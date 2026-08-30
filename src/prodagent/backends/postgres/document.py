@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from prodagent.backends._shared.document_write import build_stored_memory
 from prodagent.base.time import now_timestamp
-from prodagent.ports.document import (
+from prodagent.ports.persistence import (
     MAX_SOFT_MEMORIES,
     MemoryRecord,
     MemoryType,

@@ -4,7 +4,7 @@
 ``SharedFloor`` (append-only transcript), ``Board`` (versioned map), ``SharedQueue``
 (lease-based claim deque). They are informal instances of one model — a store + an
 activation policy (the *activation* axis is named explicitly in
-:mod:`prodagent.ports.activation`) — and they share the same
+:mod:`prodagent.ports.execution`) — and they share the same
 *read-side contract*: a round-aware,
 snapshotable state with a liveness fingerprint. That contract lives here, once,
 so :class:`~prodagent.coordination.termination.TerminationPolicy` can
@@ -22,7 +22,7 @@ Two levels, because the stores are not identical:
   sub-base (they fan out concurrent experts/workers per round).
 
 This module is also the seam for Phase 2: event-sourcing the stores onto
-:data:`~prodagent.ports.event_log.EventLog` so a coordination run survives a
+:data:`~prodagent.ports.observability.EventLog` so a coordination run survives a
 crash and resumes — the durability the single-agent PLAN_FIRST executor already
 has via ``runtime/plan/event_log.py``, extended to multi-agent coordination.
 """

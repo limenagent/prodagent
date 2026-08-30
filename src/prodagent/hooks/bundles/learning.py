@@ -7,13 +7,13 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from prodagent.kernel.bus import HookEvent
-from prodagent.ports.experience import ExperienceOutcome, ExperienceRecord
+from prodagent.ports.persistence import ExperienceOutcome, ExperienceRecord
 
 if TYPE_CHECKING:
     from prodagent.base.config import FrameworkConfig
     from prodagent.kernel.bus import HookRegistry
     from prodagent.kernel.state import AgentRun
-    from prodagent.ports.experience import ExperienceStore
+    from prodagent.ports.persistence import ExperienceStore
     from prodagent.skills.registry import SkillContent, SkillRegistry
     from prodagent.skills.skill_synthesizer import SkillSynthesizer
 

@@ -26,7 +26,7 @@ from prodagent.llm.structured_output import extract_json_object
 if TYPE_CHECKING:
     from prodagent.cognition.memory.embedder import HashEmbedder
     from prodagent.llm import LLMClient
-    from prodagent.ports.document import DocumentStore
+    from prodagent.ports.persistence import DocumentStore
 
 logger = logging.getLogger(__name__)
 

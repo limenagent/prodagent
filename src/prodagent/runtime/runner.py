@@ -23,7 +23,7 @@ from prodagent.kernel.state import (
     make_failed_run,
 )
 from prodagent.kernel.types import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
-from prodagent.ports.runner import InProcessChatRunner
+from prodagent.ports.execution import InProcessChatRunner
 from prodagent.runtime.compose import (
     find_suspended_peer,
     hop_tool_assemblers,
@@ -45,12 +45,12 @@ if TYPE_CHECKING:
     from prodagent.kernel.types import AgentEvent, ExecutionMode, MessageList
     from prodagent.ports import CheckpointStore, EventLog
     from prodagent.ports.budget_ledger import BudgetLedgerPort
-    from prodagent.ports.llm import LLMClient
-    from prodagent.ports.runner import (
+    from prodagent.ports.execution import (
         AgentActivation,
         HandoffActivation,
         RunnerPort,
     )
+    from prodagent.ports.llm import LLMClient
     from prodagent.runtime.agent import Agent
 
     class _Relay(Protocol):
@@ -391,7 +391,7 @@ class RunLoop:
         """Hand off to the next peer hop via the relay (compose seam).
 
         The relay decides whether and where the chain continues and returns a
-        pure-data :class:`~prodagent.ports.runner.HandoffActivation`;
+        pure-data :class:`~prodagent.ports.execution.HandoffActivation`;
         interpreting it — peer lookup, fork, hop context — is this driver's
         job, so coordination never constructs runtime objects. Budget
         settle-at-handoff, dedupe pipeline, and checkpoint persistence stay

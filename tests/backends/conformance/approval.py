@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TypeAlias
 
-from prodagent.ports.approval import ApprovalDecision, ApprovalRequest, ApprovalStore
+from prodagent.ports.observability import ApprovalDecision, ApprovalRequest, ApprovalStore
 
 Factory: TypeAlias = Callable[[], ApprovalStore]
 

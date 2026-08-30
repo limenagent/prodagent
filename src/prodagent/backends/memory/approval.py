@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 
-from prodagent.ports.approval import ApprovalDecision, ApprovalRequest
+from prodagent.ports.observability import ApprovalDecision, ApprovalRequest
 
 logger = logging.getLogger(__name__)
 

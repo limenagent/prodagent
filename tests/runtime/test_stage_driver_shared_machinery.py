@@ -12,7 +12,7 @@ import pytest
 from prodagent.backends.memory.lock import InProcessLockStore
 from prodagent.coordination.infra.stage import StageDriver
 from prodagent.kernel.budget import BudgetLedger, HardBudget
-from prodagent.ports.activation import Activation
+from prodagent.ports.execution import Activation
 
 if TYPE_CHECKING:
     from prodagent.coordination.infra.stage import TerminationReason

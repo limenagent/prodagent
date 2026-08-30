@@ -39,8 +39,14 @@ from prodagent.coordination.messaging.pipeline import (
     assembly_pipeline,
 )
 from prodagent.kernel.types import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
-from prodagent.ports.activation import Activation, ActivationContext, ActivationPolicy
-from prodagent.ports.runner import AgentActivation, InProcessChatRunner, RunnerPort
+from prodagent.ports.execution import (
+    Activation,
+    ActivationContext,
+    ActivationPolicy,
+    AgentActivation,
+    InProcessChatRunner,
+    RunnerPort,
+)
 
 
 class BoardVersionConflict(Exception):
@@ -60,8 +66,7 @@ if TYPE_CHECKING:
     from prodagent.kernel.bus import HookRegistry
     from prodagent.kernel.state import AgentRun
     from prodagent.ports import EventLog
-    from prodagent.ports.dead_letter import DeadLetterStore
-    from prodagent.ports.lock import LockStore
+    from prodagent.ports.messaging import DeadLetterStore, LockStore
     from prodagent.runtime.agent import Agent
 
 logger = logging.getLogger(__name__)
@@ -101,7 +106,7 @@ class BoardSlot:
 
 class BoardEventType(StrEnum):
     """Durable record of every Board transition — 1:1 with the in-memory
-    mutations. Appended to an :class:`~prodagent.ports.event_log.EventLog`
+    mutations. Appended to an :class:`~prodagent.ports.observability.EventLog`
     keyed by the board's ``run_id``, so a crashed board can be rebuilt by
     :meth:`Board.restore`. Same shape as the work queue's
     ``QueueEventType``."""
@@ -239,7 +244,7 @@ class Trigger:
 
 
 class BlackboardPolicy:
-    """Adapts the Trigger list to :class:`~prodagent.ports.activation.ActivationPolicy`.
+    """Adapts the Trigger list to :class:`~prodagent.ports.execution.ActivationPolicy`.
 
     Each matched trigger becomes one :class:`Activation` this round: ``event``
     mode fans out concurrently, ``buzz_in`` races for a single winner — the

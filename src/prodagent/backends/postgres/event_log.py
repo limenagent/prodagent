@@ -5,11 +5,14 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+from prodagent.backends._shared.tailing import StreamWakes, tail_stream
 from prodagent.backends.postgres._versioned import lock_and_check_version
 from prodagent.backends.postgres.schema import ensure_schema_via_pool_async
 from prodagent.base.event_log import Event
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from psycopg_pool import AsyncConnectionPool
 
 __all__ = ["PostgresEventLog"]
@@ -21,40 +24,69 @@ class PostgresEventLog:
     def __init__(self, pool: AsyncConnectionPool, *, namespace: str = "default") -> None:
         self._pool = pool
         self._ns = namespace
+        self._wakes = StreamWakes()
 
     async def append(self, event: Event, expected_seq: int | None = None) -> int:
+        return (await self.append_events([event], expected_seq))[0]
+
+    async def append_events(
+        self, events: list[Event], expected_seq: int | None = None
+    ) -> list[int]:
+        """Group commit: one transaction for the whole batch — the tail
+        check locks the max seq per involved stream, seqs run consecutive,
+        a single commit makes the batch atomic for other replicas."""
+        if not events:
+            return []
         await ensure_schema_via_pool_async(self._pool)
-        record: dict[str, Any] = {
-            "seq": event.seq,
-            "event_id": event.event_id,
-            "event_type": str(event.event_type),
-            "stream_id": event.stream_id,
-            "version": event.version,
-            "timestamp": event.timestamp,
-            "data": event.data,
-        }
+        grouped: dict[str, list[Event]] = {}
+        for event in events:
+            grouped.setdefault(event.stream_id, []).append(event)
         async with self._pool.connection() as conn:
             async with conn.cursor() as cur:
-                current = await lock_and_check_version(
-                    cur,
-                    f"{self._ns}:{event.stream_id}",
-                    "SELECT COALESCE(MAX(seq), 0) FROM pa_event "
-                    "WHERE namespace = %s AND stream_id = %s",
-                    (self._ns, event.stream_id),
-                    expected_seq,
-                    f"stream {event.stream_id}",
-                )
-                new_seq = current + 1
-                event.seq = new_seq
-                record["seq"] = new_seq
-                blob = json.dumps(record, ensure_ascii=False)
-                await cur.execute(
-                    "INSERT INTO pa_event (namespace, stream_id, seq, payload) "
-                    "VALUES (%s, %s, %s, %s::jsonb)",
-                    (self._ns, event.stream_id, new_seq, blob),
-                )
+                for stream_id, stream_events in grouped.items():
+                    current = await lock_and_check_version(
+                        cur,
+                        f"{self._ns}:{stream_id}",
+                        "SELECT COALESCE(MAX(seq), 0) FROM pa_event "
+                        "WHERE namespace = %s AND stream_id = %s",
+                        (self._ns, stream_id),
+                        expected_seq,
+                        f"stream {stream_id}",
+                    )
+                    rows = []
+                    for event in stream_events:
+                        event.seq = current + 1
+                        current = event.seq
+                        rows.append(
+                            (
+                                self._ns,
+                                stream_id,
+                                event.seq,
+                                json.dumps(
+                                    {
+                                        "seq": event.seq,
+                                        "event_id": event.event_id,
+                                        "event_type": str(event.event_type),
+                                        "stream_id": event.stream_id,
+                                        "version": event.version,
+                                        "timestamp": event.timestamp,
+                                        "data": event.data,
+                                    },
+                                    ensure_ascii=False,
+                                ),
+                            )
+                        )
+                    # One round trip per stream-batch — the amortization the
+                    # buffered tier depends on.
+                    await cur.executemany(
+                        "INSERT INTO pa_event (namespace, stream_id, seq, payload) "
+                        "VALUES (%s, %s, %s, %s::jsonb)",
+                        rows,
+                    )
             await conn.commit()
-        return new_seq
+        for stream_id in grouped:
+            self._wakes.notify(stream_id)
+        return [e.seq for e in events]
 
     async def _decode_rows(self, rows: list[Any]) -> list[Event]:
         out = []
@@ -94,3 +126,9 @@ class PostgresEventLog:
             )
             rows = await cur.fetchall()
         return await self._decode_rows(rows)
+
+    def subscribe(self, stream_id: str, since_seq: int = 0) -> AsyncIterator[Event]:
+        # In-process appends wake immediately; cross-replica appends are
+        # caught by the poll fallback (LISTEN/NOTIFY is a future upgrade —
+        # the suffix law already holds without it).
+        return tail_stream(self.get_after, self._wakes, stream_id, since_seq)

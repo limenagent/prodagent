@@ -6,7 +6,7 @@ from collections.abc import Callable
 from typing import TypeAlias
 
 from prodagent.kernel.types import LLMResponse
-from prodagent.ports.cache import CacheStore
+from prodagent.ports.observability import CacheStore
 
 Factory: TypeAlias = Callable[[], CacheStore]
 

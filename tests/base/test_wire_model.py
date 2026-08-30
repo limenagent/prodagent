@@ -27,7 +27,7 @@ from prodagent.kernel.types import (
     ToolResultEvent,
 )
 from prodagent.ports.agent_events import event_from_wire, event_to_wire
-from prodagent.ports.agent_spec import AgentSpec, spec_from_any
+from prodagent.ports.execution import AgentSpec, spec_from_any
 
 # ---------------------------------------------------------------- AgentSpec
 

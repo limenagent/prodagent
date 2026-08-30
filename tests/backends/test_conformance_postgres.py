@@ -35,9 +35,12 @@ from tests.backends.conformance import (
     run_document_constraint_storage_conformance,
     run_document_supersede_conformance,
     run_document_touch_conformance,
+    run_event_log_batch_conformance,
+    run_event_log_batch_expected_seq_conformance,
     run_event_log_conformance,
     run_event_log_empty_plan_conformance,
     run_event_log_plan_isolation_conformance,
+    run_event_log_subscribe_conformance,
     run_span_conformance,
     run_span_export_after_shutdown_conformance,
     run_span_shutdown_idempotent_conformance,
@@ -172,6 +175,24 @@ async def test_pg_checkpoint_fork_refuses_existing_conformance(async_pool, clean
 
 async def test_pg_event_log_conformance(async_pool, clean_async):
     await run_event_log_conformance(lambda: PostgresEventLog(async_pool, namespace=clean_async))
+
+
+async def test_pg_event_log_batch_conformance(async_pool, clean_async):
+    await run_event_log_batch_conformance(
+        lambda: PostgresEventLog(async_pool, namespace=clean_async)
+    )
+
+
+async def test_pg_event_log_batch_expected_seq_conformance(async_pool, clean_async):
+    await run_event_log_batch_expected_seq_conformance(
+        lambda: PostgresEventLog(async_pool, namespace=clean_async)
+    )
+
+
+async def test_pg_event_log_subscribe_conformance(async_pool, clean_async):
+    await run_event_log_subscribe_conformance(
+        lambda: PostgresEventLog(async_pool, namespace=clean_async)
+    )
 
 
 async def test_pg_event_log_plan_isolation_conformance(async_pool, clean_async):

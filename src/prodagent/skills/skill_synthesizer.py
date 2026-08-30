@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 from prodagent.base.determinism import now_wall
 from prodagent.llm import LLMClient, LLMConfig, noop_chunk
 from prodagent.llm.structured_output import extract_json_object
-from prodagent.ports.experience import (
+from prodagent.ports.persistence import (
     ExperienceOutcome,
     ExperienceRecord,
 )
@@ -20,7 +20,7 @@ from prodagent.skills.registry import SkillCard, SkillContent, SkillRegistry
 
 if TYPE_CHECKING:
     from prodagent.kernel.types import MessageList
-    from prodagent.ports.experience import ExperienceStore
+    from prodagent.ports.persistence import ExperienceStore
 
 logger = logging.getLogger(__name__)
 

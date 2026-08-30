@@ -1,8 +1,8 @@
-"""Memory storage model — re-exported from the port layer (prodagent.ports.document)."""
+"""Memory storage model — re-exported from the port layer (prodagent.ports.persistence)."""
 
 from __future__ import annotations
 
-from prodagent.ports.document import (
+from prodagent.ports.persistence import (
     EPISODIC_DEFAULT_TTL_DAYS,
     MAX_SOFT_MEMORIES,
     MemoryRecord,

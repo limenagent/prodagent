@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from prodagent.base.observability import AgentSpan
     from prodagent.hooks.audit import AuditLogger
     from prodagent.kernel.bus import HookRegistry
-    from prodagent.ports.span import SpanExporter
+    from prodagent.ports.observability import SpanExporter
 
 logger = logging.getLogger(__name__)
 

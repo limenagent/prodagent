@@ -9,13 +9,13 @@ from prodagent.cognition.memory.storage import MemoryType, StoredMemory, mem_id
 
 if TYPE_CHECKING:
     from prodagent.cognition.memory.storage import MemoryRecord
-    from prodagent.ports.graph import GraphStore
+    from prodagent.ports.persistence import GraphStore
 
 __all__ = ["FactStore"]
 
 
 class FactStore:
-    """Async facade over :class:`~prodagent.ports.graph.GraphStore` — the graph
+    """Async facade over :class:`~prodagent.ports.persistence.GraphStore` — the graph
     backend may be Neo4j across the network, so no method here blocks."""
 
     def __init__(self, facts: GraphStore) -> None:

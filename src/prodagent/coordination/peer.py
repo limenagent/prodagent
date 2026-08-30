@@ -6,7 +6,7 @@ Three parts, one file:
 - **Relay** (``PeerRelay``): decides, for a run that parked a handoff, whether
   and where the chain continues — settle-at-handoff budget commit, the relay
   pipeline (dedupe spans the whole chain), checkpoint persistence — and
-  returns a pure-data :class:`~prodagent.ports.runner.HandoffActivation`.
+  returns a pure-data :class:`~prodagent.ports.execution.HandoffActivation`.
 - The chain driver (``runtime/runner.py``) reaches the relay through the
   compose seam (``compose.peer_relay``) and interprets that descriptor —
   peer lookup, fork, next hop. Coordination never constructs runtime objects.
@@ -33,7 +33,7 @@ from prodagent.kernel.budget import hop_own_share
 from prodagent.kernel.bus import HookEvent, save_and_fire_checkpoint
 from prodagent.kernel.state import AgentRun, child_run_id
 from prodagent.kernel.types import RunState, SideEffectLevel, ToolError, ToolMeta, ToolResult
-from prodagent.ports.runner import HandoffActivation
+from prodagent.ports.execution import HandoffActivation
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.merge import attach_tools
 

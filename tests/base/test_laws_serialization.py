@@ -31,7 +31,7 @@ from prodagent.base.types import ExecutionMode, RunState
 from prodagent.cognition.memory.storage import StoredMemory
 from prodagent.kernel.state import AgentRun, PendingHandoff, RunMetrics
 from prodagent.kernel.types import LLMResponse, StopReason, ToolCall
-from prodagent.ports.document import MemoryType
+from prodagent.ports.persistence import MemoryType
 
 if TYPE_CHECKING:
     from collections.abc import Callable

@@ -8,7 +8,7 @@ One file, the whole topology:
   — the default strips other members' tool calls; the same turn can render
   differently per viewer.
 - **Speaking orders** (``RoundRobin`` / ``Moderated`` / ``FreeForAll``): who
-  speaks next, adapted to one :class:`~prodagent.ports.activation.Activation`
+  speaks next, adapted to one :class:`~prodagent.ports.execution.Activation`
   per round.
 - **Member adapter** (``AgentFloorMember``): turns a full Agent into a
   ``FloorMember`` — each ``speak()`` is one session activation through the
@@ -58,12 +58,14 @@ from prodagent.kernel.types import (
     RunSuspendedEvent,
     ToolCall,
 )
-from prodagent.ports.activation import (
+from prodagent.ports.execution import (
     Activation,
     ActivationContext,
     ActivationPolicy,
+    AgentActivation,
+    InProcessChatRunner,
+    RunnerPort,
 )
-from prodagent.ports.runner import AgentActivation, InProcessChatRunner, RunnerPort
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -74,7 +76,7 @@ if TYPE_CHECKING:
     from prodagent.kernel.state import AgentRun
     from prodagent.kernel.types import AgentEvent, ToolCall
     from prodagent.ports import EventLog
-    from prodagent.ports.dead_letter import DeadLetterStore
+    from prodagent.ports.messaging import DeadLetterStore
     from prodagent.runtime.agent import Agent
 
 logger = logging.getLogger(__name__)
@@ -113,7 +115,7 @@ __all__ = [
 
 class FloorEventType(StrEnum):
     """Durable record of every SharedFloor transition — 1:1 with the in-memory
-    mutations. Appended to an :class:`~prodagent.ports.event_log.EventLog` keyed
+    mutations. Appended to an :class:`~prodagent.ports.observability.EventLog` keyed
     by the floor's ``run_id``, so a crashed floor can be rebuilt by
     :meth:`SharedFloor.restore`. Same shape as the work queue's
     ``QueueEventType``."""
@@ -447,7 +449,7 @@ class SpeakingOrder(Protocol):
     members speak concurrently every round, no arbitration).
 
     The pipeline adapts whatever it gets to
-    :class:`~prodagent.ports.activation.Activation`: an object
+    :class:`~prodagent.ports.execution.Activation`: an object
     with an async ``pick_speaker`` becomes a serial single-member activation
     per pick (Moderated); an object with ``activation()`` returns batches
     itself (FreeForAll); anything else is the classic sync ``next_speaker``
@@ -658,7 +660,7 @@ class AgentFloorMember:
 
     Registers a ``[FLOOR]`` injector so the projected transcript lands in L2
     alongside ``[MEMORY]``. Each ``speak()`` updates the injector's view slot,
-    activates the member through the :class:`~prodagent.ports.runner.RunnerPort`
+    activates the member through the :class:`~prodagent.ports.execution.RunnerPort`
     (a session-scoped chat turn — the local default executes it in-process),
     and folds the resulting :class:`AgentRun` into a :class:`FloorTurn`. The
     agent keeps its own ``ConversationSession``, ``MemoryManager``, L0 system

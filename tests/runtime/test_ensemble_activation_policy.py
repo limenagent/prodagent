@@ -14,7 +14,7 @@ from prodagent.coordination.ensemble import (
 )
 from prodagent.coordination.infra.stage import MaxRounds, TerminationPolicy
 from prodagent.kernel.budget import BudgetLedger, HardBudget
-from prodagent.ports.activation import Activation, ActivationContext
+from prodagent.ports.execution import Activation, ActivationContext
 
 
 class _EchoMember:

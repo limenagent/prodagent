@@ -332,8 +332,9 @@ host = Agent("host", config=AgentConfig(
 ## RunnerPort
 
 ```python
-from prodagent.ports.runner import AgentActivation, InProcessChatRunner, InProcessRunner
+from prodagent.ports.execution import AgentActivation, InProcessChatRunner
 from prodagent.runtime.parent_runtime import ParentRuntime
+from prodagent.runtime.runner import InProcessRunner
 
 # 成员的一次发言（会话轮次，本地默认实现）
 runner = InProcessChatRunner()

@@ -16,8 +16,7 @@ from prodagent.coordination.infra.stage import StageDriver
 from prodagent.kernel.state import RunState, collect_final_run
 from prodagent.kernel.types import LLMResponse, RunCompletedEvent
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.ports.activation import Activation
-from prodagent.ports.runner import AgentActivation, InProcessChatRunner
+from prodagent.ports.execution import Activation, AgentActivation, InProcessChatRunner
 from prodagent.runtime.config import AgentConfig
 from prodagent.runtime.parent_runtime import ParentRuntime
 from prodagent.runtime.runner import InProcessRunner

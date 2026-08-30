@@ -19,7 +19,7 @@ from prodagent.backends.file.experience import FileExperienceStore
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.ports.experience import ExperienceRecord
+from prodagent.ports.persistence import ExperienceRecord
 from prodagent.skills.registry import SkillCard, SkillContent, SkillRegistry
 from prodagent.skills.skill_synthesizer import SkillSynthesizer
 

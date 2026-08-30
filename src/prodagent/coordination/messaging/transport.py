@@ -1,6 +1,6 @@
 """In-process Transport — the default implementation of port #14.
 
-:class:`prodagent.ports.transport.Transport` is the seam; this module is
+:class:`prodagent.ports.messaging.Transport` is the seam; this module is
 what the seam points at today: a crossing ``send`` runs through a mounted
 interceptor pipeline (:mod:`prodagent.coordination.messaging.pipeline`) and
 comes back as a :class:`~prodagent.coordination.messaging.envelope.Delivery`.
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
     from prodagent.coordination.messaging.contract import MessageContract
     from prodagent.kernel.bus import HookEvent, HookRegistry
-    from prodagent.ports.dead_letter import DeadLetterStore
+    from prodagent.ports.messaging import DeadLetterStore
 
 __all__ = ["TransportSpec", "PipelineTransport", "build_transport"]
 

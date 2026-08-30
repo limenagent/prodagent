@@ -62,7 +62,7 @@
 
 spawn 里直接 `import` runner 调用、舞台成员直接 `agent.chat()`，单进程下没有问题——但协作代码从此和进程内执行绑死：把任何一个成员挪到别的机器上，要改的就是协作层。
 
-prodagent 的做法：激活一次执行就是一次端口调用（`ports/runner.py`）。`RunnerPort.activate()` 的入参 `AgentActivation` 只带可序列化字段——agent、任务、run_id、账本，或 session_id；进程内实现 `InProcessRunner` 持有本跳的 hooks/checkpoint/账本并负责子 agent 的 fork，成员会话用更轻的 `InProcessChatRunner`。接力同理：relay 返回 `HandoffActivation`，peer 查找与 fork 由驱动方解释，协作层不构造运行时对象。
+prodagent 的做法：激活一次执行就是一次端口调用（`ports/execution.py`）。`RunnerPort.activate()` 的入参 `AgentActivation` 只带可序列化字段——agent、任务、run_id、账本，或 session_id；进程内实现 `InProcessRunner` 持有本跳的 hooks/checkpoint/账本并负责子 agent 的 fork，成员会话用更轻的 `InProcessChatRunner`。接力同理：relay 返回 `HandoffActivation`，peer 查找与 fork 由驱动方解释，协作层不构造运行时对象。
 
 **理由**：这让"`coordination` 不 import `runtime`"成为一条 CI 能检查的红线（两个方向都有测试）。换分布式执行就是换一个端口实现，协作原语一行不改。
 
@@ -72,7 +72,7 @@ prodagent 的做法：激活一次执行就是一次端口调用（`ports/runner
 
 `AgentConfig` 里是 LLM 客户端、hooks 注册表、存储、工具实例——只在当前进程有意义，序列化不了。远程派活需要传递的是另一组信息：名字、系统提示、模式、预算、工具 schema、子 agent 与同伴的规格。
 
-所以投影是显式的一步：`Agent.spec()` 产出纯数据的 `AgentSpec`（`ports/agent_spec.py`），`to_dict` / `from_dict` 无损往返。spawn 工具给模型看的子 agent 名册就从这份投影生成，远程 roster 传递的也是同一种格式。
+所以投影是显式的一步：`Agent.spec()` 产出纯数据的 `AgentSpec`（`ports/execution.py`），`to_dict` / `from_dict` 无损往返。spawn 工具给模型看的子 agent 名册就从这份投影生成，远程 roster 传递的也是同一种格式。
 
 **理由**：配置留在进程内，规格才能跨进程。两者混在一个类型里，要么配置序列化不了，要么规格带着一堆活对象。
 
@@ -342,17 +342,17 @@ test_work_queue_lease_timeout_requeue
 | Protocol 端口 | `ports/` |
 | kernel 拆分 | `kernel/` `runtime/` |
 | 四轴预算 | `kernel/budget.py` |
-| 乐观并发 | `ports/checkpoint.py` |
+| 乐观并发 | `ports/persistence.py` |
 | 工具错误处理 | `tooling/base.py` |
 | 消息平面 | `coordination/messaging/` |
 | FakeLLM | `llm/fake.py` |
 | 消息格式宪法 | `base/types.py` `kernel/types.py` |
 | thinking 往返 | `llm/anthropic_adapter.py` |
 | 结算信封 | `kernel/budget.py` |
-| Transport 端口 | `ports/transport.py` |
-| RunnerPort | `ports/runner.py` |
-| Activation 排班 | `ports/activation.py` |
-| AgentSpec 投影 | `ports/agent_spec.py` |
+| Transport 端口 | `ports/messaging.py` |
+| RunnerPort | `ports/execution.py` |
+| Activation 排班 | `ports/execution.py` |
+| AgentSpec 投影 | `ports/execution.py` |
 | 舞台工具 | `coordination/infra/stage_tools.py` |
 | 账本工厂 open_ledger | `kernel/budget.py` |
 | 事件编解码 | `ports/agent_events.py` |

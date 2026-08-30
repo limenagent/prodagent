@@ -8,7 +8,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, cast
 
-from prodagent.ports.lock import LockToken
+from prodagent.ports.messaging import LockToken
 
 logger = logging.getLogger(__name__)
 

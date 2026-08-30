@@ -10,7 +10,7 @@ claim the next pending item, run it, report success/failure. A claimed item is
 leased for ``lease_seconds`` — if the worker never reports back (crash, hang),
 the lease expires and the pipeline treats it as a failure, recycling it
 through the same retry/dead-letter path as an explicit failure. Retry
-accounting is delegated to :class:`~prodagent.ports.dead_letter.DeadLetterStore`
+accounting is delegated to :class:`~prodagent.ports.messaging.DeadLetterStore`
 (also used by ``agents=`` for contract-violating child results) — after
 ``max_retries`` failures the item is archived instead of requeued.
 """
@@ -42,8 +42,7 @@ from prodagent.coordination.messaging.limits import CROSSING_OUTPUT_MAX_CHARS
 from prodagent.coordination.messaging.pipeline import admission_pipeline
 from prodagent.kernel.state import collect_final_run
 from prodagent.kernel.types import RunState
-from prodagent.ports.activation import Activation
-from prodagent.ports.runner import AgentActivation, InProcessChatRunner, RunnerPort
+from prodagent.ports.execution import Activation, AgentActivation, InProcessChatRunner, RunnerPort
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -52,8 +51,8 @@ if TYPE_CHECKING:
     from prodagent.coordination.messaging.contract import MessageContract
     from prodagent.kernel.budget import BudgetLedger
     from prodagent.kernel.bus import HookRegistry
-    from prodagent.ports.dead_letter import DeadLetterStore
-    from prodagent.ports.event_log import EventLog
+    from prodagent.ports.messaging import DeadLetterStore
+    from prodagent.ports.observability import EventLog
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +98,7 @@ class _ClaimInfo:
 class QueueEventType(StrEnum):
     """Durable record of every SharedQueue transition — 1:1 with the in-memory
     mutations and the ephemeral ``WorkQueueEvent`` stream. Appended to an
-    :class:`~prodagent.ports.event_log.EventLog` keyed by the queue's ``run_id``,
+    :class:`~prodagent.ports.observability.EventLog` keyed by the queue's ``run_id``,
     so a crashed queue can be rebuilt by :meth:`SharedQueue.restore`."""
 
     ITEM_ENQUEUED = "ItemEnqueued"

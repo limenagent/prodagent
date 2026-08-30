@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from prodagent.base.time import now_timestamp
-from prodagent.ports.document import (
+from prodagent.ports.persistence import (
     EPISODIC_DEFAULT_TTL_DAYS,
     MemoryRecord,
     MemoryType,

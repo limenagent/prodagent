@@ -8,8 +8,7 @@ from prodagent.cognition.memory.storage import (
     MemoryRecord,
     MemoryType,
 )
-from prodagent.ports.document import DocumentStore
-from prodagent.ports.graph import GraphStore
+from prodagent.ports.persistence import DocumentStore, GraphStore
 
 
 def test_protocols_are_runtime_checkable(tmp_path):
