@@ -119,7 +119,6 @@ class AuditLogger:
         except Exception:  # noqa: BLE001 — a projection outage costs a cache miss, never a lost span
             logger.exception("[spans] export failed; the fact is already on the WAL")
 
-
     def span(
         self,
         run_id: str,
@@ -162,9 +161,7 @@ class AuditLogger:
         return bucket < self._sample_rate
 
 
-async def rebuild_spans(
-    event_log: EventLog, exporter: SpanExporter, run_id: str
-) -> int:
+async def rebuild_spans(event_log: EventLog, exporter: SpanExporter, run_id: str) -> int:
     """The projection criterion, executable: rebuild a run's span cache from
     its span facts. Returns how many spans were re-exported — delete the
     exporter's output, run this, and the cache is back."""

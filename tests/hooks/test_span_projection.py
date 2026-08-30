@@ -53,13 +53,23 @@ def _tool(name: str) -> FunctionTool:
         name=name,
         fn=fn,
         meta=ToolMeta(name=name, is_readonly=True, side_effect_level=SideEffectLevel.LOW),
-        schema={"name": name, "description": name, "parameters": {"type": "object", "properties": {}}},
+        schema={
+            "name": name,
+            "description": name,
+            "parameters": {"type": "object", "properties": {}},
+        },
     )
 
 
 def _audit_span(run_id: str, action: str) -> AgentSpan:
-    return AgentSpan(span_id=f"s-{action}", trace_id="t", run_id=run_id, action=action,
-                     input_payload={}, timestamp=1.0)
+    return AgentSpan(
+        span_id=f"s-{action}",
+        trace_id="t",
+        run_id=run_id,
+        action=action,
+        input_payload={},
+        timestamp=1.0,
+    )
 
 
 async def _drive_run(hooks: HookRegistry, log: InMemoryEventLog) -> str:

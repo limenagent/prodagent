@@ -122,8 +122,7 @@ class Cassette:
         record = self.find(seq)
         if record is None:
             raise CassetteMismatch(
-                f"cassette has no record at position {seq} "
-                f"(tape holds {len(self.records)})"
+                f"cassette has no record at position {seq} (tape holds {len(self.records)})"
             )
         if record.req_hash != req_hash:
             raise CassetteMismatch(

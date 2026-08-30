@@ -81,7 +81,11 @@ def _looks_like_ref(value: Any) -> bool:
     if not set(value) <= {BLOB_REF_KEY, SIZE_REF_KEY}:
         return False
     digest = value[BLOB_REF_KEY]
-    return isinstance(digest, str) and len(digest) == 64 and all(c in "0123456789abcdef" for c in digest)
+    return (
+        isinstance(digest, str)
+        and len(digest) == 64
+        and all(c in "0123456789abcdef" for c in digest)
+    )
 
 
 async def fetch_ref(ref: Any, blobs: BlobStore) -> Any:

@@ -39,7 +39,11 @@ def _live_tool(name: str) -> FunctionTool:
         name=name,
         fn=fn,
         meta=ToolMeta(name=name, is_readonly=True, side_effect_level=SideEffectLevel.LOW),
-        schema={"name": name, "description": name, "parameters": {"type": "object", "properties": {}}},
+        schema={
+            "name": name,
+            "description": name,
+            "parameters": {"type": "object", "properties": {}},
+        },
     )
 
 
@@ -123,25 +127,42 @@ async def test_non_ok_outcomes_reconstruct_their_tool_results() -> None:
     from prodagent.replay.engine import _settle
 
     suspended = _settle(
-        {"outcome": "suspended", "value": None, "reason": "awaiting approval",
-         "approval_request_id": "req-7", "error_detail": None}
+        {
+            "outcome": "suspended",
+            "value": None,
+            "reason": "awaiting approval",
+            "approval_request_id": "req-7",
+            "error_detail": None,
+        }
     )
     assert suspended.outcome is ToolOutcome.SUSPENDED
     assert suspended.approval_request_id == "req-7"
 
     handoff = _settle(
-        {"outcome": "handoff", "value": None, "reason": "",
-         "handoff": {"peer": "reviewer", "task": "t"}, "error_detail": None}
+        {
+            "outcome": "handoff",
+            "value": None,
+            "reason": "",
+            "handoff": {"peer": "reviewer", "task": "t"},
+            "error_detail": None,
+        }
     )
     assert handoff.outcome is ToolOutcome.HANDOFF
     assert handoff.handoff == {"peer": "reviewer", "task": "t"}
 
     # Errors ride the retry/abort outcomes with a structured ToolError.
     errored = _settle(
-        {"outcome": "retry", "value": None,
-         "error_detail": {"reason": "transient", "code": "boom",
-                          "message": "it broke", "hint": "",
-                          "error_severity": "yellow"}}
+        {
+            "outcome": "retry",
+            "value": None,
+            "error_detail": {
+                "reason": "transient",
+                "code": "boom",
+                "message": "it broke",
+                "hint": "",
+                "error_severity": "yellow",
+            },
+        }
     )
     assert errored.outcome is ToolOutcome.RETRY
     assert errored.error.code == "boom" and errored.error.message == "it broke"

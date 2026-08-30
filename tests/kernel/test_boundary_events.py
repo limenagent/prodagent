@@ -66,9 +66,7 @@ class _HashSpy(FakeLLMAdapter):
     async def complete(  # type: ignore[no-untyped-def]
         self, messages, *, system="", tools=None, config=None, on_chunk=None
     ) -> LLMResponse:
-        self.seen_hashes.append(
-            cache_key_for(messages, system=system, tools=tools, config=config)
-        )
+        self.seen_hashes.append(cache_key_for(messages, system=system, tools=tools, config=config))
         return await super().complete(
             messages, system=system, tools=tools, config=config, on_chunk=on_chunk
         )
@@ -177,7 +175,11 @@ async def test_oversized_tool_result_spills_to_blob_pointer() -> None:
         name="big",
         fn=big_fn,
         meta=ToolMeta(name="big", is_readonly=True, side_effect_level=SideEffectLevel.LOW),
-        schema={"name": "big", "description": "big", "parameters": {"type": "object", "properties": {}}},
+        schema={
+            "name": "big",
+            "description": "big",
+            "parameters": {"type": "object", "properties": {}},
+        },
     )
     log = InMemoryEventLog()
     blobs = InMemoryBlobStore()

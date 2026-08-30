@@ -93,7 +93,8 @@ class RecordingLLMClient:
             recorded_response = dict(response.to_dict())
             if self._blobs is not None:
                 recorded_response["content"] = await spill_value(
-                    recorded_response.get("content"), self._blobs,
+                    recorded_response.get("content"),
+                    self._blobs,
                     threshold_bytes=self._threshold,
                 )
             await self._event_log.append(
@@ -104,15 +105,17 @@ class RecordingLLMClient:
                     req_hash=cache_key_for(messages, system=system, tools=tools, config=config),
                     request={
                         "messages": (
-                            await spill_value(list(messages), self._blobs,
-                                             threshold_bytes=self._threshold)
+                            await spill_value(
+                                list(messages), self._blobs, threshold_bytes=self._threshold
+                            )
                             if self._blobs is not None
                             else list(messages)
                         ),
                         "system": system,
                         "tools": (
-                            await spill_value(tools or [], self._blobs,
-                                              threshold_bytes=self._threshold)
+                            await spill_value(
+                                tools or [], self._blobs, threshold_bytes=self._threshold
+                            )
                             if self._blobs is not None
                             else tools or []
                         ),

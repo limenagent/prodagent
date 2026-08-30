@@ -107,6 +107,7 @@ class ActivationPolicy(Protocol):
 
 # ════════════ from runner.py ════════════
 
+
 @dataclass(frozen=True)
 class AgentActivation:
     """One agent activation — the unit of execution at the RunnerPort.
@@ -178,6 +179,7 @@ class InProcessChatRunner:
 
 # ════════════ from leaf_executor.py ════════════
 
+
 @runtime_checkable
 class LeafExecutor(Protocol):
     """Unified contract for the two leaf execution strategies."""
@@ -194,6 +196,7 @@ class LeafExecutor(Protocol):
 
 
 # ════════════ from agent_spec.py ════════════
+
 
 @dataclass
 class AgentSpec:

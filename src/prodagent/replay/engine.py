@@ -115,7 +115,9 @@ the dispatcher ever injects more, this set and that call site move
 together."""
 
 
-def cassette_tool(name: str, player: CassettePlayer, *, schema: dict[str, Any] | None = None) -> Any:
+def cassette_tool(
+    name: str, player: CassettePlayer, *, schema: dict[str, Any] | None = None
+) -> Any:
     """A tool proxy whose execution is the tape's recorded answer.
 
     The returned object satisfies the dispatcher's FunctionTool shape; its

@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
 # ════════════ from checkpoint.py ════════════
 
+
 @runtime_checkable
 class BlobStore(Protocol):
     """Content-addressed blob store — the object room for oversized facts.
@@ -108,6 +109,7 @@ class CheckpointStore(Protocol):
 
 
 # ════════════ from session.py ════════════
+
 
 @runtime_checkable
 class SessionStore(Protocol):
@@ -256,6 +258,7 @@ class DocumentStore(Protocol):
 
 # ════════════ from graph.py ════════════
 
+
 @runtime_checkable
 class GraphStore(Protocol):
     """A directed property graph: nodes + typed edges + neighbour traversal."""
@@ -325,6 +328,7 @@ class GraphStore(Protocol):
 
 
 # ════════════ from experience.py ════════════
+
 
 @runtime_checkable
 class ExperienceStore(Protocol):

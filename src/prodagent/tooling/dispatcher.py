@@ -397,17 +397,16 @@ class ToolDispatcher:
         await self._record_boundary(call, result, run_id)
         return result
 
-    async def _record_boundary(
-        self, call: ToolCall, result: ToolResult, run_id: str
-    ) -> None:
+    async def _record_boundary(self, call: ToolCall, result: ToolResult, run_id: str) -> None:
         """TOOL_RECORDED on ``<run_id>#boundary`` — never raises into dispatch."""
         if self._event_log is None or not run_id:
             return
         try:
             value = _json_safe(result.value)
             if self._blob_store is not None:
-                value = await spill_value(value, self._blob_store,
-                                          threshold_bytes=self._blob_threshold)
+                value = await spill_value(
+                    value, self._blob_store, threshold_bytes=self._blob_threshold
+                )
             await self._event_log.append(
                 Event.make(
                     BoundaryEventType.TOOL_RECORDED,
@@ -423,9 +422,7 @@ class ToolDispatcher:
                         # readers scan the string.
                         "error": str(result.error) if result.error is not None else None,
                         "error_detail": (
-                            dataclasses.asdict(result.error)
-                            if result.error is not None
-                            else None
+                            dataclasses.asdict(result.error) if result.error is not None else None
                         ),
                         "reason": result.reason,
                         "approval_request_id": result.approval_request_id,

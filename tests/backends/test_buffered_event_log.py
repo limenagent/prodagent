@@ -77,9 +77,7 @@ async def test_backpressure_law_blocks_then_releases() -> None:
     inner = GatedLog()
     log = BufferedEventLog(inner, maxsize=2, max_batch=8)
 
-    appends = [
-        asyncio.create_task(log.append(_event("s1", i, step_id=f"s{i}"))) for i in range(6)
-    ]
+    appends = [asyncio.create_task(log.append(_event("s1", i, step_id=f"s{i}"))) for i in range(6)]
     await asyncio.sleep(0.2)
     # Gate closed: the drain holds its batch, the queue fills, producers block
     # — blocked is exactly the contract (facts are slowed, never dropped).

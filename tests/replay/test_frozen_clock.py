@@ -37,7 +37,11 @@ def _tool(name: str) -> FunctionTool:
         name=name,
         fn=fn,
         meta=ToolMeta(name=name, is_readonly=True, side_effect_level=SideEffectLevel.LOW),
-        schema={"name": name, "description": name, "parameters": {"type": "object", "properties": {}}},
+        schema={
+            "name": name,
+            "description": name,
+            "parameters": {"type": "object", "properties": {}},
+        },
     )
 
 
@@ -73,7 +77,8 @@ async def test_frozen_clock_answers_in_order_then_clamps() -> None:
     run_id = _run.run_id
     cassette = await derive_cassette(log, run_id)
     wall_values = [
-        r.response["value"] for r in cassette.records
+        r.response["value"]
+        for r in cassette.records
         if r.kind == "clock" and r.response["port"] == "wall"
     ]
     assert wall_values, "the tape holds wall readings"

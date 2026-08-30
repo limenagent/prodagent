@@ -49,7 +49,11 @@ def _tool(name: str, *, big: bool = False) -> FunctionTool:
         name=name,
         fn=fn,
         meta=ToolMeta(name=name, is_readonly=True, side_effect_level=SideEffectLevel.LOW),
-        schema={"name": name, "description": name, "parameters": {"type": "object", "properties": {}}},
+        schema={
+            "name": name,
+            "description": name,
+            "parameters": {"type": "object", "properties": {}},
+        },
     )
 
 
@@ -63,15 +67,14 @@ class _HashSpy(FakeLLMAdapter):
         self, messages, *, system="", tools=None, config=None, on_chunk=None
     ) -> LLMResponse:
         self.seen_hashes.append(cache_key_for(messages, system=system, tools=tools, config=config))
-        return await super().complete(messages, system=system, tools=tools, config=config,
-                                      on_chunk=on_chunk)
+        return await super().complete(
+            messages, system=system, tools=tools, config=config, on_chunk=on_chunk
+        )
 
 
 async def _drive(log, blobs, turns, tools):
     spy = _HashSpy(turns)
-    dispatcher = ToolDispatcher(
-        {t.name: t for t in tools}, event_log=log, blob_store=blobs
-    )
+    dispatcher = ToolDispatcher({t.name: t for t in tools}, event_log=log, blob_store=blobs)
     loop = ReactiveLoop(RecordingLLMClient(spy, log, blobs=blobs), dispatcher, event_log=log)
     run_id: str | None = None
     async for event in loop.stream("do the thing"):

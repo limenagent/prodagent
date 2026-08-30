@@ -97,9 +97,7 @@ def terminal_projection(run: Any) -> dict[str, Any]:
         "state": str(run.state),
         "final_output": run.final_output,
         "turn_count": run.turn_count,
-        "tool_history": [
-            {"name": c.name, "params": dict(c.params)} for c in run.tool_history
-        ],
+        "tool_history": [{"name": c.name, "params": dict(c.params)} for c in run.tool_history],
         "error": str(run.last_error) if run.last_error else None,
     }
 

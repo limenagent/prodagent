@@ -35,7 +35,11 @@ def _live_tool(name: str, *, result: str = "") -> FunctionTool:
         name=name,
         fn=fn,
         meta=ToolMeta(name=name, is_readonly=True, side_effect_level=SideEffectLevel.LOW),
-        schema={"name": name, "description": name, "parameters": {"type": "object", "properties": {}}},
+        schema={
+            "name": name,
+            "description": name,
+            "parameters": {"type": "object", "properties": {}},
+        },
     )
 
 
@@ -51,9 +55,7 @@ async def _collect(loop: ReactiveLoop, task: str) -> tuple[Any, list[Any]]:
 async def _live_run(task: str, tools: list[FunctionTool], turns: list[dict[str, Any]]):
     log = InMemoryEventLog()
     dispatcher = ToolDispatcher({t.name: t for t in tools}, event_log=log)
-    loop = ReactiveLoop(
-        RecordingLLMClient(script(*turns), log), dispatcher, event_log=log
-    )
+    loop = ReactiveLoop(RecordingLLMClient(script(*turns), log), dispatcher, event_log=log)
     run, events = await _collect(loop, task)
     cassette = await derive_cassette(log, run.run_id)
     return run, events, cassette
@@ -92,9 +94,7 @@ async def test_negative_control_comparator_catches_a_planted_divergence() -> Non
     )
     # A different live run — its tape answers a different first question,
     # so replaying A's tape under a changed flow must diverge or refuse.
-    with_cassette_b = await _live_run(
-        "task b", tools, [{"content": "answer b"}]
-    )
+    with_cassette_b = await _live_run("task b", tools, [{"content": "answer b"}])
     _run_b, _events_b, cassette_b = with_cassette_b
 
     replay_run, replay_events = await _replay(cassette_b, "task b")

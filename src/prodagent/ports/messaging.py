@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 # ════════════ from transport.py ════════════
 
+
 @runtime_checkable
 class Transport(Protocol):
     """One boundary direction of one primitive's message plane.
@@ -35,6 +36,7 @@ class Transport(Protocol):
 
 
 # ════════════ from dead_letter.py ════════════
+
 
 @runtime_checkable
 class DeadLetterStore(Protocol):
@@ -59,6 +61,7 @@ class DeadLetterStore(Protocol):
 
 
 # ════════════ from lock.py ════════════
+
 
 @dataclass(frozen=True)
 class LockToken:

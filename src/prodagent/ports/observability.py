@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 # ════════════ from span.py ════════════
 
+
 @runtime_checkable
 class SpanExporter(Protocol):
     """Async like every other store port — an OTLP/DB-backed exporter must
@@ -39,6 +40,7 @@ class SpanExporter(Protocol):
 
 
 # ════════════ from event_log.py ════════════
+
 
 @runtime_checkable
 class EventLog(Protocol):
@@ -56,7 +58,9 @@ class EventLog(Protocol):
         """
         ...
 
-    async def append_events(self, events: list[Event], expected_seq: int | None = None) -> list[int]:
+    async def append_events(
+        self, events: list[Event], expected_seq: int | None = None
+    ) -> list[int]:
         """Batch append — the group-commit entry point for write-behind
         pipelines.
 
@@ -105,6 +109,7 @@ class EventLog(Protocol):
 
 
 # ════════════ from approval.py ════════════
+
 
 class ApprovalDecision(StrEnum):
     """Outcome of an approval evaluation. Persisted as the store value."""
@@ -165,6 +170,7 @@ class ApprovalStore(Protocol):
 
 
 # ════════════ from cache.py ════════════
+
 
 @runtime_checkable
 class CacheStore(Protocol):
