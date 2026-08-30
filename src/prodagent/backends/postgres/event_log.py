@@ -132,3 +132,51 @@ class PostgresEventLog:
         # caught by the poll fallback (LISTEN/NOTIFY is a future upgrade —
         # the suffix law already holds without it).
         return tail_stream(self.get_after, self._wakes, stream_id, since_seq)
+
+    async def replicate(self, events: list[Event]) -> None:
+        """Absorb at the events' own seqs — the PK ``(namespace, stream_id,
+        seq)`` makes re-shipping a no-op via ON CONFLICT DO NOTHING, one
+        round trip for the whole batch."""
+        if not events:
+            return
+        for event in events:
+            if event.seq < 1:
+                # Event.make leaves seq=0 as the "unassigned" placeholder —
+                # shipping one means the source never sequenced it (a wiring
+                # bug), and silently skipping it would lose a fact.
+                raise ValueError(
+                    f"cannot replicate an unsequenced event ({event.event_type} on "
+                    f"{event.stream_id}) — append it through a log first"
+                )
+        await ensure_schema_via_pool_async(self._pool)
+        rows = [
+            (
+                self._ns,
+                event.stream_id,
+                event.seq,
+                json.dumps(
+                    {
+                        "seq": event.seq,
+                        "event_id": event.event_id,
+                        "event_type": str(event.event_type),
+                        "stream_id": event.stream_id,
+                        "version": event.version,
+                        "timestamp": event.timestamp,
+                        "data": event.data,
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+            for event in events
+        ]
+        async with self._pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.executemany(
+                    "INSERT INTO pa_event (namespace, stream_id, seq, payload) "
+                    "VALUES (%s, %s, %s, %s::jsonb) "
+                    "ON CONFLICT (namespace, stream_id, seq) DO NOTHING",
+                    rows,
+                )
+            await conn.commit()
+        for stream_id in {e.stream_id for e in events}:
+            self._wakes.notify(stream_id)

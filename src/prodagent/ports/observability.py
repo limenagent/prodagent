@@ -90,6 +90,19 @@ class EventLog(Protocol):
         """
         ...
 
+    async def replicate(self, events: list[Event]) -> None:
+        """Absorb pre-sequenced events at their OWN seqs — the replication
+        target's write path (EXTENDED capability).
+
+        Idempotent: an event whose ``(stream_id, seq)`` is already present
+        is skipped, so re-shipping after a crash heals instead of
+        duplicating. Seq preservation is what makes cross-machine recovery
+        work — a checkpoint cursor written against the source's seq space
+        stays valid against this store, so ``get_after(cursor)`` returns the
+        same suffix it would have on the source.
+        """
+        ...
+
 
 # ════════════ from approval.py ════════════
 

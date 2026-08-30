@@ -28,6 +28,7 @@ from tests.backends.conformance import (
     run_event_log_conformance,
     run_event_log_empty_plan_conformance,
     run_event_log_plan_isolation_conformance,
+    run_event_log_replicate_conformance,
     run_event_log_subscribe_conformance,
     run_graph_absent_node_neighbors_conformance,
     run_graph_delete_node_conformance,
@@ -176,3 +177,7 @@ async def test_file_span_shutdown_idempotent_conformance(tmp_path):
 
 async def test_file_span_export_after_shutdown_conformance(tmp_path):
     await run_span_export_after_shutdown_conformance(_file_span(tmp_path))
+
+
+async def testfile_event_log_replicate_conformance(tmp_path):
+    await run_event_log_replicate_conformance(_file_event_log(tmp_path))

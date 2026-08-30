@@ -170,3 +170,57 @@ class FileEventLog:
         # ``tail_stream`` catches writers in other processes sharing the
         # same directory.
         return tail_stream(self.get_after, self._wakes, stream_id, since_seq)
+
+    async def replicate(self, events: list[Event]) -> None:
+        if not events:
+            return
+        for event in events:
+            if event.seq < 1:
+                # Event.make leaves seq=0 as the "unassigned" placeholder —
+                # shipping one means the source never sequenced it (a wiring
+                # bug), and silently skipping it would lose a fact.
+                raise ValueError(
+                    f"cannot replicate an unsequenced event ({event.event_type} on "
+                    f"{event.stream_id}) — append it through a log first"
+                )
+        await asyncio.to_thread(self._replicate_sync, events)
+        for stream_id in {e.stream_id for e in events}:
+            self._wakes.notify(stream_id)
+
+    def _replicate_sync(self, events: list[Event]) -> None:
+        """Absorb at the events' own seqs under the stream lock — the tail
+        scan skips what is already durably there (idempotent re-ship), the
+        rest lands in order with their original seqs, one write per stream."""
+        grouped: dict[str, list[Event]] = {}
+        for event in events:
+            grouped.setdefault(event.stream_id, []).append(event)
+        for stream_id, stream_events in grouped.items():
+            path = self._path(stream_id)
+            with _exclusive(self._lock_path(stream_id)):
+                tail = _read_tail_seq(path)
+                lines = []
+                for event in stream_events:
+                    if event.seq <= tail:
+                        continue  # already absorbed — idempotent re-ship
+                    lines.append(
+                        json.dumps(
+                            {
+                                "seq": event.seq,
+                                "event_id": event.event_id,
+                                "event_type": event.event_type,
+                                "stream_id": event.stream_id,
+                                "version": event.version,
+                                "timestamp": event.timestamp,
+                                "data": event.data,
+                            },
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
+                    tail = event.seq
+                if lines:
+                    with path.open("a", encoding="utf-8") as f:
+                        f.writelines(lines)
+                        f.flush()
+                        if self._fsync:
+                            os.fsync(f.fileno())

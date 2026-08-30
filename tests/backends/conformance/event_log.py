@@ -132,3 +132,23 @@ async def run_event_log_subscribe_conformance(make_store: Factory) -> None:
         await task2
     await gen2.aclose()
     assert [e.seq for e in got2] == [e3]
+
+
+async def run_event_log_replicate_conformance(make_store: Factory) -> None:
+    """``replicate`` — sequenced absorption: own seqs preserved, idempotent
+    re-ship heals, and the suffix after any cursor matches what the source
+    would answer (the cross-machine recovery primitive)."""
+    import pytest
+
+    store = make_store()
+    with pytest.raises(ValueError, match="unsequenced"):
+        await store.replicate([_event("z1", 1)])  # Event.make leaves seq=0
+
+    events = [_event("z1", i) for i in range(1, 4)]
+    for i, event in enumerate(events, start=1):
+        event.seq = i
+    await store.replicate(events)
+    await store.replicate(events)  # crash-then-reship: heals, no duplicates
+    stored = await store.get_events("z1")
+    assert [e.seq for e in stored] == [1, 2, 3], "own seqs preserved, no dups"
+    assert [e.seq for e in await store.get_after("z1", 1)] == [2, 3], "cursor suffixes hold"

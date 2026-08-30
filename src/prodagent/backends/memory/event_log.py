@@ -72,3 +72,33 @@ class InMemoryEventLog:
 
     def subscribe(self, stream_id: str, since_seq: int = 0) -> AsyncIterator[Event]:
         return tail_stream(self.get_after, self._wakes, stream_id, since_seq)
+
+    async def replicate(self, events: list[Event]) -> None:
+        """Absorb at the events' own seqs — skip what the tail already
+        covers, append the rest in order. Sparse tails are tolerated (reads
+        order by seq); duplicates heal instead of duplicating."""
+        if not events:
+            return
+        for event in events:
+            if event.seq < 1:
+                # Event.make leaves seq=0 as the "unassigned" placeholder —
+                # shipping one means the source never sequenced it (a wiring
+                # bug), and silently skipping it would lose a fact.
+                raise ValueError(
+                    f"cannot replicate an unsequenced event ({event.event_type} on "
+                    f"{event.stream_id}) — append it through a log first"
+                )
+        async with self._lock:
+            tails: dict[str, int] = {}
+            for event in events:
+                stream_events = self._streams.setdefault(event.stream_id, [])
+                tail = tails.get(event.stream_id)
+                if tail is None:
+                    tail = stream_events[-1].seq if stream_events else 0
+                    tails[event.stream_id] = tail
+                if event.seq <= tail:
+                    continue  # already absorbed — idempotent re-ship
+                stream_events.append(event)
+                tails[event.stream_id] = event.seq
+            for stream_id in tails:
+                self._wakes.notify(stream_id)

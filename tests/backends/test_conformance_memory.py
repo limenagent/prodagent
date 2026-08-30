@@ -27,6 +27,7 @@ from tests.backends.conformance import (
     run_event_log_conformance,
     run_event_log_empty_plan_conformance,
     run_event_log_plan_isolation_conformance,
+    run_event_log_replicate_conformance,
     run_event_log_subscribe_conformance,
     run_graph_absent_node_neighbors_conformance,
     run_graph_delete_node_conformance,
@@ -188,3 +189,7 @@ async def test_memory_event_log_empty_plan_conformance():
 
 async def test_memory_event_log_subscribe_conformance():
     await run_event_log_subscribe_conformance(_memory_event_log())
+
+
+async def testmemory_event_log_replicate_conformance():
+    await run_event_log_replicate_conformance(_memory_event_log())

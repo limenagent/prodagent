@@ -52,6 +52,7 @@ from tests.backends.conformance.event_log import (
     run_event_log_conformance,
     run_event_log_empty_plan_conformance,
     run_event_log_plan_isolation_conformance,
+    run_event_log_replicate_conformance,
     run_event_log_subscribe_conformance,
 )
 from tests.backends.conformance.graph import (
@@ -100,6 +101,7 @@ __all__ = [
     "run_event_log_batch_conformance",
     "run_event_log_empty_plan_conformance",
     "run_event_log_plan_isolation_conformance",
+    "run_event_log_replicate_conformance",
     "run_graph_absent_node_neighbors_conformance",
     "run_graph_delete_node_conformance",
     "run_graph_edge_idempotent_conformance",
