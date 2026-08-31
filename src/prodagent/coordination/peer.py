@@ -12,7 +12,7 @@ Three parts, one file:
   peer lookup, fork, next hop. Coordination never constructs runtime objects.
 
 Peer is a *delegation strategy*, not a multi-round staged topology: contrast
-with ensemble/blackboard/work_queue, which run their own round loop over a
+with blackboard, which run their own round loop over a
 shared store."""
 
 from __future__ import annotations

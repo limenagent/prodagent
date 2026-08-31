@@ -143,6 +143,13 @@ class RunContext:
 
         self.checkpoint = resolve_checkpoint(fw, cfg.checkpoint)
         self.event_log = resolve_event_log(fw, cfg.event_log)
+        if self.event_log is None:
+            # A hop that configures no WAL of its own still records when an
+            # enclosing orchestration opened one — facts follow the
+            # orchestration, not each sub-agent's config diligence.
+            from prodagent.base.run_context import current_event_log
+
+            self.event_log = current_event_log()
         # Spill target for oversized boundary facts — the profile
         # decision lives in compose with every other one.
         self.blob_store = resolve_blob_store(fw, cfg.blob_store, event_log=self.event_log)

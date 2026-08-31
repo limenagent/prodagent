@@ -1,11 +1,11 @@
 """StageDriver — the shared streaming lifecycle for stage coordination primitives.
 
-``Ensemble``, ``Blackboard`` and ``WorkQueue`` are the three *stage* primitives:
+``Blackboard`` is the *stage* primitive:
 top-level drivers that stream events round after round until something stops
 them, then emit exactly one terminal *Completed* event. Their round *bodies*
-differ on purpose — an ensemble picks a speaker, a blackboard matches triggers, a
+differ on purpose — a blackboard matches triggers, a
 work queue sweeps leases and fans out workers — and so do their stop *reasons*
-(an ensemble reports ``budget``; a blackboard reports ``no_contribution`` when a
+(a blackboard reports ``no_contribution`` when a
 blocked reserve starves a round; a work queue reports ``drained`` / ``no_progress``).
 Those stay in each subclass; forcing them identical would erase real semantics.
 
@@ -408,7 +408,7 @@ class TerminationPolicy:
         if self.hard_cap is None:
             raise ValueError(
                 "TerminationPolicy.hard_cap cannot be None — the hard cap is the "
-                "backstop that guarantees an unattended ensemble stops. Pass "
+                "backstop that guarantees an unattended stage stops. Pass "
                 "MaxRounds(max_rounds=...) explicitly."
             )
         if self.hard_cap.max_rounds < 1:

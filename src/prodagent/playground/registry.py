@@ -146,7 +146,10 @@ def _framework_config_for(name: str) -> FrameworkConfig:
     orch = fw.orchestration
     orch.runs_dir = _append_suffix(orch.runs_dir, suffix)
     orch.sessions_dir = _append_suffix(orch.sessions_dir, suffix)
-    orch.events_dir = _append_suffix(orch.events_dir, suffix)
+    # The WAL is deliberately NOT suffixed: one tape library for the whole
+    # playground — the deck's catalog reads the same directory every run
+    # records to, and streams are run-scoped anyway (isolation buys
+    # nothing but a scattered catalog).
     return fw
 
 

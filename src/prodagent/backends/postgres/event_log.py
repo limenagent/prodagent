@@ -127,6 +127,15 @@ class PostgresEventLog:
             rows = await cur.fetchall()
         return await self._decode_rows(rows)
 
+    async def list_streams(self) -> list[str]:
+        await ensure_schema_via_pool_async(self._pool)
+        async with self._pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute(
+                "SELECT DISTINCT stream_id FROM pa_event WHERE namespace = %s",
+                (self._ns,),
+            )
+            return [row[0] for row in await cur.fetchall()]
+
     def subscribe(self, stream_id: str, since_seq: int = 0) -> AsyncIterator[Event]:
         # In-process appends wake immediately; cross-replica appends are
         # caught by the poll fallback (LISTEN/NOTIFY is a future upgrade —

@@ -40,7 +40,7 @@ class SpendView(Protocol):
 class BudgetLedgerPort(Protocol):
     """Four-axis ceiling shared across concurrent spenders.
 
-    Construct once per coordinated run (ensemble floor, peer chain, a batch
+    Construct once per coordinated run (stage, peer chain, a batch
     of concurrent spawns); every spender — local or remote — settles against
     the same logical ledger through this vocabulary.
     """

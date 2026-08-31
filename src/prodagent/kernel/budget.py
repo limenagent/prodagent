@@ -2,7 +2,7 @@
 
 One ceiling vocabulary everywhere: a lone agent checks its own spend with
 :func:`check_budget`; concurrent spenders (spawn children, peer chains,
-ensembles) share one :class:`BudgetLedger` by reference and reserve/commit
+stages) share one :class:`BudgetLedger` by reference and reserve/commit
 against it. The fold side of the same arithmetic — :class:`SpawnAccumulator`
 and the hop-share recovery at handoff (:func:`hop_own_share`) — lives here
 too: enforcement and reporting are one settlement concept.
@@ -80,7 +80,7 @@ def open_ledger(
     """The one construction point for chain ledgers: join ``existing`` when
     there is one, else open a new ceiling when a budget is configured, else no
     ledger. The "join-or-open" policy used to be re-written at every call site
-    (runner root, spawn, ensemble) — now it lives once here."""
+    (runner root, spawn, stage) — now it lives once here."""
     if existing is not None:
         return existing
     if budget is None:
@@ -171,7 +171,7 @@ class _Spend:
 class BudgetLedger:
     """Four-axis ceiling shared across concurrent spenders by reference.
 
-    Construct once per coordinated run (ensemble floor, peer chain, a batch of
+    Construct once per coordinated run (stage, peer chain, a batch of
     concurrent spawns), pass to every spender. Call :meth:`reserve` before a
     unit of work starts (optional — skip if the spender can't estimate ahead),
     :meth:`commit` after it finishes with the real cost, :meth:`release` if a

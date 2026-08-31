@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 __all__ = [
+    "value_override",
     "IdPort",
     "RandomPort",
     "SystemIds",
@@ -150,6 +151,42 @@ def new_uuid4() -> str:
 def random_uniform(lo: float, hi: float) -> float:
     """``random.uniform`` from the installed random port."""
     return _random.get().uniform(lo, hi)
+
+
+@contextmanager
+def value_override(
+    *,
+    time_port: TimePort | None = None,
+    random_port: RandomPort | None = None,
+    id_port: IdPort | None = None,
+) -> Iterator[None]:
+    """Value-semantics port swap — safe inside async generators.
+
+    ``override`` uses contextvar tokens, which cannot reset across Contexts:
+    an async generator that opens it around ``yield`` explodes with
+    "Token was created in a different Context" when the consumer closes it
+    from another task. This variant saves and restores VALUES, and only
+    restores when the slot still holds what we installed (a closer running
+    elsewhere owns its own context by then). Drivers wrapping whole run
+    streams use this; plain coroutines can use either."""
+    prev_time: TimePort = _time.get()
+    prev_random: RandomPort = _random.get()
+    prev_ids: IdPort = _ids.get()
+    if time_port is not None:
+        _time.set(time_port)
+    if random_port is not None:
+        _random.set(random_port)
+    if id_port is not None:
+        _ids.set(id_port)
+    try:
+        yield
+    finally:
+        if time_port is not None and _time.get() is time_port:
+            _time.set(prev_time)
+        if random_port is not None and _random.get() is random_port:
+            _random.set(prev_random)
+        if id_port is not None and _ids.get() is id_port:
+            _ids.set(prev_ids)
 
 
 @contextmanager

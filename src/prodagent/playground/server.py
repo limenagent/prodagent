@@ -99,6 +99,7 @@ class AppState:
     tasks: dict[str, asyncio.Task[Any]] = field(default_factory=dict)
     checkpoint_for: CheckpointFactory | None = None
     session_store_for: SessionStoreFactory | None = None
+    tape_event_log: EventLog | None = None
     multiagent_runs: dict[str, MultiAgentRun] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -178,6 +179,19 @@ class AppState:
         return self.build_ctx(result.agent, run_id, _task_from_run(run), result.example_name)
 
     async def drive_stream(
+        self,
+        ctx: RunContext,
+        run_id: str,
+        stream_method: Any,
+        *,
+        label: str,
+    ) -> None:
+        from prodagent.base.run_context import run_scope
+
+        with run_scope(run_id, self.tape_event_log):
+            await self._drive_stream_inner(ctx, run_id, stream_method, label=label)
+
+    async def _drive_stream_inner(
         self,
         ctx: RunContext,
         run_id: str,
@@ -302,6 +316,7 @@ def build_app(
         checkpoint_for=checkpoint_for,
         session_store_for=session_store_for,
     )
+    state.tape_event_log = event_log  # set below when defaulted
     # The tape deck's data source: the same WAL the driven runs record to.
     # Default = the production profile's file stores (same directories the
     # runs write, read through separate instances — the file backend is the
@@ -314,6 +329,7 @@ def build_app(
         _fw = FrameworkConfig.from_env()
         event_log = FileEventLog(_fw.orchestration.events_dir)
         blob_store = blob_store or FileBlobStore(_fw.blobs_dir)
+    state.tape_event_log = event_log
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -342,7 +358,7 @@ def build_app(
             )
         adapter = spec.multiagent_adapter()
         run_id = uuid.uuid4().hex[:12]
-        run = MultiAgentRun(adapter, run_id=run_id)
+        run = MultiAgentRun(adapter, run_id=run_id, event_log=state.tape_event_log)
         state.multiagent_runs[run_id] = run
         run.start()
         return {"run_id": run_id}
@@ -440,7 +456,10 @@ def build_app(
 
     @app.post("/api/chat")
     async def chat(body: dict[str, Any]) -> dict[str, str]:
-        run_id = body.get("run_id", "")
+        # An omitted run_id opens a NEW conversation: mint the session id
+        # here and return it, so the caller can follow (and continue) it —
+        # an empty string would surface as a tape lookup miss downstream.
+        run_id = body.get("run_id") or uuid.uuid4().hex[:12]
         message = body.get("message", "")
         example = body.get("example", "")
         if not message:
@@ -488,6 +507,12 @@ def build_app(
             yield f"data: {json.dumps(payload, default=str, ensure_ascii=False)}\n\n"
 
         return StreamingResponse(history_stream(), media_type="text/event-stream")
+
+    @app.get("/tape")
+    async def tape_page() -> HTMLResponse:
+        path = _STATIC_DIR / "index.html"
+        html = await anyio.to_thread.run_sync(path.read_text, "utf-8")
+        return HTMLResponse(content=html, headers={"Cache-Control": "no-cache"})
 
     @app.get("/")
     async def index() -> HTMLResponse:

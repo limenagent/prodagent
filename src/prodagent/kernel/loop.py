@@ -14,7 +14,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from prodagent.base.config import ContextConfig, LoopConfig
-from prodagent.base.determinism import new_uuid4, override
+from prodagent.base.determinism import new_uuid4, value_override
 from prodagent.base.errors import BudgetExceeded, InfiniteLoopDetected
 from prodagent.base.event_log import Event, RunEventType
 from prodagent.base.run_context import run_scope
@@ -146,7 +146,7 @@ class ReactiveLoop:
         # buffers and flushes to the boundary stream at turn boundaries —
         # the facts a frozen clock replays.
         self._clock_recorder = RecordingTimePort() if self._event_log is not None else None
-        with run_scope(run.run_id, self._event_log), override(time_port=self._clock_recorder):
+        with run_scope(run.run_id, self._event_log), value_override(time_port=self._clock_recorder):
             try:
                 async for event in self._loop_events(run):
                     yield event

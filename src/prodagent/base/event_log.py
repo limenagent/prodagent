@@ -81,7 +81,7 @@ def spans_stream(run_id: str) -> str:
 class Event:
     # ``event_type`` is ``str`` (not ``PlanEventType``) so the log serves any
     # event-sourced domain — plan execution passes a ``PlanEventType``, the
-    # WorkQueue slice passes a ``QueueEventType``, REACTIVE passes a
+    # queue slice passes a ``QueueEventType``, REACTIVE passes a
     # ``RunEventType``. All are ``StrEnum`` <: ``str``.
     seq: int
     event_id: str
@@ -115,8 +115,8 @@ async def append_expected(event_log: EventLog, event: Event, *, tail_seq: int) -
     replay) moves the tail, the store raises ``VersionConflict``, and the
     caller finds out at the seam instead of interleaving two histories. This
     is the one home for that pattern — plan execution
-    (``plan/event_log.py::PlanEventLog._record``) and the WorkQueue's durable
-    projection (``work_queue.py::SharedQueue._record``) both delegate here,
+    (``plan/event_log.py::PlanEventLog._record``) and a queue's durable
+    projection (``the queue projection``) both delegate here,
     each advancing its own tail field with the returned seq.
     """
     return await event_log.append(event, expected_seq=tail_seq)

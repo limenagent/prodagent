@@ -144,7 +144,7 @@ def build_compliance_audit_agent(
         framework_config=framework_config,
     )
 
-    from prodagent.core.config import production
+    from prodagent.base.config import production
 
     return Agent(
         "compliance_audit",

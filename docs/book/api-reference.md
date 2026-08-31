@@ -2,6 +2,8 @@
 
 > 核心 API 速查。详细接口签名和 docstring 请参考源码或运行 `mkdocs serve` 查看自动生成文档。
 
+零基础读者先花一分钟知道这份参考怎么读。所谓 **API 参考**，就是框架对外提供的"零件清单"：每个类怎么构造、每个函数要传什么参数、返回什么。下面代码里以 `#` 开头的是注释，只给人看、程序不执行。**位置参数**指按顺序传入、不用写名字的参数；**关键字参数**指调用时写成 `名字=值` 的参数（比如 `run_id="r1"`），好处是一眼看得出每个值是给谁的。**docstring** 是写在函数开头第一行的三引号字符串，用来描述这个函数干什么，工具能自动把它们收集成文档。这份参考不需要通读，写代码时回来查对应小节即可。
+
 ---
 
 ## 核心入口
@@ -10,7 +12,6 @@
 
 ```python
 from prodagent import Agent, AgentConfig, ExecutionMode
-
 agent = Agent(
     "demo",                                    # name（位置参数，必填）
     system_prompt="你是一个 helpful assistant",  # 系统提示
@@ -62,13 +63,11 @@ class AgentConfig:
 ```python
 from prodagent import tool
 from prodagent.kernel.types import SideEffectLevel, ToolMeta
-
 # 只读工具
 @tool(name="search", readonly=True)
 async def search(query: str, max_results: int = 5) -> str:
     """搜索网络信息。"""
     ...
-
 # 高副作用工具（通过 meta 设置）
 @tool(
     name="send_email",
@@ -125,7 +124,6 @@ class SideEffectLevel(StrEnum):
 
 ```python
 from prodagent import ExecutionMode
-
 ExecutionMode.REACTIVE      # 边走边想（默认）
 ExecutionMode.PLAN_FIRST    # 先规划 DAG 后执行
 # 没有 ExecutionMode.WORKFLOW——Workflow 通过 workflow= 参数传入
@@ -135,31 +133,25 @@ ExecutionMode.PLAN_FIRST    # 先规划 DAG 后执行
 
 ```python
 from prodagent.plan import Workflow
-
 wf = Workflow()
-
 @wf.step
 async def fetch_data() -> str:
     return "data"
-
 @wf.step(depends_on=["fetch_data"])
 async def analyze(fetch_data: str) -> str:
     return f"analyzed: {fetch_data}"
-
 wf.llm_step(
     name="summarize",
     prompt="总结：{{analyze.output}}",
     depends_on=["analyze"],
     is_terminal=True,
 )
-
 wf.tool_step(
     name="save",
     tool_name="write_file",
     params={"path": "out.md", "content": "{{summarize.output}}"},
     depends_on=["summarize"],
 )
-
 plan = wf.compile()  # 编译为 Plan
 ```
 
@@ -170,14 +162,12 @@ plan = wf.compile()  # 编译为 Plan
 ```python
 from prodagent import HardBudget
 from prodagent.kernel.budget import BudgetLedger
-
 budget = HardBudget(
     max_turns=20,
     max_seconds=120.0,
     max_tokens=100_000,
     max_cost_usd=1.0,
 )
-
 # 多 Agent 共享账本
 ledger = BudgetLedger(budget=budget)
 await ledger.reserve(member="agent-a", turns=1, cost_usd=0.3)
@@ -192,10 +182,8 @@ await ledger.commit(member="agent-a", turns=1, tokens=0, cost_usd=0.25, reserved
 from prodagent.llm import LLMConfig
 from prodagent.kernel.types import LLMResponse, StopReason, ToolCall
 from prodagent.llm.fake import FakeLLMAdapter, script, RoutingFakeLLM
-
 # OpenAI 兼容端点
 llm_config = LLMConfig(model="deepseek-chat", temperature=0.0)
-
 # FakeLLM（离线测试）
 fake = FakeLLMAdapter(responses=[
     LLMResponse(
@@ -205,20 +193,19 @@ fake = FakeLLMAdapter(responses=[
     ),
     LLMResponse(content="答案", stop_reason=StopReason.END_TURN),
 ])
-
 # script() 简写
 fake = script(
     {"tool": "search", "params": {"query": "x"}},
     {"content": "答案"},
 )
-
 # 多 Agent 路由
 routing = RoutingFakeLLM()
 routing.add("agent-a", [LLMResponse(content="A 的回答")])
 routing.add("agent-b", [LLMResponse(content="B 的回答")])
 ```
 
-**环境变量**：
+**环境变量**：环境变量是操作系统里一组"名字=值"的配置，程序启动时读它来决定行为，好处是不用把密钥写进代码。本框架认这几个：
+
 - `USE_FAKE_LLM=1` — 使用 FakeLLM
 - `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` — OpenAI 兼容端点
 - `ANTHROPIC_API_KEY` — Anthropic 原生
@@ -229,16 +216,12 @@ routing.add("agent-b", [LLMResponse(content="B 的回答")])
 
 ```python
 from prodagent.base.config import FrameworkConfig, BackendConfig, production
-
 # 裸核是默认档位（profile="bare"），不需要任何函数：
 config = FrameworkConfig()          # 不落盘、不挂审批、不开缓存压缩
-
 # 生产全套：production() 返回整套 FrameworkConfig（profile 切到 "production"）
 config = production()
-
 # 接到 Agent 上：
 agent = Agent("demo", config=AgentConfig(name="demo", framework=production()))
-
 # 自定义后端：在 FrameworkConfig.backend 上填 BackendConfig
 config = FrameworkConfig(backend=BackendConfig(
     checkpoint="postgres",   # file / postgres
@@ -267,17 +250,14 @@ from prodagent.coordination.blackboard import (
 from prodagent.coordination.work_queue import (
     WorkQueueSpec, work_queue_stream, WorkItem,
 )
-
 # ① Spawn（通过 agents= 配置）
 parent = Agent("manager", config=AgentConfig(
     name="manager", agents=[child_a, child_b],
 ))
-
 # ② Peer（通过 peers= 配置）
 first = Agent("researcher", config=AgentConfig(
     name="researcher", peers=[writer, reviewer],
 ))
-
 # ③ Ensemble
 spec = EnsembleSpec(
     members=[AgentFloorMember(a, session_id="s1") for a in agents],
@@ -286,7 +266,6 @@ spec = EnsembleSpec(
 )
 async for event in ensemble_stream(spec):
     ...
-
 # ④ Blackboard
 spec = BlackboardSpec(
     experts={"researcher": AgentBlackboardMember(a, write_key="research")},
@@ -294,7 +273,6 @@ spec = BlackboardSpec(
 )
 async for event in blackboard_stream(spec):
     ...
-
 # ⑤ WorkQueue
 spec = WorkQueueSpec(
     workers={"w1": worker1, "w2": worker2},
@@ -304,20 +282,18 @@ async for event in work_queue_stream(spec):
     ...
 ```
 
-## 舞台工具
+## 循环工具
 
 ```python
 from prodagent import Agent, AgentConfig
 from prodagent.coordination.ensemble import AgentFloorMember, EnsembleSpec
 from prodagent.coordination.work_queue import AgentWorkMember, WorkQueueSpec
-
 panel = EnsembleSpec(
     name="panel",                      # 有名字才生成工具
     members=[AgentFloorMember(pro, session_id="pro"), AgentFloorMember(con, session_id="con")],
     topic="待定议题",
 )
 chores = WorkQueueSpec(name="chores", workers={"w1": AgentWorkMember(w1)}, items=[])
-
 host = Agent("host", config=AgentConfig(
     name="host",
     ensembles=[panel],      # → run_ensemble(name, task)
@@ -335,14 +311,12 @@ host = Agent("host", config=AgentConfig(
 from prodagent.ports.execution import AgentActivation, InProcessChatRunner
 from prodagent.runtime.parent_runtime import ParentRuntime
 from prodagent.runtime.runner import InProcessRunner
-
 # 成员的一次发言（会话轮次，本地默认实现）
 runner = InProcessChatRunner()
 async for event in runner.activate(
     AgentActivation(agent=member, task="说说你的看法", session_id="floor-1")
 ):
     ...  # 终态事件携带 AgentRun
-
 # spawn 形态的子执行（绑上本跳的 hooks / checkpoint / 账本）
 runner = InProcessRunner(ParentRuntime(parent_run_id="root", llm=client))
 async for event in runner.activate(
@@ -352,7 +326,6 @@ async for event in runner.activate(
 ```
 
 `session_id` 有值是成员会话轮次，没有就是按 run_id 执行的正式 run；`InProcessRunner` 绑了 `ParentRuntime`，子执行按本跳接线 fork。换分布式，换端口实现即可，协作层不变。
-
 
 ---
 
@@ -399,6 +372,8 @@ from prodagent.base.errors import (
 
 ## 模块索引
 
+读源码时按这张表定位：一个**模块**就是一个 `.py` 文件或一个装着若干文件的目录（包），点号表示层级，比如 `prodagent.kernel.budget` 对应 `prodagent/kernel/budget.py`。
+
 | 模块 | 内容 |
 |------|------|
 | `prodagent` | Agent, AgentConfig, ExecutionMode, HardBudget, tool 等顶层导出 |
@@ -425,5 +400,6 @@ from prodagent.base.errors import (
 ## 回到
 
 → [回到书首页](../index.md) · [附录速查](appendix.md)
+
 - [附录 · 关键取舍速查 →](appendix.md)
 - [附录 · 术语表 →](appendix.md)

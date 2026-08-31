@@ -14,15 +14,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_SAFE_FILENAME = re.compile(r"^[A-Za-z0-9_.:\-]+$")
+_SAFE_FILENAME = re.compile(r"^[A-Za-z0-9_.:\-#]+$")
 
 
 def safe_filename_component(s: str) -> str:
-    """Reject anything outside [A-Za-z0-9_.:-] — ids end up in file paths."""
+    """Reject anything outside [A-Za-z0-9_.:-#] — ids end up in file paths."""
     # run_ids / session_ids end up in file paths; this allowlist is the
     # path-traversal firewall — validate at the seam, not after an escape.
+    # ``#`` joined the set with the sibling streams (<run>#boundary /
+    # #spans): a fact suffix is as path-bound as the run id it rides on.
     if not s or not _SAFE_FILENAME.match(s):
-        raise ValueError(f"{s!r} contains unsafe characters; allowed: [A-Za-z0-9_.:-]")
+        raise ValueError(f"{s!r} contains unsafe characters; allowed: [A-Za-z0-9_.:-#]")
     return s
 
 

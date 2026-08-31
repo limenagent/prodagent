@@ -35,7 +35,7 @@ from prodagent.base.event_log import (
     RunEventType,
     SpanEventType,
 )
-from prodagent.replay.cassette import derive_cassette
+from prodagent.replay.cassette import CassetteMismatch, derive_cassette
 from prodagent.replay.engine import CassetteLLMClient, CassettePlayer, FrozenClock, replay_tools
 
 if TYPE_CHECKING:
@@ -64,8 +64,10 @@ def _event_payload(track: str, event: Event) -> dict[str, Any]:
     kind = str(event.event_type)
     if track == "boundary":
         kind = (
-            "llm" if event.event_type == BoundaryEventType.LLM_RECORDED
-            else "tool" if event.event_type == BoundaryEventType.TOOL_RECORDED
+            "llm"
+            if event.event_type == BoundaryEventType.LLM_RECORDED
+            else "tool"
+            if event.event_type == BoundaryEventType.TOOL_RECORDED
             else "clock"
         )
     return {
@@ -79,6 +81,32 @@ def _event_payload(track: str, event: Event) -> dict[str, Any]:
 def build_tape_router(state: Any, event_log: EventLog, blobs: BlobStore | None) -> APIRouter:
     """Wire the transport onto an app state and its WAL."""
     router = APIRouter(prefix="/api/tape")
+
+    @router.get("/runs")
+    async def tape_catalog() -> JSONResponse:
+        """The tape catalog, derived from the WAL alone: every run that has
+        facts, its child runs (a multi-agent run is a root plus children),
+        per-track counts, and the last terminal marker when the tape ended.
+        Single-agent and multi-agent runs are the same shape here — streams
+        under one root."""
+        groups: dict[str, dict[str, Any]] = {}
+        for stream_id in await event_log.list_streams():
+            root = _root_of(stream_id)
+            owner = _owner_of(stream_id)
+            group = groups.setdefault(root, {"run_id": root, "lanes": {}, "terminal": None})
+            track = _track_of(stream_id)
+            events = await event_log.get_after(stream_id, 0)
+            group["lanes"][f"{owner}|{track}"] = len(events)
+            if track == "markers":
+                for event in reversed(events):
+                    if str(event.event_type) in {
+                        RunEventType.RUN_COMPLETED,
+                        RunEventType.RUN_FAILED,
+                        RunEventType.RUN_SUSPENDED,
+                    }:
+                        group["terminal"] = str(event.event_type).split(".")[-1]
+                        break
+        return JSONResponse({"runs": sorted(groups.values(), key=lambda g: g["run_id"])})
 
     @router.get("/{run_id}/events")
     async def tape_events(run_id: str, since: int = 0) -> JSONResponse:
@@ -174,10 +202,27 @@ def build_tape_router(state: Any, event_log: EventLog, blobs: BlobStore | None) 
 
         replay_run = None
         replay_events: list[Any] = []
-        with override_time(FrozenClock(cassette)):
-            async for event in loop.stream(task):
-                replay_events.append(event)
-                replay_run = getattr(event, "run", None) or replay_run
+        try:
+            with override_time(FrozenClock(cassette)):
+                async for event in loop.stream(task):
+                    replay_events.append(event)
+                    replay_run = getattr(event, "run", None) or replay_run
+        except CassetteMismatch as exc:
+            # Zero egress refusing an ask is a FINDING — the tape and the
+            # re-run disagree at the very first question — not a server
+            # error. Report it as the verdict it is.
+            return JSONResponse(
+                {
+                    "run_id": run_id,
+                    "equivalent": False,
+                    "refused": True,
+                    "divergences": [f"tape refused: {exc}"],
+                    "state": None,
+                    "final_output": None,
+                    "turns": 0,
+                    "tape_records": len(cassette.records),
+                }
+            )
         if replay_run is None:
             raise HTTPException(status_code=500, detail="replay produced no terminal run")
 
@@ -263,3 +308,19 @@ def override_time(port: Any) -> Any:
     from prodagent.base.determinism import override
 
     return override(time_port=port)
+
+
+def _root_of(stream_id: str) -> str:
+    """The run a stream belongs to: strip child lineage and track suffix."""
+    return stream_id.split("::", 1)[0].split("#", 1)[0]
+
+
+def _track_of(stream_id: str) -> str:
+    if "#" in stream_id:
+        return stream_id.rsplit("#", 1)[1]
+    return "markers"
+
+
+def _owner_of(stream_id: str) -> str:
+    """Whose lane it is: the root, or a named child (``root::child``)."""
+    return stream_id.split("#", 1)[0]

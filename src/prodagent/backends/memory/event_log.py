@@ -70,6 +70,10 @@ class InMemoryEventLog:
         async with self._lock:
             return [e for e in self._streams.get(stream_id, []) if e.seq > since_seq]
 
+    async def list_streams(self) -> list[str]:
+        async with self._lock:
+            return list(self._streams)
+
     def subscribe(self, stream_id: str, since_seq: int = 0) -> AsyncIterator[Event]:
         return tail_stream(self.get_after, self._wakes, stream_id, since_seq)
 

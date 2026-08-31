@@ -94,6 +94,11 @@ class EventLog(Protocol):
         """
         ...
 
+    async def list_streams(self) -> list[str]:
+        """Every stream id with at least one event — the tape catalog's
+        source. Order is backend-defined; callers sort."""
+        ...
+
     async def replicate(self, events: list[Event]) -> None:
         """Absorb pre-sequenced events at their OWN seqs — the replication
         target's write path (EXTENDED capability).

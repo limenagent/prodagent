@@ -10,7 +10,7 @@ Everything the five collaboration styles share, none of their semantics:
                    durable store reuses; event types, reducers and ``restore``
                    stay in their own domains.
 - ``stage_tools`` turn a *named* spec into a model-callable tool
-                   (``run_ensemble`` / ``run_blackboard`` / ``run_work_queue``).
+                   (``run_blackboard``).
 - ``settle``      chain-terminal discipline — structured output, the root's
                    output contract, checkpoint, RUN_COMPLETE gate — for any
                    chain, not just peer chains.

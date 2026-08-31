@@ -1,7 +1,6 @@
 """The communication substrate under all five collaboration primitives.
 
-``agents=`` (tree), ``peers=`` (chain), Ensemble (floor), Blackboard (board),
-WorkQueue (queue) differ in topology, but collaboration in every one of them
+``agents=`` (tree), ``peers=`` (chain), Blackboard (board) differ in topology, but collaboration in every one of them
 is messages crossing agent boundaries. This package is the single checkpoint
 those crossings flow through:
 

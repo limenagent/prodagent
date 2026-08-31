@@ -14,7 +14,6 @@ members = [
     "aiops-agent",
     "code-detective-agent",
     "compliance-audit-agent",
-    "council-agent",
     "dating-chat-agent",
     "deep-research-agent",
     "greeter-agent",
@@ -297,17 +296,6 @@ wheels = [
 name = "compliance-audit-agent"
 version = "0.1.0"
 source = { editable = "examples/compliance_audit" }
-dependencies = [
-    { name = "prodagent" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "prodagent", editable = "." }]
-
-[[package]]
-name = "council-agent"
-version = "0.1.0"
-source = { editable = "examples/council" }
 dependencies = [
     { name = "prodagent" },
 ]

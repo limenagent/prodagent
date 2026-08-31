@@ -142,6 +142,12 @@ class SpanObserverHooks:
     async def on_instant(self, *, event_name: str = "", run_id: str = "", **data: Any) -> None:
         if not run_id:
             return
+        if event_name == HookEvent.THINK:
+            # A span per streamed token is noise, not a decision snapshot:
+            # 48 spans for a two-turn run, each holding one character. The
+            # reasoning rides the boundary LLM fact (reasoning_content) —
+            # the spans track stays decisions.
+            return
         payload = {k: v for k, v in data.items() if k != "event_name"}
         span = self._audit.span(run_id, event_name, payload, trace_id=self._run_traces.get(run_id))
         self._enrich_from_event(span, event_name, data)

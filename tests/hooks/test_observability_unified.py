@@ -96,12 +96,10 @@ async def test_span_observer_emits_span_for_instant_events(tmp_path: Path):
 
     assert "session_start" in actions
     assert "llm.request" in actions
-    assert "llm.think" in actions
+    assert "llm.think" not in actions, "per-token THINK spans are skipped by design"
     assert "memory.recall" in actions
     assert "budget.token_update" in actions
 
-    think_span = next(r for r in records if r["action"] == "llm.think")
-    assert think_span["llm_reasoning"] == "I should call the ping tool"
     llm_req_span = next(r for r in records if r["action"] == "llm.request")
     assert len(llm_req_span["system_prompt_version"]) == 8
     mem_span = next(r for r in records if r["action"] == "memory.recall")

@@ -165,6 +165,12 @@ class FileEventLog:
         events = await asyncio.to_thread(self._load, stream_id)
         return [e for e in events if e.seq > since_seq]
 
+    async def list_streams(self) -> list[str]:
+        def _scan() -> list[str]:
+            return [p.stem for p in self._dir.glob("*.jsonl") if p.stat().st_size > 0]
+
+        return await asyncio.to_thread(_scan)
+
     def subscribe(self, stream_id: str, since_seq: int = 0) -> AsyncIterator[Event]:
         # In-process appends wake immediately; the poll fallback in
         # ``tail_stream`` catches writers in other processes sharing the

@@ -25,7 +25,6 @@ from prodagent.coordination.messaging.envelope import (
 from prodagent.kernel.bus import Gate
 
 if TYPE_CHECKING:
-    from prodagent.coordination.ensemble import FloorProjection, FloorTurn
     from prodagent.coordination.messaging.contract import MessageContract
     from prodagent.coordination.messaging.idempotency import IdempotentMessageHandler
     from prodagent.kernel.bus import HookEvent, HookRegistry
@@ -125,20 +124,20 @@ class TrimInterceptor:
 class ProjectionInterceptor:
     """Per-viewer view of a shared transcript — the floor's trim strategy.
 
-    Wraps a :class:`~prodagent.coordination.ensemble.FloorProjection`
+    Wraps a stage projection
     (``PublicTextOnly`` / ``SelectiveToolExposure`` / user-supplied) and applies
     it to a transcript slice for one viewer. Speaker-verbatim rules, tool-call
     whitelists, and text caps stay inside the projection — this only routes the
     slice through the plane so views get every other mounted capability too.
     """
 
-    def __init__(self, viewer: str, projection: FloorProjection, *, limit: int = 0) -> None:
+    def __init__(self, viewer: str, projection: Any, *, limit: int = 0) -> None:
         self._viewer = viewer
         self._projection = projection
         self._limit = limit
 
     async def intercept(self, crossing: Crossing[Any]) -> Crossing[Any]:
-        turns: list[FloorTurn] = crossing.payload
+        turns: list[Any] = crossing.payload
         crossing.payload = [self._projection.project(turn, viewer=self._viewer) for turn in turns]
         return crossing
 

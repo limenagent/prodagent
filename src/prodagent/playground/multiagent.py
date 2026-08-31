@@ -2,7 +2,7 @@
 
 The playground used to special-case ``dating_chat`` with a dedicated route pair
 and a ``datingMode`` frontend branch. That doesn't scale: ``quiz_arena`` runs
-WorkQueue then Blackboard, future examples will add more primitive combinations.
+Blackboard.
 This module is the generic layer every multi-agent example plugs into.
 
 The split:
@@ -31,6 +31,10 @@ import contextlib
 import logging
 import time
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from prodagent.ports.observability import EventLog
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from prodagent.playground._json import jsonable as _jsonable
@@ -90,7 +94,7 @@ class MultiAgentEvent:
     phase: str | None
     """Which segment of a multi-phase run; ``None`` for single-phase examples.
 
-    ``quiz_arena`` uses ``"backstage_review"`` (WorkQueue) and ``"live_quiz"``
+    ``quiz_arena`` uses ``"live_quiz"``
     (Blackboard); ``dating_chat`` leaves it ``None``.
     """
 
@@ -181,7 +185,10 @@ class MultiAgentRun:
     concern.
     """
 
-    def __init__(self, adapter: MultiAgentAdapter, *, run_id: str) -> None:
+    def __init__(
+        self, adapter: MultiAgentAdapter, *, run_id: str, event_log: EventLog | None = None
+    ) -> None:
+        self._tape_event_log = event_log
         attached = getattr(adapter, "_attached_run", None)
         if attached is not None:
             raise RuntimeError(
@@ -211,7 +218,14 @@ class MultiAgentRun:
         through ``map_event`` → exactly one terminal envelope, even when the
         adapter itself crashes (the failure becomes a ``failed`` envelope,
         never a silently-stuck stream)."""
-        # Seed the roster before any primitive event fires.
+        # One tape root for the whole orchestration: every member turn
+        # started below attributes its streams to this run's tape.
+        from prodagent.base.run_context import run_scope, tape_root_scope
+
+        with run_scope(self.run_id, self._tape_event_log), tape_root_scope(self.run_id):
+            await self._pump()
+
+    async def _pump(self) -> None:
         await self._emit_roster(self.adapter.initial_participants(), phase=None)
         await self._emit(
             MultiAgentEvent(

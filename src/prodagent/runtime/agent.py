@@ -245,7 +245,7 @@ class Agent:
         async for event in drive_stream(
             self,
             message,
-            run_id=run_id,
+            run_id=self._tape_prefixed(run_id),
             forced_mode=resolved_mode,
             initial_messages=messages,
         ):
@@ -336,6 +336,20 @@ class Agent:
                 session.last_turn.run_id if session.last_turn else f"<{session_id}>"
             )
         return session, session.last_turn.run_id, session.last_turn.mode
+
+    @staticmethod
+    def _tape_prefixed(run_id: str) -> str:
+        """Tape attribution for member turns: inside a multi-agent root
+        scope, the session's turn id gains the ``<root>::`` prefix — the
+        convention spawned children already follow, so one catalog entry
+        holds the whole multi-agent run. Deterministic on resume (the same prefix
+        derives from the same session id)."""
+        from prodagent.base.run_context import current_tape_root
+
+        root = current_tape_root()
+        if root and not run_id.startswith(f"{root}::"):
+            return f"{root}::{run_id}"
+        return run_id
 
     async def _begin_chat_turn(
         self,

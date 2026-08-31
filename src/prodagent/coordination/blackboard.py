@@ -126,7 +126,7 @@ def apply_board_event(state: dict[str, Any], event: Event) -> None:
 class Board(RoundedLockableStore, EventSourcedStore):
     """Shared ``dict[str, BoardSlot]`` — a versioned map of structured fields.
 
-    Not :class:`~prodagent.coordination.ensemble.SharedFloor`'s append-only
+    Not an append-only
     transcript: Blackboard experts overwrite structured fields, so writes need
     optimistic-concurrency version checks, not just ordering. A
     :class:`RoundedLockableStore` — the lock and round counter come from the base."""
@@ -285,7 +285,7 @@ class BoardWrite:
 @runtime_checkable
 class BlackboardMember(Protocol):
     """What it takes to be a Blackboard expert. Unlike
-    :class:`~prodagent.coordination.ensemble.FloorMember.speak` (must
+    the member's speak (must
     return a turn), ``try_contribute`` may return ``None`` — "this trigger
     fired but I have nothing to add, don't occupy a write slot for it"."""
 
@@ -639,7 +639,7 @@ async def blackboard_stream(
 
 class _BoardViewSlot:
     """Mutable slot the ``[BOARD]`` injector reads — same pattern as
-    ensemble's ``_FloorViewSlot``: pipeline writes the view before each
+    the pipeline writes the view before each
     ``try_contribute()``, injector reads it during context assembly."""
 
     __slots__ = ("snapshot", "trigger_name")
@@ -673,7 +673,7 @@ def _render_value(value: Any, max_chars: int) -> str:
 class AgentBlackboardMember:
     """Adapts a full :class:`~prodagent.runtime.agent.Agent` to :class:`BlackboardMember`.
 
-    Registers a ``[BOARD]`` injector (mirrors ensemble's ``[FLOOR]``) so the
+    Registers a ``[BOARD]`` injector  so the
     board's current state lands in L2 alongside ``[MEMORY]``. The agent is
     prompted to propose a ``key: value`` write or reply ``PASS`` — this is a
     reference implementation; callers with structured-output needs should

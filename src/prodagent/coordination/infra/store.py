@@ -1,6 +1,6 @@
 """SharedStore — the one substrate behind the three stage coordination stores.
 
-``Ensemble`` / ``Blackboard`` / ``WorkQueue`` each drive a shared mutable store:
+``Blackboard`` drives a shared mutable store:
 ``SharedFloor`` (append-only transcript), ``Board`` (versioned map), ``SharedQueue``
 (lease-based claim deque). They are informal instances of one model — a store + an
 activation policy (the *activation* axis is named explicitly in

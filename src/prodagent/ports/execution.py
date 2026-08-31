@@ -117,7 +117,7 @@ class AgentActivation:
     optional field is set:
 
     - ``session_id`` set — a session-scoped member turn (the session allocates
-      the run identity; ensemble/blackboard members). Never forked.
+      the run identity; stage members). Never forked.
     - otherwise — a bare run under the given identity (spawn children, graph
       nodes), joined to ``budget_ledger`` when one is supplied. An
       implementation bound to a hop's wiring forks the target under it
