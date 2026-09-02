@@ -24,10 +24,10 @@ from fastapi.testclient import TestClient  # noqa: E402
 from prodagent.backends.memory.blob import InMemoryBlobStore
 from prodagent.backends.memory.checkpoint import InMemoryCheckpointStore
 from prodagent.backends.memory.event_log import InMemoryEventLog
-from prodagent.kernel.loop import ReactiveLoop
 from prodagent.kernel.types import SideEffectLevel, ToolMeta
 from prodagent.llm.fake import script
 from prodagent.llm.recording import RecordingLLMClient
+from prodagent.plan.scheduler import reactive_scheduler
 from prodagent.playground import server as server_mod
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.dispatcher import ToolDispatcher
@@ -62,7 +62,7 @@ def _build(log: InMemoryEventLog, checkpoint: InMemoryCheckpointStore) -> Any:
 async def _drive_run(log: InMemoryEventLog, checkpoint: InMemoryCheckpointStore, task: str) -> str:
     """A real recorded run: LLM + tool facts, clock facts, markers, checkpoint."""
     dispatcher = ToolDispatcher({"probe": _tool("probe")}, event_log=log)
-    loop = ReactiveLoop(
+    loop = reactive_scheduler(
         RecordingLLMClient(script({"tool": "probe", "params": {}}, {"content": "all done"}), log),
         dispatcher,
         event_log=log,
@@ -162,7 +162,7 @@ async def test_catalog_groups_children_under_roots() -> None:
     root = await _drive_run(log, checkpoint, "the parent")
     # Child streams, the shape spawn children record (parent::child).
     for sid in (f"{root}::scout", f"{root}::scout#boundary", f"{root}::writer"):
-        await log.append(Event.make(PlanEventType.STEP_COMPLETED, sid, 1))
+        await log.append(Event.make(PlanEventType.NODE_COMPLETED, sid, 1))
     app = _build(log, checkpoint)
     with TestClient(app) as client:
         catalog = client.get("/api/tape/runs").json()

@@ -1,6 +1,6 @@
 """PLAN_FIRST must propagate the real run_id into tool dispatch.
 
-Regression: ``StepRunner`` used to call ``tool_executor(call)`` without
+Regression: ``NodeRunner`` used to call ``tool_executor(call)`` without
 ``run_id`` — ``dispatcher.dispatch`` then defaulted to ``run_id=""``, so every
 tool-layer hook payload and every ``inject_run_id`` tool saw an empty run_id
 in PLAN_FIRST mode while REACTIVE worked. The two execution modes must not
@@ -15,10 +15,11 @@ from typing import Any
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
 from prodagent.hooks import HookRegistry
+from prodagent.kernel.bodies.runner import BodyRunner
 from prodagent.kernel.bus import HookEvent
 from prodagent.kernel.types import LLMResponse, RunCompletedEvent, ToolMeta
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.executor import PlanExecutor
+from prodagent.plan.scheduler import Scheduler
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -57,11 +58,11 @@ async def test_plan_first_propagates_run_id_to_hooks_and_tools(tmp_path):
 
     dispatcher = ToolDispatcher({"echo_run_id": _echo_run_id_tool()}, hooks=hooks)
 
-    executor = PlanExecutor(
+    executor = Scheduler(
         _plan_llm(),
-        dispatcher.dispatch,
+        BodyRunner(tools=dispatcher.dispatch),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         hooks=hooks,
         agent_name="plan-agent",
         event_log=FileEventLog(tmp_path / "events"),

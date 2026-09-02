@@ -1,7 +1,7 @@
 """The kernel's nouns — one canonical vocabulary for every execution mode.
 
 Calls, responses, results, and stream events live here so both executors
-(REACTIVE's Step, PLAN_FIRST's steps) branch on the same shapes. Where
+(REACTIVE's Turn, PLAN_FIRST's steps) branch on the same shapes. Where
 providers disagree, this module picks one canon: ``StopReason`` speaks
 Anthropic's vocabulary and every adapter maps into it, unknowns coerced
 rather than raised. Words shared with the base layer (``Message``,
@@ -161,7 +161,7 @@ class LLMResponse:
         )
 
 
-class StepStatus(StrEnum):
+class NodeStatus(StrEnum):
     # OBSOLETE is distinct from FAILED: replanning can invalidate a pending
     # step through no fault of its own — it neither ran nor failed, so resume
     # logic must not treat it as either.
@@ -370,13 +370,22 @@ class ToolResult(Generic[_T]):
 
 # ── Streaming events — the run-stream union lives in ports (wire vocabulary) ──
 # Lifted to prodagent.ports.agent_events: they are every stream consumer's
-# contract (LeafExecutor / RunnerPort / the remote plane) and carry a wire
+# contract (Executor / RunnerPort / the remote plane) and carry a wire
 # codec there. Re-exported here so kernel consumers keep one import site —
 # same precedent as the base-vocabulary re-exports at the top of this module.
 # The redundant `as` aliases mark the re-export explicitly (mypy strict).
 
 from prodagent.ports.agent_events import (  # noqa: E402
     AgentEvent as AgentEvent,
+)
+from prodagent.ports.agent_events import (  # noqa: E402
+    NodeCompletedEvent as NodeCompletedEvent,
+)
+from prodagent.ports.agent_events import (  # noqa: E402
+    NodeFailedEvent as NodeFailedEvent,
+)
+from prodagent.ports.agent_events import (  # noqa: E402
+    NodeStartedEvent as NodeStartedEvent,
 )
 from prodagent.ports.agent_events import (  # noqa: E402
     RunCompletedEvent as RunCompletedEvent,
@@ -386,15 +395,6 @@ from prodagent.ports.agent_events import (  # noqa: E402
 )
 from prodagent.ports.agent_events import (  # noqa: E402
     RunSuspendedEvent as RunSuspendedEvent,
-)
-from prodagent.ports.agent_events import (  # noqa: E402
-    StepCompletedEvent as StepCompletedEvent,
-)
-from prodagent.ports.agent_events import (  # noqa: E402
-    StepFailedEvent as StepFailedEvent,
-)
-from prodagent.ports.agent_events import (  # noqa: E402
-    StepStartedEvent as StepStartedEvent,
 )
 from prodagent.ports.agent_events import (  # noqa: E402
     ThinkTokenEvent as ThinkTokenEvent,

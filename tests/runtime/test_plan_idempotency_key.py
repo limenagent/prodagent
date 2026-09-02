@@ -1,9 +1,9 @@
-"""PLAN_FIRST steps must inject a crash-stable idempotency key.
+"""PLAN_FIRST nodes must inject a crash-stable idempotency key.
 
-A dangling step (crashed between StepStarted and StepCompleted) is re-run on
+A dangling node (crashed between NodeStarted and NodeCompleted) is re-run on
 restore. The re-run must re-derive the SAME key its first attempt used, or the
 external system would treat it as a new request and execute the side effect
-twice. The anchor is step_id + attempt number, both of which roll back with the
+twice. The anchor is node_id + attempt number, both of which roll back with the
 checkpoint — see chapter 14's "不丢钱" defence line 2.
 """
 
@@ -14,9 +14,11 @@ from typing import TYPE_CHECKING
 import pytest
 
 from prodagent import SideEffectLevel, ToolMeta
+from prodagent.kernel.bodies.base import ToolBody
+from prodagent.kernel.bodies.runner import BodyRunner
 from prodagent.kernel.state import AgentRun
-from prodagent.plan.dag import Plan, PlanStep
-from prodagent.plan.step_runner import StepRunner
+from prodagent.plan.dag import Node, Plan
+from prodagent.plan.node_runner import NodeRunner
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -25,11 +27,11 @@ if TYPE_CHECKING:
 
 
 class _StubEventLog:
-    async def record_step_started(self, plan: Plan, run: AgentRun, step_id: str) -> int:
+    async def record_node_started(self, plan: Plan, run: AgentRun, node_id: str) -> int:
         return 0
 
-    async def record_step_completed(
-        self, plan: Plan, run: AgentRun, step_id: str, result: object
+    async def record_node_completed(
+        self, plan: Plan, run: AgentRun, node_id: str, result: object
     ) -> int:
         return 0
 
@@ -50,17 +52,23 @@ def _capturing_tool(captured: list[str]):
     return refund_order
 
 
-def _plan_with_step(action: str = "refund_order") -> tuple[Plan, PlanStep]:
+def _plan_with_node(action: str = "refund_order", params: dict | None = None) -> tuple[Plan, Node]:
     plan = Plan(plan_id="p-idem")
-    step = PlanStep(step_id="s1", action=action, params={"order_id": "A1"})
-    plan.add_steps([step])
-    return plan, step
+    node = Node(
+        node_id="s1",
+        body=ToolBody(action),
+        params={"order_id": "A1"} if params is None else params,
+    )
+    plan.add_nodes([node])
+    return plan, node
 
 
-def _step_runner(fn) -> StepRunner:
+def _node_runner(fn) -> NodeRunner:
     dispatcher = ToolDispatcher({fn.name: fn})
-    return StepRunner(
-        lambda call, run_id="": _execute(fn, call), _StubEventLog(), dispatcher=dispatcher
+    return NodeRunner(
+        BodyRunner(lambda call, run_id="": _execute(fn, call)),
+        _StubEventLog(),
+        dispatcher=dispatcher,
     )
 
 
@@ -69,36 +77,36 @@ async def _execute(fn, call: ToolCall):
 
 
 @pytest.mark.asyncio
-async def test_enforced_idempotent_step_gets_step_anchored_key():
+async def test_enforced_idempotent_node_gets_node_anchored_key():
     captured: list[str] = []
-    runner = _step_runner(_capturing_tool(captured))
-    plan, step = _plan_with_step()
+    runner = _node_runner(_capturing_tool(captured))
+    plan, node = _plan_with_node()
     run = AgentRun(run_id="r-idem", task="t")
 
-    await runner.run_one(step, plan, run)
+    await runner.run_one(node, plan, run)
 
     assert captured == ["r-idem:s1:a1"]
 
 
 @pytest.mark.asyncio
-async def test_reexecuted_dangling_step_rederives_same_key():
-    """Crash between side-effect and StepCompleted: the restored re-run must
+async def test_reexecuted_dangling_node_rederives_same_key():
+    """Crash between side-effect and NodeCompleted: the restored re-run must
     hit the external system with the same key (duplicate suppressed)."""
     first_attempt: list[str] = []
-    runner = _step_runner(_capturing_tool(first_attempt))
-    plan, step = _plan_with_step()
+    runner = _node_runner(_capturing_tool(first_attempt))
+    plan, node = _plan_with_node()
     run = AgentRun(run_id="r-idem", task="t")
-    await runner.run_one(step, plan, run)
+    await runner.run_one(node, plan, run)
     assert first_attempt == ["r-idem:s1:a1"]
 
-    # What the checkpoint holds: the step had not started when it was saved —
-    # attempts=0, status pending. The STEP_STARTED event replays to "running",
-    # which from_state flips back to PENDING (rerun, not skip).
+    # What the checkpoint holds: the node had not finished when it was saved —
+    # the NODE_STARTED event replays to "running", which from_state flips back
+    # to PENDING with attempts rolled back (rerun, not skip).
     checkpoint_state = {
         "version": 1,
-        "steps": {
+        "nodes": {
             "s1": {
-                "step_id": "s1",
+                "node_id": "s1",
                 "action": "refund_order",
                 "params": {"order_id": "A1"},
                 "depends_on": [],
@@ -107,13 +115,17 @@ async def test_reexecuted_dangling_step_rederives_same_key():
             }
         },
     }
-    restored_plan = Plan.from_state(checkpoint_state, plan_id="p-idem")
-    restored_step = restored_plan.get_step("s1")
-    assert restored_step is not None and restored_step.status.value == "pending"
+    restored_plan, restored_states = Plan.from_state(checkpoint_state, plan_id="p-idem")
+    restored_node = restored_plan.get_node("s1")
+    assert restored_node is not None
+    assert restored_states["s1"].status.value == "pending"
+    assert restored_states["s1"].attempts == 0
 
     rerun_keys: list[str] = []
-    rerun_runner = _step_runner(_capturing_tool(rerun_keys))
-    await rerun_runner.run_one(restored_step, restored_plan, AgentRun(run_id="r-idem", task="t"))
+    rerun_runner = _node_runner(_capturing_tool(rerun_keys))
+    rerun_run = AgentRun(run_id="r-idem", task="t")
+    rerun_run.node_states = restored_states
+    await rerun_runner.run_one(restored_node, restored_plan, rerun_run)
 
     assert rerun_keys == first_attempt
 
@@ -122,18 +134,17 @@ async def test_reexecuted_dangling_step_rederives_same_key():
 async def test_model_supplied_key_not_overwritten():
     captured: list[str] = []
     fn = _capturing_tool(captured)
-    runner = _step_runner(fn)
-    plan, step = _plan_with_step()
-    step.params = {"order_id": "A1", "idempotency_key": "client-supplied"}
+    runner = _node_runner(fn)
+    plan, node = _plan_with_node(params={"order_id": "A1", "idempotency_key": "client-supplied"})
     run = AgentRun(run_id="r-idem", task="t")
 
-    await runner.run_one(step, plan, run)
+    await runner.run_one(node, plan, run)
 
     assert captured == ["client-supplied"]
 
 
 @pytest.mark.asyncio
-async def test_non_enforced_step_gets_no_key():
+async def test_non_enforced_node_gets_no_key():
     captured: list[str] = []
 
     @tool(name="plain_read", readonly=True)
@@ -141,11 +152,10 @@ async def test_non_enforced_step_gets_no_key():
         captured.append(idempotency_key)
         return {"ok": True}
 
-    runner = _step_runner(plain_read)
-    plan, step = _plan_with_step(action="plain_read")
-    step.params = {}
+    runner = _node_runner(plain_read)
+    plan, node = _plan_with_node(action="plain_read", params={})
     run = AgentRun(run_id="r-idem", task="t")
 
-    await runner.run_one(step, plan, run)
+    await runner.run_one(node, plan, run)
 
     assert captured == [""]

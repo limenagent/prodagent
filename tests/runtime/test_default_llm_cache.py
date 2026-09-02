@@ -174,9 +174,9 @@ class TestCostSkipping:
 
         run = AgentRun(run_id="r1", task="t")
 
-        from prodagent.kernel.step import Step
+        from prodagent.kernel.turn import Turn
 
-        step = object.__new__(Step)
+        step = object.__new__(Turn)
         step._llm_config = LLMConfig(model="m")
         step._bus = None
         step._budget = (
@@ -192,7 +192,7 @@ class TestCostSkipping:
         )
         import asyncio
 
-        asyncio.run(Step._account(step, run, cached_resp))  # type: ignore[arg-type]
+        asyncio.run(Turn._account(step, run, cached_resp))  # type: ignore[arg-type]
 
         assert run.turn_count == 1
         assert run.input_tokens == 0
@@ -203,9 +203,9 @@ class TestCostSkipping:
         from prodagent.kernel.state import AgentRun
 
         run = AgentRun(run_id="r1", task="t")
-        from prodagent.kernel.step import Step
+        from prodagent.kernel.turn import Turn
 
-        step = object.__new__(Step)
+        step = object.__new__(Turn)
         step._llm_config = LLMConfig(
             model="m",
             cost_per_million_input=1.0,
@@ -224,7 +224,7 @@ class TestCostSkipping:
         )
         import asyncio
 
-        asyncio.run(Step._account(step, run, fresh_resp))  # type: ignore[arg-type]
+        asyncio.run(Turn._account(step, run, fresh_resp))  # type: ignore[arg-type]
 
         assert run.turn_count == 1
         assert run.input_tokens == 100

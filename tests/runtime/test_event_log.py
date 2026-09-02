@@ -27,7 +27,7 @@ def _extract_base(run: AgentRun) -> tuple[dict, int, int] | None:
 
 
 def _empty_state() -> dict:
-    return {"steps": {}, "version": 0}
+    return {"nodes": {}, "version": 0}
 
 
 def _simple_reducer(state: dict, event: Event) -> dict:
@@ -43,8 +43,8 @@ class TestEventSeq:
     async def test_append_assigns_monotonic_seq(self, tmp_path):
         log = FileEventLog(tmp_path)
         e1 = _make(PlanEventType.PLAN_CREATED)
-        e2 = _make(PlanEventType.STEP_COMPLETED, step_id="s1")
-        e3 = _make(PlanEventType.STEP_COMPLETED, step_id="s2")
+        e2 = _make(PlanEventType.NODE_COMPLETED, node_id="s1")
+        e3 = _make(PlanEventType.NODE_COMPLETED, node_id="s2")
 
         seq1 = await log.append(e1)
         seq2 = await log.append(e2)
@@ -73,8 +73,8 @@ class TestEventLogGetAfter:
     async def test_returns_events_after_given_seq(self, tmp_path):
         log = FileEventLog(tmp_path)
         e1 = _make(PlanEventType.PLAN_CREATED)
-        e2 = _make(PlanEventType.STEP_COMPLETED, step_id="s1")
-        e3 = _make(PlanEventType.STEP_COMPLETED, step_id="s2")
+        e2 = _make(PlanEventType.NODE_COMPLETED, node_id="s1")
+        e3 = _make(PlanEventType.NODE_COMPLETED, node_id="s2")
         await log.append(e1)
         await log.append(e2)
         await log.append(e3)
@@ -85,8 +85,8 @@ class TestEventLogGetAfter:
     async def test_regression_same_plan_version_events_not_skipped(self, tmp_path):
         log = FileEventLog(tmp_path)
         created = _make(PlanEventType.PLAN_CREATED, version=1)
-        completed1 = _make(PlanEventType.STEP_COMPLETED, version=1, step_id="s1")
-        completed2 = _make(PlanEventType.STEP_COMPLETED, version=1, step_id="s2")
+        completed1 = _make(PlanEventType.NODE_COMPLETED, version=1, node_id="s1")
+        completed2 = _make(PlanEventType.NODE_COMPLETED, version=1, node_id="s2")
         await log.append(created)
         await log.append(completed1)
         await log.append(completed2)
@@ -114,7 +114,7 @@ class TestEventLogGetAfter:
     async def test_since_seq_zero_returns_all(self, tmp_path):
         log = FileEventLog(tmp_path)
         for i in range(5):
-            await log.append(_make(PlanEventType.STEP_COMPLETED, step_id=f"s{i}"))
+            await log.append(_make(PlanEventType.NODE_COMPLETED, node_id=f"s{i}"))
         assert len(await log.get_after("p1", since_seq=0)) == 5
 
 
@@ -127,14 +127,14 @@ class TestHybridRestore:
                 PlanEventType.PLAN_CREATED,
                 plan_id,
                 version=1,
-                steps=[
-                    {"step_id": "s1", "status": "pending"},
-                    {"step_id": "s2", "status": "pending"},
+                nodes=[
+                    {"node_id": "s1", "status": "pending"},
+                    {"node_id": "s2", "status": "pending"},
                 ],
             )
         )
-        await log.append(Event.make(PlanEventType.STEP_COMPLETED, plan_id, version=1, step_id="s1"))
-        await log.append(Event.make(PlanEventType.STEP_COMPLETED, plan_id, version=1, step_id="s2"))
+        await log.append(Event.make(PlanEventType.NODE_COMPLETED, plan_id, version=1, node_id="s1"))
+        await log.append(Event.make(PlanEventType.NODE_COMPLETED, plan_id, version=1, node_id="s2"))
         return log, plan_id
 
     @pytest.mark.asyncio
@@ -146,8 +146,8 @@ class TestHybridRestore:
             plan_id, log, cs, _simple_reducer, extract_base=_extract_base, empty_state=_empty_state
         )
 
-        assert state["steps"]["s1"]["status"] == "completed"
-        assert state["steps"]["s2"]["status"] == "completed"
+        assert state["nodes"]["s1"]["status"] == "completed"
+        assert state["nodes"]["s2"]["status"] == "completed"
 
     @pytest.mark.asyncio
     async def test_checkpoint_skips_already_applied_events(self, tmp_path):
@@ -160,7 +160,7 @@ class TestHybridRestore:
             {
                 "state": {
                     "version": 1,
-                    "steps": {"s1": {"status": "completed"}, "s2": {"status": "completed"}},
+                    "nodes": {"s1": {"status": "completed"}, "s2": {"status": "completed"}},
                 },
                 "last_seq": 3,
             },
@@ -178,7 +178,7 @@ class TestHybridRestore:
         )
 
         assert reducer_calls == [], "no events should be replayed when checkpoint is current"
-        assert state["steps"]["s2"]["status"] == "completed"
+        assert state["nodes"]["s2"]["status"] == "completed"
 
     @pytest.mark.asyncio
     async def test_regression_checkpoint_mid_version_replays_missed_events(self, tmp_path):
@@ -191,7 +191,7 @@ class TestHybridRestore:
             {
                 "state": {
                     "version": 1,
-                    "steps": {"s1": {"status": "pending"}, "s2": {"status": "pending"}},
+                    "nodes": {"s1": {"status": "pending"}, "s2": {"status": "pending"}},
                 },
                 "last_seq": 1,
             },
@@ -202,10 +202,10 @@ class TestHybridRestore:
             plan_id, log, cs, _simple_reducer, extract_base=_extract_base, empty_state=_empty_state
         )
 
-        assert state["steps"]["s1"]["status"] == "completed", (
+        assert state["nodes"]["s1"]["status"] == "completed", (
             "StepCompleted(s1) must be replayed — it shares plan version 1 with the checkpoint"
         )
-        assert state["steps"]["s2"]["status"] == "completed", (
+        assert state["nodes"]["s2"]["status"] == "completed", (
             "StepCompleted(s2) must be replayed — it shares plan version 1 with the checkpoint"
         )
 
@@ -220,7 +220,7 @@ class TestHybridRestore:
             {
                 "state": {
                     "version": 1,
-                    "steps": {"s1": {"status": "completed"}, "s2": {"status": "pending"}},
+                    "nodes": {"s1": {"status": "completed"}, "s2": {"status": "pending"}},
                 },
                 "last_seq": 2,
             },
@@ -237,10 +237,10 @@ class TestHybridRestore:
             plan_id, log, cs, tracking_reducer, extract_base=_extract_base, empty_state=_empty_state
         )
 
-        assert replayed == [PlanEventType.STEP_COMPLETED], (
+        assert replayed == [PlanEventType.NODE_COMPLETED], (
             "only s2's StepCompleted should be replayed"
         )
-        assert state["steps"]["s2"]["status"] == "completed"
+        assert state["nodes"]["s2"]["status"] == "completed"
 
     @pytest.mark.asyncio
     async def test_multi_plan_isolation(self, tmp_path):
@@ -250,7 +250,7 @@ class TestHybridRestore:
                 PlanEventType.PLAN_CREATED,
                 "plan-A",
                 version=1,
-                steps=[{"step_id": "a1", "status": "pending"}],
+                nodes=[{"node_id": "a1", "status": "pending"}],
             )
         )
         await log.append(
@@ -258,14 +258,14 @@ class TestHybridRestore:
                 PlanEventType.PLAN_CREATED,
                 "plan-B",
                 version=1,
-                steps=[{"step_id": "b1", "status": "pending"}],
+                nodes=[{"node_id": "b1", "status": "pending"}],
             )
         )
         await log.append(
-            Event.make(PlanEventType.STEP_COMPLETED, "plan-A", version=1, step_id="a1")
+            Event.make(PlanEventType.NODE_COMPLETED, "plan-A", version=1, node_id="a1")
         )
         await log.append(
-            Event.make(PlanEventType.STEP_COMPLETED, "plan-B", version=1, step_id="b1")
+            Event.make(PlanEventType.NODE_COMPLETED, "plan-B", version=1, node_id="b1")
         )
 
         cs = FileCheckpointStore(directory=tmp_path / "ckpt")
@@ -277,17 +277,17 @@ class TestHybridRestore:
             "plan-B", log, cs, _simple_reducer, extract_base=_extract_base, empty_state=_empty_state
         )
 
-        assert "a1" in state_a["steps"]
-        assert "b1" not in state_a["steps"]
-        assert "b1" in state_b["steps"]
-        assert "a1" not in state_b["steps"]
+        assert "a1" in state_a["nodes"]
+        assert "b1" not in state_a["nodes"]
+        assert "b1" in state_b["nodes"]
+        assert "a1" not in state_b["nodes"]
 
 
 class TestExpectedSeq:
     async def test_matching_expected_seq_appends(self, tmp_path):
         log = FileEventLog(tmp_path)
         await log.append(_make(PlanEventType.PLAN_CREATED))
-        seq = await log.append(_make(PlanEventType.STEP_COMPLETED, step_id="s1"), expected_seq=1)
+        seq = await log.append(_make(PlanEventType.NODE_COMPLETED, node_id="s1"), expected_seq=1)
         assert seq == 2
 
     async def test_stale_expected_seq_raises(self, tmp_path):
@@ -296,12 +296,12 @@ class TestExpectedSeq:
         log = FileEventLog(tmp_path)
         await log.append(_make(PlanEventType.PLAN_CREATED))
         with pytest.raises(VersionConflict):
-            await log.append(_make(PlanEventType.STEP_COMPLETED, step_id="s1"), expected_seq=0)
+            await log.append(_make(PlanEventType.NODE_COMPLETED, node_id="s1"), expected_seq=0)
 
     async def test_none_expected_seq_skips_check(self, tmp_path):
         log = FileEventLog(tmp_path)
         await log.append(_make(PlanEventType.PLAN_CREATED))
-        assert await log.append(_make(PlanEventType.STEP_COMPLETED, step_id="s1")) == 2
+        assert await log.append(_make(PlanEventType.NODE_COMPLETED, node_id="s1")) == 2
 
     async def test_file_log_detects_concurrent_writer(self, tmp_path):
         from prodagent import VersionConflict
@@ -310,10 +310,10 @@ class TestExpectedSeq:
         worker_b = FileEventLog(tmp_path)
         await worker_a.append(_make(PlanEventType.PLAN_CREATED))
 
-        await worker_b.append(_make(PlanEventType.STEP_COMPLETED, step_id="s1"), expected_seq=1)
+        await worker_b.append(_make(PlanEventType.NODE_COMPLETED, node_id="s1"), expected_seq=1)
 
         with pytest.raises(VersionConflict):
-            await worker_a.append(_make(PlanEventType.STEP_COMPLETED, step_id="s2"), expected_seq=1)
+            await worker_a.append(_make(PlanEventType.NODE_COMPLETED, node_id="s2"), expected_seq=1)
 
 
 class TestFileEventLogCrashDurability:
@@ -322,18 +322,18 @@ class TestFileEventLogCrashDurability:
 
         log = FileEventLog(tmp_path)
         await log.append(_make(PlanEventType.PLAN_CREATED))
-        await log.append(_make(PlanEventType.STEP_COMPLETED, step_id="s1"))
+        await log.append(_make(PlanEventType.NODE_COMPLETED, node_id="s1"))
 
         path = log._path("p1")
         with path.open("a", encoding="utf-8") as f:
-            f.write('{"seq": 3, "event_type": "StepCompleted", "data":')
+            f.write('{"seq": 3, "event_type": "NodeCompleted", "data":')
 
         assert _count_valid_lines(path) == 2
 
     async def test_half_line_skipped_by_load(self, tmp_path):
         log = FileEventLog(tmp_path)
         await log.append(_make(PlanEventType.PLAN_CREATED))
-        await log.append(_make(PlanEventType.STEP_COMPLETED, step_id="s1"))
+        await log.append(_make(PlanEventType.NODE_COMPLETED, node_id="s1"))
 
         path = log._path("p1")
         with path.open("a", encoding="utf-8") as f:
@@ -347,14 +347,14 @@ class TestFileEventLogCrashDurability:
     async def test_append_after_half_line_continues_lsn_correctly(self, tmp_path):
         log = FileEventLog(tmp_path)
         await log.append(_make(PlanEventType.PLAN_CREATED))
-        await log.append(_make(PlanEventType.STEP_COMPLETED, step_id="s1"))
+        await log.append(_make(PlanEventType.NODE_COMPLETED, node_id="s1"))
 
         path = log._path("p1")
         with path.open("a", encoding="utf-8") as f:
             f.write('{"seq": 99, "partial":')
 
         log2 = FileEventLog(tmp_path)
-        seq = await log2.append(_make(PlanEventType.STEP_COMPLETED, step_id="s2"))
+        seq = await log2.append(_make(PlanEventType.NODE_COMPLETED, node_id="s2"))
         assert seq == 3, "LSN must continue from 2 (last valid), not from the corrupt line"
 
     async def test_fsync_production_mode(self, tmp_path):
@@ -372,8 +372,8 @@ class TestFileEventLogCrashDurability:
 
         log = FileEventLog(tmp_path)
         await log.append(_make(PlanEventType.PLAN_CREATED))
-        await log.append(_make(PlanEventType.STEP_COMPLETED, step_id="s1"))
-        await log.append(_make(PlanEventType.STEP_COMPLETED, step_id="s2"))
+        await log.append(_make(PlanEventType.NODE_COMPLETED, node_id="s1"))
+        await log.append(_make(PlanEventType.NODE_COMPLETED, node_id="s2"))
 
         path = log._path("p1")
         lines = path.read_text(encoding="utf-8").splitlines()

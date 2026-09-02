@@ -15,12 +15,12 @@ from prodagent import Agent, ExecutionMode
 from prodagent.kernel.budget import HardBudget
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import (
+    NodeCompletedEvent,
+    NodeFailedEvent,
+    NodeStartedEvent,
     RunCompletedEvent,
     RunFailedEvent,
     RunSuspendedEvent,
-    StepCompletedEvent,
-    StepFailedEvent,
-    StepStartedEvent,
     ThinkTokenEvent,
     ToolCall,
     ToolCallStartEvent,
@@ -98,9 +98,9 @@ def test_every_event_type_round_trips_through_the_wire() -> None:
         ThinkTokenEvent(token="hi", run_id="r1"),
         ToolCallStartEvent(call=ToolCall(name="search", params={"q": "x"}), run_id="r1"),
         ToolResultEvent(name="search", result={"hits": [1, 2]}, run_id="r1"),
-        StepStartedEvent(step_id="s1", action="search", run_id="r1"),
-        StepCompletedEvent(step_id="s1", action="search", result="done", run_id="r1"),
-        StepFailedEvent(step_id="s1", action="search", error="boom", run_id="r1"),
+        NodeStartedEvent(node_id="s1", action="search", run_id="r1"),
+        NodeCompletedEvent(node_id="s1", action="search", result="done", run_id="r1"),
+        NodeFailedEvent(node_id="s1", action="search", error="boom", run_id="r1"),
         RunCompletedEvent(run=run),
         RunFailedEvent(run=run, error="budget"),
         RunSuspendedEvent(run=run),
@@ -114,12 +114,12 @@ def test_every_event_type_round_trips_through_the_wire() -> None:
 
 def test_run_events_carry_the_run_as_the_checkpoint_document() -> None:
     run = AgentRun(run_id="wire-run", task="t")
-    run.set_cursor("plan", {"state": {"steps": {}}, "last_seq": 4})
+    run.set_cursor("plan", {"state": {"nodes": {}}, "last_seq": 4})
     wire = event_to_wire(RunCompletedEvent(run=run))
     assert wire["run"]["cursors"]["plan"]["last_seq"] == 4
     restored = event_from_wire(wire)
     assert isinstance(restored, RunCompletedEvent)
-    assert restored.run.cursor("plan") == {"state": {"steps": {}}, "last_seq": 4}
+    assert restored.run.cursor("plan") == {"state": {"nodes": {}}, "last_seq": 4}
 
 
 def test_opaque_payload_stringifies_instead_of_failing() -> None:

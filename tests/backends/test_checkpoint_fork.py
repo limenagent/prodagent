@@ -7,10 +7,11 @@ import pytest
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
+from prodagent.kernel.bodies.runner import BodyRunner
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import LLMResponse, RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.executor import PlanExecutor
+from prodagent.plan.scheduler import Scheduler
 
 _TERMINAL = (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)
 
@@ -89,7 +90,7 @@ async def test_list_run_ids_excludes_lock_files(tmp_path):
 @pytest.mark.asyncio
 async def test_fork_preserves_state_resets_plan_last_seq(tmp_path):
     store = FileCheckpointStore(directory=tmp_path)
-    plan_state = {"version": 1, "steps": {"s1": {"step_id": "s1", "status": "completed"}}}
+    plan_state = {"version": 1, "nodes": {"s1": {"node_id": "s1", "status": "completed"}}}
     r = _run("R1", plan_state=plan_state, plan_last_seq=7)
     await store.save(r)
     r.metrics.turn_count = 5
@@ -112,7 +113,7 @@ async def test_fork_preserves_state_resets_plan_last_seq(tmp_path):
 @pytest.mark.asyncio
 async def test_fork_with_explicit_new_run_id(tmp_path):
     store = FileCheckpointStore(directory=tmp_path)
-    await store.save(_run("R1", plan_state={"version": 1, "steps": {}}))
+    await store.save(_run("R1", plan_state={"version": 1, "nodes": {}}))
     forked_id = await store.fork("R1", at_version=1, new_run_id="CUSTOM")
     assert forked_id == "CUSTOM"
     loaded = await store.load("CUSTOM")
@@ -136,11 +137,11 @@ async def test_forked_run_resumes_without_planner_and_without_version_conflict(t
     checkpoints = FileCheckpointStore(directory=tmp_path / "checkpoints")
 
     executor = _RecordingExecutor()
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm(_two_step_plan()),
-        executor,
+        BodyRunner(tools=executor),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
     )
@@ -158,11 +159,11 @@ async def test_forked_run_resumes_without_planner_and_without_version_conflict(t
 
     executor2 = _RecordingExecutor()
     sentinel_llm = _plan_llm({"steps": [{"id": "X", "action": "must_not", "depends_on": []}]})
-    planner2 = PlanExecutor(
+    planner2 = Scheduler(
         sentinel_llm,
-        executor2,
+        BodyRunner(tools=executor2),
         system="sys",
-        messages=[{"role": "user", "content": "resume"}],
+        initial_messages=[{"role": "user", "content": "resume"}],
         event_log=events,
         checkpoint_store=checkpoints,
     )

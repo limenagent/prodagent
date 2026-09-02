@@ -1,6 +1,9 @@
 import pytest
 
-from prodagent.plan.dag import Plan, PlanStep, StepStatus
+from prodagent.kernel.bodies.base import ToolBody
+from prodagent.kernel.node_state import NodeRuntimeState
+from prodagent.kernel.types import NodeStatus
+from prodagent.plan.dag import Node, Plan, default_validator, fresh_states, state_of
 
 
 @pytest.fixture
@@ -10,62 +13,71 @@ def empty_plan():
 
 @pytest.fixture
 def sample_plan(empty_plan):
-    steps = [
-        PlanStep(step_id="step_0", action="root", params={}, depends_on=[]),
-        PlanStep(step_id="step_1", action="middle", params={}, depends_on=["step_0"]),
-        PlanStep(step_id="step_2", action="branch", params={}, depends_on=["step_0"]),
-        PlanStep(step_id="step_3", action="end", params={}, depends_on=["step_1", "step_2"]),
+    nodes = [
+        Node(node_id="step_0", body=ToolBody("root"), params={}, depends_on=[]),
+        Node(node_id="step_1", body=ToolBody("middle"), params={}, depends_on=["step_0"]),
+        Node(node_id="step_2", body=ToolBody("branch"), params={}, depends_on=["step_0"]),
+        Node(node_id="step_3", body=ToolBody("end"), params={}, depends_on=["step_1", "step_2"]),
     ]
-    empty_plan.add_steps(steps)
+    empty_plan.add_nodes(nodes)
     return empty_plan
 
 
-def test_plan_step_creation():
-    step = PlanStep(
-        step_id="test_step",
-        action="test_action",
+@pytest.fixture
+def states(sample_plan):
+    return fresh_states(sample_plan)
+
+
+def _completed(states, node_id, output=None):
+    states[node_id].mark_running()
+    states[node_id].mark_completed(output)
+
+
+def _failed(states, node_id):
+    states[node_id].mark_running()
+    states[node_id].mark_failed("boom")
+
+
+def test_node_creation():
+    node = Node(
+        node_id="test_node",
+        body=ToolBody("test_action"),
         params={"arg": "value"},
     )
-    assert step.step_id == "test_step"
-    assert step.action == "test_action"
-    assert step.params == {"arg": "value"}
-    assert step.depends_on == []
-    assert step.status == StepStatus.PENDING
-    assert step.version_created == 1
+    assert node.node_id == "test_node"
+    assert node.action == "test_action"
+    assert dict(node.params) == {"arg": "value"}
+    assert list(node.depends_on) == []
+    assert state_of({}, "test_node").status is NodeStatus.PENDING
+    assert node.version_created == 1
 
 
-def test_plan_step_with_dependencies():
-    step = PlanStep(
-        step_id="test_step",
-        action="test_action",
+def test_node_with_dependencies():
+    node = Node(
+        node_id="test_node",
+        body=ToolBody("test_action"),
         params={},
         depends_on=["dep1", "dep2"],
     )
-    assert step.depends_on == ["dep1", "dep2"]
+    assert list(node.depends_on) == ["dep1", "dep2"]
 
 
-def test_plan_step_output_ref():
-    step = PlanStep(
-        step_id="test_step",
-        action="test_action",
-        params={},
-    )
-    step.output_ref = {"result": "value"}
-    assert step.output_ref == {"result": "value"}
+def test_node_output_lives_on_state():
+    state = NodeRuntimeState("test_node")
+    state.mark_running()
+    state.mark_completed({"result": "value"})
+    assert state.output_ref == {"result": "value"}
 
 
-def test_plan_step_error():
-    step = PlanStep(
-        step_id="test_step",
-        action="test_action",
-        params={},
-    )
-    step.error = "Something went wrong"
-    assert step.error == "Something went wrong"
+def test_node_error_lives_on_state():
+    state = NodeRuntimeState("test_node")
+    state.mark_running()
+    state.mark_failed("Something went wrong")
+    assert state.error == "Something went wrong"
 
 
 def test_plan_from_fixture(sample_plan):
-    assert len(sample_plan.steps) == 4
+    assert len(sample_plan.nodes) == 4
     assert sample_plan.version == 1
 
 
@@ -81,247 +93,233 @@ def test_execution_plan_init_generates_id():
     assert len(plan.plan_id) > 0
 
 
-def test_get_step_returns_step(sample_plan):
-    step = sample_plan.get_step("step_0")
-    assert step is not None
-    assert step.step_id == "step_0"
+def test_get_node_returns_node(sample_plan):
+    node = sample_plan.get_node("step_0")
+    assert node is not None
+    assert node.node_id == "step_0"
 
 
-def test_get_step_returns_none_for_nonexistent(sample_plan):
-    step = sample_plan.get_step("nonexistent")
-    assert step is None
+def test_get_node_returns_none_for_nonexistent(sample_plan):
+    assert sample_plan.get_node("nonexistent") is None
 
 
-def test_get_parallel_ready_returns_multiple(sample_plan):
-    step = sample_plan.get_step("step_0")
-    step.status = StepStatus.COMPLETED
+def test_ready_returns_multiple(sample_plan, states):
+    _completed(states, "step_0")
 
-    ready_steps = sample_plan.get_parallel_ready()
-    assert len(ready_steps) == 2
-    step_ids = {s.step_id for s in ready_steps}
-    assert step_ids == {"step_1", "step_2"}
+    ready = sample_plan.ready(states)
+    assert len(ready) == 2
+    assert {n.node_id for n in ready} == {"step_1", "step_2"}
 
 
-def test_get_parallel_ready_returns_root(empty_plan):
-    steps = [PlanStep(step_id="step_0", action="root", params={}, depends_on=[])]
-    empty_plan.add_steps(steps)
-    ready_steps = empty_plan.get_parallel_ready()
-    assert len(ready_steps) == 1
-    assert ready_steps[0].step_id == "step_0"
+def test_ready_returns_root(empty_plan):
+    nodes = [Node(node_id="step_0", body=ToolBody("root"), params={}, depends_on=[])]
+    empty_plan.add_nodes(nodes)
+    ready = empty_plan.ready(fresh_states(empty_plan))
+    assert len(ready) == 1
+    assert ready[0].node_id == "step_0"
 
 
-def test_all_deps_completed_raises_on_missing_dependency(empty_plan):
-    steps = [PlanStep(step_id="step_0", action="root", params={}, depends_on=["missing_dep"])]
-    empty_plan.add_steps(steps)
+def test_ready_raises_on_missing_dependency(empty_plan):
+    nodes = [Node(node_id="step_0", body=ToolBody("root"), params={}, depends_on=["missing_dep"])]
+    empty_plan.add_nodes(nodes)
     with pytest.raises(ValueError, match="unknown dependency"):
-        empty_plan.get_parallel_ready()
+        empty_plan.ready({})
 
 
-def test_mark_downstream_obsolete_preserves_failed_step(sample_plan):
-    step = sample_plan.get_step("step_1")
-    step.status = StepStatus.FAILED
+def test_mark_downstream_obsolete_preserves_failed_node(sample_plan, states):
+    _failed(states, "step_1")
 
-    obsolete = sample_plan.mark_downstream_obsolete("step_1")
-    assert step.status == StepStatus.FAILED
+    obsolete = sample_plan.mark_downstream_obsolete("step_1", states)
+    assert states["step_1"].status is NodeStatus.FAILED
     assert "step_1" not in obsolete
 
 
-def test_mark_downstream_obsolete_marks_transitive_dependents(sample_plan):
-    step = sample_plan.get_step("step_1")
-    step.status = StepStatus.FAILED
+def test_mark_downstream_obsolete_marks_transitive_dependents(sample_plan, states):
+    _failed(states, "step_1")
 
-    obsolete = sample_plan.mark_downstream_obsolete("step_1")
+    obsolete = sample_plan.mark_downstream_obsolete("step_1", states)
     assert "step_1" not in obsolete
     assert "step_3" in obsolete
 
 
-def test_mark_downstream_obsolete_preserves_completed_steps(sample_plan):
-    step1 = sample_plan.get_step("step_1")
-    step1.status = StepStatus.COMPLETED
+def test_mark_downstream_obsolete_preserves_completed(sample_plan, states):
+    _completed(states, "step_1")
+    _failed(states, "step_2")
 
-    step2 = sample_plan.get_step("step_2")
-    step2.status = StepStatus.FAILED
-
-    obsolete = sample_plan.mark_downstream_obsolete("step_2")
+    obsolete = sample_plan.mark_downstream_obsolete("step_2", states)
     assert "step_1" not in obsolete
-    assert step1.status == StepStatus.COMPLETED
+    assert states["step_1"].status is NodeStatus.COMPLETED
     assert "step_3" in obsolete
 
 
-def test_mark_downstream_obsolete_on_nonexistent_step(sample_plan):
-    obsolete = sample_plan.mark_downstream_obsolete("nonexistent")
-    assert obsolete == []
+def test_mark_downstream_obsolete_on_nonexistent_node(sample_plan, states):
+    assert sample_plan.mark_downstream_obsolete("nonexistent", states) == []
 
 
-def test_merge_adds_new_steps(empty_plan):
-    new_steps = [PlanStep(step_id="new_step", action="new", params={}, depends_on=[])]
-    empty_plan.merge(new_steps)
-    assert empty_plan.get_step("new_step") is not None
-    assert empty_plan.version == 2
+def test_merge_adds_new_nodes(empty_plan):
+    new_nodes = [Node(node_id="new_node", body=ToolBody("new"), params={}, depends_on=[])]
+    merged = empty_plan.merge(new_nodes, {})
+    assert merged.get_node("new_node") is not None
+    assert merged.version == 2
 
 
-def test_merge_replaces_step_if_specified(sample_plan):
-    new_steps = [
-        PlanStep(
-            step_id="new_step",
-            action="new",
+def test_merge_replaces_node_if_specified(sample_plan, states):
+    new_nodes = [
+        Node(
+            node_id="new_node",
+            body=ToolBody("new"),
             params={},
             depends_on=[],
-            replaces_step_id="step_1",
+            replaces_node_id="step_1",
         )
     ]
-    sample_plan.merge(new_steps)
-    old_step = sample_plan.get_step("step_1")
-    assert old_step.status == StepStatus.OBSOLETE
-    assert sample_plan.get_step("new_step") is not None
+    merged = sample_plan.merge(new_nodes, states)
+    assert states["step_1"].status is NodeStatus.OBSOLETE
+    assert merged.get_node("new_node") is not None
 
 
 def test_merge_raises_on_missing_dependency(empty_plan):
-    new_steps = [PlanStep(step_id="new_step", action="new", params={}, depends_on=["missing"])]
+    new_nodes = [Node(node_id="new_node", body=ToolBody("new"), params={}, depends_on=["missing"])]
     with pytest.raises(ValueError, match="dependency .* not found"):
-        empty_plan.merge(new_steps)
+        empty_plan.merge(new_nodes, {})
 
 
-def test_merge_raises_on_obsolete_dependency(sample_plan):
-    step1 = sample_plan.get_step("step_1")
-    step1.status = StepStatus.OBSOLETE
+def test_merge_raises_on_obsolete_dependency(sample_plan, states):
+    states["step_1"].mark_obsolete()
 
-    new_steps = [PlanStep(step_id="new_step", action="new", params={}, depends_on=["step_1"])]
+    new_nodes = [Node(node_id="new_node", body=ToolBody("new"), params={}, depends_on=["step_1"])]
     with pytest.raises(ValueError, match="dependency .* is OBSOLETE"):
-        sample_plan.merge(new_steps)
+        sample_plan.merge(new_nodes, states)
 
 
-def test_merge_increments_version(sample_plan):
+def test_merge_returns_new_version(sample_plan):
     original_version = sample_plan.version
-    new_steps = [PlanStep(step_id="new_step", action="new", params={}, depends_on=[])]
-    sample_plan.merge(new_steps)
-    assert sample_plan.version == original_version + 1
+    new_nodes = [Node(node_id="new_node", body=ToolBody("new"), params={}, depends_on=[])]
+    merged = sample_plan.merge(new_nodes, {})
+    assert merged.version == original_version + 1
+    assert sample_plan.version == original_version  # the old blueprint is untouched
 
 
 def test_merge_sets_version_created(sample_plan):
-    new_steps = [PlanStep(step_id="new_step", action="new", params={}, depends_on=[])]
-    sample_plan.merge(new_steps)
-    new_step = sample_plan.get_step("new_step")
-    assert new_step.version_created == 2
+    new_nodes = [Node(node_id="new_node", body=ToolBody("new"), params={}, depends_on=[])]
+    merged = sample_plan.merge(new_nodes, {})
+    assert merged.get_node("new_node").version_created == 2
 
 
 def test_assert_no_cycles_passes_on_dag(empty_plan):
-    steps = [
-        PlanStep(step_id="a", action="a", params={}, depends_on=[]),
-        PlanStep(step_id="b", action="b", params={}, depends_on=["a"]),
-        PlanStep(step_id="c", action="c", params={}, depends_on=["a", "b"]),
+    nodes = [
+        Node(node_id="a", body=ToolBody("a"), params={}, depends_on=[]),
+        Node(node_id="b", body=ToolBody("b"), params={}, depends_on=["a"]),
+        Node(node_id="c", body=ToolBody("c"), params={}, depends_on=["a", "b"]),
     ]
-    empty_plan.add_steps(steps)
+    empty_plan.add_nodes(nodes)
 
 
 def test_assert_no_cycles_detects_cycle(empty_plan):
-    steps = [
-        PlanStep(step_id="a", action="a", params={}, depends_on=["c"]),
-        PlanStep(step_id="b", action="b", params={}, depends_on=["a"]),
-        PlanStep(step_id="c", action="c", params={}, depends_on=["b"]),
+    nodes = [
+        Node(node_id="a", body=ToolBody("a"), params={}, depends_on=["c"]),
+        Node(node_id="b", body=ToolBody("b"), params={}, depends_on=["a"]),
+        Node(node_id="c", body=ToolBody("c"), params={}, depends_on=["b"]),
     ]
     with pytest.raises(ValueError, match="Cycle detected"):
-        empty_plan.add_steps(steps)
+        default_validator().validate(nodes)
 
 
 def test_assert_no_cycles_in_cycle(empty_plan):
-    steps = [
-        PlanStep(step_id="a", action="a", params={}, depends_on=["b"]),
-        PlanStep(step_id="b", action="b", params={}, depends_on=["a"]),
+    nodes = [
+        Node(node_id="a", body=ToolBody("a"), params={}, depends_on=["b"]),
+        Node(node_id="b", body=ToolBody("b"), params={}, depends_on=["a"]),
     ]
     with pytest.raises(ValueError, match="Cycle detected"):
-        empty_plan.add_steps(steps)
+        default_validator().validate(nodes)
 
 
-def test_is_complete_when_all_completed(sample_plan):
-    for step in sample_plan.steps:
-        step.status = StepStatus.COMPLETED
-    assert sample_plan.is_complete()
+def test_is_complete_when_all_completed(sample_plan, states):
+    for st in states.values():
+        st.mark_running()
+        st.mark_completed("out")
+    assert sample_plan.is_complete(states)
 
 
-def test_is_complete_when_mixed_with_obsolete(sample_plan):
-    for i, step in enumerate(sample_plan.steps):
+def test_is_complete_when_mixed_with_obsolete(sample_plan, states):
+    for i, st in enumerate(states.values()):
         if i % 2 == 0:
-            step.status = StepStatus.COMPLETED
+            st.mark_running()
+            st.mark_completed("out")
         else:
-            step.status = StepStatus.OBSOLETE
-    assert sample_plan.is_complete()
+            st.mark_obsolete()
+    assert sample_plan.is_complete(states)
 
 
-def test_is_complete_when_pending(sample_plan):
-    assert not sample_plan.is_complete()
+def test_is_complete_when_pending(sample_plan, states):
+    assert not sample_plan.is_complete(states)
 
 
-def test_is_complete_when_failed(sample_plan):
-    step = sample_plan.get_step("step_0")
-    step.status = StepStatus.FAILED
-    assert not sample_plan.is_complete()
+def test_is_complete_when_failed(sample_plan, states):
+    _failed(states, "step_0")
+    assert not sample_plan.is_complete(states)
 
 
-def test_add_steps_preserves_version_on_first_add(empty_plan):
-    steps = [PlanStep(step_id="step_0", action="root", params={}, depends_on=[])]
-    empty_plan.add_steps(steps)
+def test_add_nodes_preserves_version_on_first_add(empty_plan):
+    nodes = [Node(node_id="step_0", body=ToolBody("root"), params={}, depends_on=[])]
+    empty_plan.add_nodes(nodes)
     assert empty_plan.version == 1
 
 
-def test_step_status_enum_values():
-    assert StepStatus.PENDING == "pending"
-    assert StepStatus.RUNNING == "running"
-    assert StepStatus.COMPLETED == "completed"
-    assert StepStatus.FAILED == "failed"
-    assert StepStatus.OBSOLETE == "obsolete"
+def test_node_status_enum_values():
+    assert NodeStatus.PENDING == "pending"
+    assert NodeStatus.RUNNING == "running"
+    assert NodeStatus.COMPLETED == "completed"
+    assert NodeStatus.FAILED == "failed"
+    assert NodeStatus.OBSOLETE == "obsolete"
 
 
-def test_add_steps_overwrites_existing_step(empty_plan):
-    steps = [PlanStep(step_id="dup", action="v1", params={}, depends_on=[])]
-    empty_plan.add_steps(steps)
-    steps2 = [PlanStep(step_id="dup", action="v2", params={}, depends_on=[])]
-    empty_plan.add_steps(steps2)
-    step = empty_plan.get_step("dup")
-    assert step.action == "v2"
+def test_add_nodes_overwrites_existing_node(empty_plan):
+    nodes = [Node(node_id="dup", body=ToolBody("v1"), params={}, depends_on=[])]
+    empty_plan.add_nodes(nodes)
+    nodes2 = [Node(node_id="dup", body=ToolBody("v2"), params={}, depends_on=[])]
+    empty_plan.add_nodes(nodes2)
+    assert empty_plan.get_node("dup").action == "v2"
 
 
-def test_steps_property_returns_list(sample_plan):
-    steps = sample_plan.steps
-    assert isinstance(steps, list)
-    assert len(steps) == 4
+def test_nodes_property_returns_mapping(sample_plan):
+    nodes = sample_plan.nodes
+    assert isinstance(nodes, dict)
+    assert len(nodes) == 4
 
 
-def test_steps_property_is_copy(sample_plan):
-    steps1 = sample_plan.steps
-    steps2 = sample_plan.steps
-    assert steps1 is not steps2
+def test_nodes_property_is_copy(sample_plan):
+    nodes1 = sample_plan.nodes
+    nodes2 = sample_plan.nodes
+    assert nodes1 is not nodes2
 
 
-def test_get_parallel_ready_filters_by_status(sample_plan):
-    step = sample_plan.get_step("step_0")
-    step.status = StepStatus.COMPLETED
+def test_ready_filters_by_status(sample_plan, states):
+    _completed(states, "step_0")
+    states["step_1"].mark_running()
 
-    step1 = sample_plan.get_step("step_1")
-    step1.status = StepStatus.RUNNING
-
-    ready = sample_plan.get_parallel_ready()
-    step_ids = {s.step_id for s in ready}
-    assert step_ids == {"step_2"}
+    ready = sample_plan.ready(states)
+    assert {n.node_id for n in ready} == {"step_2"}
 
 
-def test_mark_downstream_obsolete_uses_bfs(sample_plan):
-    step4 = PlanStep(step_id="step_4", action="deep", params={}, depends_on=["step_3"])
-    sample_plan.add_steps([step4])
+def test_mark_downstream_obsolete_uses_bfs(sample_plan, states):
+    sample_plan.add_nodes(
+        [Node(node_id="step_4", body=ToolBody("deep"), params={}, depends_on=["step_3"])]
+    )
+    states["step_4"] = NodeRuntimeState("step_4")
 
-    step1 = sample_plan.get_step("step_1")
-    step1.status = StepStatus.FAILED
+    _failed(states, "step_1")
 
-    obsolete = sample_plan.mark_downstream_obsolete("step_1")
+    obsolete = sample_plan.mark_downstream_obsolete("step_1", states)
     assert set(obsolete) == {"step_3", "step_4"}
 
 
-def test_replaces_step_id_in_step():
-    step = PlanStep(
-        step_id="new_step",
-        action="new",
+def test_replaces_node_id_in_node():
+    node = Node(
+        node_id="new_node",
+        body=ToolBody("new"),
         params={},
         depends_on=[],
-        replaces_step_id="old_step",
+        replaces_node_id="old_node",
     )
-    assert step.replaces_step_id == "old_step"
+    assert node.replaces_node_id == "old_node"

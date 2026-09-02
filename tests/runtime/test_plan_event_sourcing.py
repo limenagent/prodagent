@@ -8,9 +8,10 @@ import pytest
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
 from prodagent.base.event_log import Event, PlanEventType
+from prodagent.kernel.bodies.runner import BodyRunner
 from prodagent.kernel.types import LLMResponse, RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.executor import PlanExecutor
+from prodagent.plan.scheduler import Scheduler
 
 _TERMINAL = (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)
 
@@ -57,11 +58,11 @@ class _RecordingExecutor:
 async def test_emits_event_sequence(tmp_path):
     events, checkpoints = _stores(tmp_path)
     executor = _RecordingExecutor()
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm(_two_step_plan()),
-        executor,
+        BodyRunner(tools=executor),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
     )
@@ -74,10 +75,10 @@ async def test_emits_event_sequence(tmp_path):
     types = [e.event_type for e in await events.get_events("R1")]
     assert types == [
         PlanEventType.PLAN_CREATED,
-        PlanEventType.STEP_STARTED,
-        PlanEventType.STEP_COMPLETED,
-        PlanEventType.STEP_STARTED,
-        PlanEventType.STEP_COMPLETED,
+        PlanEventType.NODE_STARTED,
+        PlanEventType.NODE_COMPLETED,
+        PlanEventType.NODE_STARTED,
+        PlanEventType.NODE_COMPLETED,
     ]
     assert executor.calls == ["collect", "report"]
     saved = await checkpoints.load("R1")
@@ -94,26 +95,26 @@ async def test_resume_skips_completed(tmp_path):
             PlanEventType.PLAN_CREATED,
             "R2",
             version=1,
-            steps=[
-                {"step_id": "s1", "action": "collect", "depends_on": [], "status": "pending"},
-                {"step_id": "s2", "action": "report", "depends_on": ["s1"], "status": "pending"},
+            nodes=[
+                {"node_id": "s1", "action": "collect", "depends_on": [], "status": "pending"},
+                {"node_id": "s2", "action": "report", "depends_on": ["s1"], "status": "pending"},
             ],
         )
     )
-    await events.append(Event.make(PlanEventType.STEP_STARTED, "R2", version=1, step_id="s1"))
+    await events.append(Event.make(PlanEventType.NODE_STARTED, "R2", version=1, node_id="s1"))
     await events.append(
         Event.make(
-            PlanEventType.STEP_COMPLETED, "R2", version=1, step_id="s1", output_ref={"ok": 1}
+            PlanEventType.NODE_COMPLETED, "R2", version=1, node_id="s1", output_ref={"ok": 1}
         )
     )
 
     executor = _RecordingExecutor()
     llm = _plan_llm(_two_step_plan())
-    planner = PlanExecutor(
+    planner = Scheduler(
         llm,
-        executor,
+        BodyRunner(tools=executor),
         system="sys",
-        messages=[{"role": "user", "content": "resume"}],
+        initial_messages=[{"role": "user", "content": "resume"}],
         event_log=events,
         checkpoint_store=checkpoints,
     )
@@ -133,19 +134,19 @@ async def test_dangling_step_started_reruns(tmp_path):
             PlanEventType.PLAN_CREATED,
             "R3",
             version=1,
-            steps=[
-                {"step_id": "s1", "action": "collect", "depends_on": [], "status": "pending"},
+            nodes=[
+                {"node_id": "s1", "action": "collect", "depends_on": [], "status": "pending"},
             ],
         )
     )
-    await events.append(Event.make(PlanEventType.STEP_STARTED, "R3", version=1, step_id="s1"))
+    await events.append(Event.make(PlanEventType.NODE_STARTED, "R3", version=1, node_id="s1"))
 
     executor = _RecordingExecutor()
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm(_two_step_plan()),
-        executor,
+        BodyRunner(tools=executor),
         system="sys",
-        messages=[{"role": "user", "content": "resume"}],
+        initial_messages=[{"role": "user", "content": "resume"}],
         event_log=events,
         checkpoint_store=checkpoints,
     )
@@ -160,11 +161,11 @@ async def test_dangling_step_started_reruns(tmp_path):
 async def test_checkpoint_only_at_step_boundary(tmp_path):
     events, checkpoints = _stores(tmp_path)
     executor = _RecordingExecutor()
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm({"steps": [{"id": "s1", "action": "collect", "params": {}, "depends_on": []}]}),
-        executor,
+        BodyRunner(tools=executor),
         system="sys",
-        messages=[{"role": "user", "content": "go"}],
+        initial_messages=[{"role": "user", "content": "go"}],
         event_log=events,
         checkpoint_store=checkpoints,
     )
@@ -174,9 +175,9 @@ async def test_checkpoint_only_at_step_boundary(tmp_path):
 
     run = await checkpoints.load("R4")
     assert run is not None
-    assert (run.cursor("plan") or {})["state"]["steps"]["s1"]["status"] == "completed"
+    assert (run.cursor("plan") or {})["state"]["nodes"]["s1"]["status"] == "completed"
     completed = [
-        e for e in await events.get_events("R4") if e.event_type == PlanEventType.STEP_COMPLETED
+        e for e in await events.get_events("R4") if e.event_type == PlanEventType.NODE_COMPLETED
     ][0]
     assert (run.cursor("plan") or {})["last_seq"] == completed.seq
 
@@ -189,11 +190,11 @@ async def test_retry_same_run_id_after_plan_failure_does_not_conflict(tmp_path):
     bad_llm = FakeLLMAdapter(
         responses=[LLMResponse(content="not json at all", stop_reason="end_turn")]
     )
-    planner1 = PlanExecutor(
+    planner1 = Scheduler(
         bad_llm,
-        executor,
+        BodyRunner(tools=executor),
         system="sys",
-        messages=[{"role": "user", "content": "go"}],
+        initial_messages=[{"role": "user", "content": "go"}],
         event_log=events,
         checkpoint_store=checkpoints,
     )
@@ -202,13 +203,13 @@ async def test_retry_same_run_id_after_plan_failure_does_not_conflict(tmp_path):
         streamed1.append(event)
     run1 = _final_run(streamed1)
     assert run1.state.value == "failed"
-    assert run1.last_error == "Failed to parse plan JSON — no steps to execute"
+    assert run1.last_error == "Failed to parse plan JSON — no nodes to execute"
 
-    planner2 = PlanExecutor(
+    planner2 = Scheduler(
         _plan_llm({"steps": [{"id": "s1", "action": "collect", "params": {}, "depends_on": []}]}),
-        executor,
+        BodyRunner(tools=executor),
         system="sys",
-        messages=[{"role": "user", "content": "go"}],
+        initial_messages=[{"role": "user", "content": "go"}],
         event_log=events,
         checkpoint_store=checkpoints,
     )
@@ -224,34 +225,36 @@ async def test_retry_same_run_id_after_plan_failure_does_not_conflict(tmp_path):
 
 @pytest.mark.asyncio
 async def test_complete_step_aborts_when_step_obsoleted_mid_flight(tmp_path):
+    from prodagent.kernel.bodies.base import ToolBody
     from prodagent.kernel.state import AgentRun
     from prodagent.kernel.types import RunState, ToolCall
-    from prodagent.plan.dag import Plan, PlanStep, StepStatus
+    from prodagent.plan.dag import Node, NodeStatus, Plan
 
     events, checkpoints = _stores(tmp_path)
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm({"steps": []}),
-        _RecordingExecutor(),
+        BodyRunner(tools=_RecordingExecutor()),
         event_log=events,
         checkpoint_store=checkpoints,
     )
     plan = Plan(plan_id="R5")
-    s0 = PlanStep(step_id="s0", action="do_first", depends_on=[])
-    step = PlanStep(step_id="s1", action="do_thing", depends_on=["s0"])
-    plan.add_steps([s0, step])
+    s0 = Node(node_id="s0", body=ToolBody("do_first"), depends_on=[])
+    step = Node(node_id="s1", body=ToolBody("do_thing"), depends_on=["s0"])
+    plan.add_nodes([s0, step])
     run = AgentRun(run_id="R5", task="t")
     run.state = RunState.RUNNING
 
-    s0.status = StepStatus.FAILED
-    step.status = StepStatus.RUNNING
-    plan.mark_downstream_obsolete("s0")
-    assert step.status is StepStatus.OBSOLETE
+    run.node_state("s0").mark_running()
+    run.node_state("s0").mark_failed("boom")
+    run.node_state("s1").mark_running()
+    plan.mark_downstream_obsolete("s0", run.node_states)
+    assert run.node_state("s1").status is NodeStatus.OBSOLETE
 
     call = ToolCall(name="do_thing", params={}, call_id="c1")
     prior_messages = len(run.messages)
     prior_tool_history = len(run.tool_history)
 
-    await planner._step_runner._complete(
+    await planner._node_runner._complete(
         step,
         result={"ok": True},
         call=call,
@@ -259,19 +262,20 @@ async def test_complete_step_aborts_when_step_obsoleted_mid_flight(tmp_path):
         run=run,
     )
 
-    assert step.status is StepStatus.OBSOLETE, "OBSOLETE step was overwritten to COMPLETED"
-    assert step.output_ref is None
+    s1_state = run.node_state("s1")
+    assert s1_state.status is NodeStatus.OBSOLETE, "OBSOLETE node was overwritten to COMPLETED"
+    assert s1_state.output_ref is None
     assert len(run.messages) == prior_messages, "tool result was appended despite abort"
     assert len(run.tool_history) == prior_tool_history
     evs = await events.get_events("R5")
-    assert all(e.event_type != PlanEventType.STEP_COMPLETED for e in evs), (
+    assert all(e.event_type != PlanEventType.NODE_COMPLETED for e in evs), (
         "StepCompleted event was emitted for an aborted step"
     )
 
 
 @pytest.mark.asyncio
 async def test_cold_start_replan_marks_replaced_step_obsolete(tmp_path):
-    from prodagent.plan.dag import Plan, StepStatus
+    from prodagent.plan.dag import NodeStatus, Plan
     from prodagent.plan.event_log import apply_event
 
     events, checkpoints = _stores(tmp_path)
@@ -281,59 +285,59 @@ async def test_cold_start_replan_marks_replaced_step_obsolete(tmp_path):
             PlanEventType.PLAN_CREATED,
             "R6",
             version=1,
-            steps=[
-                {"step_id": "s1", "action": "collect", "depends_on": [], "status": "pending"},
-                {"step_id": "s2", "action": "report", "depends_on": ["s1"], "status": "pending"},
+            nodes=[
+                {"node_id": "s1", "action": "collect", "depends_on": [], "status": "pending"},
+                {"node_id": "s2", "action": "report", "depends_on": ["s1"], "status": "pending"},
             ],
         )
     )
-    await events.append(Event.make(PlanEventType.STEP_STARTED, "R6", version=1, step_id="s1"))
+    await events.append(Event.make(PlanEventType.NODE_STARTED, "R6", version=1, node_id="s1"))
     await events.append(
         Event.make(
-            PlanEventType.STEP_COMPLETED, "R6", version=1, step_id="s1", output_ref={"ok": 1}
+            PlanEventType.NODE_COMPLETED, "R6", version=1, node_id="s1", output_ref={"ok": 1}
         )
     )
-    await events.append(Event.make(PlanEventType.STEP_STARTED, "R6", version=1, step_id="s2"))
+    await events.append(Event.make(PlanEventType.NODE_STARTED, "R6", version=1, node_id="s2"))
     await events.append(
-        Event.make(PlanEventType.STEP_FAILED, "R6", version=1, step_id="s2", error="boom")
+        Event.make(PlanEventType.NODE_FAILED, "R6", version=1, node_id="s2", error="boom")
     )
     await events.append(
         Event.make(
             PlanEventType.PLAN_REPLANNED,
             "R6",
             version=2,
-            new_steps=[
+            new_nodes=[
                 {
-                    "step_id": "s2b",
+                    "node_id": "s2b",
                     "action": "report_v2",
                     "depends_on": ["s1"],
                     "status": "pending",
-                    "replaces_step_id": "s2",
+                    "replaces_node_id": "s2",
                 }
             ],
         )
     )
 
-    state: dict[str, Any] = {"steps": {}, "version": 0}
+    state: dict[str, Any] = {"nodes": {}, "version": 0}
     for event in await events.get_events("R6"):
         apply_event(state, event)
 
-    plan = Plan.from_state(state, plan_id="R6")
+    plan, folded_states = Plan.from_state(state, plan_id="R6")
     assert plan.version == 2
-    assert plan.get_step("s2").status is StepStatus.OBSOLETE
-    assert plan.get_step("s2b").status is StepStatus.PENDING
-    assert plan.get_step("s2b").replaces_step_id == "s2"
+    assert folded_states["s2"].status is NodeStatus.OBSOLETE
+    assert folded_states["s2b"].status is NodeStatus.PENDING
+    assert plan.get_node("s2b").replaces_node_id == "s2"
 
 
 @pytest.mark.asyncio
 async def test_resume_rebases_checkpoint_version(tmp_path):
     events, checkpoints = _stores(tmp_path)
     executor = _RecordingExecutor()
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm(_two_step_plan()),
-        executor,
+        BodyRunner(tools=executor),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
     )
@@ -345,11 +349,11 @@ async def test_resume_rebases_checkpoint_version(tmp_path):
     assert stored.checkpoint_version >= 1
 
     executor2 = _RecordingExecutor()
-    planner2 = PlanExecutor(
+    planner2 = Scheduler(
         _plan_llm(_two_step_plan()),
-        executor2,
+        BodyRunner(tools=executor2),
         system="sys",
-        messages=[{"role": "user", "content": "resume"}],
+        initial_messages=[{"role": "user", "content": "resume"}],
         event_log=events,
         checkpoint_store=checkpoints,
     )

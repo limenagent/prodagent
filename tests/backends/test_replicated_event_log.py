@@ -23,11 +23,11 @@ from prodagent.base.event_log import Event, PlanEventType
 
 
 def _event(stream_id: str, version: int, **data: Any) -> Event:
-    return Event.make(PlanEventType.STEP_COMPLETED, stream_id, version, **data)
+    return Event.make(PlanEventType.NODE_COMPLETED, stream_id, version, **data)
 
 
 async def _write(log: ReplicatedEventLog, stream: str, n: int, start: int = 1) -> list[Event]:
-    events = [_event(stream, v, step_id=f"s{v}") for v in range(start, start + n)]
+    events = [_event(stream, v, node_id=f"s{v}") for v in range(start, start + n)]
     await log.append_events(events)
     return events
 
@@ -107,7 +107,7 @@ async def test_takeover_another_machine_recovers_from_shared_side() -> None:
     from prodagent.backends.factory import in_memory_checkpoint_store
 
     def reducer(state: list[str], event: Event) -> None:
-        state.append(event.data.get("step_id", "?"))
+        state.append(event.data.get("node_id", "?"))
 
     state, _version, last_seq = await hybrid_restore(
         "r1",
@@ -157,7 +157,7 @@ async def test_reads_and_subscribe_serve_local() -> None:
 
     task = asyncio.create_task(_collect())
     await asyncio.sleep(0.15)
-    await log.append(_event("r1", 3, step_id="s3"))
+    await log.append(_event("r1", 3, node_id="s3"))
     await asyncio.sleep(0.15)
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):

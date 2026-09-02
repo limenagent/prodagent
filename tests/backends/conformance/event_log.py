@@ -12,14 +12,14 @@ Factory: TypeAlias = Callable[[], EventLog]
 
 
 def _event(stream_id: str, version: int, **data: object) -> Event:
-    return Event.make(PlanEventType.STEP_COMPLETED, stream_id, version, **data)
+    return Event.make(PlanEventType.NODE_COMPLETED, stream_id, version, **data)
 
 
 async def run_event_log_conformance(make_store: Factory) -> None:
     store = make_store()
 
-    e1 = _event("p1", 1, step_id="s1")
-    e2 = _event("p1", 2, step_id="s2")
+    e1 = _event("p1", 1, node_id="s1")
+    e2 = _event("p1", 2, node_id="s2")
     seq1 = await store.append(e1)
     seq2 = await store.append(e2)
     assert seq2 > seq1, "append must return monotonic seq"

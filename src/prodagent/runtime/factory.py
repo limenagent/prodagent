@@ -1,7 +1,9 @@
-"""LeafExecutorFactory — build a LeafExecutor + hooks for one hop of the RunLoop.
+"""SchedulerFactory — build the Scheduler + hooks for one hop of the RunLoop.
 
 One public method (``prepare``) and three build steps, top to bottom:
-tools → runtime → executor. No pass-through relays.
+tools → runtime → engine. No pass-through relays, no mode branches: the
+same Scheduler leaves the factory whether the plan comes from a model, a
+hand-written Workflow, or the REACTIVE degenerate blueprint.
 """
 
 from __future__ import annotations
@@ -11,9 +13,10 @@ from typing import TYPE_CHECKING, Any
 
 from prodagent.base.config import ContextConfig
 from prodagent.base.errors import PermissionDenied
+from prodagent.kernel.bodies.runner import BodyRunner
 from prodagent.kernel.budget import SAFETY_NET_BUDGET
 from prodagent.kernel.bus import Gate, HookEvent
-from prodagent.kernel.loop import ReactiveLoop
+from prodagent.kernel.react import ReactEngine
 from prodagent.kernel.types import ExecutionMode, MessageList
 from prodagent.tooling.dispatcher import ToolDispatcher
 from prodagent.tooling.merge import merge_tools_by_name
@@ -21,15 +24,91 @@ from prodagent.tooling.merge import merge_tools_by_name
 if TYPE_CHECKING:
     from prodagent.kernel.budget import SpawnAccumulator
     from prodagent.kernel.bus import HookRegistry
-    from prodagent.ports import LeafExecutor
+    from prodagent.ports import Executor
     from prodagent.runtime.agent import Agent
     from prodagent.runtime.runner import RunContext
 
 logger = logging.getLogger(__name__)
 
 
-class LeafExecutorFactory:
-    """Builds the LeafExecutor + hooks registry for one hop."""
+def _subagent_invoker(ctx: Any) -> Any:
+    """Delegation nodes' activation port: resolve the child on the parent's
+    roster, activate through the hop's RunnerPort on the shared
+    ``activate_subagent`` core — the same core the spawn tool uses, so both
+    entry points grow isomorphic Run trees."""
+    from prodagent.coordination.activation import activate_subagent
+
+    agent = ctx.agent
+    runner = ctx.runner
+
+    async def _invoke(child_name: str, task: str, run_id: str = "") -> dict[str, Any]:
+        if runner is None:
+            raise RuntimeError(
+                f"subagent node {child_name!r}: no RunnerPort on this hop — "
+                "delegation needs the activation port wired by the RunLoop"
+            )
+        spec = next((a for a in agent.child_agents if a.name == child_name), None)
+        if spec is None:
+            from prodagent.base.errors import ErrorReason
+            from prodagent.kernel.types import ToolError
+
+            return ToolError.from_reason(
+                ErrorReason.TOOL_NOT_AVAILABLE,
+                code="subagent_not_found",
+                message=f"Unknown sub-agent {child_name!r}. Available: "
+                f"{[a.name for a in agent.child_agents]}",
+            ).as_dict()
+        from dataclasses import asdict
+
+        result = await activate_subagent(
+            runner,
+            spec,
+            task,
+            parent_run_id=ctx.run_id,
+            depth=ctx.depth + 1,
+            budget_ledger=ctx.budget_ledger,
+        )
+        return asdict(result)
+
+    return _invoke
+
+
+def _llm_invoker(llm: Any, hooks: Any) -> Any:
+    """Fixed-prompt model call for LLM bodies: which client, which default
+    config, and the LLM_REQUEST hook are composition decisions — the body
+    only declares the prompt. A ``None`` client means no invoker (an llm
+    node then fails loudly at execution)."""
+    if llm is None:
+        return None
+
+    async def _invoke(prompt: str, *, system: str = "", run_id: str = "") -> str:
+        from prodagent.hooks import fire as _fire
+        from prodagent.kernel.bus import HookEvent
+        from prodagent.llm import noop_chunk
+
+        await _fire(
+            hooks,
+            HookEvent.LLM_REQUEST,
+            system=system[:200],
+            system_len=len(system),
+            messages=[{"role": "user", "content": prompt}],
+            msg_count=1,
+            phase="workflow",
+            run_id=run_id,
+        )
+        response = await llm.complete(
+            [{"role": "user", "content": prompt}],
+            system=system,
+            config=getattr(llm, "default_config", None),
+            on_chunk=noop_chunk,
+        )
+        return response.content or ""
+
+    return _invoke
+
+
+class SchedulerFactory:
+    """Builds the Scheduler + hooks registry for one hop."""
 
     def __init__(
         self,
@@ -43,7 +122,7 @@ class LeafExecutorFactory:
     async def prepare(
         self,
         ctx: RunContext,
-    ) -> tuple[HookRegistry | None, LeafExecutor, SpawnAccumulator | None]:
+    ) -> tuple[HookRegistry | None, Executor, SpawnAccumulator | None]:
         agent = ctx.agent
         fw = agent.framework_config
         hooks = agent.attach_default_hooks()
@@ -70,7 +149,7 @@ class LeafExecutorFactory:
         system = agent.build_system_prompt()
         effective_budget = agent.budget_config or SAFETY_NET_BUDGET
         # Compression is opt-in: bare agents send the loop's messages through
-        # untouched (ReactiveLoop handles a None context manager).
+        # untouched (the ReactEngine handles a None context manager).
         ctx_manager = (
             agent.build_context_manager(system, fw, ctx) if fw.context.compression else None
         )
@@ -85,10 +164,36 @@ class LeafExecutorFactory:
             blob_store=ctx.blob_store,
             blob_threshold_bytes=fw.boundary_blob_threshold_bytes,
         )
-        # Both execution modes share this dispatcher, so both get spill
-        # truncation — PLAN_FIRST tool results must not accumulate raw in the
-        # transcript either. (ReactiveLoop re-configures later to attach its
-        # progress monitor; the context values are identical.)
+        is_root = ctx.depth == 0
+        effective_mode = (
+            self._forced_mode if (is_root and self._forced_mode is not None) else agent.mode
+        )
+        initial_messages = self._initial_messages if is_root else None
+
+        # 3. the engine: one Scheduler for every source. REACTIVE is a
+        # single-react-node plan; PLAN_FIRST is a drafted or preset DAG —
+        # the wave loop never learns which. (Lazily imported: importing an
+        # Agent stays execution-free — the engine loads when a run starts.)
+        from prodagent.plan.scheduler import Scheduler
+
+        react = ReactEngine(
+            ctx.llm,
+            dispatcher,
+            system_prompt=system,
+            tools_schema=tool_schemas,
+            budget=effective_budget,
+            context_manager=ctx_manager,
+            hooks=agent.hooks,
+            loop_config=fw.loop,
+            checkpoint_store=ctx.checkpoint,
+            event_log=ctx.event_log,
+            spill_store=ctx.spill_store,
+            budget_ledger=ctx.budget_ledger,
+        )
+        # Both modes share this dispatcher, so both get spill truncation —
+        # PLAN_FIRST tool results must not accumulate raw in the transcript
+        # either. REACTIVE additionally fingerprints tool batches through the
+        # dead-loop guard; PLAN_FIRST nodes fail into replans instead.
         dispatcher.configure_batch(
             loop_config=fw.loop,
             context_config=(
@@ -97,55 +202,44 @@ class LeafExecutorFactory:
                 else (ContextConfig() if ctx.spill_store is not None else None)
             ),
             spill_store=ctx.spill_store,
+            progress_monitor=react.progress if effective_mode is ExecutionMode.REACTIVE else None,
         )
-
-        # 3. executor: PLAN_FIRST (dynamic or preset DAG) vs REACTIVE loop
-        is_root = ctx.depth == 0
-        effective_mode = (
-            self._forced_mode if (is_root and self._forced_mode is not None) else agent.mode
-        )
-        initial_messages = self._initial_messages if is_root else None
-
-        if effective_mode is ExecutionMode.PLAN_FIRST:
-            from prodagent.plan.executor import PlanExecutor
-
-            # PLAN_FIRST's DAG state is only ever tracked in these two stores
-            # (unlike REACTIVE, which treats checkpointing as opt-in) — bare
-            # profile still needs a working pair. The fallback is cached on
-            # the agent so repeated hops/resumes share the same instance.
-            executor: LeafExecutor = PlanExecutor(
-                ctx.llm,
+        executor: Scheduler = Scheduler(
+            ctx.llm,
+            BodyRunner(
                 dispatcher.dispatch,
-                system=system,
-                messages=initial_messages or [{"role": "user", "content": ""}],
-                hooks=agent.hooks,
-                agent_name=agent.name,
-                tool_schemas=tool_schemas,
-                event_log=ctx.event_log or agent.ensure_plan_event_log_fallback(),
-                checkpoint_store=ctx.checkpoint or agent.ensure_plan_checkpoint_fallback(),
-                framework_config=fw,
-                budget=effective_budget,
-                initial_plan=agent.config.initial_plan,
-                budget_ledger=ctx.budget_ledger,
-                max_replans=agent.config.max_replans,
-                dispatcher=dispatcher,
-            )
-        else:
-            executor = ReactiveLoop(
-                ctx.llm,
-                dispatcher,
-                system_prompt=system,
-                tools_schema=tool_schemas,
-                budget=effective_budget,
-                context_manager=ctx_manager,
-                hooks=agent.hooks,
-                loop_config=fw.loop,
-                checkpoint_store=ctx.checkpoint,
-                event_log=ctx.event_log,
-                spill_store=ctx.spill_store,
-                initial_messages=initial_messages,
-                budget_ledger=ctx.budget_ledger,
-            )
+                fns=agent.config.node_fns,
+                llm=_llm_invoker(ctx.llm, hooks),
+                react=react,
+                subagent=_subagent_invoker(ctx),
+            ),
+            mode=effective_mode,
+            system=system,
+            initial_messages=initial_messages,
+            hooks=agent.hooks,
+            agent_name=agent.name,
+            tool_schemas=tool_schemas,
+            # Reactive treats both stores as opt-in (None stays None); plan
+            # mode always tracks DAG state, so it gets the agent's fallbacks.
+            event_log=(
+                ctx.event_log
+                if effective_mode is ExecutionMode.REACTIVE
+                else ctx.event_log or agent.ensure_plan_event_log_fallback()
+            ),
+            checkpoint_store=(
+                ctx.checkpoint
+                if effective_mode is ExecutionMode.REACTIVE
+                else ctx.checkpoint or agent.ensure_plan_checkpoint_fallback()
+            ),
+            framework_config=fw,
+            budget=effective_budget,
+            initial_plan=agent.config.initial_plan,
+            budget_ledger=ctx.budget_ledger,
+            max_replans=agent.config.max_replans,
+            dispatcher=dispatcher,
+            react=react,
+            depth=ctx.depth,
+        )
         return hooks, executor, spawn_acc
 
     async def _gate_session_start(self, hooks: HookRegistry | None, ctx: RunContext) -> None:

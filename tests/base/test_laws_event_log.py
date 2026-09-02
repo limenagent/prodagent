@@ -30,10 +30,10 @@ from hypothesis import strategies as st
 from prodagent.base.event_log import Event
 from prodagent.plan.event_log import apply_event  # the real plan reducer
 
-_step_ids = st.sampled_from(["s1", "s2", "s3", "s4"])
+_node_ids = st.sampled_from(["s1", "s2", "s3", "s4"])
 _texts = st.text(min_size=0, max_size=24)
 _kinds = st.sampled_from(
-    ["PLAN_CREATED", "STEP_STARTED", "STEP_COMPLETED", "STEP_FAILED", "STEP_SUSPENDED"]
+    ["PLAN_CREATED", "NODE_STARTED", "NODE_COMPLETED", "NODE_FAILED", "NODE_SUSPENDED"]
 )
 
 
@@ -42,18 +42,18 @@ def _plan_events(draw: Any) -> list[Event]:
     events: list[Event] = []
     for _ in range(draw(st.integers(min_value=0, max_value=15))):
         kind = draw(_kinds)
-        sid = draw(_step_ids)
+        sid = draw(_node_ids)
         if kind == "PLAN_CREATED":
-            steps = draw(st.lists(_step_ids, min_size=0, max_size=4))
+            steps = draw(st.lists(_node_ids, min_size=0, max_size=4))
             data: dict[str, Any] = {
-                "steps": [{"step_id": s, "status": "pending"} for s in dict.fromkeys(steps)]
+                "nodes": [{"node_id": s, "status": "pending"} for s in dict.fromkeys(steps)]
             }
-        elif kind == "STEP_COMPLETED":
-            data = {"step_id": sid, "output_ref": {"result": draw(_texts)}}
-        elif kind == "STEP_FAILED":
-            data = {"step_id": sid, "error": draw(_texts)}
+        elif kind == "NODE_COMPLETED":
+            data = {"node_id": sid, "output_ref": {"result": draw(_texts)}}
+        elif kind == "NODE_FAILED":
+            data = {"node_id": sid, "error": draw(_texts)}
         else:
-            data = {"step_id": sid}
+            data = {"node_id": sid}
         events.append(Event.make(kind, stream_id="p1", version=1, **data))
     return events
 
@@ -108,9 +108,9 @@ def test_prefix_replay_equivalence_law(events: list[Event]) -> None:
 
     The prefix state is round-tripped through JSON before continuing, because
     that is what a checkpoint actually stores. Every split point is checked."""
-    full = _fold({"steps": {}, "version": 0}, events)
+    full = _fold({"nodes": {}, "version": 0}, events)
     for k in range(len(events) + 1):
-        prefix = _fold({"steps": {}, "version": 0}, events[:k])
+        prefix = _fold({"nodes": {}, "version": 0}, events[:k])
         via_checkpoint = json.loads(json.dumps(prefix))  # the durable form
         resumed = _fold(via_checkpoint, events[k:])
         assert resumed == full, f"resume from prefix of {k} events diverges from full replay"

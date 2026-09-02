@@ -16,6 +16,26 @@ Return ONLY a JSON object with exactly this shape:
   ]
 }
 
+Each step is one of two forms (default to the first):
+
+1. DETERMINISTIC (preferred): give "action" — the exact tool and params, fixed
+   before execution. Execution makes zero extra model calls: cheap,
+   reproducible, auditable.
+
+2. AUTONOMOUS (only when the subtask cannot be predetermined): REPLACE
+   "action"/"params" with "goal":
+    {
+      "id":         "<step_id>",
+      "goal":       "<what this step must achieve, in one or two sentences>",
+      "depends_on": ["<step_id>", ...],
+      "terminal":   false
+    }
+   A goal step runs a self-directed agent loop with the same tools and
+   decides its own calls at execution time. It is flexible but costs more
+   and is less auditable — use it ONLY for genuinely open-ended subtasks
+   (open-ended research, unstructured extraction), never when the tool and
+   params could have been written down.
+
 When a step needs a value produced by an earlier step, use a template reference in params: "{{<dep_step_id>.output.<field>}}". The executor resolves it from the dep step's return value at run time. Example: if step_1 produces a record with an 'id' field and step_2 needs that id, set step_2's id param to "{{step_1.output.id}}" and add "step_1" to step_2's depends_on.
 
 Template refs are STRICTLY limited to one of these three forms:

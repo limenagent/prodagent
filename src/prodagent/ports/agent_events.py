@@ -1,7 +1,7 @@
 """AgentEvent — the stream vocabulary of an agent run, and its wire codec.
 
 Lifted from ``kernel/types.py``: these events are the wire contract of every
-stream consumer — the LeafExecutor and RunnerPort outputs, the playground,
+stream consumer — the Executor and RunnerPort outputs, the playground,
 and (next) the remote plane. ``kernel/types`` re-exports them so kernel
 consumers keep one import site, same precedent as the base-vocabulary
 re-exports there.
@@ -35,9 +35,9 @@ __all__ = [
     "ThinkTokenEvent",
     "ToolCallStartEvent",
     "ToolResultEvent",
-    "StepStartedEvent",
-    "StepCompletedEvent",
-    "StepFailedEvent",
+    "NodeStartedEvent",
+    "NodeCompletedEvent",
+    "NodeFailedEvent",
     "RunCompletedEvent",
     "RunFailedEvent",
     "RunSuspendedEvent",
@@ -70,25 +70,25 @@ class ToolResultEvent:
 
 
 @dataclass(frozen=True, slots=True)
-class StepStartedEvent:
-    step_id: str
+class NodeStartedEvent:
+    node_id: str
     action: ToolName
     run_id: RunId
 
 
 @dataclass(frozen=True, slots=True)
-class StepCompletedEvent:
-    step_id: str
+class NodeCompletedEvent:
+    node_id: str
     action: ToolName
     result: object
     run_id: RunId
 
 
 @dataclass(frozen=True, slots=True)
-class StepFailedEvent:
+class NodeFailedEvent:
     """Triggers replan."""
 
-    step_id: str
+    node_id: str
     action: ToolName
     error: str
     run_id: RunId
@@ -116,9 +116,9 @@ AgentEvent: TypeAlias = (
     ThinkTokenEvent
     | ToolCallStartEvent
     | ToolResultEvent
-    | StepStartedEvent
-    | StepCompletedEvent
-    | StepFailedEvent
+    | NodeStartedEvent
+    | NodeCompletedEvent
+    | NodeFailedEvent
     | RunCompletedEvent
     | RunFailedEvent
     | RunSuspendedEvent
@@ -135,9 +135,9 @@ _KINDS: dict[str, type] = {
         ThinkTokenEvent,
         ToolCallStartEvent,
         ToolResultEvent,
-        StepStartedEvent,
-        StepCompletedEvent,
-        StepFailedEvent,
+        NodeStartedEvent,
+        NodeCompletedEvent,
+        NodeFailedEvent,
         RunCompletedEvent,
         RunFailedEvent,
         RunSuspendedEvent,

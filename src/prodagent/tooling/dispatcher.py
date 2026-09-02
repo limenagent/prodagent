@@ -144,7 +144,7 @@ class ToolDispatcher:
         # Boundary-recorder wiring: when set, every dispatched result lands
         # on the run's boundary stream. Set once at
         # construction (the factory is the only production construction
-        # site), never reconfigured — ReactiveLoop re-runs configure_batch
+        # site), never reconfigured — the factory re-runs configure_batch
         # for its progress monitor and must not clobber this.
         self._event_log = event_log
         # Oversized result bodies spill to the blob store, leaving a digest

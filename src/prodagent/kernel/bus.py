@@ -272,9 +272,9 @@ class HookEvent(StrEnum):
     PLAN_READY = "plan.ready"
     PLAN_REPLANNED = "plan.replanned"
 
-    STEP_STARTED = "step.started"
-    STEP_COMPLETED = "step.completed"
-    STEP_FAILED = "step.failed"
+    NODE_STARTED = "node.started"
+    NODE_COMPLETED = "node.completed"
+    NODE_FAILED = "node.failed"
 
     SKILL_LOAD = "skill.load"
     AGENT_SPAWN = "agent.spawn"

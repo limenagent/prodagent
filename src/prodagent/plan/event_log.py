@@ -22,6 +22,7 @@ from prodagent.base.event_log import (
     hybrid_restore,
 )
 from prodagent.hooks import save_and_fire_checkpoint
+from prodagent.plan.dag import node_wire_dict
 
 if TYPE_CHECKING:
     from prodagent.kernel.bus import HookRegistry
@@ -58,32 +59,78 @@ def apply_event(state: dict[str, Any], event: Event) -> None:
     fold. Same event sequence, same state, every time: that determinism is
     what makes crash recovery trustworthy and the reducer testable alone."""
 
-    steps = state.setdefault("steps", {})
+    steps = state.setdefault("nodes", {})
     match event.event_type:
         case PlanEventType.PLAN_CREATED:
             state["version"] = event.version
-            state["steps"] = {s["step_id"]: s for s in event.data.get("steps", [])}
-        case PlanEventType.STEP_STARTED:
-            if (s := steps.get(event.data.get("step_id", ""))) is not None:
+            state["nodes"] = {s["node_id"]: s for s in event.data.get("nodes", [])}
+        case PlanEventType.NODE_STARTED:
+            if (s := steps.get(event.data.get("node_id", ""))) is not None:
                 s["status"] = "running"
-        case PlanEventType.STEP_COMPLETED:
-            if (s := steps.get(event.data.get("step_id", ""))) is not None:
+        case PlanEventType.NODE_COMPLETED:
+            if (s := steps.get(event.data.get("node_id", ""))) is not None:
                 s["status"] = "completed"
                 s["output_ref"] = event.data.get("output_ref")
-        case PlanEventType.STEP_FAILED:
-            if (s := steps.get(event.data.get("step_id", ""))) is not None:
+        case PlanEventType.NODE_FAILED:
+            if (s := steps.get(event.data.get("node_id", ""))) is not None:
                 s["status"] = "failed"
                 s["error"] = event.data.get("error")
-        case PlanEventType.STEP_SUSPENDED:
-            if (s := steps.get(event.data.get("step_id", ""))) is not None:
+        case PlanEventType.NODE_SUSPENDED:
+            if (s := steps.get(event.data.get("node_id", ""))) is not None:
                 s["status"] = "suspended"
+        case PlanEventType.COMMAND_APPLIED:
+            cmd = event.data.get("command") or {}
+            if (target := cmd.get("goto")) is not None:
+                if (s := steps.get(str(target))) is not None:
+                    s["status"] = "pending"
+                    s["output_ref"] = None
+                    s["error"] = None
+            elif (send := cmd.get("send")) is not None:
+                template = steps.get(str(send.get("template", "")))
+                for i, inst_id in enumerate(
+                    f"{send.get('key') or send.get('template', '')}#{j}"
+                    for j in range(len(send.get("items") or []))
+                ):
+                    if template is not None:
+                        steps[inst_id] = {
+                            **template,
+                            "node_id": inst_id,
+                            "origin": "dynamic",
+                            "params": {
+                                **template.get("params", {}),
+                                "item": (send.get("items") or [None] * (i + 1))[i],
+                            },
+                            "depends_on": [event.data.get("node_id", "")],
+                            "status": "pending",
+                        }
+                sender = str(event.data.get("node_id", ""))
+                for s in steps.values():
+                    if sender in (s.get("depends_on") or []):
+                        s["depends_on"] = [
+                            d for d in (s.get("depends_on") or []) if d != sender
+                        ] + [
+                            f"{send.get('key') or send.get('template', '')}#{j}"
+                            for j in range(len(send.get("items") or []))
+                        ]
+            elif (update := cmd.get("update")) is not None:
+                shared = state.setdefault("shared", {})
+                key = str(update.get("key", ""))
+                reducer = update.get("reducer")
+                if key in shared and reducer:
+                    from prodagent.plan.command import REDUCERS
+
+                    fn = REDUCERS.get(str(reducer))
+                    if fn is not None:
+                        shared[key] = fn(shared[key], update.get("value"))
+                else:
+                    shared[key] = update.get("value")
         case PlanEventType.PLAN_REPLANNED:
             state["version"] = event.version
-            for ns in event.data.get("new_steps", []):
-                replaces = ns.get("replaces_step_id")
+            for ns in event.data.get("new_nodes", []):
+                replaces = ns.get("replaces_node_id")
                 if replaces and replaces in steps:
                     steps[replaces]["status"] = "obsolete"
-                steps[ns["step_id"]] = ns
+                steps[ns["node_id"]] = ns
 
 
 class PlanEventLog:
@@ -147,7 +194,7 @@ class PlanEventLog:
                 if _plan_state(r) is not None
                 else None
             ),
-            empty_state=lambda: {"steps": {}, "version": 0},
+            empty_state=lambda: {"nodes": {}, "version": 0},
         )
         run.checkpoint_version = max(run.checkpoint_version, ckpt_version)
         _set_plan(run, state=_plan_state(run), last_seq=max(_plan_last_seq(run), last_seq))
@@ -170,59 +217,73 @@ class PlanEventLog:
             run,
             PlanEventType.PLAN_CREATED,
             plan.version,
-            steps=[s.to_dict() for s in plan.steps],
+            nodes=[node_wire_dict(n, run.node_state(n.node_id)) for n in plan.nodes.values()],
         )
 
-    async def record_step_started(self, plan: Plan, run: AgentRun, step_id: str) -> int:
+    async def record_node_started(self, plan: Plan, run: AgentRun, node_id: str) -> int:
         return await self._record(
             run,
-            PlanEventType.STEP_STARTED,
+            PlanEventType.NODE_STARTED,
             plan.version,
-            step_id=step_id,
+            node_id=node_id,
         )
 
-    async def record_step_completed(
+    async def record_node_completed(
         self,
         plan: Plan,
         run: AgentRun,
-        step_id: str,
+        node_id: str,
         result: Any,
     ) -> int:
         return await self._record(
             run,
-            PlanEventType.STEP_COMPLETED,
+            PlanEventType.NODE_COMPLETED,
             plan.version,
-            step_id=step_id,
+            node_id=node_id,
             output_ref=result,
             checkpoint_plan=plan,
         )
 
-    async def record_step_failed(
+    async def record_node_failed(
         self,
         plan: Plan,
         run: AgentRun,
-        step_id: str,
+        node_id: str,
         error: str,
     ) -> int:
         return await self._record(
             run,
-            PlanEventType.STEP_FAILED,
+            PlanEventType.NODE_FAILED,
             plan.version,
-            step_id=step_id,
+            node_id=node_id,
             error=error,
         )
 
-    async def record_step_suspended(
+    async def record_node_suspended(
         self,
         plan: Plan,
         run: AgentRun,
-        step_id: str,
+        node_id: str,
     ) -> int:
         return await self._record(
             run,
-            PlanEventType.STEP_SUSPENDED,
+            PlanEventType.NODE_SUSPENDED,
             plan.version,
-            step_id=step_id,
+            node_id=node_id,
+            checkpoint_plan=plan,
+        )
+
+    async def record_command_applied(
+        self, plan: Plan, run: AgentRun, node_id: str, command: Any
+    ) -> int:
+        """Dynamic control flow lands in the log like every other state
+        change — the fold replays gotos, sprouts and merges."""
+        return await self._record(
+            run,
+            PlanEventType.COMMAND_APPLIED,
+            plan.version,
+            node_id=node_id,
+            command=command.to_wire(),
             checkpoint_plan=plan,
         )
 
@@ -230,21 +291,21 @@ class PlanEventLog:
         self,
         plan: Plan,
         run: AgentRun,
-        new_steps: list[Any],
+        new_nodes: list[Any],
     ) -> int:
         return await self._record(
             run,
             PlanEventType.PLAN_REPLANNED,
             plan.version,
-            new_steps=[s.to_dict() for s in new_steps],
+            new_nodes=[node_wire_dict(n, run.node_state(n.node_id)) for n in new_nodes],
             checkpoint_plan=plan,
         )
 
     async def save_snapshot(self, run: AgentRun, *, plan: Plan | None = None) -> None:
-        """No step event to record, but ``pending_approval_id`` must survive a resume (HITL-suspended plan)."""
+        """No node event to record, but ``pending_approval_id`` must survive a resume (HITL-suspended plan)."""
         async with self._lock:
             if plan is not None:
-                _set_plan(run, state=plan.to_state(), last_seq=_plan_last_seq(run))
+                _set_plan(run, state=plan.to_state(run.node_states), last_seq=_plan_last_seq(run))
             await save_and_fire_checkpoint(self._checkpoints, run, self._hooks)
 
     async def _record(
@@ -269,6 +330,10 @@ class PlanEventLog:
             )
             _set_plan(run, state=_plan_state(run), last_seq=seq)
             if checkpoint_plan is not None:
-                _set_plan(run, state=checkpoint_plan.to_state(), last_seq=_plan_last_seq(run))
+                _set_plan(
+                    run,
+                    state=checkpoint_plan.to_state(run.node_states),
+                    last_seq=_plan_last_seq(run),
+                )
                 await save_and_fire_checkpoint(self._checkpoints, run, self._hooks)
             return seq

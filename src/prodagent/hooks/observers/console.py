@@ -311,19 +311,19 @@ class ConsoleObserverHooks:
         *,
         plan_id: str = "",
         version: int = 1,
-        failed_step: str = "",
-        new_steps: list[dict[str, Any]] | None = None,
+        failed_node: str = "",
+        new_nodes: list[dict[str, Any]] | None = None,
         replan_count: int = 1,
         **_: Any,
     ) -> None:
-        new_steps = new_steps or []
-        ids_str = ", ".join(s.get("id", "?") for s in new_steps)
+        new_nodes = new_nodes or []
+        ids_str = ", ".join(s.get("id", "?") for s in new_nodes)
         print(
             f"\n{self._label('REPLAN', _YELLOW)}"
-            f"#{replan_count} v{version}  failed={_c(repr(failed_step), _RED)}  "
+            f"#{replan_count} v{version}  failed={_c(repr(failed_node), _RED)}  "
             f"new={_c(repr(ids_str), _BOLD)}"
         )
-        for s in new_steps:
+        for s in new_nodes:
             self._print_step_detail(s)
 
     def _print_step_detail(self, step: dict[str, Any]) -> None:
@@ -344,23 +344,23 @@ class ConsoleObserverHooks:
                 params_str = repr(params)
             print(f"{indent}  params: {self._dim(params_str)}")
 
-    def _step_started(self, *, step_id: str = "", action: str = "", **_: Any) -> None:
-        print(f"{self._label('STEP', _YELLOW)}▶ {_c(step_id, _BOLD)}:{_c(action, _CYAN)}")
+    def _step_started(self, *, node_id: str = "", action: str = "", **_: Any) -> None:
+        print(f"{self._label('STEP', _YELLOW)}▶ {_c(node_id, _BOLD)}:{_c(action, _CYAN)}")
 
     def _step_completed(
-        self, *, step_id: str = "", action: str = "", result: Any = None, **_: Any
+        self, *, node_id: str = "", action: str = "", result: Any = None, **_: Any
     ) -> None:
         summary = str(result)[:80] if result is not None else ""
         print(
-            f"{self._label('STEP', _GREEN)}✓ {_c(step_id, _BOLD)}:{_c(action, _CYAN)}  "
+            f"{self._label('STEP', _GREEN)}✓ {_c(node_id, _BOLD)}:{_c(action, _CYAN)}  "
             f"{self._dim(summary)}"
         )
 
     def _step_failed(
-        self, *, step_id: str = "", action: str = "", error: str = "", **_: Any
+        self, *, node_id: str = "", action: str = "", error: str = "", **_: Any
     ) -> None:
         print(
-            f"{self._label('STEP', _RED)}✗ {_c(step_id, _BOLD)}:{_c(action, _CYAN)}  "
+            f"{self._label('STEP', _RED)}✗ {_c(node_id, _BOLD)}:{_c(action, _CYAN)}  "
             f"{_c(error[:120], _RED)}"
         )
 
@@ -499,9 +499,9 @@ _HANDLERS: dict[HookEvent, str] = {
     HookEvent.TOOL_RESULT: "_tool_result",
     HookEvent.PLAN_READY: "_plan_ready",
     HookEvent.PLAN_REPLANNED: "_plan_replanned",
-    HookEvent.STEP_STARTED: "_step_started",
-    HookEvent.STEP_COMPLETED: "_step_completed",
-    HookEvent.STEP_FAILED: "_step_failed",
+    HookEvent.NODE_STARTED: "_step_started",
+    HookEvent.NODE_COMPLETED: "_step_completed",
+    HookEvent.NODE_FAILED: "_step_failed",
     HookEvent.SKILL_LOAD: "_skill_load",
     HookEvent.TOKEN_UPDATE: "_token_update",
     HookEvent.AGENT_SPAWN: "_agent_spawn",

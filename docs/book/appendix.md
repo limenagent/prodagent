@@ -135,8 +135,8 @@
 |------|------|
 | Agent | 有身份、系统提示、工具集的实体；无状态配置对象，可并发跑多个 Run |
 | Run | 一次任务执行的完整生命周期；有状态、可序列化 |
-| Step | 轮原子：一次模型调用 + 至多一轮工具执行 |
-| StepStatus | 工作单元的六态：PENDING/RUNNING/COMPLETED/FAILED/SUSPENDED/OBSOLETE；OBSOLETE 是被新版本顶替，既没跑过也没失败，不同于 FAILED |
+| Turn | 轮原子：一次模型调用 + 至多一轮工具执行 |
+| NodeStatus | 工作单元的六态：PENDING/RUNNING/COMPLETED/FAILED/SUSPENDED/OBSOLETE；OBSOLETE 是被新版本顶替，既没跑过也没失败，不同于 FAILED |
 | Turn | 模型的一次输出 |
 | Message | 对话历史中的一条消息 |
 | ToolCall / ToolResult | 模型的工具请求 / 工具的返回 |
@@ -145,7 +145,7 @@
 | AgentSpec | Agent 的可序列化投影，跨进程传递用 |
 | ExecutionMode | REACTIVE（边走边想，默认）/ PLAN_FIRST（先规划后执行） |
 | Workflow | 手写确定性 DAG 的构建器（不是第三种执行模式） |
-| Plan / PlanStep | 编译后的 DAG / 图中一个节点 |
+| Plan / Node | 编译后的 DAG / 图中一个节点 |
 | ToolMeta | 工具静态档案：副作用等级、超时、幂等、域 |
 | SideEffectLevel | LOW / MEDIUM / HIGH；只读是独立布尔，不是第四级 |
 | HardBudget | 四轴上限：turns / seconds / tokens / cost |
@@ -166,7 +166,7 @@
 
 ## 示例地图：十个端到端示例
 
-仓库的 `examples/` 下有十个完整可跑的示例，每个教一个机制组合。默认全部用 FakeLLM 离线运行（`cd examples/某示例 && uv run python -c "…"`，各示例目录带启动说明）：
+仓库的 `examples/` 下有八个完整可跑的示例，每个教一个机制组合。默认全部用 FakeLLM 离线运行（`cd examples/某示例 && uv run python -c "…"`，各示例目录带启动说明）：
 
 | 示例 | 教什么 | 相关章节 |
 |------|--------|---------|
@@ -176,10 +176,8 @@
 | compliance_audit | 审批工作流：挂起-决定-恢复 | 9 |
 | dating_chat | 长对话 + 四通道记忆 | 6 |
 | trader | 多 Agent 接力（peer） | 10 |
-| quiz_arena | 多 Agent 知识竞赛（blackboard） | 10 |
 | code_detective | 黑板协作（blackboard） | 10 |
 | aiops | 黑板协作运维（blackboard） | 10 |
-| council | 模型自己召集协作 | 10 |
 
 ## API 速查
 

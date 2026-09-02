@@ -1,7 +1,7 @@
-"""Step — the atom of agency: one model call plus at most one tool round.
+"""Turn — the atom of agency: one model call plus at most one tool round.
 
-A REACTIVE loop is nothing but a policy for iterating Steps (when to stop,
-what to resume, how to settle). Everything the Step needs from the world
+A REACTIVE loop is nothing but a policy for iterating Turns (when to stop,
+what to resume, how to settle). Everything the Turn needs from the world
 arrives through collaborators — ``llm``, ``runner``, ``assembler``, ``bus`` —
 so this module imports no capability package. Budget enforcement is injected
 as a callable so the spawn-aware check stays outside the kernel.
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["Step", "ContextAssembler", "ToolRunner", "ProgressGuard"]
+__all__ = ["Turn", "ContextAssembler", "ToolRunner", "ProgressGuard"]
 
 
 @runtime_checkable
@@ -59,7 +59,7 @@ class ProgressGuard(Protocol):
     def check(self, run: AgentRun) -> None: ...
 
 
-class Step:
+class Turn:
     """Assemble context → call the model → account → act, once."""
 
     def __init__(
@@ -86,6 +86,12 @@ class Step:
         self._llm_config = llm_config
         self._cache_boundary = cache_boundary
         self._phase = phase
+        self.finished = False
+        """Set when the model's last answer asked for no tools — read by the
+        driving loop, which owns what "finished" settles."""
+        self.answer = ""
+        """The model's final content of the finished turn (backfill-free:
+        the loop decides whether to backfill)."""
 
     def _check_budget(self, run: AgentRun) -> None:
         if self._budget_check is not None:
@@ -101,6 +107,8 @@ class Step:
         """One turn of the atom: think (assemble → call → account), then —
         only if the model asked for tools — act, with budget checked on both
         sides of the batch (the model call itself may have burned the cap)."""
+        self.finished = False
+        self.answer = ""
         response, token_events = await self._think(run, system=system, tools=tools)
         for evt in token_events:
             yield evt
@@ -256,22 +264,17 @@ class Step:
             run.messages.append(msg)
 
     def _end_turn(self, run: AgentRun, response: LLMResponse) -> bool:
-        """True when the model stopped without asking for tools — run is
-        done. The tool_calls guard matters: some providers report
+        """True when the model stopped without asking for tools. The atom
+        only REPORTS the finish (``finished`` / ``answer``); who the finish
+        settles — the whole run, or just this node — is the driving loop's
+        call. The tool_calls guard matters: some providers report
         END_TURN-ish stops *with* pending calls, and dropping those would
-        strand a tool_use with no result. Backfill ensures even a
-        max_tokens-cut run leaves the user an answer."""
+        strand a tool_use with no result."""
         if response.stop_reason != StopReason.END_TURN and response.tool_calls:
             return False
 
-        run.complete(response.content, backfill=True)
-        logger.info(
-            "Step[%s] completed in %d turns (%.2fs, $%.4f)",
-            run.run_id,
-            run.turn_count,
-            run.elapsed_seconds(),
-            run.cost_usd,
-        )
+        self.finished = True
+        self.answer = response.content or ""
         return True
 
 

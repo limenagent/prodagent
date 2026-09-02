@@ -7,10 +7,11 @@ import pytest
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
 from prodagent.base.errors import BudgetExceeded
+from prodagent.kernel.bodies.runner import BodyRunner
 from prodagent.kernel.budget import HardBudget
 from prodagent.kernel.types import LLMResponse, RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.executor import PlanExecutor
+from prodagent.plan.scheduler import Scheduler
 
 _TERMINAL = (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)
 
@@ -56,11 +57,11 @@ class _CountingExecutor:
 async def test_plan_first_budget_turns_trips_mid_plan(tmp_path):
     events, checkpoints = _stores(tmp_path)
     executor = _CountingExecutor()
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm(_multi_step_plan(3)),
-        executor,
+        BodyRunner(tools=executor),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
         budget=HardBudget(max_turns=1, max_cost_usd=100, max_tokens=1_000_000, max_seconds=600),
@@ -77,11 +78,11 @@ async def test_plan_first_budget_turns_trips_mid_plan(tmp_path):
 @pytest.mark.asyncio
 async def test_plan_first_budget_zero_turns_blocks_even_plan_generation(tmp_path):
     events, checkpoints = _stores(tmp_path)
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm(_multi_step_plan(2)),
-        _CountingExecutor(),
+        BodyRunner(tools=_CountingExecutor()),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
         budget=HardBudget(max_turns=0, max_cost_usd=100, max_tokens=1_000_000, max_seconds=600),
@@ -102,11 +103,11 @@ async def test_plan_first_trips_on_sibling_spend_it_never_directly_incurred(tmp_
     budget = HardBudget(max_turns=50, max_cost_usd=0.9, max_tokens=1_000_000, max_seconds=600)
     ledger = BudgetLedger(max=budget)
     await ledger.commit(member="sibling", turns=0, tokens=0, cost_usd=0.95)
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm(_multi_step_plan(3)),
-        _CountingExecutor(),
+        BodyRunner(tools=_CountingExecutor()),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
         budget=budget,
@@ -124,11 +125,11 @@ async def test_plan_first_trips_on_sibling_spend_it_never_directly_incurred(tmp_
 async def test_plan_first_no_budget_runs_to_completion(tmp_path):
     events, checkpoints = _stores(tmp_path)
     executor = _CountingExecutor()
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm(_multi_step_plan(2)),
-        executor,
+        BodyRunner(tools=executor),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
         budget=None,

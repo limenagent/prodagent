@@ -99,7 +99,7 @@ class Agent:
        ``_hooks_wired`` guards against double-registration on repeated calls
        (see ``tests/runtime/test_spawn_hitl_shared_registry.py`` for why
        that guard exists).
-    3. **``LeafExecutorFactory.prepare`` (``runtime/factory.py``, once per
+    3. **``SchedulerFactory.prepare`` (``runtime/factory.py``, once per
        hop)** — the actual tool assembly happens here, not in ``Agent``:
        calls ``agent.attach_default_hooks()`` first, then
        ``agent.resolve_tools()`` (inline tools + ``tool_registry``),
@@ -109,8 +109,8 @@ class Agent:
        capabilities exist, per ``compose.py``'s ``hop_tool_assemblers``
        seam). It then builds the system prompt (``build_system_prompt``),
        optionally a ``ContextManager`` (``build_context_manager``), and
-       finally a ``PlanExecutor`` or ``ReactiveLoop`` depending on
-       ``effective_mode``.
+       finally the one ``Scheduler`` (mode picks the plan source, never the
+       engine — there is only one engine).
 
     fork/spawn/peer derivation (``_fork``, ``fork_as_spawn``,
     ``fork_as_peer``) always happens *before* step 3 for the child — a
@@ -196,17 +196,11 @@ class Agent:
 
             if not isinstance(workflow, _Workflow):
                 raise TypeError(f"workflow= expects a Workflow, got {type(workflow).__name__}")
-            resolved_llm = self.config.llm
-            if resolved_llm is None:
-                from prodagent.backends.factory import resolve_llm
-
-                resolved_llm = resolve_llm(self.framework_config)
-            workflow.bind(resolved_llm, self.config.hooks)
             self.config.mode = ExecutionMode.PLAN_FIRST
             self.config.initial_plan = workflow.compile()
+            self.config.node_fns = workflow.fns
             if not allow_replan:
                 self.config.max_replans = 0
-            self.config.tools = [*self.config.tools, *workflow.tools]
 
     # -- Execution --------------------------------------------------------
 

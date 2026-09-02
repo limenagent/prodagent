@@ -61,14 +61,14 @@ def test_experience_record_from_plan_first_run():
         {
             "role": "assistant",
             "content": (
-                "Step investigate: Root cause: OOM kill from heap growth in "
+                "Turn investigate: Root cause: OOM kill from heap growth in "
                 "payment-service v2.15.0. Tool: get_logs(service=payment)."
             ),
         },
         {
             "role": "assistant",
             "content": (
-                "Step remediate: Rolled back to v2.14.0. SLO recovered within 4 "
+                "Turn remediate: Rolled back to v2.14.0. SLO recovered within 4 "
                 "minutes. Tool: rollback(sha=f8c01d4)."
             ),
         },

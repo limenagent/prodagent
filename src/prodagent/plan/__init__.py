@@ -1,1 +1,1 @@
-"""prodagent.plan — versioned DAG, event log, planner, step runner."""
+"""prodagent.plan — immutable node DAG, the one Scheduler, event log, planner."""

@@ -6,17 +6,18 @@ import pytest
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
+from prodagent.kernel.bodies.runner import BodyRunner
 from prodagent.kernel.types import (
     LLMResponse,
+    NodeCompletedEvent,
+    NodeFailedEvent,
+    NodeStartedEvent,
     RunCompletedEvent,
     RunFailedEvent,
     RunSuspendedEvent,
-    StepCompletedEvent,
-    StepFailedEvent,
-    StepStartedEvent,
 )
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.executor import PlanExecutor
+from prodagent.plan.scheduler import Scheduler
 
 _TERMINAL = (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)
 
@@ -63,11 +64,11 @@ class _RecordingExecutor:
 async def test_stream_yields_step_events_in_order(tmp_path):
     events, checkpoints = _stores(tmp_path)
     executor = _RecordingExecutor()
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm(_two_step_plan()),
-        executor,
+        BodyRunner(tools=executor),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
     )
@@ -77,14 +78,14 @@ async def test_stream_yields_step_events_in_order(tmp_path):
         streamed.append(event)
 
     assert len(streamed) == 5
-    assert isinstance(streamed[0], StepStartedEvent)
-    assert streamed[0].step_id == "s1"
-    assert isinstance(streamed[1], StepCompletedEvent)
-    assert streamed[1].step_id == "s1"
-    assert isinstance(streamed[2], StepStartedEvent)
-    assert streamed[2].step_id == "s2"
-    assert isinstance(streamed[3], StepCompletedEvent)
-    assert streamed[3].step_id == "s2"
+    assert isinstance(streamed[0], NodeStartedEvent)
+    assert streamed[0].node_id == "s1"
+    assert isinstance(streamed[1], NodeCompletedEvent)
+    assert streamed[1].node_id == "s1"
+    assert isinstance(streamed[2], NodeStartedEvent)
+    assert streamed[2].node_id == "s2"
+    assert isinstance(streamed[3], NodeCompletedEvent)
+    assert streamed[3].node_id == "s2"
     assert isinstance(streamed[4], RunCompletedEvent)
     for e in streamed:
         rid = getattr(e, "run_id", None) or getattr(e.run, "run_id", None)
@@ -95,11 +96,11 @@ async def test_stream_yields_step_events_in_order(tmp_path):
 @pytest.mark.asyncio
 async def test_stream_terminal_event_carries_finalised_run(tmp_path):
     events, checkpoints = _stores(tmp_path)
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm(_two_step_plan()),
-        _RecordingExecutor(),
+        BodyRunner(tools=_RecordingExecutor()),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
     )
@@ -121,11 +122,11 @@ async def test_stream_yields_step_failed_on_tool_error(tmp_path):
         async def __call__(self, call, *, run_id: str = "") -> dict:
             raise RuntimeError("boom")
 
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm(_two_step_plan(), {"steps": []}),
-        _FailingExecutor(),
+        BodyRunner(tools=_FailingExecutor()),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
         max_replans=1,
@@ -135,10 +136,10 @@ async def test_stream_yields_step_failed_on_tool_error(tmp_path):
     async for event in planner.stream("do the thing", run_id="R3"):
         streamed.append(event)
 
-    started = [e for e in streamed if isinstance(e, StepStartedEvent)]
-    failed = [e for e in streamed if isinstance(e, StepFailedEvent)]
-    assert started, "expected at least one StepStartedEvent"
-    assert failed, "expected at least one StepFailedEvent"
+    started = [e for e in streamed if isinstance(e, NodeStartedEvent)]
+    failed = [e for e in streamed if isinstance(e, NodeFailedEvent)]
+    assert started, "expected at least one NodeStartedEvent"
+    assert failed, "expected at least one NodeFailedEvent"
     assert "boom" in failed[0].error
 
 
@@ -152,11 +153,11 @@ async def test_stream_parallel_steps_yield_started_before_completed(tmp_path):
             {"id": "b", "action": "fetch", "params": {}, "depends_on": []},
         ]
     }
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm(parallel_plan),
-        _RecordingExecutor(),
+        BodyRunner(tools=_RecordingExecutor()),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
     )
@@ -165,10 +166,10 @@ async def test_stream_parallel_steps_yield_started_before_completed(tmp_path):
     async for event in planner.stream("do the thing", run_id="R4"):
         streamed.append(event)
 
-    assert isinstance(streamed[0], StepStartedEvent)
-    assert isinstance(streamed[1], StepStartedEvent)
-    assert isinstance(streamed[2], StepCompletedEvent)
-    assert isinstance(streamed[3], StepCompletedEvent)
+    assert isinstance(streamed[0], NodeStartedEvent)
+    assert isinstance(streamed[1], NodeStartedEvent)
+    assert isinstance(streamed[2], NodeCompletedEvent)
+    assert isinstance(streamed[3], NodeCompletedEvent)
     assert isinstance(streamed[4], RunCompletedEvent)
 
 
@@ -180,11 +181,11 @@ async def test_stream_llm_call_failure_marks_run_failed(tmp_path):
             raise RuntimeError("anthropic 503")
 
     events, checkpoints = _stores(tmp_path)
-    planner = PlanExecutor(
+    planner = Scheduler(
         _FailingLLM(),  # type: ignore[arg-type]
         _RecordingExecutor(),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
     )

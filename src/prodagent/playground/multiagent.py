@@ -1,12 +1,5 @@
 """Multi-agent coordination UI infrastructure — unified event protocol + adapter driver.
 
-The playground used to special-case ``dating_chat`` with a dedicated route pair
-and a ``datingMode`` frontend branch. That doesn't scale: ``quiz_arena`` runs
-Blackboard.
-This module is the generic layer every multi-agent example plugs into.
-
-The split:
-
 - **Adapter** (per-example) — owns the primitive's ``stream()`` coroutine and a
   ``map_event`` that converts each primitive event (``FloorTurnEvent``,
   ``BoardWriteEvent``, ``ItemClaimedEvent``, …) into one normalized
@@ -93,9 +86,6 @@ class MultiAgentEvent:
 
     phase: str | None
     """Which segment of a multi-phase run; ``None`` for single-phase examples.
-
-    ``quiz_arena`` uses ``"live_quiz"``
-    (Blackboard); ``dating_chat`` leaves it ``None``.
     """
 
     summary: dict[str, Any]

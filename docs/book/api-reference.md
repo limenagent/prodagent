@@ -379,8 +379,8 @@ from prodagent.base.errors import (
 | `prodagent` | Agent, AgentConfig, ExecutionMode, HardBudget, tool 等顶层导出 |
 | `prodagent.runtime.agent` | Agent 类 |
 | `prodagent.runtime.config` | AgentConfig |
-| `prodagent.kernel.loop` | ReactiveLoop |
-| `prodagent.kernel.step` | Step |
+| `prodagent.kernel.react` | ReactEngine |
+| `prodagent.kernel.turn` | Turn |
 | `prodagent.kernel.budget` | HardBudget / BudgetLedger |
 | `prodagent.kernel.bus` | HookEvent / Gate / HookRegistry |
 | `prodagent.kernel.types` | LLMResponse / ToolCall / ToolMeta / StopReason / 事件类型 |

@@ -1,7 +1,7 @@
 """REACTIVE per-turn crash recovery — the counterpart to
 ``test_plan_crash_recovery_e2e.py`` for the non-plan execution mode.
 
-Before ``ReactiveLoop`` grew ``_record_turn``, the only checkpoint write in
+Before ``reactive_scheduler`` grew ``_record_turn``, the only checkpoint write in
 ``stream()`` sat in a ``finally`` at the very end of the call — a real
 process kill mid-hop (not a raised Python exception, which that ``finally``
 already survives) loses every turn since the hop started. With an
@@ -18,9 +18,9 @@ from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
 from prodagent.base.event_log import RunEventType
 from prodagent.kernel.bus import HookEvent, HookRegistry
-from prodagent.kernel.loop import ReactiveLoop
 from prodagent.kernel.types import LLMResponse, RunCompletedEvent, ToolCall
 from prodagent.llm.fake import FakeLLMAdapter
+from prodagent.plan.scheduler import reactive_scheduler
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -59,7 +59,7 @@ async def test_mid_hop_kill_loses_at_most_one_turn(tmp_path):
         ]
     )
     dispatcher = ToolDispatcher({"collect": _collect_tool})
-    loop = ReactiveLoop(
+    loop = reactive_scheduler(
         llm,
         dispatcher,
         system_prompt="test",
@@ -91,7 +91,7 @@ async def test_mid_hop_kill_loses_at_most_one_turn(tmp_path):
         ]
     )
     dispatcher2 = ToolDispatcher({"collect": _collect_tool})
-    loop2 = ReactiveLoop(
+    loop2 = reactive_scheduler(
         llm2,
         dispatcher2,
         system_prompt="test",
@@ -121,7 +121,7 @@ async def test_unconfigured_event_log_keeps_legacy_single_checkpoint_behavior(tm
         ]
     )
     dispatcher = ToolDispatcher({"collect": _collect_tool})
-    loop = ReactiveLoop(
+    loop = reactive_scheduler(
         llm,
         dispatcher,
         system_prompt="test",

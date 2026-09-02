@@ -1,4 +1,19 @@
-"""Workflow — hand-written deterministic plans compiled to ``Plan`` + tools."""
+"""Workflow — a hand-written plan, declared in code and compiled to a ``Plan``.
+
+A Workflow is a *declaration*, not a wiring: it names nodes, their bodies
+(fn / tool / llm / agent), and their dependencies, and holds the plain
+functions its fn nodes invoke — nothing else. No LLM client, no hooks, no
+tool registration: those belong to the composition root, which injects
+them at execution time. That is what makes a compiled Workflow reusable
+across runs and harmless to share.
+
+``compile()`` freezes the declaration into the same immutable ``Plan`` a
+model could have drafted; a PLAN_FIRST agent executes it. The model never
+plans — for compliance pipelines the path is fixed by design, and "which
+node runs next" is auditable from source alone. Workflow steps do not
+enter the agent's tool table: the graph is for the executor to see, not
+the model.
+"""
 
 from __future__ import annotations
 
@@ -6,60 +21,42 @@ import inspect
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from prodagent.kernel.types import SideEffectLevel, ToolMeta
-from prodagent.plan.dag import Plan, PlanStep
-from prodagent.tooling.base import FunctionTool
-from prodagent.tooling.decorator import _infer_schema, tool
+from prodagent.kernel.bodies.base import FnBody, LLMBody, SubAgentBody, ToolBody
+from prodagent.plan.dag import Node, Origin
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from prodagent.kernel.bus import HookRegistry
     from prodagent.llm import LLMConfig
-    from prodagent.ports.llm import LLMClient
+    from prodagent.plan.dag import Plan
     from prodagent.runtime.agent import Agent
 
 __all__ = ["Workflow"]
 
-_LLM_STEP_TIMEOUT_MARGIN_MS = 90_000
-
 
 @dataclass
-class _StepSpec:
-    """Deferred description of a plan step, resolved at compile time."""
+class _NodeSpec:
+    """Deferred description of one plan node, resolved at compile time."""
 
-    step_id: str
-    action: str
+    node_id: str
+    body: FnBody | ToolBody | LLMBody | SubAgentBody
     params: dict[str, Any] = field(default_factory=dict)
     depends_on: list[str] = field(default_factory=list)
     is_terminal: bool = False
-    tool: FunctionTool | None = None
 
 
 class Workflow:
-    """A plan *builder*, not a third execution mode: you hand-write the DAG
-    in code, ``compile()`` turns it into the same ``Plan`` a model could
-    have drafted, and a PLAN_FIRST agent executes it. The model never plans
-    — for compliance pipelines the path is fixed by design, and "which step
-    runs next" is auditable from source alone."""
+    """A plan *builder*, not a third execution mode."""
 
     def __init__(self) -> None:
-        self._specs: list[_StepSpec] = []
-        self._llm: LLMClient | None = None
-        self._hooks: HookRegistry | None = None
+        self._specs: list[_NodeSpec] = []
+        self._fns: dict[str, Callable[..., Any]] = {}
 
-    def bind(self, llm: LLMClient | None, hooks: HookRegistry | None) -> None:
-        # llm_step tool closures capture this instance at authoring time, so a
-        # Workflow is bound exactly once. Re-binding a *different* client would
-        # silently rewire every plan compiled from it — refuse loudly instead.
-        if self._llm is not None and llm is not self._llm:
-            raise ValueError(
-                "This Workflow is already bound to another LLM client. A Workflow "
-                "instance owns one binding (its llm_step closures capture it); build "
-                "a fresh Workflow per Agent."
-            )
-        self._llm = llm
-        self._hooks = hooks
+    @property
+    def fns(self) -> dict[str, Callable[..., Any]]:
+        """The plain functions fn nodes invoke, by name — handed to the
+        composition root so a BodyRunner can resolve them at execution."""
+        return dict(self._fns)
 
     def step(
         self,
@@ -71,8 +68,8 @@ class Workflow:
         params: dict[str, Any] | None = None,
     ) -> Any:
         """Register a plain-function step (usable as a decorator), or an
-        Agent as a sub-task (compiled to a ``spawn_agent`` action). Function
-        parameters whose names match dependencies auto-bind to that step's
+        Agent as a sub-task (compiled to a ``spawn_agent`` body). Function
+        parameters whose names match dependencies auto-bind to that node's
         output — the wiring reads like ordinary function calls."""
         if fn is None:
 
@@ -99,19 +96,18 @@ class Workflow:
             )
             return fn
 
-        step_id = name or fn.__name__
-        tool_obj = self._wrap_function(fn, step_id)
+        node_id = name or fn.__name__
+        self._fns[node_id] = fn
         bound = self._auto_bind_params(fn, depends_on or [])
         if params:
             bound = {**bound, **params}
         self._specs.append(
-            _StepSpec(
-                step_id=step_id,
-                action=tool_obj.name,
+            _NodeSpec(
+                node_id=node_id,
+                body=FnBody(fn=node_id),
                 params=bound,
                 depends_on=list(depends_on or []),
                 is_terminal=is_terminal,
-                tool=tool_obj,
             )
         )
         return fn
@@ -129,27 +125,21 @@ class Workflow:
         timeout_ms: float | None = None,
     ) -> None:
         """Register a model step: the LLM answers *this step's* prompt and
-        nothing else — it processes input, it never decides flow. Default
-        timeout is the LLM config's own deadline plus a margin, so the
-        dispatcher doesn't kill a call the client would have finished."""
-        tool_obj = self._make_llm_tool(
-            name,
-            prompt,
-            system=system,
-            config=config,
-            timeout_ms=timeout_ms,
-        )
+        nothing else — it processes input, it never decides flow. The
+        declared prompt may be overridden per-run by a ``prompt`` param
+        bound to an upstream output (``{{dep.output}}``). ``config`` /
+        ``timeout_ms`` are accepted for call-compat and ignored: the body
+        is declarative, the composition root owns clients and deadlines."""
         bound: dict[str, Any] = {"prompt": prompt}
         if params:
             bound = {**bound, **params}
         self._specs.append(
-            _StepSpec(
-                step_id=name,
-                action=tool_obj.name,
+            _NodeSpec(
+                node_id=name,
+                body=LLMBody(prompt=prompt, system=system or ""),
                 params=bound,
                 depends_on=list(depends_on or []),
                 is_terminal=is_terminal,
-                tool=tool_obj,
             )
         )
 
@@ -163,101 +153,42 @@ class Workflow:
         is_terminal: bool = False,
     ) -> None:
         """Register a step that calls an already-registered tool by name —
-        no wrapper is generated; the plan references the live tool directly."""
+        the plan references the live tool directly, through the same
+        five-gate pipeline as any other governed call."""
         self._specs.append(
-            _StepSpec(
-                step_id=name,
-                action=tool_name,
+            _NodeSpec(
+                node_id=name,
+                body=ToolBody(tool=tool_name),
                 params=params or {},
                 depends_on=list(depends_on or []),
                 is_terminal=is_terminal,
-                tool=None,
             )
         )
 
-    def compile(self) -> Plan:
-        """Freeze the specs into a ``Plan``. Acyclicity is validated here —
-        a hand-written cycle fails loudly at compile, not as a hang at run."""
-        plan = Plan()
-        steps = [
-            PlanStep(
-                step_id=s.step_id,
-                action=s.action,
+    def node_declarations(self) -> list[Node]:
+        """The compiled node set, before instantiation — the WorkflowTemplate
+        half of the compiler's front-end."""
+        return [
+            Node(
+                node_id=s.node_id,
+                body=s.body,
                 params=s.params,
                 depends_on=list(s.depends_on),
                 is_terminal=s.is_terminal,
+                origin=Origin.STATIC,
             )
             for s in self._specs
         ]
-        plan.add_steps(steps)
-        return plan
 
-    @property
-    def tools(self) -> list[FunctionTool]:
-        """Wrappers this workflow brings (function + LLM steps). The agent
-        merges them into its tool set so the plan's actions all resolve."""
-        return [s.tool for s in self._specs if s.tool is not None]
+    def compile(self) -> Plan:
+        """Freeze the declaration into a ``Plan`` through the IR and the
+        five-check validator — a hand-written cycle or dangling edge fails
+        loudly HERE, not as a hang at run."""
+        from prodagent.plan.ir.compiler import compile_workflow
 
-    def _wrap_function(self, fn: Callable[..., Any], step_id: str) -> FunctionTool:
-        return tool(fn, name=step_id)
-
-    def _make_llm_tool(
-        self,
-        name: str,
-        prompt: str,
-        *,
-        system: str | None,
-        config: LLMConfig | None,
-        timeout_ms: float | None,
-    ) -> FunctionTool:
-        from prodagent.llm import LLMConfig as _LLMConfig
-
-        wf = self
-        llm_config = config or _LLMConfig()
-        resolved_timeout_ms = (
-            timeout_ms
-            if timeout_ms is not None
-            else llm_config.timeout_seconds * 1_000 + _LLM_STEP_TIMEOUT_MARGIN_MS
+        return compile_workflow(
+            self, fn_sigs={name: inspect.signature(fn) for name, fn in self._fns.items()}
         )
-
-        async def _llm_fn(prompt: str, run_id: str = "") -> str:
-            if wf._llm is None:
-                raise RuntimeError(
-                    f"llm_step {name!r}: LLM client not bound. Pass workflow=wf to Agent() "
-                    "to bind the agent's LLM before running."
-                )
-            from prodagent.hooks import fire as _fire
-            from prodagent.kernel.bus import HookEvent
-            from prodagent.llm import noop_chunk
-
-            sys_text = system or ""
-            await _fire(
-                wf._hooks,
-                HookEvent.LLM_REQUEST,
-                system=sys_text[:200],
-                system_len=len(sys_text),
-                messages=[{"role": "user", "content": prompt}],
-                msg_count=1,
-                phase="workflow",
-                run_id=run_id,
-            )
-            response = await wf._llm.complete(
-                [{"role": "user", "content": prompt}],
-                system=sys_text,
-                config=llm_config,
-                on_chunk=noop_chunk,
-            )
-            return response.content or ""
-
-        schema = _infer_schema(_llm_fn, name, f"LLM step: {prompt[:120]}")
-        meta = ToolMeta(
-            name=name,
-            is_readonly=True,
-            side_effect_level=SideEffectLevel.LOW,
-            timeout_seconds=resolved_timeout_ms / 1_000,
-        )
-        fn_tool = FunctionTool(name=name, fn=_llm_fn, meta=meta, schema=schema, inject_run_id=True)
-        return fn_tool
 
     def _register_agent_step(
         self,
@@ -268,19 +199,17 @@ class Workflow:
         is_terminal: bool,
         params: dict[str, Any] | None,
     ) -> None:
-        step_id = name or agent.name
-        merged: dict[str, Any] = {"name": agent.name, "task": f"Execute {step_id}"}
+        node_id = name or agent.name
+        merged: dict[str, Any] = {"task": f"Execute {node_id}"}
         if params:
             merged.update(params)
-            merged["name"] = agent.name
         self._specs.append(
-            _StepSpec(
-                step_id=step_id,
-                action="spawn_agent",
+            _NodeSpec(
+                node_id=node_id,
+                body=SubAgentBody(agent=agent.name, task=f"Execute {node_id}"),
                 params=merged,
                 depends_on=list(depends_on or []),
                 is_terminal=is_terminal,
-                tool=None,
             )
         )
 

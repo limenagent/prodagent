@@ -10,13 +10,12 @@ strategies*; they are not a fourth and fifth "topology."
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from prodagent.base.errors import SECURITY_VETO_EXCEPTIONS, ErrorReason
+from prodagent.base.errors import ErrorReason
 from prodagent.base.text import bound_text
 from prodagent.coordination.messaging.contract import (
     DEFAULT_CHILD_CONTRACT,
@@ -31,15 +30,12 @@ from prodagent.coordination.messaging.packet import HandoffPacket
 from prodagent.coordination.messaging.transport import TransportSpec, build_transport
 from prodagent.kernel.budget import SpawnAccumulator, open_ledger, run_enveloped
 from prodagent.kernel.bus import HookEvent
-from prodagent.kernel.state import collect_final_run
 from prodagent.kernel.types import (
     ErrorSeverity,
-    RunState,
     SideEffectLevel,
     ToolError,
     ToolMeta,
 )
-from prodagent.ports.execution import AgentActivation, RunnerPort
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.merge import attach_tools
 
@@ -47,7 +43,7 @@ if TYPE_CHECKING:
     from prodagent.base.config import FrameworkConfig
     from prodagent.kernel.budget import BudgetLedger, HardBudget
     from prodagent.kernel.bus import HookRegistry
-    from prodagent.ports.execution import AgentSpec
+    from prodagent.ports.execution import AgentSpec, RunnerPort
     from prodagent.ports.messaging import DeadLetterStore
     from prodagent.runtime.agent import Agent
 
@@ -488,80 +484,22 @@ class Spawn:
     async def _run_with_timeout(
         self, spec: Agent, task: str, packet: HandoffPacket, child_run_id: str | None
     ) -> ChildResult:
-        """Wall-clock clamp on the child — its own budget's seconds axis, not
-        a guess. A timeout is a *result*, not an exception: the parent reads
-        "the child ran past its clock" and decides (typically: don't blind-
-        retry the same spawn)."""
-        timeout = (
-            spec.budget_config.max_seconds
-            if spec.budget_config is not None
-            else self._default_timeout_s
-        )
-        try:
-            return await asyncio.wait_for(
-                self._run_child(spec, task, packet, child_run_id),
-                timeout=timeout,
-            )
-        except TimeoutError:
-            return short_result(
-                spec.name, STATE_TIMEOUT, f"Sub-agent timed out after {timeout:.0f}s"
-            )
-        except SECURITY_VETO_EXCEPTIONS:
-            raise
-        except Exception as exc:
-            logger.error("Sub-agent %r failed: %s", spec.name, exc, exc_info=True)
-            return short_result(spec.name, STATE_FAILED, str(exc), failed_reason="raised")
+        """The tool form of delegation, on the shared activation core — the
+        same ``activate_subagent`` a graph's SubAgentBody runs through, so
+        both entry points produce isomorphic Run trees (one core, many
+        doors). Only the governance shell (dispatch, admission, DLQ) is
+        tool-specific and lives around this call."""
+        from prodagent.coordination.activation import activate_subagent
 
-    async def _run_child(
-        self, spec: Agent, task: str, packet: HandoffPacket, child_run_id: str | None
-    ) -> ChildResult:
-        """One activation through the RunnerPort — where the child executes
-        (this process or another machine) is the port implementation's
-        business. The stream is reduced to its terminal run; every field the
-        parent might bill on or resume from carries into the ChildResult."""
-        child_task = packet.to_task_prompt()
-
-        try:
-            run = await collect_final_run(
-                self._runner.activate(
-                    AgentActivation(
-                        agent=spec,
-                        task=child_task,
-                        run_id=child_run_id,
-                        parent_run_id=self._parent_run_id,
-                        depth=self._depth + 1,
-                        budget_ledger=self._budget_ledger,
-                    )
-                ),
-                fallback_run_id=child_run_id or spec.name,
-                fallback_task=child_task,
-            )
-        except SECURITY_VETO_EXCEPTIONS:
-            raise
-        except Exception as exc:
-            logger.error("Sub-agent %r failed: %s", spec.name, exc)
-            return short_result(spec.name, STATE_FAILED, str(exc), failed_reason="raised")
-
-        if run is None:
-            return short_result(
-                spec.name,
-                STATE_FAILED,
-                "child run produced no terminal result",
-                failed_reason="failed",
-            )
-
-        output = run.final_output or run.last_error or ""
-        return ChildResult(
-            agent=spec.name,
-            state=run.state.value,
-            output=output,
-            turns=run.turn_count,
-            cost_usd=round(run.cost_usd, 4),
-            input_tokens=run.input_tokens,
-            output_tokens=run.output_tokens,
-            tool_history=list(run.tool_history),
-            approval_request_id=run.pending_approval_id or "",
-            failed_reason="failed" if run.state is RunState.FAILED else None,
+        return await activate_subagent(
+            self._runner,
+            spec,
+            packet.to_task_prompt(),
+            parent_run_id=self._parent_run_id,
+            depth=self._depth + 1,
+            budget_ledger=self._budget_ledger,
+            child_run_id=child_run_id,
+            default_timeout_s=self._default_timeout_s,
         )
 
     async def _fire(self, event: HookEvent, **fields: Any) -> None:

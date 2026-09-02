@@ -52,6 +52,10 @@ class AgentConfig:
     output_contract: MessageContract | None = None
     spawn_accumulator: SpawnAccumulator | None = None
     initial_plan: Plan | None = None
+    node_fns: dict[str, Callable[..., Any]] | None = None
+    """Plain functions fn nodes invoke, by name — populated when a Workflow
+    is bound (its declaration), consumed by the composition root's
+    BodyRunner at execution."""
     max_replans: int = 2
     description: str = ""
     agents: list[Agent] = field(default_factory=list)

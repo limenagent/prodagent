@@ -10,8 +10,8 @@ does uses one of them:
   the caching wrapper, the context assembler, every store backend.
 - **Bus attachment** — register on the kernel bus: observers, gates,
   injectors (memory recall, approval veto, spans, learning).
-- **Executor replacement** — implement ``LeafExecutor``: PLAN_FIRST is the
-  second strategy for iterating the Step atom.
+- **Executor replacement** — implement ``Executor``: the default is the
+  second strategy for iterating the Turn atom.
 
 Tools arrive through the hop seam (``tool_assemblers``); capabilities are
 found via the bus's typed slots (``provide``/``require``).

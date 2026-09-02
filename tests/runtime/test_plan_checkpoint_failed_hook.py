@@ -6,10 +6,11 @@ import pytest
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
+from prodagent.kernel.bodies.runner import BodyRunner
 from prodagent.kernel.bus import HookEvent, HookRegistry
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.executor import PlanExecutor
+from prodagent.plan.scheduler import Scheduler
 
 
 class _RecordingExecutor:
@@ -43,11 +44,11 @@ async def test_plan_checkpoint_failure_fires_once_via_hooks(tmp_path, monkeypatc
     seen: list[dict] = []
     hooks.register_event(HookEvent.CHECKPOINT_FAILED, lambda **kw: seen.append(kw))
 
-    planner = PlanExecutor(
+    planner = Scheduler(
         _two_step_plan_llm(),
-        _RecordingExecutor(),
+        BodyRunner(tools=_RecordingExecutor()),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
         hooks=hooks,
@@ -75,11 +76,11 @@ async def test_plan_checkpoint_success_never_fires(tmp_path):
     seen: list[dict] = []
     hooks.register_event(HookEvent.CHECKPOINT_FAILED, lambda **kw: seen.append(kw))
 
-    planner = PlanExecutor(
+    planner = Scheduler(
         _two_step_plan_llm(),
-        _RecordingExecutor(),
+        BodyRunner(tools=_RecordingExecutor()),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
         hooks=hooks,

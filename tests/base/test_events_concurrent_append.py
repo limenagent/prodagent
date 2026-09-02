@@ -9,7 +9,7 @@ from prodagent.base.event_log import Event, PlanEventType
 
 
 def _make(
-    event_type: PlanEventType = PlanEventType.STEP_COMPLETED, stream_id: str = "p1", **data
+    event_type: PlanEventType = PlanEventType.NODE_COMPLETED, stream_id: str = "p1", **data
 ) -> Event:
     return Event.make(event_type, stream_id, version=1, **data)
 
@@ -22,7 +22,7 @@ class TestConcurrentAppend:
 
         async def worker(tid: int) -> None:
             for i in range(n_appends_per_coro):
-                await log.append(_make(step_id=f"t{tid}-s{i}"))
+                await log.append(_make(node_id=f"t{tid}-s{i}"))
 
         await asyncio.gather(*(worker(tid) for tid in range(n_coros)))
 
@@ -48,7 +48,7 @@ class TestConcurrentAppend:
 
         async def worker(tid: int) -> str:
             try:
-                await log.append(_make(step_id=f"s{tid}"), expected_seq=1)
+                await log.append(_make(node_id=f"s{tid}"), expected_seq=1)
                 return "ok"
             except VersionConflict:
                 return "conflict"
@@ -61,7 +61,7 @@ class TestConcurrentAppend:
     async def test_read_tail_seq_is_o_last_line_not_o_file(self, tmp_path):
         log = FileEventLog(tmp_path)
         for i in range(1000):
-            await log.append(_make(step_id=f"s{i}"))
+            await log.append(_make(node_id=f"s{i}"))
 
         path = log._path("p1")
         assert _read_tail_seq(path) == 1000
@@ -69,7 +69,7 @@ class TestConcurrentAppend:
     async def test_read_tail_seq_skips_corrupt_trailing_line(self, tmp_path):
         log = FileEventLog(tmp_path)
         await log.append(_make(PlanEventType.PLAN_CREATED))
-        await log.append(_make(step_id="s1"))
+        await log.append(_make(node_id="s1"))
 
         path = log._path("p1")
         with path.open("a", encoding="utf-8") as f:
@@ -88,5 +88,5 @@ class TestConcurrentAppend:
     async def test_flock_does_not_deadlock_single_process_reentrant(self, tmp_path):
         log = FileEventLog(tmp_path)
         for i in range(500):
-            seq = await log.append(_make(step_id=f"s{i}"))
+            seq = await log.append(_make(node_id=f"s{i}"))
             assert seq == i + 1

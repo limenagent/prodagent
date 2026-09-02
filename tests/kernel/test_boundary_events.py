@@ -25,11 +25,12 @@ from prodagent.backends.memory.event_log import InMemoryEventLog
 from prodagent.base.blobs import BLOB_REF_KEY, fetch_ref
 from prodagent.base.event_log import BoundaryEventType, RunEventType, boundary_stream
 from prodagent.base.run_context import current_run_id
-from prodagent.kernel.loop import ReactiveLoop
+from prodagent.kernel.bodies.runner import BodyRunner
 from prodagent.kernel.types import LLMResponse, SideEffectLevel, ToolMeta
 from prodagent.llm.cache import cache_key_for
 from prodagent.llm.fake import FakeLLMAdapter, script
 from prodagent.llm.recording import RecordingLLMClient
+from prodagent.plan.scheduler import reactive_scheduler
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -72,7 +73,7 @@ class _HashSpy(FakeLLMAdapter):
         )
 
 
-async def _drive(loop: ReactiveLoop) -> str:
+async def _drive(loop: reactive_scheduler) -> str:
     """Run to terminal; return the run id the loop minted."""
     run_id: str | None = None
     async for event in loop.stream("do the thing"):
@@ -85,7 +86,7 @@ async def test_law_model_visible_is_wal_derivable() -> None:
     log = InMemoryEventLog()
     spy = _HashSpy([{"tool": "probe", "params": {}}, {"content": "done"}])
     dispatcher = ToolDispatcher({"probe": _tool("probe")}, event_log=log)
-    loop = ReactiveLoop(RecordingLLMClient(spy, log), dispatcher, event_log=log)
+    loop = reactive_scheduler(RecordingLLMClient(spy, log), dispatcher, event_log=log)
     run_id = await _drive(loop)
 
     boundary = await log.get_events(boundary_stream(run_id))
@@ -110,7 +111,7 @@ async def test_law_boundary_stream_is_sibling_of_markers() -> None:
     log = InMemoryEventLog()
     spy = _HashSpy([{"tool": "probe", "params": {}}, {"content": "done"}])
     dispatcher = ToolDispatcher({"probe": _tool("probe")}, event_log=log)
-    loop = ReactiveLoop(RecordingLLMClient(spy, log), dispatcher, event_log=log)
+    loop = reactive_scheduler(RecordingLLMClient(spy, log), dispatcher, event_log=log)
     run_id = await _drive(loop)
 
     markers = await log.get_events(run_id)
@@ -137,16 +138,17 @@ async def test_plan_first_records_boundary_facts_through_dispatcher() -> None:
     """Mode uniformity: PLAN_FIRST tool facts land on the same boundary
     stream shape, recorded by the same dispatcher choke point."""
     from prodagent.backends.factory import in_memory_checkpoint_store
-    from prodagent.plan.dag import Plan, PlanStep
-    from prodagent.plan.executor import PlanExecutor
+    from prodagent.kernel.bodies.base import ToolBody
+    from prodagent.plan.dag import Node, Plan
+    from prodagent.plan.scheduler import Scheduler
 
     log = InMemoryEventLog()
     plan = Plan()
-    plan.add_steps([PlanStep(step_id="s1", action="probe", params={})])
+    plan.add_nodes([Node(node_id="s1", body=ToolBody("probe"), params={})])
     dispatcher = ToolDispatcher({"probe": _tool("probe")}, event_log=log)
-    executor = PlanExecutor(
+    executor = Scheduler(
         script({"content": "unused — preset DAG needs no planner"}),
-        dispatcher.dispatch,
+        BodyRunner(tools=dispatcher.dispatch),
         dispatcher=dispatcher,
         event_log=log,
         checkpoint_store=in_memory_checkpoint_store(),
@@ -185,7 +187,7 @@ async def test_oversized_tool_result_spills_to_blob_pointer() -> None:
     blobs = InMemoryBlobStore()
     dispatcher = ToolDispatcher({"big": big_tool}, event_log=log, blob_store=blobs)
     spy = _HashSpy([{"tool": "big", "params": {}}, {"content": "done"}])
-    loop = ReactiveLoop(RecordingLLMClient(spy, log, blobs=blobs), dispatcher, event_log=log)
+    loop = reactive_scheduler(RecordingLLMClient(spy, log, blobs=blobs), dispatcher, event_log=log)
     run_id = await _drive(loop)
 
     boundary = await log.get_events(boundary_stream(run_id))

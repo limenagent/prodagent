@@ -128,7 +128,7 @@ def test_event_make_honours_ports() -> None:
     from prodagent.base.event_log import Event
 
     with override(time_port=FrozenTime(100.0, 0.0), id_port=FixedIds("ev-fixed")):
-        e = Event.make("StepCompleted", "stream-1", 3, foo="bar")
+        e = Event.make("NodeCompleted", "stream-1", 3, foo="bar")
     assert e.event_id == "ev-fixed"
     assert e.timestamp == 100.0
     assert e.data == {"foo": "bar"}

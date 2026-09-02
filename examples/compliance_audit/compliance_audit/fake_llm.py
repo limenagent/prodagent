@@ -199,7 +199,7 @@ def build_fake_llm() -> LLMClient:
         nonlocal replan_calls
         replan_calls += 1
         if replan_calls > 2:
-            # 超过 max_replans，返回空步骤 → PlanExecutor 停止
+            # 超过 max_replans，返回空步骤 → Scheduler 停止
             return LLMResponse(
                 content='{"steps": []}',
                 stop_reason="end_turn",

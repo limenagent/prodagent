@@ -1,83 +1,95 @@
 import pytest
 
-from prodagent.plan.dag import Plan, PlanStep, StepStatus
+from prodagent.kernel.bodies.base import ToolBody
+from prodagent.kernel.types import NodeStatus
+from prodagent.plan.dag import Node, Plan, fresh_states, state_of
 
 
-def _step(sid: str, depends_on: list[str] | None = None, **kw) -> PlanStep:
-    return PlanStep(step_id=sid, action=sid, depends_on=depends_on or [], **kw)
+def _node(sid: str, depends_on: list[str] | None = None, **kw) -> Node:
+    return Node(node_id=sid, body=ToolBody(sid), depends_on=depends_on or [], **kw)
 
 
-def _completed(sid: str, depends_on: list[str] | None = None) -> PlanStep:
-    s = _step(sid, depends_on)
-    s.status = StepStatus.COMPLETED
-    return s
+def _states_for(
+    plan: Plan, completed: frozenset[str] = frozenset(), failed: frozenset[str] = frozenset()
+) -> dict:
+    states = fresh_states(plan)
+    for sid in completed:
+        states[sid].mark_running()
+        states[sid].mark_completed("out")
+    for sid in failed:
+        states[sid].mark_running()
+        states[sid].mark_failed("boom")
+    return states
 
 
 class TestMergeIntraBatchDependencies:
-    def test_chain_of_new_steps_accepted(self):
+    def test_chain_of_new_nodes_accepted(self):
         plan = Plan()
-        plan.add_steps([_step("s1")])
-        plan._steps["s1"].status = StepStatus.FAILED
+        plan.add_nodes([_node("s1")])
+        states = _states_for(plan, failed={"s1"})
+        plan.mark_downstream_obsolete("s1", states)
 
-        plan.mark_downstream_obsolete("s1")
-
-        plan.merge(
+        merged = plan.merge(
             [
-                _step("s1_prime", replaces_step_id="s1"),
-                _step("s2_prime", depends_on=["s1_prime"]),
-            ]
+                _node("s1_prime", replaces_node_id="s1"),
+                _node("s2_prime", depends_on=["s1_prime"]),
+            ],
+            states,
         )
 
-        assert plan.get_step("s1_prime").status == StepStatus.PENDING
-        assert plan.get_step("s2_prime").status == StepStatus.PENDING
+        assert merged.get_node("s2_prime") is not None
+        assert state_of(states, "s1_prime").status is NodeStatus.PENDING
+        assert state_of(states, "s2_prime").status is NodeStatus.PENDING
 
-    def test_diamond_of_new_steps_accepted(self):
+    def test_diamond_of_new_nodes_accepted(self):
         plan = Plan()
-        plan.add_steps([_step("root")])
-        plan._steps["root"].status = StepStatus.FAILED
-        plan.mark_downstream_obsolete("root")
+        plan.add_nodes([_node("root")])
+        states = _states_for(plan, failed={"root"})
+        plan.mark_downstream_obsolete("root", states)
 
-        plan.merge(
+        merged = plan.merge(
             [
-                _step("root_prime", replaces_step_id="root"),
-                _step("left_prime", depends_on=["root_prime"]),
-                _step("right_prime", depends_on=["root_prime"]),
-                _step("join_prime", depends_on=["left_prime", "right_prime"]),
-            ]
+                _node("root_prime", replaces_node_id="root"),
+                _node("left_prime", depends_on=["root_prime"]),
+                _node("right_prime", depends_on=["root_prime"]),
+                _node("join_prime", depends_on=["left_prime", "right_prime"]),
+            ],
+            states,
         )
 
-        assert plan.get_step("join_prime").status == StepStatus.PENDING
+        assert merged.get_node("join_prime") is not None
+        assert state_of(states, "join_prime").status is NodeStatus.PENDING
 
     def test_missing_external_dep_still_raises(self):
         plan = Plan()
-        plan.add_steps([_step("s1")])
+        plan.add_nodes([_node("s1")])
 
         with pytest.raises(ValueError, match="not found"):
-            plan.merge([_step("new_step", depends_on=["ghost_id"])])
+            plan.merge([_node("new_node", depends_on=["ghost_id"])], {})
 
 
 class TestMarkDownstreamObsolete:
     def test_pending_past_completed_is_obsoleted(self):
         plan = Plan()
-        plan.add_steps(
+        plan.add_nodes(
             [
-                _step("s1"),
-                _completed("s2", depends_on=["s1"]),
-                _step("s3", depends_on=["s2"]),
+                _node("s1"),
+                _node("s2", depends_on=["s1"]),
+                _node("s3", depends_on=["s2"]),
             ]
         )
-        plan._steps["s1"].status = StepStatus.FAILED
+        states = _states_for(plan, completed={"s2"}, failed={"s1"})
 
-        obsoleted = plan.mark_downstream_obsolete("s1")
+        obsoleted = plan.mark_downstream_obsolete("s1", states)
 
-        assert plan.get_step("s1").status == StepStatus.FAILED, (
-            "Failed step must retain FAILED status, not be overwritten to OBSOLETE"
+        assert states["s1"].status is NodeStatus.FAILED, (
+            "Failed node must retain FAILED status, not be overwritten to OBSOLETE"
         )
-        assert plan.get_step("s2").status == StepStatus.COMPLETED, (
-            "COMPLETED step must not be downgraded to OBSOLETE"
+        assert states["s2"].status is NodeStatus.COMPLETED, (
+            "COMPLETED node must not be downgraded to OBSOLETE"
         )
-        assert plan.get_step("s3").status == StepStatus.OBSOLETE, (
-            "Transitive downstream past a COMPLETED step must be OBSOLETE"
+        assert states["s3"].status is NodeStatus.OBSOLETE, (
+            "Transitive downstream past a COMPLETED node must be OBSOLETE"
         )
 
         assert "s1" not in obsoleted
@@ -86,35 +98,35 @@ class TestMarkDownstreamObsolete:
 
     def test_deep_chain_past_completed(self):
         plan = Plan()
-        plan.add_steps(
+        plan.add_nodes(
             [
-                _step("root"),
-                _completed("A", depends_on=["root"]),
-                _completed("B", depends_on=["A"]),
-                _step("C", depends_on=["B"]),
-                _step("D", depends_on=["C"]),
+                _node("root"),
+                _node("A", depends_on=["root"]),
+                _node("B", depends_on=["A"]),
+                _node("C", depends_on=["B"]),
+                _node("D", depends_on=["C"]),
             ]
         )
-        plan._steps["root"].status = StepStatus.FAILED
+        states = _states_for(plan, completed={"A", "B"}, failed={"root"})
 
-        plan.mark_downstream_obsolete("root")
+        plan.mark_downstream_obsolete("root", states)
 
-        assert plan.get_step("A").status == StepStatus.COMPLETED
-        assert plan.get_step("B").status == StepStatus.COMPLETED
-        assert plan.get_step("C").status == StepStatus.OBSOLETE
-        assert plan.get_step("D").status == StepStatus.OBSOLETE
+        assert states["A"].status is NodeStatus.COMPLETED
+        assert states["B"].status is NodeStatus.COMPLETED
+        assert states["C"].status is NodeStatus.OBSOLETE
+        assert states["D"].status is NodeStatus.OBSOLETE
 
     def test_no_downstream_completed_only(self):
         plan = Plan()
-        plan.add_steps(
+        plan.add_nodes(
             [
-                _step("s1"),
-                _completed("s2", depends_on=["s1"]),
+                _node("s1"),
+                _node("s2", depends_on=["s1"]),
             ]
         )
-        plan._steps["s1"].status = StepStatus.FAILED
+        states = _states_for(plan, completed={"s2"}, failed={"s1"})
 
-        obsoleted = plan.mark_downstream_obsolete("s1")
+        obsoleted = plan.mark_downstream_obsolete("s1", states)
 
-        assert plan.get_step("s2").status == StepStatus.COMPLETED
+        assert states["s2"].status is NodeStatus.COMPLETED
         assert "s2" not in obsoleted

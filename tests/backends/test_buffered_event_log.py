@@ -26,7 +26,7 @@ from prodagent.base.event_log import Event, PlanEventType
 
 
 def _event(stream_id: str, version: int, **data: Any) -> Event:
-    return Event.make(PlanEventType.STEP_COMPLETED, stream_id, version, **data)
+    return Event.make(PlanEventType.NODE_COMPLETED, stream_id, version, **data)
 
 
 async def test_order_law_after_close(tmp_path: Any) -> None:
@@ -34,7 +34,7 @@ async def test_order_law_after_close(tmp_path: Any) -> None:
     log = BufferedEventLog(inner)
     ids = []
     for i in range(25):
-        event = _event("s1", i, step_id=f"s{i}")
+        event = _event("s1", i, node_id=f"s{i}")
         ids.append(event.event_id)
         await log.append(event)
     await log.aclose()
@@ -49,7 +49,7 @@ async def test_merged_view_law_before_flush() -> None:
     inner = InMemoryEventLog()
     log = BufferedEventLog(inner, max_batch=4)
     for i in range(6):
-        await log.append(_event("s1", i, step_id=f"s{i}"))
+        await log.append(_event("s1", i, node_id=f"s{i}"))
 
     # No flush, no close: the merged read must already see every accepted
     # event, exactly once, gapless — the suffix law holds at every instant.
@@ -59,7 +59,7 @@ async def test_merged_view_law_before_flush() -> None:
     # While drains race the reader, every observation stays dup-free/gapless.
     for _ in range(10):
         for i in range(6, 12):
-            await log.append(_event("s1", i, step_id=f"s{i}"))
+            await log.append(_event("s1", i, node_id=f"s{i}"))
         seen = [e.seq for e in await log.get_after("s1", 0)]
         assert seen == sorted(set(seen)), "no duplicates under drain race"
         assert seen == list(range(1, len(seen) + 1)), "no gaps under drain race"
@@ -77,7 +77,7 @@ async def test_backpressure_law_blocks_then_releases() -> None:
     inner = GatedLog()
     log = BufferedEventLog(inner, maxsize=2, max_batch=8)
 
-    appends = [asyncio.create_task(log.append(_event("s1", i, step_id=f"s{i}"))) for i in range(6)]
+    appends = [asyncio.create_task(log.append(_event("s1", i, node_id=f"s{i}"))) for i in range(6)]
     await asyncio.sleep(0.2)
     # Gate closed: the drain holds its batch, the queue fills, producers block
     # — blocked is exactly the contract (facts are slowed, never dropped).
@@ -105,7 +105,7 @@ async def test_flush_closes_the_window() -> None:
     inner = InMemoryEventLog()
     log = BufferedEventLog(inner, max_batch=2)
     for i in range(5):
-        await log.append(_event("s1", i, step_id=f"s{i}"))
+        await log.append(_event("s1", i, node_id=f"s{i}"))
     await log.flush()
     assert len(await inner.get_events("s1")) == 5, "flush drains everything accepted"
 

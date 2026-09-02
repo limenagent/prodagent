@@ -12,18 +12,18 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from prodagent.kernel.types import (
+    NodeStatus,
     RunCompletedEvent,
     RunFailedEvent,
     RunState,
     RunSuspendedEvent,
-    StepStatus,
 )
-from prodagent.plan.step_runner import format_step_output
+from prodagent.plan.node_runner import format_node_output
 
 if TYPE_CHECKING:
     from prodagent.kernel.state import AgentRun
     from prodagent.kernel.types import AgentEvent
-    from prodagent.plan.dag import Plan, PlanStep
+    from prodagent.plan.dag import Node, Plan
 
 
 def terminal_event(run: AgentRun) -> AgentEvent:
@@ -39,8 +39,8 @@ def terminal_event(run: AgentRun) -> AgentEvent:
 
 def finalize_run(run: AgentRun, plan: Plan | None) -> None:
     """Settle the run's final output. Priority: the plan's designated
-    terminal step (``is_terminal=True``) speaks for the plan; without one,
-    the last step to complete does — in a DAG, output flows downhill, so
+    terminal node (``is_terminal=True``) speaks for the plan; without one,
+    the last node to complete does — in a DAG, output flows downhill, so
     the sink is the answer. A pending handoff keeps the handoff message:
     the peer continues the story, this run's output is not the ending."""
     if run.state is RunState.RUNNING:
@@ -50,26 +50,38 @@ def finalize_run(run: AgentRun, plan: Plan | None) -> None:
     if plan is None:
         return
 
+    states = run.node_states
     terminal = next(
-        (s.output_ref for s in plan.steps if s.is_terminal and s.status is StepStatus.COMPLETED),
+        (
+            states[n.node_id].output_ref
+            for n in plan.nodes.values()
+            if n.is_terminal
+            and n.node_id in states
+            and states[n.node_id].status is NodeStatus.COMPLETED
+        ),
         None,
     )
     if terminal is not None:
-        run.final_output = format_step_output(terminal)
+        run.final_output = format_node_output(terminal)
         return
 
-    sink = select_terminal_step(plan)
+    sink = select_terminal_node(plan, run)
     if sink is not None:
-        run.final_output = format_step_output(sink.output_ref)
+        run.final_output = format_node_output(states[sink.node_id].output_ref)
 
 
-def select_terminal_step(plan: Plan) -> PlanStep | None:
-    """No explicit terminal → the last step to complete is the answer: output
+def select_terminal_node(plan: Plan, run: AgentRun) -> Node | None:
+    """No explicit terminal → the last node to complete is the answer: output
     flows downhill in a DAG, so the sink speaks for the plan."""
-    completed = [s for s in plan.steps if s.status is StepStatus.COMPLETED]
+    states = run.node_states
+    completed = [
+        n
+        for n in plan.nodes.values()
+        if n.node_id in states and states[n.node_id].status is NodeStatus.COMPLETED
+    ]
     if not completed:
         return None
-    timed = [s for s in completed if s.completed_at > 0]
+    timed = [n for n in completed if states[n.node_id].completed_at > 0]
     if timed:
-        return max(timed, key=lambda s: s.completed_at)
+        return max(timed, key=lambda n: states[n.node_id].completed_at)
     return completed[-1]

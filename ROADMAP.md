@@ -27,7 +27,7 @@
 - [x] **5 种后端**——file / memory / postgres / redis / neo4j
 - [x] **全离线测试**——1,182 个测试，零 API key，零网络
 - [x] **核心仅 4 依赖**——anyio / httpx / pydantic / typing-extensions
-- [x] **9 个端到端示例**——greeter / deep_research / dating_chat / trader / aiops / code_detective / compliance_audit / quiz_arena 等
+- [x] **8 个端到端示例**——greeter / deep_research / dating_chat / trader / aiops / code_detective / compliance_audit 等
 - [x] **可视化 playground**——FastAPI 服务器，浏览器调试
 - [x] **完整文档**——七站之旅 + 生产问题域专题 + 设计取舍 + 术语表
 

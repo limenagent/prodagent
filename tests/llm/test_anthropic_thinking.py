@@ -4,7 +4,7 @@ The chain: ``LLMConfig.thinking_budget_tokens`` enables it → the adapter
 sends ``thinking``, stops sending ``temperature`` (API pins it to 1), and
 keeps ``max_tokens`` above the budget → ``_parse_message`` captures the raw
 blocks (signature included) onto ``LLMResponse.thinking_blocks`` →
-``Step._account`` parks them on the assistant message → the next
+``Turn._account`` parks them on the assistant message → the next
 ``_normalise_messages`` re-sends them on tool-use continuations, which the
 API requires. OpenAI's adapter strips the key instead — it's framework
 vocabulary, not wire.
@@ -18,7 +18,7 @@ import pytest
 
 from prodagent.kernel.budget import HardBudget
 from prodagent.kernel.state import AgentRun
-from prodagent.kernel.step import Step
+from prodagent.kernel.turn import Turn
 from prodagent.kernel.types import LLMResponse, ToolCall
 from prodagent.llm import LLMConfig
 from prodagent.llm.anthropic_adapter import AnthropicAdapter
@@ -124,7 +124,7 @@ async def test_step_account_parks_thinking_blocks_on_assistant_message():
             return llm_response
 
     run = AgentRun(run_id="r", task="t")
-    step = Step(_OneShotLLM(), _NoopRunner(), budget=HardBudget(max_turns=5))
+    step = Turn(_OneShotLLM(), _NoopRunner(), budget=HardBudget(max_turns=5))
 
     async for _ in step.run(run, system="s", tools=None):
         pass

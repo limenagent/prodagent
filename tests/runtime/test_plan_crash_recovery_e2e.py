@@ -125,9 +125,9 @@ async def test_plan_crash_recovery_resumes_from_last_checkpoint(tmp_path):
     types_run1 = [e.event_type for e in await events.get_events(RUN_ID_V1)]
     assert types_run1 == [
         PlanEventType.PLAN_CREATED,
-        PlanEventType.STEP_STARTED,
-        PlanEventType.STEP_COMPLETED,
-        PlanEventType.STEP_STARTED,
+        PlanEventType.NODE_STARTED,
+        PlanEventType.NODE_COMPLETED,
+        PlanEventType.NODE_STARTED,
     ], f"unexpected event sequence after crash: {types_run1}"
 
     agent2 = _make_agent()
@@ -145,8 +145,8 @@ async def test_plan_crash_recovery_resumes_from_last_checkpoint(tmp_path):
     assert "pod restarted" in run2.final_output
 
     types_full = [e.event_type for e in await events.get_events(RUN_ID_V1)]
-    assert PlanEventType.STEP_FAILED not in types_full
+    assert PlanEventType.NODE_FAILED not in types_full
     assert PlanEventType.PLAN_REPLANNED not in types_full
     assert types_full.count(PlanEventType.PLAN_CREATED) == 1
-    assert types_full.count(PlanEventType.STEP_COMPLETED) == 4
-    assert types_full.count(PlanEventType.STEP_STARTED) == 5
+    assert types_full.count(PlanEventType.NODE_COMPLETED) == 4
+    assert types_full.count(PlanEventType.NODE_STARTED) == 5

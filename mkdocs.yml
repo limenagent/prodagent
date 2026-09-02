@@ -51,12 +51,14 @@ exclude_docs: |
   internal/
   decisions.md
   topics/compress_threshold.md
+  column/
 
 extra_css:
   - stylesheets/extra.css
 
 nav:
   - 首页: index.md
+  - 架构概览: architecture/overview.md
   - 本书:
       - 序章 · 从 Python 基础到独立设计工业级 Agent 框架: book/ch00.md
       - 第 1 章 · 全景：从 10 行 demo 到一个工业级框架: book/ch01.md

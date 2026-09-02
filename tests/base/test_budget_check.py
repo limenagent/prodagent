@@ -6,10 +6,10 @@ import pytest
 
 from prodagent.base.errors import BudgetExceeded
 from prodagent.kernel.budget import HardBudget, check_budget
-from prodagent.kernel.loop import ReactiveLoop
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
+from prodagent.plan.scheduler import reactive_scheduler
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -117,7 +117,7 @@ class TestAxisPrecedenceConsistency:
             await ledger.check(member="x")
 
 
-class TestReactiveLoopSpawnAccumulators:
+class Testreactive_schedulerSpawnAccumulators:
     async def test_loop_trips_on_sibling_spend_it_never_directly_incurred(self):
         from prodagent.kernel.budget import BudgetLedger
         from prodagent.kernel.types import RunFailedEvent
@@ -127,7 +127,7 @@ class TestReactiveLoopSpawnAccumulators:
         await ledger.commit(member="sibling", turns=0, tokens=0, cost_usd=0.95)
         llm = FakeLLMAdapter(responses=[LLMResponse(content="done", stop_reason="end_turn")])
         dispatcher = ToolDispatcher({"noop": _noop_tool})
-        loop = ReactiveLoop(
+        loop = reactive_scheduler(
             llm,
             dispatcher,
             system_prompt="test",
@@ -147,9 +147,9 @@ async def _noop_tool() -> dict:
     return {"result": "ok"}
 
 
-def _make_loop(llm: FakeLLMAdapter, budget: HardBudget) -> ReactiveLoop:
+def _make_loop(llm: FakeLLMAdapter, budget: HardBudget) -> reactive_scheduler:
     dispatcher = ToolDispatcher({"noop": _noop_tool})
-    return ReactiveLoop(
+    return reactive_scheduler(
         llm,
         dispatcher,
         system_prompt="test",

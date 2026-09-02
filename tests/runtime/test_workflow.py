@@ -117,7 +117,7 @@ def test_workflow_auto_bind_only_matches_dependency_names():
         return {"merged": upstream, "free": free}
 
     plan = wf.compile()
-    step = next(s for s in plan.steps if s.step_id == "downstream")
+    step = next(s for s in plan.nodes.values() if s.node_id == "downstream")
     assert step.params == {"upstream": "{{upstream.output}}"}
     assert "free" not in step.params
 
@@ -134,7 +134,7 @@ def test_workflow_params_kwarg_overrides_auto_bind():
         return {"up": upstream, "ex": extra}
 
     plan = wf.compile()
-    step = next(s for s in plan.steps if s.step_id == "downstream")
+    step = next(s for s in plan.nodes.values() if s.node_id == "downstream")
     assert step.params == {"upstream": "{{upstream.x}}", "extra": "literal"}
 
 
@@ -153,11 +153,16 @@ def test_workflow_tool_step_references_existing_tool_no_new_function_tool():
     )
 
     plan = wf.compile()
-    route_step = next(s for s in plan.steps if s.step_id == "route")
+    route_step = next(s for s in plan.nodes.values() if s.node_id == "route")
     assert route_step.action == "some_existing_tool"
     assert route_step.params == {"email_id": "eml_001"}
-    assert route_step.depends_on == ["fetch"]
-    assert [t.name for t in wf.tools] == ["fetch"]
+    assert list(route_step.depends_on) == ["fetch"]
+    # The new contract: a Workflow declares nodes, it registers no tools —
+    # fn steps live in the fn table, the model's tool table is untouched.
+    assert set(wf.fns) == {"fetch"}
+    fetch_step = next(s for s in plan.nodes.values() if s.node_id == "fetch")
+    assert fetch_step.kind.value == "fn"
+    assert route_step.kind.value == "tool"
 
 
 @pytest.mark.asyncio
@@ -183,8 +188,11 @@ async def test_workflow_llm_step_binds_lazy_resolved_llm():
         config=AgentConfig(name="wf-lazy-llm", framework=fw),
     )
 
-    # The workflow's _llm must have been resolved (not None) when workflow= is set.
-    assert wf._llm is not None, "workflow._llm must be bound via Agent.llm property"
+    # The workflow holds no LLM at all now — it is a declaration; the
+    # composition root wires the invoker from the agent's lazy-resolved
+    # client, and the llm node runs through it.
+    assert not hasattr(wf, "_llm")
+    assert "think" in agent.config.node_fns or agent.config.node_fns is not None
 
     run = await agent.chat("hello")
     assert run.state.value == "completed"

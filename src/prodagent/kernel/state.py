@@ -11,9 +11,11 @@ from typing_extensions import TypeVar
 from prodagent.base.codec import dump, load
 from prodagent.base.determinism import now_monotonic, now_wall
 from prodagent.base.errors import ClassifiedError, ErrorLayer, classify_error
+from prodagent.kernel.node_state import NodeRuntimeState
 from prodagent.kernel.types import (
     LLMResponse,
     MessageList,
+    NodeStatus,
     RunCompletedEvent,
     RunFailedEvent,
     RunState,
@@ -213,6 +215,10 @@ class AgentRun(Generic[_RunT]):
     a resumed run's deadline still binds, counting the downtime. Rebase
     ``start_time`` at the resume site if downtime should be forgiven."""
     parent_run_id: str | None = None
+    depth: int = 0
+    """Run-tree depth: 0 at a root, +1 per delegation hop. persisted so a
+    resumed tree still knows its shape (attribution and spawn budgets
+    read it)."""
 
     # Mutable working transcript during this turn; copied whole into
     # ConversationSession.messages at complete_turn. See session.py docstring.
@@ -234,7 +240,16 @@ class AgentRun(Generic[_RunT]):
     section so each mode's cursor evolves without touching this object or
     bumping anyone else's schema). Keys in use: ``plan`` (PlanEventLog —
     ``{"state": JsonDict | None, "last_seq": int}``), ``reactive``
-    (ReactiveLoop's event-log tail seq — an int)."""
+    (the react engine's turn-marker tail seq — an int)."""
+    node_states: dict[str, NodeRuntimeState] = field(default_factory=dict)
+    """Per-node execution state — the mutable half of every Node in the plan
+    this run executes. The blueprint stays static and shareable; progress
+    lives here, on the run. Resumed runs materialize this from the plan
+    cursor's state at bootstrap."""
+    shared: dict[str, Any] = field(default_factory=dict)
+    """The run's shared state — what Update commands merge into (column 9's
+    third dynamic action). Typed values keyed by name; conflicts resolve
+    through declared reducers at the gate, never by silent overwrite."""
     checkpoint_version: int = 0
     checkpoint_failed: bool = False
 
@@ -268,6 +283,23 @@ class AgentRun(Generic[_RunT]):
 
     def retry_count(self, tool_name: str) -> int:
         return self.retry_counter.get(tool_name, 0)
+
+    # ── Node progress — the run owns how far each node got ────────────────
+
+    def node_state(self, node_id: str) -> NodeRuntimeState:
+        """One node's execution state, vacuously PENDING when untouched so
+        far — callers never branch on "has this node been seen"."""
+        st = self.node_states.get(node_id)
+        if st is None:
+            st = NodeRuntimeState(node_id)
+            self.node_states[node_id] = st
+        return st
+
+    def requeue_suspended_nodes(self) -> None:
+        """Flip SUSPENDED nodes back to PENDING so they re-execute on resume."""
+        for st in self.node_states.values():
+            if st.status is NodeStatus.SUSPENDED:
+                st.reset_to_pending()
 
     # ── Terminal transitions — the single throat ────────────────────────────
     # State flips used to live in ~16 scattered assignments; the pairings
@@ -430,6 +462,7 @@ class AgentRun(Generic[_RunT]):
             ),
             "metrics": self.metrics.to_dict(),
             "parent_run_id": self.parent_run_id,
+            "depth": self.depth,
             "tool_failures": self.tool_failures,
             "last_action": self.last_action,
             "start_time": self.start_time,
@@ -444,6 +477,7 @@ class AgentRun(Generic[_RunT]):
             "last_error": self.last_error,
             "error": self.error.to_dict() if self.error is not None else None,
             "cursors": dict(self.cursors),
+            "shared": dict(self.shared),
             "is_peer_continuation": self.is_peer_continuation,
         }
 
@@ -467,6 +501,7 @@ class AgentRun(Generic[_RunT]):
             structured_output=d.get("structured_output"),
             metrics=RunMetrics.from_dict(d.get("metrics")),
             parent_run_id=d.get("parent_run_id"),
+            depth=int(d.get("depth", 0) or 0),
             tool_failures=d.get("tool_failures", 0),
             last_action=d.get("last_action"),
             start_time=d.get("start_time", now_wall()),
@@ -484,5 +519,6 @@ class AgentRun(Generic[_RunT]):
                 ClassifiedError.from_dict(d["error"]) if isinstance(d.get("error"), dict) else None
             ),
             cursors=_cursors_from_dict(d),
+            shared=dict(d.get("shared") or {}),
             is_peer_continuation=d.get("is_peer_continuation", False),
         )

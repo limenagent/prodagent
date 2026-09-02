@@ -11,14 +11,18 @@ from typing import TYPE_CHECKING, Any
 
 from prodagent.base.errors import SECURITY_VETO_EXCEPTIONS, LLMError
 from prodagent.hooks import fire as _fire
+from prodagent.kernel.bodies.base import ReActBody, ToolBody
 from prodagent.kernel.bus import HookEvent
-from prodagent.kernel.types import StepStatus
+from prodagent.kernel.types import NodeStatus
 from prodagent.llm import LLMConfig
 from prodagent.llm.structured_output import extract_json_object
-from prodagent.plan.dag import Plan, PlanStep
+from prodagent.plan.dag import Node, Plan
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from prodagent.kernel.bus import HookRegistry
+    from prodagent.kernel.node_state import NodeRuntimeState
     from prodagent.kernel.state import AgentRun
     from prodagent.kernel.types import MessageList
     from prodagent.llm import LLMClient
@@ -30,9 +34,11 @@ _DEFAULT_PLANNING_MAX_TOKENS = 16_384
 
 @dataclass
 class PlanDraft:
-    """Parsed Plan (or None) + raw response text from one planning LLM call."""
+    """Parsed nodes (empty means no plan) + raw response text from one
+    planning LLM call — parse success and raw evidence travel together so
+    a bad draft is auditable against what the model actually said."""
 
-    plan: Plan | None
+    nodes: list[Node]
     raw_text: str
 
 
@@ -49,28 +55,36 @@ def _tool_reference(tool_schemas: list[dict[str, Any]]) -> str:
     return "Available tools (use ONLY these):\n" + json.dumps(compact, indent=2)
 
 
-def _replan_user_prompt(plan: Plan, failed_step: PlanStep, error: str) -> str:
+def _replan_user_prompt(
+    plan: Plan, failed_node: Node, error: str, states: Mapping[str, NodeRuntimeState]
+) -> str:
     """The recovery prompt's core: failure, its error, and — critically —
     the completed/obsolete census. "Do not repeat" is not a courtesy; a
-    model that re-proposes a completed step would re-fire its side effects
+    model that re-proposes a completed node would re-fire its side effects
     at merge time."""
     completed = (
         "\n".join(
-            f"  {s.step_id}: {s.action} → COMPLETED"
-            for s in plan.steps
-            if s.status is StepStatus.COMPLETED
+            f"  {n.node_id}: {n.action} → COMPLETED"
+            for n in plan.nodes.values()
+            if states.get(n.node_id) is not None
+            and states[n.node_id].status is NodeStatus.COMPLETED
         )
         or "  (none)"
     )
     obsolete = (
-        ", ".join(s.step_id for s in plan.steps if s.status is StepStatus.OBSOLETE) or "(none)"
+        ", ".join(
+            n.node_id
+            for n in plan.nodes.values()
+            if states.get(n.node_id) is not None and states[n.node_id].status is NodeStatus.OBSOLETE
+        )
+        or "(none)"
     )
     return (
-        f"Step '{failed_step.step_id}' ({failed_step.action}) failed.\n"
+        f"Node '{failed_node.node_id}' ({failed_node.action}) failed.\n"
         f"Error: {error}\n\n"
-        f"Completed steps (do not repeat):\n{completed}\n"
-        f"Obsoleted steps: {obsolete}\n\n"
-        "Propose replacement steps to recover from this failure."
+        f"Completed nodes (do not repeat):\n{completed}\n"
+        f"Obsoleted nodes: {obsolete}\n\n"
+        "Propose replacement nodes to recover from this failure."
     )
 
 
@@ -109,17 +123,38 @@ class Planner:
         against what the model actually said."""
         messages = list(messages) + [{"role": "user", "content": task}]
         raw = await self._call_llm(messages, self._build_system(system, self._planning_system), run)
-        return PlanDraft(plan=self._parse_plan(raw), raw_text=raw)
+        return PlanDraft(nodes=self._parse_nodes(raw), raw_text=raw)
+
+    async def repair(
+        self,
+        draft: PlanDraft,
+        issues: str,
+        task: str,
+        system: str,
+        run: AgentRun,
+    ) -> PlanDraft:
+        """One repair round: the rejected draft and its validator issues go
+        back to the model — errors are feedback, not exceptions (column 16)."""
+        messages: MessageList = [
+            {"role": "assistant", "content": draft.raw_text},
+            {
+                "role": "user",
+                "content": f"That plan was rejected:\n{issues}\n\n"
+                f"Return a corrected plan as JSON for this task:\n{task}",
+            },
+        ]
+        raw = await self._call_llm(messages, self._build_system(system, self._planning_system), run)
+        return PlanDraft(nodes=self._parse_nodes(raw), raw_text=raw)
 
     async def replan(
         self,
         plan: Plan,
-        failed_step: PlanStep,
+        failed_node: Node,
         error: str,
         system: str,
         original_messages: MessageList,
         run: AgentRun,
-    ) -> list[PlanStep]:
+    ) -> list[Node]:
         """One recovery call — replacement steps only, never a full re-plan.
         The prompt shows what survived (completed), what died (obsolete), and
         what broke; ``Plan.merge`` then re-links the lineage."""
@@ -130,9 +165,14 @@ class Planner:
             role = m.get("role", "") if isinstance(m, dict) else getattr(m, "role", "")
             if role in ("user", "assistant"):
                 clean.append(m)
-        clean.append({"role": "user", "content": _replan_user_prompt(plan, failed_step, error)})
+        clean.append(
+            {
+                "role": "user",
+                "content": _replan_user_prompt(plan, failed_node, error, run.node_states),
+            }
+        )
         raw = await self._call_llm(clean, self._build_system(system, self._replan_system), run)
-        return self._parse_steps(raw)
+        return self._parse_nodes(raw)
 
     def _build_system(self, caller_system: str, prompt: str) -> str:
         parts = [caller_system, prompt]
@@ -185,38 +225,44 @@ class Planner:
             run.add_tokens(response, cost_usd=self._planning_cfg().cost_for_response(response))
         return response.content or "".join(collected)
 
-    def _parse_plan(self, content: str) -> Plan | None:
-        steps = self._parse_steps(content)
-        if not steps:
-            return None
-        plan = Plan()
-        plan.add_steps(steps)
-        return plan
-
-    @staticmethod
-    def _parse_steps(content: str) -> list[PlanStep]:
-        """Tolerates markdown fences + surrounding prose."""
+    def _parse_nodes(self, content: str) -> list[Node]:
+        """Tolerates markdown fences + surrounding prose. Two node forms —
+        column 7's two schools: ``action`` pins the tool (execution has
+        zero model calls); ``goal`` declares an autonomous node that works
+        out its own calls (use sparingly: it costs more)."""
         try:
             data = json.loads(extract_json_object(content))
         except (json.JSONDecodeError, ValueError) as exc:
             logger.warning("[Plan] JSON parse failed: %s\ncontent=%s", exc, content[:200])
             return []
-        steps: list[PlanStep] = []
+        nodes: list[Node] = []
         for s in data.get("steps", []):
             try:
-                steps.append(
-                    PlanStep(
-                        step_id=s["id"],
-                        action=s["action"],
-                        params=s.get("params", {}),
-                        depends_on=s.get("depends_on", []),
-                        is_terminal=bool(s.get("terminal", False)),
-                        replaces_step_id=s.get("replaces"),
+                if s.get("goal"):
+                    nodes.append(
+                        Node(
+                            node_id=s["id"],
+                            body=ReActBody(goal=str(s["goal"])),
+                            params={},
+                            depends_on=s.get("depends_on", []),
+                            is_terminal=bool(s.get("terminal", False)),
+                            replaces_node_id=s.get("replaces"),
+                        )
                     )
-                )
+                else:
+                    nodes.append(
+                        Node(
+                            node_id=s["id"],
+                            body=ToolBody(s["action"]),
+                            params=s.get("params", {}),
+                            depends_on=s.get("depends_on", []),
+                            is_terminal=bool(s.get("terminal", False)),
+                            replaces_node_id=s.get("replaces"),
+                        )
+                    )
             except KeyError as exc:
-                # A malformed step is skipped, not fatal — four good steps and
+                # A malformed node is skipped, not fatal — four good nodes and
                 # one bad field still make an executable plan.
-                logger.warning("[Plan] step missing required field %s in: %s", exc, s)
+                logger.warning("[Plan] node missing required field %s in: %s", exc, s)
                 continue
-        return steps
+        return nodes

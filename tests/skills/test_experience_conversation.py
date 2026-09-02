@@ -37,7 +37,7 @@ def _plan_first_run() -> AgentRun:
         {
             "role": "assistant",
             "content": (
-                "Step investigate: Root cause identified — OOM kill from unbounded heap "
+                "Turn investigate: Root cause identified — OOM kill from unbounded heap "
                 "growth in payment-service v2.15.0 introduced by PR #4412 which removed "
                 "the buffer pool pattern."
             ),
@@ -45,7 +45,7 @@ def _plan_first_run() -> AgentRun:
         {
             "role": "assistant",
             "content": (
-                "Step remediate: Rolled back payment-service to v2.14.0 (SHA f8c01d4). "
+                "Turn remediate: Rolled back payment-service to v2.14.0 (SHA f8c01d4). "
                 "SLO recovered to 99.97% within 4 minutes post-rollback. Incident "
                 "INC-20260619-001 resolved."
             ),

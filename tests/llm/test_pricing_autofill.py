@@ -78,11 +78,11 @@ def test_cost_axis_hard_stops_run() -> None:
 
 
 def test_reactive_loop_accounts_catalog_priced_turns(monkeypatch: pytest.MonkeyPatch) -> None:
-    """End-to-end: the ReactiveLoop's internal LLMConfig() picks up env-model
+    """End-to-end: the reactive_scheduler's internal LLMConfig() picks up env-model
     pricing, so run.cost_usd moves without any explicit rate configuration."""
     from prodagent.llm import providers
 
     monkeypatch.setattr(providers, "detect_default_model", lambda: "deepseek-chat")
 
-    cfg = LLMConfig()  # exactly what ReactiveLoop constructs internally
+    cfg = LLMConfig()  # exactly what reactive_scheduler constructs internally
     assert cfg.cost_for_response(_response()) == pytest.approx((50 * 0.27 + 10 * 1.1) / 1_000_000)

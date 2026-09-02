@@ -30,7 +30,7 @@ from prodagent.runtime.compose import (
     make_settler,
     peer_relay,
 )
-from prodagent.runtime.factory import LeafExecutorFactory
+from prodagent.runtime.factory import SchedulerFactory
 from prodagent.runtime.parent_runtime import ParentRuntime
 
 if TYPE_CHECKING:
@@ -313,11 +313,12 @@ async def _resume_peer_context(
 class RunLoop:
     """Drives an agent run across peer hand-offs, one hop at a time.
 
-    A "hop" is one agent's turn: build its executor via ``LeafExecutorFactory``,
+    A "hop" is one agent's turn: build its executor via ``SchedulerFactory``,
     run it to completion, then check whether it produced a peer hand-off. If so,
     loop again with the peer as the new root agent; otherwise the run is done.
-    Not to be confused with :class:`~prodagent.kernel.loop.ReactiveLoop`,
-    which drives the think/act steps *inside* a single hop — ``RunLoop`` never
+    Not to be confused with the ReactEngine — the Turn loop inside a
+    react node, which drives the think/act steps *inside* a single hop;
+    ``RunLoop`` never
     talks to an LLM directly, it only orchestrates which agent gets the next hop.
     """
 
@@ -336,9 +337,7 @@ class RunLoop:
         self._ctx = initial_ctx
         self._root_run_id = root_run_id
         self._output_schema = output_schema
-        self._factory = LeafExecutorFactory(
-            forced_mode=forced_mode, initial_messages=initial_messages
-        )
+        self._factory = SchedulerFactory(forced_mode=forced_mode, initial_messages=initial_messages)
         # One ledger for the whole tree: a spawned child arrives with its
         # parent's ledger (siblings visible); a root run mints a fresh one.
         self._ledger = open_ledger(root_agent.budget_config, existing=budget_ledger)

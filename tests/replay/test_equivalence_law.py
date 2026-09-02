@@ -16,10 +16,10 @@ from __future__ import annotations
 from typing import Any
 
 from prodagent.backends.memory.event_log import InMemoryEventLog
-from prodagent.kernel.loop import ReactiveLoop
 from prodagent.kernel.types import SideEffectLevel, ToolMeta
 from prodagent.llm.fake import script
 from prodagent.llm.recording import RecordingLLMClient
+from prodagent.plan.scheduler import reactive_scheduler
 from prodagent.replay.cassette import derive_cassette
 from prodagent.replay.engine import CassetteLLMClient, CassettePlayer, replay_tools
 from prodagent.replay.strict import assert_equivalent, strict_compare
@@ -43,7 +43,7 @@ def _live_tool(name: str, *, result: str = "") -> FunctionTool:
     )
 
 
-async def _collect(loop: ReactiveLoop, task: str) -> tuple[Any, list[Any]]:
+async def _collect(loop: reactive_scheduler, task: str) -> tuple[Any, list[Any]]:
     final = None
     events: list[Any] = []
     async for event in loop.stream(task):
@@ -55,7 +55,7 @@ async def _collect(loop: ReactiveLoop, task: str) -> tuple[Any, list[Any]]:
 async def _live_run(task: str, tools: list[FunctionTool], turns: list[dict[str, Any]]):
     log = InMemoryEventLog()
     dispatcher = ToolDispatcher({t.name: t for t in tools}, event_log=log)
-    loop = ReactiveLoop(RecordingLLMClient(script(*turns), log), dispatcher, event_log=log)
+    loop = reactive_scheduler(RecordingLLMClient(script(*turns), log), dispatcher, event_log=log)
     run, events = await _collect(loop, task)
     cassette = await derive_cassette(log, run.run_id)
     return run, events, cassette
@@ -64,7 +64,7 @@ async def _live_run(task: str, tools: list[FunctionTool], turns: list[dict[str, 
 def _replay(cassette, task: str):
     player = CassettePlayer(cassette)
     dispatcher = ToolDispatcher(replay_tools(cassette, player))
-    loop = ReactiveLoop(CassetteLLMClient(player), dispatcher)
+    loop = reactive_scheduler(CassetteLLMClient(player), dispatcher)
     return _collect(loop, task)
 
 

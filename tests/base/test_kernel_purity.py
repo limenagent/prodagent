@@ -56,3 +56,14 @@ def test_kernel_modules_load_no_capability_package() -> None:
         assert not leaked, (
             f"prodagent.kernel.{mod} pulled capability packages into its import chain: {leaked}"
         )
+
+
+def test_kernel_does_not_import_plan() -> None:
+    """The layering after the unification: the Scheduler lives in ``plan``
+    (it orchestrates hooks, models and tools), so the kernel stays pure —
+    the reading unit below the blueprint, never above it."""
+    loaded = _loaded_by(
+        "import prodagent.kernel.turn, prodagent.kernel.react, prodagent.kernel.bodies"
+    )
+    leaked = [m for m in loaded if m.startswith("prodagent.plan")]
+    assert not leaked, f"kernel pulled the plan layer into its import chain: {leaked}"

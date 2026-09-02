@@ -223,13 +223,13 @@ def test_v1_checkpoint_with_flat_cursor_fields_migrates_into_boxed_cursors():
         "run_id": "legacy",
         "task": "t",
         "schema_version": 1,
-        "plan_state": {"version": 2, "steps": {"s1": {"status": "completed"}}},
+        "plan_state": {"version": 2, "nodes": {"s1": {"status": "completed"}}},
         "plan_last_seq": 5,
         "last_event_seq": 9,
     }
     run = AgentRun.from_dict(v1)
     assert run.cursor("plan") == {
-        "state": {"version": 2, "steps": {"s1": {"status": "completed"}}},
+        "state": {"version": 2, "nodes": {"s1": {"status": "completed"}}},
         "last_seq": 5,
     }
     assert run.cursor("reactive") == 9

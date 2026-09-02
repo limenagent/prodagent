@@ -48,7 +48,9 @@ def main() -> int:
     )
     missing: list[tuple[Path, str]] = []
     checked = 0
-    for md in sorted(docs_dir.rglob("*.md")):
+    # column/ is the paid course's private workspace — never shipped, never
+    # reference-checked (it cites aspirational paths the public docs don't).
+    for md in sorted(m for m in docs_dir.rglob("*.md") if "column" not in m.parts):
         # Archived point-in-time reviews describe the tree as it was when
         # written — their code refs are history, not living documentation.
         if "arch-review" in md.name:

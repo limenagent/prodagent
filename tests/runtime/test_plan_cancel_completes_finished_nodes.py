@@ -8,9 +8,10 @@ import pytest
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
 from prodagent.base.event_log import PlanEventType
+from prodagent.kernel.bodies.runner import BodyRunner
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.executor import PlanExecutor
+from prodagent.plan.scheduler import Scheduler
 
 
 def _plan_llm(*plans: dict) -> FakeLLMAdapter:
@@ -53,11 +54,11 @@ class _CancellableExecutor:
 async def test_cancel_after_one_step_completes_persists_event(tmp_path):
     events, checkpoints = _stores(tmp_path)
     executor = _CancellableExecutor()
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm(_parallel_plan()),
-        executor,
+        BodyRunner(tools=executor),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
     )
@@ -74,11 +75,11 @@ async def test_cancel_after_one_step_completes_persists_event(tmp_path):
     step_completed = [
         e
         for e in logged
-        if e.event_type == PlanEventType.STEP_COMPLETED and e.data.get("step_id") == "s2"
+        if e.event_type == PlanEventType.NODE_COMPLETED and e.data.get("node_id") == "s2"
     ]
     assert step_completed, "work_a (s2) completed before cancel — StepCompleted must be persisted"
 
 
-async def _drain_stream(planner: PlanExecutor, run_id: str) -> None:
+async def _drain_stream(planner: Scheduler, run_id: str) -> None:
     async for _ in planner.stream("do", run_id=run_id):
         pass

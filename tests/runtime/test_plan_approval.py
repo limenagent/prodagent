@@ -9,10 +9,11 @@ from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
 from prodagent.base.errors import SuspendPendingApproval
 from prodagent.hooks import HookRegistry
+from prodagent.kernel.bodies.runner import BodyRunner
 from prodagent.kernel.bus import BlockingResult, Gate
 from prodagent.kernel.types import LLMResponse, RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.executor import PlanExecutor
+from prodagent.plan.scheduler import Scheduler
 
 _TERMINAL = (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)
 
@@ -67,11 +68,11 @@ def _executor_with_checker(checker, tmp_path):
     events, checkpoints = _stores(tmp_path)
     hooks = HookRegistry()
     hooks.register_checker(Gate.PLAN_APPROVAL, checker, priority=100)
-    return PlanExecutor(
+    return Scheduler(
         _plan_llm(_basic_plan()),
-        _noop_executor,
+        BodyRunner(tools=_noop_executor),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         hooks=hooks,
         event_log=events,
         checkpoint_store=checkpoints,
@@ -89,9 +90,9 @@ async def test_plan_rejected_by_checkpoint_fails_run(tmp_path):
     run = _final_run(streamed)
     assert run.state.value == "failed"
     assert "reviewer said no" in (run.last_error or "")
-    from prodagent.kernel.types import StepStartedEvent
+    from prodagent.kernel.types import NodeStartedEvent
 
-    assert not any(isinstance(e, StepStartedEvent) for e in streamed)
+    assert not any(isinstance(e, NodeStartedEvent) for e in streamed)
 
 
 @pytest.mark.asyncio
@@ -104,9 +105,9 @@ async def test_plan_approved_proceeds_to_execution(tmp_path):
 
     run = _final_run(streamed)
     assert run.state.value == "completed"
-    from prodagent.kernel.types import StepCompletedEvent
+    from prodagent.kernel.types import NodeCompletedEvent
 
-    assert any(isinstance(e, StepCompletedEvent) for e in streamed)
+    assert any(isinstance(e, NodeCompletedEvent) for e in streamed)
 
 
 @pytest.mark.asyncio
@@ -120,9 +121,9 @@ async def test_plan_suspend_pends_approval_id(tmp_path):
     run = _final_run(streamed)
     assert run.state.value == "suspended"
     assert run.pending_approval_id == "req-1"
-    from prodagent.kernel.types import StepStartedEvent
+    from prodagent.kernel.types import NodeStartedEvent
 
-    assert not any(isinstance(e, StepStartedEvent) for e in streamed)
+    assert not any(isinstance(e, NodeStartedEvent) for e in streamed)
 
 
 @pytest.mark.asyncio
@@ -139,11 +140,11 @@ async def test_plan_suspend_resume_via_pending_approval_id(tmp_path):
         raise SuspendPendingApproval(f"plan {plan_id} suspended", tool="plan", request_id="req-1")
 
     hooks.register_checker(Gate.PLAN_APPROVAL, checker, priority=100)
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm(_basic_plan()),
-        _noop_executor,
+        BodyRunner(tools=_noop_executor),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         hooks=hooks,
         event_log=events,
         checkpoint_store=checkpoints,
@@ -163,19 +164,19 @@ async def test_plan_suspend_resume_via_pending_approval_id(tmp_path):
         streamed2.append(event)
     run2 = _final_run(streamed2)
     assert run2.state.value == "completed"
-    from prodagent.kernel.types import StepCompletedEvent
+    from prodagent.kernel.types import NodeCompletedEvent
 
-    assert any(isinstance(e, StepCompletedEvent) for e in streamed2)
+    assert any(isinstance(e, NodeCompletedEvent) for e in streamed2)
 
 
 @pytest.mark.asyncio
 async def test_no_hooks_no_plan_approval_gate(tmp_path):
     events, checkpoints = _stores(tmp_path)
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm(_basic_plan()),
-        _noop_executor,
+        BodyRunner(tools=_noop_executor),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         hooks=None,
         event_log=events,
         checkpoint_store=checkpoints,

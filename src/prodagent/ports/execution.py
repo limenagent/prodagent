@@ -3,15 +3,16 @@
 Family home for the book's model-and-execution socket family plus its internal
 contracts (four modules merged 2026-08: activation / runner / leaf_executor
 / agent_spec, whose docstrings cite each other — ``AgentActivation`` is the
-single-unit form of ``Activation``'s batch, ``LeafExecutor`` is the cited
+single-unit form of ``Activation``'s batch, ``Executor`` is the cited
 precedent for a port typing itself against kernel events, ``AgentSpec`` is
 what a distributed runner resolves agent names against).
 
 Contents, in dependency order: the activation vocabulary (``DispatchMode``,
 ``StageStore``, ``Activation``, ``ActivationContext``, ``ActivationPolicy``)
 decides who acts next; ``RunnerPort`` + the two activation descriptors decide
-where that activation executes; ``LeafExecutor`` unifies the two leaf
-strategies; ``AgentSpec`` is the serializable projection of an agent.
+where that activation executes; ``Executor`` is the one engine's contract
+(the Scheduler implements it); ``AgentSpec`` is the serializable projection
+of an agent.
 """
 
 from __future__ import annotations
@@ -181,8 +182,9 @@ class InProcessChatRunner:
 
 
 @runtime_checkable
-class LeafExecutor(Protocol):
-    """Unified contract for the two leaf execution strategies."""
+class Executor(Protocol):
+    """Drives one run to a terminal event — the Scheduler's contract.
+    ``RunCompletedEvent`` carries the run."""
 
     def stream(
         self,
@@ -190,9 +192,7 @@ class LeafExecutor(Protocol):
         *,
         run_id: str | None = None,
         parent_run_id: str | None = None,
-    ) -> AsyncGenerator[AgentEvent, None]:
-        """Final ``RunCompletedEvent`` carries the run."""
-        ...
+    ) -> AsyncGenerator[AgentEvent, None]: ...
 
 
 # ════════════ from agent_spec.py ════════════

@@ -102,9 +102,7 @@ const AGENT_ICONS = {
 
   trader: "🧋",
   code_detective: "🐛",
-  aiops: "🚨",
-  dating_chat: "💬",
-  quiz_arena: "🏁",
+  aiops: "🚨"
 };
 
 async function loadExamples() {
@@ -1068,24 +1066,24 @@ const RENDER = {
     };
   },
   "plan.ready": (ev) => {
-    const steps = ev.steps || [];
+    const steps = ev.nodes || [];
     return {label: "PLAN", color: "yellow",
       body: `Agent=${ev.agent || "?"} v${ev.version || 1}  ${steps.length} steps\n${renderPlanDag(steps)}`,
       payload: steps, planDag: true};
   },
   "plan.replanned": (ev) => ({label: "REPLAN", color: "yellow",
-    body: `#${ev.replan_count || 1} v${ev.version || 1}  failed=${ev.failed_step || "?"}  new=${dim((ev.new_steps || []).map((s) => s.id).join(", "))}`}),
-  "step.started": (ev) => {
-    setPlanNodeStatus(ev.step_id, "running");
-    return {label: "STEP", color: "yellow", body: `▶ ${ev.step_id}:${ev.action}`};
+    body: `#${ev.replan_count || 1} v${ev.version || 1}  failed=${ev.failed_step || "?"}  new=${dim((ev.new_nodes || []).map((s) => s.id).join(", "))}`}),
+  "node.started": (ev) => {
+    setPlanNodeStatus(ev.node_id, "running");
+    return {label: "STEP", color: "yellow", body: `▶ ${ev.node_id}:${ev.action}`};
   },
-  "step.completed": (ev) => {
-    setPlanNodeStatus(ev.step_id, "done");
-    return {label: "STEP", color: "green", body: `✓ ${ev.step_id}:${ev.action}  ${dim(truncate(JSON.stringify(ev.result), 60))}`};
+  "node.completed": (ev) => {
+    setPlanNodeStatus(ev.node_id, "done");
+    return {label: "STEP", color: "green", body: `✓ ${ev.node_id}:${ev.action}  ${dim(truncate(JSON.stringify(ev.result), 60))}`};
   },
-  "step.failed": (ev) => {
-    setPlanNodeStatus(ev.step_id, "failed");
-    return {label: "STEP", color: "red", body: `✗ ${ev.step_id}:${ev.action}  ${ev.error || ""}`};
+  "node.failed": (ev) => {
+    setPlanNodeStatus(ev.node_id, "failed");
+    return {label: "STEP", color: "red", body: `✗ ${ev.node_id}:${ev.action}  ${ev.error || ""}`};
   },
   "skill.load": (ev) => ({label: "SKILL", color: "magenta", body: `Loaded ${repr(ev.name)} (${ev.chars || 0} chars)`}),
   "budget.token_update": (ev) => {
@@ -1241,9 +1239,9 @@ const EVENT_ICON = {
   "approval.request":"⏸",
   "plan.ready":      "▦",
   "plan.replanned":  "▦",
-  "step.started":    "▶",
-  "step.completed":  "✓",
-  "step.failed":     "✗",
+  "node.started":    "▶",
+  "node.completed":  "✓",
+  "node.failed":     "✗",
   "agent.spawn":     "⋐",
   "agent.result":    "⋑",
   "peer.handoff":    "⇄",

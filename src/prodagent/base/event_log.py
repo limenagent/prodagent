@@ -21,10 +21,11 @@ __all__ = ["Event", "PlanEventType", "RunEventType", "append_expected", "hybrid_
 
 class PlanEventType(StrEnum):
     PLAN_CREATED = "PlanCreated"
-    STEP_STARTED = "StepStarted"
-    STEP_COMPLETED = "StepCompleted"
-    STEP_FAILED = "StepFailed"
-    STEP_SUSPENDED = "StepSuspended"
+    NODE_STARTED = "NodeStarted"
+    NODE_COMPLETED = "NodeCompleted"
+    NODE_FAILED = "NodeFailed"
+    NODE_SUSPENDED = "NodeSuspended"
+    COMMAND_APPLIED = "CommandApplied"
     PLAN_REPLANNED = "PlanReplanned"
 
 

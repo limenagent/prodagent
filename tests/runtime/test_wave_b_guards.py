@@ -66,18 +66,24 @@ class TestForkPropagation:
         assert forked.config.constraints == ["override"]
 
 
-class TestWorkflowSingleBinding:
-    def test_rebinding_a_different_llm_is_refused(self) -> None:
+class TestWorkflowIsADeclaration:
+    def test_workflow_holds_no_llm_or_hooks(self) -> None:
         wf = Workflow()
-        wf.bind(FakeLLMAdapter(), None)
-        with pytest.raises(ValueError, match="already bound"):
-            wf.bind(FakeLLMAdapter(), None)  # a second, different client
+        wf.llm_step("think", prompt="say hi")
+        assert not hasattr(wf, "_llm")
+        assert not hasattr(wf, "_hooks")
 
-    def test_idempotent_rebind_of_same_client_is_allowed(self) -> None:
-        llm = FakeLLMAdapter()
+    def test_fns_table_exposes_plain_functions(self) -> None:
         wf = Workflow()
-        wf.bind(llm, None)
-        wf.bind(llm, None)  # same client — no-op, no raise
+
+        @wf.step
+        async def upstream() -> dict:
+            return {"x": 1}
+
+        assert set(wf.fns) == {"upstream"}
+        import inspect
+
+        assert inspect.iscoroutinefunction(wf.fns["upstream"])
 
 
 class TestStreamRetryNeverReplays:

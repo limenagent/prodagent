@@ -21,10 +21,10 @@ from typing import Any
 import pytest
 
 from prodagent.backends.memory.event_log import InMemoryEventLog
-from prodagent.kernel.loop import ReactiveLoop
 from prodagent.kernel.types import SideEffectLevel, ToolMeta
 from prodagent.llm.fake import script
 from prodagent.llm.recording import RecordingLLMClient
+from prodagent.plan.scheduler import reactive_scheduler
 from prodagent.replay.cassette import CassetteMismatch, derive_cassette
 from prodagent.replay.engine import CassetteLLMClient, CassettePlayer, replay_tools
 from prodagent.tooling.base import FunctionTool
@@ -47,7 +47,7 @@ def _live_tool(name: str) -> FunctionTool:
     )
 
 
-async def _final(loop: ReactiveLoop) -> Any:
+async def _final(loop: reactive_scheduler) -> Any:
     final = None
     async for event in loop.stream("do the thing"):
         final = getattr(event, "run", None) or final
@@ -57,7 +57,7 @@ async def _final(loop: ReactiveLoop) -> Any:
 async def _live_run() -> tuple[Any, Any]:
     log = InMemoryEventLog()
     dispatcher = ToolDispatcher({"probe": _live_tool("probe")}, event_log=log)
-    loop = ReactiveLoop(
+    loop = reactive_scheduler(
         RecordingLLMClient(script({"tool": "probe", "params": {}}, {"content": "all done"}), log),
         dispatcher,
         event_log=log,
@@ -70,7 +70,7 @@ async def _live_run() -> tuple[Any, Any]:
 def _replay(cassette) -> tuple[Any, CassettePlayer]:
     player = CassettePlayer(cassette)
     dispatcher = ToolDispatcher(replay_tools(cassette, player))
-    loop = ReactiveLoop(CassetteLLMClient(player), dispatcher)
+    loop = reactive_scheduler(CassetteLLMClient(player), dispatcher)
     return loop, player
 
 
@@ -103,7 +103,7 @@ async def test_zero_egress_law_different_ask_fails_closed() -> None:
     dispatcher = ToolDispatcher(replay_tools(cassette, player))
     # A different task makes the first ask differ from the tape's first
     # record — the mismatch must name both sides and raise out of the run.
-    loop = ReactiveLoop(CassetteLLMClient(player), dispatcher)
+    loop = reactive_scheduler(CassetteLLMClient(player), dispatcher)
     with pytest.raises(CassetteMismatch):
         async for _ in loop.stream("a materially different task"):
             pass

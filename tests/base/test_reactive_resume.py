@@ -4,10 +4,10 @@ import pytest
 
 from prodagent import RunState
 from prodagent.backends.file.checkpoint import FileCheckpointStore
-from prodagent.kernel.loop import ReactiveLoop
 from prodagent.kernel.state import AgentRun
 from prodagent.kernel.types import LLMResponse, RunCompletedEvent, ToolCall
 from prodagent.llm.fake import FakeLLMAdapter
+from prodagent.plan.scheduler import reactive_scheduler
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -26,7 +26,7 @@ async def _collect_tool() -> dict:
 
 def _make_loop(llm, store):
     dispatcher = ToolDispatcher({"collect": _collect_tool})
-    return ReactiveLoop(
+    return reactive_scheduler(
         llm,
         dispatcher,
         system_prompt="test",

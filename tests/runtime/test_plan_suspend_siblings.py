@@ -7,6 +7,7 @@ import pytest
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
+from prodagent.kernel.bodies.runner import BodyRunner
 from prodagent.kernel.types import (
     LLMResponse,
     RunCompletedEvent,
@@ -16,7 +17,7 @@ from prodagent.kernel.types import (
     ToolResult,
 )
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.executor import PlanExecutor
+from prodagent.plan.scheduler import Scheduler
 
 _TERMINAL = (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)
 
@@ -59,7 +60,7 @@ class _SuspendOnCall:
 async def test_suspend_completes_sibling_steps(tmp_path):
     events, checkpoints = _stores(tmp_path)
     executor = _SuspendOnCall(trigger="b")
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm(
             {
                 "steps": [
@@ -68,9 +69,9 @@ async def test_suspend_completes_sibling_steps(tmp_path):
                 ]
             }
         ),
-        executor,
+        BodyRunner(tools=executor),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
     )
@@ -88,7 +89,7 @@ async def test_suspend_completes_sibling_steps(tmp_path):
 @pytest.mark.asyncio
 async def test_suspend_step_is_suspended_not_running(tmp_path):
     events, checkpoints = _stores(tmp_path)
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm(
             {
                 "steps": [
@@ -97,9 +98,9 @@ async def test_suspend_step_is_suspended_not_running(tmp_path):
                 ]
             }
         ),
-        _SuspendOnCall(trigger="b"),
+        BodyRunner(tools=_SuspendOnCall(trigger="b")),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
     )
@@ -110,15 +111,15 @@ async def test_suspend_step_is_suspended_not_running(tmp_path):
 
     run = _final_run(streamed)
     state = await planner._log.restore_plan(run)
-    assert state["steps"]["b"]["status"] == "suspended"
-    assert state["steps"]["a"]["status"] == "completed"
+    assert state["nodes"]["b"]["status"] == "suspended"
+    assert state["nodes"]["a"]["status"] == "completed"
 
 
 @pytest.mark.asyncio
 async def test_resume_after_suspend_does_not_reexecute_suspended_step(tmp_path):
     events, checkpoints = _stores(tmp_path)
     executor = _SuspendOnCall(trigger="b")
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm(
             {
                 "steps": [
@@ -127,9 +128,9 @@ async def test_resume_after_suspend_does_not_reexecute_suspended_step(tmp_path):
                 ]
             }
         ),
-        executor,
+        BodyRunner(tools=executor),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
     )
@@ -264,7 +265,7 @@ async def test_handoff_wins_concurrent_sibling_does_not_commit(tmp_path):
     from committing its tool message into the run transcript."""
     events, checkpoints = _stores(tmp_path)
     executor = _HandoffOnA()
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm(
             {
                 "steps": [
@@ -273,9 +274,9 @@ async def test_handoff_wins_concurrent_sibling_does_not_commit(tmp_path):
                 ]
             }
         ),
-        executor,
+        BodyRunner(tools=executor),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
     )
@@ -305,7 +306,7 @@ async def test_transcript_order_matches_step_order_not_completion_order(tmp_path
     """Parallel steps' tool messages land in plan order, not racy completion
     order (a is slow, b is fast — but 'a' must still precede 'b')."""
     events, checkpoints = _stores(tmp_path)
-    planner = PlanExecutor(
+    planner = Scheduler(
         _plan_llm(
             {
                 "steps": [
@@ -314,9 +315,9 @@ async def test_transcript_order_matches_step_order_not_completion_order(tmp_path
                 ]
             }
         ),
-        _SlowFirst(),
+        BodyRunner(tools=_SlowFirst()),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
         checkpoint_store=checkpoints,
     )

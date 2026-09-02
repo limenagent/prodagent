@@ -1,7 +1,7 @@
 """PLAN_FIRST step failures must carry the tool error's hint.
 
 Resource-contention errors are only useful if the replanning LLM can read the
-hint and yield to another task (chapter 10) — StepFailed must not drop it.
+hint and yield to another task (chapter 10) — NodeFailed must not drop it.
 """
 
 from __future__ import annotations
@@ -10,9 +10,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from prodagent.kernel.bodies.base import ToolBody
+from prodagent.kernel.bodies.runner import BodyRunner
 from prodagent.kernel.state import AgentRun
-from prodagent.plan.dag import Plan, PlanStep
-from prodagent.plan.step_runner import StepFailed, StepRunner
+from prodagent.plan.dag import Node, Plan
+from prodagent.plan.node_runner import NodeFailed, NodeRunner
 
 if TYPE_CHECKING:
     from prodagent.kernel.types import ToolCall
@@ -27,7 +29,7 @@ _BUSY_RAW = {
 
 
 class _StubEventLog:
-    async def record_step_started(self, plan: Plan, run: AgentRun, step_id: str) -> int:
+    async def record_node_started(self, plan: Plan, run: AgentRun, node_id: str) -> int:
         return 0
 
 
@@ -38,14 +40,14 @@ async def _busy_executor(call: ToolCall, *, run_id: str = "") -> dict:
 @pytest.mark.asyncio
 async def test_resource_busy_failure_message_includes_hint_for_replan():
     plan = Plan(plan_id="p-hint")
-    step = PlanStep(step_id="s1", action="write_progress")
-    plan.add_steps([step])
+    step = Node(node_id="s1", body=ToolBody("write_progress"))
+    plan.add_nodes([step])
     run = AgentRun(run_id="r-hint", task="t")
-    runner = StepRunner(_busy_executor, _StubEventLog(), agent_name="test")
+    runner = NodeRunner(BodyRunner(_busy_executor), _StubEventLog(), agent_name="test")
 
     outcome = await runner.run_one(step, plan, run)
 
-    assert isinstance(outcome, StepFailed)
+    assert isinstance(outcome, NodeFailed)
     msg = str(outcome.error)
     assert "Resource 'progress_file' is busy" in msg
     assert "hint: Try an alternative task or retry later." in msg
@@ -59,12 +61,12 @@ async def test_failure_message_without_hint_stays_clean():
         return raw
 
     plan = Plan(plan_id="p-plain")
-    step = PlanStep(step_id="s1", action="upload")
-    plan.add_steps([step])
+    step = Node(node_id="s1", body=ToolBody("upload"))
+    plan.add_nodes([step])
     run = AgentRun(run_id="r-plain", task="t")
-    runner = StepRunner(executor, _StubEventLog(), agent_name="test")
+    runner = NodeRunner(BodyRunner(executor), _StubEventLog(), agent_name="test")
 
     outcome = await runner.run_one(step, plan, run)
 
-    assert isinstance(outcome, StepFailed)
+    assert isinstance(outcome, NodeFailed)
     assert str(outcome.error) == "bad payload"

@@ -15,9 +15,10 @@ import pytest
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
+from prodagent.kernel.bodies.runner import BodyRunner
 from prodagent.kernel.types import LLMResponse, SideEffectLevel, ToolMeta
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.executor import PlanExecutor
+from prodagent.plan.scheduler import Scheduler
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -74,7 +75,7 @@ async def test_write_steps_never_overlap_and_readonly_parallelizes(tmp_path):
     )
 
     started = time.monotonic()
-    executor = PlanExecutor(
+    executor = Scheduler(
         _plan(
             [
                 {"id": "s1", "action": "w1", "params": {}, "depends_on": []},
@@ -83,9 +84,9 @@ async def test_write_steps_never_overlap_and_readonly_parallelizes(tmp_path):
                 {"id": "s4", "action": "r2", "params": {}, "depends_on": []},
             ]
         ),
-        dispatcher.dispatch,
+        BodyRunner(tools=dispatcher.dispatch),
         system="sys",
-        messages=[{"role": "user", "content": "do"}],
+        initial_messages=[{"role": "user", "content": "do"}],
         event_log=FileEventLog(tmp_path / "events"),
         checkpoint_store=FileCheckpointStore(directory=tmp_path / "checkpoints"),
         dispatcher=dispatcher,
