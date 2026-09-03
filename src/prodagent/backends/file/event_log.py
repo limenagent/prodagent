@@ -50,7 +50,7 @@ def _read_tail_seq(path: Path) -> int:
             if not line.strip():
                 continue
             try:
-                d = json.loads(line)
+                d = json.loads(line.decode("utf-8", errors="replace"))
             except json.JSONDecodeError:
                 continue
             seq = d.get("seq")

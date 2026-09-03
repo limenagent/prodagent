@@ -78,7 +78,7 @@ def read_jsonl(path: Path, *, skip_errors: bool = True) -> Iterator[Any]:
     # terminates lines with "\n" and nothing else; the reader must agree.
     if not path.exists():
         return
-    for line in path.read_text(encoding="utf-8").split("\n"):
+    for line in path.read_text(encoding="utf-8", errors="replace").split("\n"):
         line = line.strip()
         if not line:
             continue

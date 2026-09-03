@@ -280,13 +280,18 @@ def _fold(agent_name: str, run_id: str, run: Run) -> ChildResult:
 # ── call: the roster as one tool ─────────────────────────────────────────────
 
 
-def _tool(name: str, fn: Any, description: str) -> Any:
+def _tool(name: str, fn: Any, description: str, *, timeout_seconds: float = 10.0) -> Any:
     """A FunctionTool via the standard inference path (annotations → schema)."""
     from prodagent.kernel.types import SideEffectLevel, ToolMeta
     from prodagent.tooling.base import FunctionTool
     from prodagent.tooling.decorator import _infer_schema
 
-    meta = ToolMeta(name=name, side_effect_level=SideEffectLevel.LOW, is_readonly=True)
+    meta = ToolMeta(
+        name=name,
+        side_effect_level=SideEffectLevel.LOW,
+        is_readonly=True,
+        timeout_seconds=timeout_seconds,
+    )
     return FunctionTool(name=name, fn=fn, meta=meta, schema=_infer_schema(fn, name, description))
 
 
@@ -330,7 +335,7 @@ def assemble_spawn_tools(
         "Delegate a sub-task to a specialised sub-agent and return its result.\n"
         f"Available sub-agents:\n{agent_lines}"
     )
-    tool = _tool("spawn_agent", _spawn_agent, description)
+    tool = _tool("spawn_agent", _spawn_agent, description, timeout_seconds=DEFAULT_TIMEOUT_S)
     active_tools.append(tool)
     tool_schemas.append(tool.schema)
     return spawn_acc

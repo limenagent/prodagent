@@ -209,7 +209,7 @@ class Scheduler:
         llm_invoker: LLMInvoker | None = None,
         subagent: SubagentInvoker | None = None,
         tools: ToolExecutor | None = None,
-        max_waves: int = 256,
+        max_waves: int = 2048,
         wave_timeout: float | None = None,
         wiring: Mapping[str, Any] | None = None,
         terminal_marker: Callable[[Run, Any], Any] | None = None,

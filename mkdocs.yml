@@ -67,9 +67,9 @@ nav:
       - 第 5 章 · 工具系统：Agent 的手: book/ch05.md
       - 第 6 章 · 记忆、压缩与技能: book/ch06.md
       - 第 7 章 · 事件日志与崩溃恢复: book/ch07.md
-      - 第 9 章 · 审批：不可逆动作的门: book/ch09.md
-      - 第 10 章 · 多 Agent 协作: book/ch10.md
-      - 第 11 章 · 可观测：运行不再黑箱: book/ch11.md
+      - 第 8 章 · 审批：不可逆动作的门: book/ch08.md
+      - 第 9 章 · 多 Agent 协作: book/ch09.md
+      - 第 10 章 · 可观测：运行不再黑箱: book/ch10.md
       - 附录 · 知识点与工具书速查: book/appendix.md
       - 附录 · API 参考: book/api-reference.md
   - 社区:

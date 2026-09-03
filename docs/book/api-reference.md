@@ -104,7 +104,7 @@ class ToolMeta:
     is_readonly: bool = False
     side_effect_level: SideEffectLevel = SideEffectLevel.LOW
     enforced_idempotent: bool = False
-    timeout_seconds: float = 10.0
+    timeout_seconds: float = 9.0
     domain: str = "general"
     max_result_chars: float = 100_000
 ```
@@ -252,7 +252,7 @@ first = Agent("researcher", config=AgentConfig(
 ))
 ```
 
-委派语义是显式的两种：spawn 是 call-return（结果回到调用方），peer 是 handoff（控制权真转移、不回来）。黑板形的协作（专家机会式写共享工作区）不是第三个原语——它由图原子（Route 的 selector 读完整 state + Loop）拼装，见 [ch10](ch10.md)。
+委派语义是显式的两种：spawn 是 call-return（结果回到调用方），peer 是 handoff（控制权真转移、不回来）。黑板形的协作（专家机会式写共享工作区）不是第三个原语——它由图原子（Route 的 selector 读完整 state + Loop）拼装，见 [ch09](ch09.md)。
 
 ---
 

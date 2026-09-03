@@ -27,9 +27,9 @@
 |            | 5  | [工具系统：Agent 的手](book/ch05.md)                             |
 |            | 6  | [记忆、压缩与技能](book/ch06.md)                                 |
 |            | 7  | [事件日志与崩溃恢复](book/ch07.md)                               |
-|            | 9  | [审批：不可逆动作的门](book/ch09.md)                             |
-| 多 Agent   | 10 | [多 Agent 协作](book/ch10.md)                                    |
-| 观测与回放 | 11 | [可观测：运行不再黑箱](book/ch11.md)                             |
+|            | 9  | [审批：不可逆动作的门](book/ch08.md)                             |
+| 多 Agent   | 10 | [多 Agent 协作](book/ch09.md)                                    |
+| 观测与回放 | 11 | [可观测：运行不再黑箱](book/ch10.md)                             |
 | 附录       | —  | [知识点 · 十条原则 · 取舍 · 术语 · 示例 · API](book/appendix.md) |
 
 ## 三十秒上手

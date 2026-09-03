@@ -7,7 +7,7 @@
 [![Tests](https://img.shields.io/badge/tests-1%2C088-offline-green)]()
 [![Dependencies](https://img.shields.io/badge/core%20deps-4-purple)]()
 
-**中文** · [English](README.en.md)
+**中文** · [English](README.en.md) · 极客时间专栏[《生产级 Agent 排雷实战》](http://gk.link/a/12L6Q)配套框架
 
 ---
 

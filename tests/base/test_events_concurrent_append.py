@@ -6,6 +6,7 @@ import json
 from prodagent.backends.file.event_log import FileEventLog, _read_tail_seq
 from prodagent.base.errors import VersionConflict
 from prodagent.base.event_log import Event, PlanEventType
+from prodagent.base.io import read_jsonl
 
 
 def _make(
@@ -84,6 +85,28 @@ class TestConcurrentAppend:
 
         path.write_text("")
         assert _read_tail_seq(path) == 0
+
+    async def test_read_tail_seq_skips_torn_multibyte_trailing_line(self, tmp_path):
+        log = FileEventLog(tmp_path)
+        await log.append(_make(PlanEventType.PLAN_CREATED))
+        await log.append(_make(node_id="s1"))
+
+        path = log._path("p1")
+        # A crash torn mid-way through a multi-byte char leaves a trailing line
+        # that is both invalid UTF-8 (0xE4 0xB8 = first two bytes of "中") and
+        # incomplete JSON. The backward tail scan must skip it, not let
+        # json.loads raise UnicodeDecodeError.
+        with path.open("ab") as f:
+            f.write(b'\n{"seq": 99, "data": "\xe4\xb8')
+
+        assert _read_tail_seq(path) == 2, "must skip torn multibyte line and return last valid seq"
+
+    async def test_read_jsonl_skips_torn_multibyte_tail(self, tmp_path):
+        path = tmp_path / "s.jsonl"
+        path.write_bytes(b'{"seq": 1}\n{"seq": 2}\n{"seq": 99, "data": "\xe4\xb8')
+
+        seqs = [d["seq"] for d in read_jsonl(path)]
+        assert seqs == [1, 2], "torn multibyte tail must be dropped, not raise UnicodeDecodeError"
 
     async def test_flock_does_not_deadlock_single_process_reentrant(self, tmp_path):
         log = FileEventLog(tmp_path)
