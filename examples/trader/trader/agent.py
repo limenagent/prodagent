@@ -1,7 +1,7 @@
 """奶茶代购 Agent —— 多轮协商 + memory 驱动 replan + HITL 下单审批。
 
 本示例展示:
-  - **REACTIVE 多轮协商** —— agent 提具体订单方案(饮品/单价/杯数/糖度/冰度)
+  - **ReAct 多轮协商** —— agent 提具体订单方案(饮品/单价/杯数/糖度/冰度)
     → 用户反驳"太贵/要半糖" → agent 调整参数重提 → 收敛后调 ``place_order``
     下单。不是一次性 plan,是探索性对话。
   - **chat 多轮累积** —— ``agent.chat(message, run_id=...)`` 同一 run_id
@@ -14,7 +14,7 @@
     弹 approve/reject 对话框,CLI 里走 stdin 提示。被拒的下单返回
     ``blocked_by``,永远不扣款。
 
-为什么 REACTIVE: 代购协商是对话循环 —— 没有前置 DAG。每 turn 看用户反馈
+为什么 ReAct: 代购协商是对话循环 —— 没有前置 DAG。每 turn 看用户反馈
 后重新提方案。Workflow DAG 一次性跑完,不适合协商。
 """
 

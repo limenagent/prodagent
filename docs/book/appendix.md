@@ -67,29 +67,14 @@
 | 错误是反馈 | 给模型能读懂的修正提示，不打断循环 | [5.4](ch05.md) |
 | 机制与策略分离 | 框架交付机制，应用交付立场 | [10.4](ch10.md) |
 | 白名单构造 | 一个不存在的字段比一个被过滤的字段安全 | [10.4](ch10.md) |
-| 版本化不删除 | 被替换的标记废弃保留血统，历史可重放 | [8.4](ch08.md) |
-| 图与拓扑序 | 依赖图的可行执行序；无环是可执行的先决条件 | [8.2](ch08.md) |
 | 抽象的边界 | 抽走相同方式需要的，留下不同方式需要的 | [10.2](ch10.md) |
 
 ## 分布式与多 Agent
 
 | 知识点 | 一句话 | 章节 |
 |---|---|---|
-| 消息三失败 | 丢、重、乱；网络不给"恰好一次" | [10.3](ch10.md) |
-| 至少一次 + 去重 | 标准组合：重发保不丢，接收方凭编号去重 | [10.3](ch10.md) |
-| 死信队列 | 处理失败的消息不蒸发，等排查或重放 | [10.4](ch10.md) |
-| 管道槽序 | 每段的位置是它对其他段的假设 | [10.4](ch10.md) |
 | reserve-commit-release | 预扣、实报、冲销的三阶段记账 | [4.4](ch04.md) |
 
-## 回放
-
-| 知识点 | 一句话 | 章节 |
-|---|---|---|
-| 录边界问答对 | 状态可派生不录；只录模型响应与工具结果 | [12.2](ch12.md) |
-| 语义边界录制 | 录规范化格式不录传输报文，带子不随 SDK 升级作废 | [12.2](ch12.md) |
-| 等价律 | `strict(replay(cassette(run))) ≡ run`，进 CI 永不跳过 | [12.3](ch12.md) |
-| 零出口律 | REPLAY 下真实调用即失败，绝不静默回退 | [12.3](ch12.md) |
-| 补偿与 in-doubt | 逆操作也是 effect；悬置副作用先查账再决定 | [12.4](ch12.md) |
 
 ---
 
@@ -106,7 +91,6 @@
 | 五 | 结构化错误而非异常 | 模型会犯错是常态，给它看着错误改正的机会 | [5.4](ch05.md)、[2.8](ch02.md) |
 | 六 | 压缩有明确边界 | 按占比分级牺牲，系统提示永不压缩 | [6.2](ch06.md) |
 | 七 | 单 Agent 是默认 | 先做好上下文管理，再考虑拆多 Agent | [10.1](ch10.md) |
-| 八 | 一个消息平面 | 不丢不重不乱序，在唯一的地方解决一次 | [10.4](ch10.md) |
 | 九 | 乐观并发恢复 | 冲突概率低的场景，检查代替锁 | [7.4](ch07.md) |
 | 十 | 全离线可复现 | 理解一个机制最深刻的方式是调试它 | [11.6](ch11.md) |
 
@@ -127,7 +111,6 @@
 | AgentSpec 与 AgentConfig 分离 | 配置带活对象序列化不了，规格要跨进程；混在一起两头不讨好 | [10.5](ch10.md) |
 | 执行器默认不重试 | 盲目重试烧钱推迟失败；有上下文的模型才是错误的最佳处理者 | [5.6](ch05.md) |
 | 熔断用滑动窗口而非累计计数 | 半年前失败两次加今天一次不该熔断；衡量"最近"而非"历史" | [5.6](ch05.md) |
-| 重规划版本化而非重画 | 已完成步骤有副作用不可重执行；被覆盖的图答不了审计 | [8.4](ch08.md) |
 
 ## 术语表
 
@@ -135,16 +118,15 @@
 |------|------|
 | Agent | 有身份、系统提示、工具集的实体；无状态配置对象，可并发跑多个 Run |
 | Run | 一次任务执行的完整生命周期；有状态、可序列化 |
-| Turn | 轮原子：一次模型调用 + 至多一轮工具执行 |
-| NodeStatus | 工作单元的六态：PENDING/RUNNING/COMPLETED/FAILED/SUSPENDED/OBSOLETE；OBSOLETE 是被新版本顶替，既没跑过也没失败，不同于 FAILED |
-| Turn | 模型的一次输出 |
+| Round | 轮原子：一次模型调用 + 至多一轮工具执行 |
+| NodeStatus | 工作单元的六态：PENDING/RUNNING/COMPLETED/FAILED/SUSPENDED/SKIPPED；SKIPPED 是被让路的分支或失败隔离使待办失效，既没跑过也没失败，不同于 FAILED |
+| Node | 图中的一个工作单元，body 是它的执行体 |
 | Message | 对话历史中的一条消息 |
 | ToolCall / ToolResult | 模型的工具请求 / 工具的返回 |
 | ToolOutcome | 工具结局：OK/RETRY/ABORT/BLOCKED/SUSPENDED/HANDOFF |
 | StopReason | 停止原因：END_TURN/TOOL_USE/MAX_TOKENS/CONTENT_FILTER |
 | AgentSpec | Agent 的可序列化投影，跨进程传递用 |
-| ExecutionMode | REACTIVE（边走边想，默认）/ PLAN_FIRST（先规划后执行） |
-| Workflow | 手写确定性 DAG 的构建器（不是第三种执行模式） |
+| Workflow | 手写确定性图的构建器 |
 | Plan / Node | 编译后的 DAG / 图中一个节点 |
 | ToolMeta | 工具静态档案：副作用等级、超时、幂等、域 |
 | SideEffectLevel | LOW / MEDIUM / HIGH；只读是独立布尔，不是第四级 |
@@ -157,26 +139,23 @@
 | checkpoint | 运行状态快照，每轮落盘，乐观并发写 |
 | 事件日志 | 只增不改的追加流水，审计与重放的事实源 |
 | 幂等键 | 崩溃稳定的调用标识，重复执行的识别凭据 |
-| cassette | 回放录像带：边界问答对 + 版本指纹 + 哈希链（施工中） |
 | HookBundle | 自装配墨盒：一个能力打包自己挂到总线 |
-| StageDriver | 三种循环共用的驱动器：共享循环外围，不共享循环体 |
-| Crossing | 统一消息信封，过五段管道（去重/契约/截断/Gate/死信） |
 | AgentSpan | 决策快照：身份位置 + 决策上下文 + 结果成本 |
 | trace / span | 一条调用链 / 链上一个动作的记录 |
 
 ## 示例地图：十个端到端示例
 
-仓库的 `examples/` 下有八个完整可跑的示例，每个教一个机制组合。默认全部用 FakeLLM 离线运行（`cd examples/某示例 && uv run python -c "…"`，各示例目录带启动说明）：
+仓库的 `examples/` 下有七个完整可跑的示例，每个教一个机制组合。默认全部用 FakeLLM 离线运行（`cd examples/某示例 && uv run python -c "…"`，各示例目录带启动说明）：
 
 | 示例 | 教什么 | 相关章节 |
 |------|--------|---------|
 | greeter | 最小 Agent 的完整形状 | 序章 |
-| deep_research | 自主研究：REACTIVE 长任务 + 预算 + 压缩 | 3、4、6 |
-| trip_planner | 先规划后执行（PLAN_FIRST） | 8 |
+| deep_research | 自主研究：长任务循环 + 预算 + 压缩 | 3、4、6 |
+| trip_planner | Workflow 图 + 委派 + 记忆 | 10 |
 | compliance_audit | 审批工作流：挂起-决定-恢复 | 9 |
-| trader | 多 Agent 接力（peer） | 10 |
+| trader | 多 Agent 交接（transfer） | 10 |
 | code_detective | MCP 桥接：stdio 子进程工具接入 | 5 |
-| aiops | 委派扇出 + 接力修复（spawn fan-out + peer） | 10 |
+| aiops | 委派（call）+ 工具级审批 | 10 |
 
 ## API 速查
 
@@ -184,12 +163,10 @@
 
 | API | 用途 | 出处 |
 |-----|------|------|
-| `Agent(name, system_prompt=…, tools=[…], mode=…, config=…)` | 组装一个 Agent | 序章 |
+| `Agent(name, system_prompt=…, tools=[…], config=…)` | 组装一个 Agent（默认 ReAct 循环） | 序章 |
 | `AgentConfig(name=…, llm=…, framework=production())` | 框架配置：模型端点、护甲档位 | 序章 |
 | `@tool(name=…, readonly=True)` / `meta=ToolMeta(…)` | 定义工具 + 静态档案 | 5.2、5.3 |
 | `HardBudget(max_turns=…, max_seconds=…, max_tokens=…, max_cost_usd=…)` | 四轴预算 | 4.2 |
 | `script(…)` / `FakeLLMAdapter(responses=[…])` / `RoutingFakeLLM` | 假模型剧本 | 2.6 |
-| `ExecutionMode.REACTIVE / PLAN_FIRST` | 执行模式 | 8.1 |
-| `Workflow()`：`@wf.step` / `wf.llm_step` / `wf.tool_step` / `compile()` | 手写确定性 DAG | 8.5 |
-| `agent.chat(task, run_id=…)` / `agent.stream(task)` | 驱动到终态 / 取事件流 | 3.2 |
-| `override(time_port=…, random_port=…, id_port=…)` | 确定性端口替换（回放地基） | 7.8 |
+| `Workflow()`：`@wf.step` / `wf.llm_step` / `wf.tool_step` / `compile()` | 手写确定性图 | 1.x |
+| `agent.chat(message, session_id=…)` / `agent.chat_stream(message)` | 驱动到终态 / 取事件流 | 3.2 |

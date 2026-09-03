@@ -1,6 +1,6 @@
-"""Deep Research FakeLLM 脚本 —— REACTIVE 线性探索轨迹。
+"""Deep Research FakeLLM 脚本 —— ReAct 线性探索轨迹。
 
-REACTIVE 模式下,每个 turn LLM 发一个 tool_call,框架执行后把结果喂回 LLM,
+ReAct 模式下,每个 turn LLM 发一个 tool_call,框架执行后把结果喂回 LLM,
 LLM 看结果决定下一步。
 
 轨迹(8 turn):
@@ -36,7 +36,7 @@ _URLS = {
 
 
 def build_fake_llm() -> LLMClient:
-    """REACTIVE 线性探索:5 次 fetch + 综合 + 总结。"""
+    """ReAct 线性探索:5 次 fetch + 综合 + 总结。"""
     return script(
         # turn 1: 加载研究 runbook
         {"tool": "get_skill", "params": {"name": "deep-research"}},
@@ -76,7 +76,7 @@ def build_fake_llm() -> LLMClient:
             ],
         }},
 
-        # turn 8: 最终文本总结(REACTIVE 模式下 synthesize_report 的结果
+        # turn 8: 最终文本总结(ReAct 模式下 synthesize_report 的结果
         # 是工具返回,LLM 再发一段 end_turn 收尾)
         {"content": (
             "## 研究完成\n\n"

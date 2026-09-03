@@ -1,6 +1,6 @@
 """合规审计工具 —— extract_transactions + flag_suspicious + enrich_entity + submit_to_regulator。
 
-所有工具都是独立可调用的，LLM Planner 在运行时动态生成 Plan DAG 来编排它们。
+所有工具都是独立可调用的，由子 agent 的 plan/work 两节点编排调用。
 
 ``flag_suspicious`` 和 ``enrich_entity`` 默认返回 canned 响应（和 AIOps 工具一样），
 瞬间完成。设 ``USE_REAL_LLM_FOR_ANALYSIS=1`` 则走真实 LLM 路径。

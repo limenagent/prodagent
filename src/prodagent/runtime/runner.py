@@ -11,8 +11,8 @@ import asyncio
 import contextlib
 import logging
 import uuid
-from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, cast
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 from prodagent.kernel.budget import SpawnAccumulator, open_ledger
 from prodagent.kernel.bus import HookEvent
@@ -23,7 +23,6 @@ from prodagent.kernel.run import (
     make_failed_run,
 )
 from prodagent.kernel.types import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
-from prodagent.ports.execution import InProcessChatRunner
 from prodagent.runtime.compose import (
     SchedulerFactory,
     find_suspended_peer,
@@ -38,18 +37,13 @@ if TYPE_CHECKING:
 
     from pydantic import BaseModel
 
-    from prodagent.base.config import FrameworkConfig
     from prodagent.cognition.context.spill import ToolResultSpillStore
-    from prodagent.kernel.budget import BudgetLedger, HardBudget
+    from prodagent.kernel.budget import BudgetLedger
     from prodagent.kernel.bus import HookRegistry
     from prodagent.kernel.types import AgentEvent, MessageList
     from prodagent.ports import CheckpointStore, EventLog
     from prodagent.ports.budget_ledger import BudgetLedgerPort
-    from prodagent.ports.execution import (
-        AgentActivation,
-        HandoffActivation,
-        RunnerPort,
-    )
+    from prodagent.ports.execution import HandoffActivation
     from prodagent.ports.llm import LLMClient
     from prodagent.ports.persistence import BlobStore
     from prodagent.runtime.agent import Agent
@@ -107,11 +101,6 @@ class RunContext:
     stack: contextlib.AsyncExitStack = field(default_factory=contextlib.AsyncExitStack)
     budget_ledger: BudgetLedger | None = None
     """Chain-scoped shared ledger — one per RunLoop, set by the RunLoop itself."""
-
-    runner: RunnerPort | None = None
-    """The hop's execution seam, set by RunLoop after context entry (stores
-    resolved) and before executor preparation. Spawn/peer tool assemblers
-    consume it — coordination reaches execution only through the port."""
 
     tool_assemblers: list[Any] = field(default_factory=list)
     """Hop tool contributors (spawn/peer wrappers), attached by the driver.
@@ -174,39 +163,6 @@ class RunContext:
 
     async def __aexit__(self, *exc: object) -> None:
         await self.stack.aclose()
-
-
-# ── InProcessRunner — the RunnerPort's in-process implementation ──────────────
-
-
-class InProcessRunner:
-    """One agent activation, executed right here.
-
-    Bound to the hop's wiring (a :class:`RunContext`), a bare run forks its
-    target under that wiring — the fork is runtime vocabulary, the port
-    contract stays pure execution. Unbound (``ctx=None``) the target runs
-    as-is: the standalone default for callers outside a hop chain. Chat
-    activations (``session_id`` set) never fork — a member speaks as itself.
-    """
-
-    def __init__(self, ctx: RunContext | None = None) -> None:
-        self._ctx = ctx
-
-    def activate(self, activation: AgentActivation) -> AsyncGenerator[AgentEvent, None]:
-        if activation.session_id is not None:
-            # Session-scoped turns delegate to the chat runner, the local
-            # default that owns that semantics — this used to be a copy of it.
-            return InProcessChatRunner().activate(activation)
-        agent = activation.agent
-        if self._ctx is not None:
-            agent = agent.fork_as_spawn(self._ctx)
-        return drive_stream(
-            agent,
-            activation.task,
-            run_id=activation.run_id,
-            parent_run_id=activation.parent_run_id,
-            budget_ledger=cast("BudgetLedger | None", activation.budget_ledger),
-        )
 
 
 # ── Run entry points — drive a fresh or resumed run to terminal state ─────────
@@ -355,8 +311,6 @@ class RunLoop:
             next_ctx: RunContext | None = None
             try:
                 async with ctx:
-                    if ctx.runner is None:
-                        ctx.runner = InProcessRunner(ctx)
                     hooks, executor, spawn_acc = await self._factory.prepare(ctx)
                     try:
                         async for event in executor.stream(

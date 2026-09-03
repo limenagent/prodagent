@@ -27,18 +27,16 @@
 |            | 5  | [工具系统：Agent 的手](book/ch05.md)                             |
 |            | 6  | [记忆、压缩与技能](book/ch06.md)                                 |
 |            | 7  | [事件日志与崩溃恢复](book/ch07.md)                               |
-|            | 8  | [规划与 DAG](book/ch08.md)                                       |
 |            | 9  | [审批：不可逆动作的门](book/ch09.md)                             |
 | 多 Agent   | 10 | [多 Agent 协作](book/ch10.md)                                    |
 | 观测与回放 | 11 | [可观测：运行不再黑箱](book/ch11.md)                             |
-|            | 12 | [可回放、可回滚的运行时](book/ch12.md)                           |
 | 附录       | —  | [知识点 · 十条原则 · 取舍 · 术语 · 示例 · API](book/appendix.md) |
 
 ## 三十秒上手
 
 ```python
 import asyncio
-from prodagent import Agent, AgentConfig, ExecutionMode, tool
+from prodagent import Agent, AgentConfig, tool
 
 @tool(name="search", readonly=True)
 async def search(query: str) -> str:
@@ -47,7 +45,7 @@ async def search(query: str) -> str:
 
 agent = Agent("demo",
               system_prompt="你是一个 helpful assistant，使用工具回答问题。",
-              tools=[search], mode=ExecutionMode.REACTIVE,
+              tools=[search],
               config=AgentConfig(name="demo"))
 
 print(asyncio.run(agent.chat("巴黎今天天气如何？")).final_output)

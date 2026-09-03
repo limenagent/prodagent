@@ -1,19 +1,11 @@
 """Execution and scheduling vocabulary — who runs next, and where.
 
-Family home for the book's model-and-execution socket family plus its internal
-contracts (four modules merged 2026-08: activation / runner / leaf_executor
-/ agent_spec, whose docstrings cite each other — ``AgentActivation`` is the
-single-unit form of a batch activation, ``Executor`` is the cited precedent
-for a port typing itself against kernel events, ``AgentSpec`` is what a
-distributed runner resolves agent names against).
-
-Contents, in dependency order: the activation descriptors
-(``AgentActivation``, ``HandoffActivation``) decide who acts next;
-``RunnerPort`` decides where that activation executes; ``Executor`` is the
-one engine's contract (the Scheduler implements it); ``AgentSpec`` is the
-serializable projection of an agent. The batch-activation vocabulary
-(``Activation``/``ActivationPolicy``/``StageStore``) left with blackboard,
-its only consumer, in 2026-09-02 (REFACTOR-PLAN.md U1).
+Contents: ``HandoffActivation`` describes the next hop of a peer chain (pure
+data the relay returns, the driver interprets); ``Executor`` is the one
+engine's contract (the Scheduler implements it); ``AgentSpec`` is the
+serializable projection of an agent. The old ``AgentActivation``/``RunnerPort``
+execution-location port left with the message plane — in-process activation
+is just fork + drive, no port needed.
 """
 
 from __future__ import annotations
@@ -28,34 +20,8 @@ if TYPE_CHECKING:
     from prodagent.base.types import JsonDict
     from prodagent.kernel.budget import HardBudget
     from prodagent.kernel.types import AgentEvent
-    from prodagent.ports.budget_ledger import BudgetLedgerPort
 
 # ════════════ from runner.py ════════════
-
-
-@dataclass(frozen=True)
-class AgentActivation:
-    """One agent activation — the unit of execution at the RunnerPort.
-
-    ``agent`` is an Agent object in-process; a distributed runtime passes a
-    name (the control plane resolves it). Two bindings, selected by which
-    optional field is set:
-
-    - ``session_id`` set — a session-scoped member turn (the session allocates
-      the run identity; stage members). Never forked.
-    - otherwise — a bare run under the given identity (spawn children, graph
-      nodes), joined to ``budget_ledger`` when one is supplied. An
-      implementation bound to a hop's wiring forks the target under it
-      (child-of-chain semantics); an unbound one runs the target as-is.
-    """
-
-    agent: Any
-    task: str
-    run_id: str | None = None
-    parent_run_id: str | None = None
-    depth: int = 0
-    session_id: str | None = None
-    budget_ledger: BudgetLedgerPort | None = None
 
 
 @dataclass(frozen=True)
@@ -71,35 +37,6 @@ class HandoffActivation:
     run_id: str
     parent_run_id: str | None = None
     depth: int = 0
-
-
-@runtime_checkable
-class RunnerPort(Protocol):
-    """Activate one agent per the descriptor; the terminal event carries the run."""
-
-    def activate(self, activation: AgentActivation) -> AsyncGenerator[AgentEvent, None]: ...
-
-
-class InProcessChatRunner:
-    """The local default for session-scoped member turns: stream the agent's
-    own chat loop. No fork, no ledger — the stage's envelope owns budgeting
-    around the turn."""
-
-    def activate(self, activation: AgentActivation) -> AsyncGenerator[AgentEvent, None]:
-        if activation.session_id is None:
-            # The port accepts bare activations too; this implementation is
-            # session-scoped by design — misrouting here would fork a member
-            # that should speak as itself.
-            raise ValueError(
-                "InProcessChatRunner activates session-scoped member turns — "
-                f"pass session_id (agent={activation.agent!r})"
-            )
-        # ``agent`` is Any by design (a name on the wire in a distributed
-        # runtime); in-process it is an Agent whose chat_stream yields AgentEvents.
-        return cast(
-            "AsyncGenerator[AgentEvent, None]",
-            activation.agent.chat_stream(activation.task, session_id=activation.session_id),
-        )
 
 
 # ════════════ from leaf_executor.py ════════════
@@ -202,9 +139,7 @@ class AgentSpec:
             "tools_schema": [dict(s) for s in self.tools_schema],
             "child_agents": [s.to_dict() for s in self.child_agents],
             "peers": [s.to_dict() for s in self.peers],
-            "output_model": (
-                self.output_model.__name__ if self.output_model is not None else None
-            ),
+            "output_model": (self.output_model.__name__ if self.output_model is not None else None),
             "limits": self.limits.to_dict() if self.limits is not None else None,
         }
 

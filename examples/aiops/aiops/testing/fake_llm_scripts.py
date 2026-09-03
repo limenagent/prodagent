@@ -179,7 +179,7 @@ def oom_happy_path_script() -> RoutingFakeLLM:
         ],
     )
 
-    # ── remediator 子 ──（PLAN_FIRST —— 产出 plan JSON）
+    # ── remediator 子 ──（plan-and-resolve —— 产出 plan JSON）
     remediate_plan = (
         '{"steps": ['
         '{"id":"s1","action":"open_incident",'

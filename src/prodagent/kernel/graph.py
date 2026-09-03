@@ -296,10 +296,10 @@ class Graph:
             back: set[Edge] = set()
             for edges in self._outgoing.values():
                 for e in edges:
-                    if e.back is True:
-                        back.add(e)
-                    elif e.back is None and (
-                        e.target == e.source or self._reaches(e.target, e.source, skip=e)
+                    if (
+                        e.back is True
+                        or e.back is None
+                        and (e.target == e.source or self._reaches(e.target, e.source, skip=e))
                     ):
                         back.add(e)
             self._back_edges = frozenset(back)
@@ -376,9 +376,7 @@ class Graph:
         - a waived source in an *active back edge's* target set is about to
           re-run and re-decide — wait for it, don't scrap.
         Only a node whose sources are all done *and* done-for is SKIPPED."""
-        active_back_targets = {
-            e.target for e in self.back_edges() if e.is_active(shared)
-        }
+        active_back_targets = {e.target for e in self.back_edges() if e.is_active(shared)}
         out: list[Node] = []
         for n in self._nodes.values():
             if state_of(states, n.node_id).status is not NodeStatus.PENDING:
@@ -386,10 +384,7 @@ class Graph:
             if not self._all_edges_waived(n.node_id, shared):
                 continue
             sources = {e.source for e in self._incoming.get(n.node_id, ())}
-            if any(
-                state_of(states, s).status is not NodeStatus.COMPLETED
-                for s in sources
-            ):
+            if any(state_of(states, s).status is not NodeStatus.COMPLETED for s in sources):
                 continue  # a source may still write the predicate's input
             if sources & active_back_targets:
                 continue  # a source is about to re-run — wait, don't scrap
@@ -418,18 +413,14 @@ class Graph:
         def active(e: Edge) -> bool:
             if not e.is_active(shared):
                 return False  # waived — this source does not feed the target
-            if back_edges is not None and e in back_edges:
-                return False  # a back edge is a requeue trigger, never a wait
-            return True
+            # a back edge is a requeue trigger, never a wait
+            return back_edges is None or e not in back_edges
 
         incoming = [e for e in self._incoming.get(node.node_id, ()) if active(e)]
         if node.join == "any":
             # First-completed wins (column 5): a conditional merge where
             # exactly one branch runs — the SKIPPED one never counts.
-            return any(
-                state_of(states, e.source).status is NodeStatus.COMPLETED
-                for e in incoming
-            )
+            return any(state_of(states, e.source).status is NodeStatus.COMPLETED for e in incoming)
         for e in incoming:
             dep = self._nodes.get(e.source)
             if dep is None:

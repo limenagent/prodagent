@@ -25,14 +25,14 @@ import ast
 import inspect
 import textwrap
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from prodagent.kernel.bodies import FnBody
 from prodagent.kernel.command import Goto
 from prodagent.kernel.graph import Node, Origin, Plan
 
 if TYPE_CHECKING:
-    from prodagent.kernel.graph import Plan
+    from collections.abc import Callable
 
 __all__ = ["CompileError", "Compiled", "compile", "workflow"]
 
@@ -161,7 +161,10 @@ class _Compiler:
 
     def _if(self, s: ast.If, prev: str | None) -> str | None:
         cond = self._predicate(s.test)
-        not_cond = lambda shared: not cond(shared)
+
+        def not_cond(shared: Any) -> bool:
+            return not cond(shared)
+
         # Branch heads hang off the *conditional* edge; then/else merge to a
         # join-any gate (exactly one branch runs). The empty else links
         # straight through with the negated condition.
@@ -202,7 +205,10 @@ class _Compiler:
 
     def _while(self, s: ast.While, prev: str | None) -> str | None:
         cond = self._predicate(s.test)
-        not_cond = lambda shared: not cond(shared)
+
+        def not_cond(shared: Any) -> bool:
+            return not cond(shared)
+
         # A tail gate judges the predicate each pass: the body hangs off a
         # conditional entry edge (forward, gates readiness), and the body's
         # last step turns back to the tail via a *back edge* (requeue). The
@@ -250,7 +256,7 @@ class _Compiler:
 
     @staticmethod
     def _step_name(call: ast.expr) -> str:
-        call = cast(ast.Call, call)
+        call = cast("ast.Call", call)
         if call.args and isinstance(call.args[0], ast.Name):
             return call.args[0].id
         raise CompileError("ctx.call(...) needs a step name")
@@ -288,7 +294,7 @@ class _Compiler:
 
     @staticmethod
     def _goto_target(v: ast.expr) -> str:
-        v = cast(ast.Call, v)
+        v = cast("ast.Call", v)
         if v.args and isinstance(v.args[0], ast.Name):
             return v.args[0].id
         if v.args and isinstance(v.args[0], ast.Constant) and isinstance(v.args[0].value, str):
@@ -304,7 +310,11 @@ class _Compiler:
 
         The subset: ``s.attr`` reads a channel; constants; ``not``/``and``/
         ``or``; comparisons; ``len(..)``; ``x in y`` / ``not in``."""
-        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "s":
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "s"
+        ):
             return lambda shared: shared.get(node.attr)
         if isinstance(node, ast.Name) and node.id == "s":
             return lambda shared: shared
@@ -322,15 +332,16 @@ class _Compiler:
             left = self._expr(node.left)
             rights = [self._expr(c) for c in node.comparators]
             ops = node.ops
+
             def _cmp(shared: dict[str, Any]) -> bool:
                 a = left(shared)
-                for op, rc in zip(ops, rights):
+                for op, rc in zip(ops, rights, strict=True):
                     b = rc(shared)
                     if isinstance(op, ast.Eq):
-                        if not (a == b):
+                        if a != b:
                             return False
                     elif isinstance(op, ast.NotEq):
-                        if not (a != b):
+                        if a == b:
                             return False
                     elif isinstance(op, ast.Lt):
                         if not (a < b):
@@ -345,7 +356,7 @@ class _Compiler:
                         if not (a >= b):
                             return False
                     elif isinstance(op, ast.In):
-                        if not (a in b):
+                        if a not in b:
                             return False
                     elif isinstance(op, ast.NotIn):
                         if not (a not in b):
@@ -354,6 +365,7 @@ class _Compiler:
                         raise CompileError(f"unsupported comparison {ast.dump(op)}")
                     a = b
                 return True
+
             return _cmp
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "len":
             inner = self._expr(node.args[0])
@@ -386,7 +398,7 @@ class _Compiler:
         if prev is not None:
             self._g.edge(prev, node.node_id, when=when, back=back)
 
-    def _gate(self, *, join: "Literal[\"all\", \"any\"]", sources: list[str] | None = None) -> str:
+    def _gate(self, *, join: Literal["all", "any"], sources: list[str] | None = None) -> str:
         gid = self._fresh("gate")
         self._g.add_nodes([Node(node_id=gid, body=_Gate(), join=join)])
         for src in sources or []:

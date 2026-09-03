@@ -1,10 +1,10 @@
-"""Code Detective —— MCP 工具 + REACTIVE 多轮调试 + 学习合成的自主修 bug agent。
+"""Code Detective —— MCP 工具 + ReAct 多轮调试 + 学习合成的自主修 bug agent。
 
 本示例展示:
   - ``mcp=[MCPServerConfig(...)]``: spawn ``code_detective.mcp_server`` 子进程,
     桥接 4 个工具(``read_file`` / ``grep`` / ``run_tests`` / ``apply_patch``)
     为 ``mcp__code_detective__<tool>``。
-  - ``REACTIVE 多轮调试``: LLM 每 turn 发一个 tool_call,看结果后决定下一步。
+  - ``ReAct 多轮调试``: LLM 每 turn 发一个 tool_call,看结果后决定下一步。
     初始 patch 故意写错(漏 salt),run_tests 返回 passed=false,LLM 读错误信息后
     读 password.py 看正确实现,重提 patch,再跑测试通过。
 

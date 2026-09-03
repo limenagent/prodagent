@@ -9,8 +9,11 @@ if TYPE_CHECKING:
 
 __all__ = ["ensure_schema", "ensure_schema_async", "SCHEMA_SQL"]
 
-# One big SQL block — executed as a single script. Every statement is
-# IF NOT EXISTS, so re-running on an existing DB is a no-op.
+# One big SQL block — executed as a single script. Idempotent: tables and
+# indexes use IF NOT EXISTS, so re-running on a matching DB is a no-op. The
+# DO block below is a targeted migration for the ``plan_id`` -> ``stream_id``
+# rename in ``pa_event`` — it fires only while the old column is still present,
+# then leaves no trace.
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS pa_checkpoint (
     namespace  text NOT NULL,
@@ -31,6 +34,27 @@ CREATE TABLE IF NOT EXISTS pa_event (
     appended_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (namespace, stream_id, seq)
 );
+-- Migration: databases created before the ``plan_id`` -> ``stream_id`` rename
+-- already have a ``pa_event`` table, so the ``CREATE TABLE IF NOT EXISTS``
+-- above is a no-op on them and their column keeps the old name. Rename it in
+-- place (rows are preserved) so the index below can reference ``stream_id``.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'pa_event'
+          AND column_name = 'plan_id'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'pa_event'
+          AND column_name = 'stream_id'
+    ) THEN
+        ALTER TABLE pa_event RENAME COLUMN plan_id TO stream_id;
+    END IF;
+END $$;
+DROP INDEX IF EXISTS pa_event_plan_idx;
 CREATE INDEX IF NOT EXISTS pa_event_stream_idx ON pa_event (namespace, stream_id, seq);
 
 CREATE TABLE IF NOT EXISTS pa_memory (

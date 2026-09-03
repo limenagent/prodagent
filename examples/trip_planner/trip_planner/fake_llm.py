@@ -5,13 +5,13 @@ system prompt 里的 ``# {name} Agent``,分发到该 agent 的 per-call 队列�
 
 每个 peer 2 turn(工具调用 → JSON 总结),父 agent 在 workflow 模式下不调 LLM
 生成 plan(workflow 编译成 Plan),所以 LLM 调用全部来自 ``wf.llm_step`` 和
-peer agent 的 REACTIVE 循环。
+peer agent 的 ReAct 循环。
 
 各步 LLM 调用来源:
   - s1/s5/s6/s7: workflow ``wf.llm_step`` —— system 是 ``_PARSE_SYSTEM`` /
     ``_MERGE_SYSTEM`` / ``_WEATHER_SYSTEM`` / ``_FINAL_SYSTEM``,不在 routing
     范围内,走 default 队列(按调用顺序取)。
-  - s2/s3/s4: peer agent 的 REACTIVE —— system 是 ``# itinerary Agent`` /
+  - s2/s3/s4: peer agent 的 ReAct —— system 是 ``# itinerary Agent`` /
     ``# restaurant Agent`` / ``# transport Agent``,走各自队列。
 """
 

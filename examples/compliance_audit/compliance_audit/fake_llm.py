@@ -1,24 +1,26 @@
 """Compliance Audit FakeLLM —— 路由机制用框架的 ``RoutingFakeLLM``。
 
+主 agent（对话入口）委派 spawn；子 agent（plan-and-resolve）两个
+节点：``plan`` 节点产审计目标清单文本（数据，不是执行图），``work`` 节点
+跑 think-act 循环执行清单。s2/s3 工具 LLM 调用全 scripted。
+
 四类 LLM 调用共享一个 FakeLLM 实例，按 system prompt 锚点分发（首匹配生效）:
 
   - 主 agent ``compliance_audit``       → system 含 "合规审计编排 agent"
-  - Planner.generate()（动态 Plan 生成） → system 含 "RESPOND WITH JSON ONLY"
-  - Planner.replan()（增量重规划）       → system 含 "incremental replanning"
   - flag_suspicious / enrich_entity     → system 含 "反洗钱分析师" / "实体关联分析师"
 
-主 agent REACTIVE 轨迹:
+主 agent 轨迹:
   - 首次调用(无 tool result) → 发 ``spawn_agent(name="audit_workflow")``
   - 子 agent Plan 生成后 → 挂起等待人类审批
   - spawn 返回后(有 tool result) → 把 SAR 结果讲给用户
   - 用户追问 → 对话回答（不重新 spawn）
   - 用户说"重新审计"/"换个方案" → 再次 spawn
 
-子 agent PLAN_FIRST 轨迹:
-  - Planner.generate() → 返回动态 Plan JSON（s1→s2‖s3→s4）
-  - Plan 生成后直接执行: s1 ✓ → s2 ✓ ‖ s3 ✓ → s4（HIGH）挂起 → 人类审批
-  - 审批通过 → s4 ✓（直接执行，不重规划）
-  - 审批拒绝 → Planner.replan() → 只返回 s4_v2（draft_sar_for_review，复用 s1/s2/s3，LOW 不弹审批）
+子 agent plan-and-resolve 轨迹:
+  - plan 节点产审计目标清单文本 → work 节点（ReAct）执行: extract → flag‖enrich → submit
+  - submit_to_regulator（HIGH）挂起 → 人类审批
+  - 审批通过 → submit 执行完
+  - 审批拒绝 → 改调 draft_sar_for_review（只读，不弹审批）草稿复核
 """
 
 from __future__ import annotations
@@ -56,44 +58,8 @@ _ENTITY_RESPONSE = LLMResponse(
 )
 
 
-# ── Planner.generate() 的 Plan JSON ─────────────────────────────────────────
 
-_PLAN_JSON = (
-    '{"steps": ['
-    '{"id": "s1", "action": "extract_transactions", "params": {}, '
-    '"depends_on": [], "terminal": false},'
-    '{"id": "s2", "action": "flag_suspicious", '
-    '"params": {"transactions": "{{s1.output}}"}, '
-    '"depends_on": ["s1"], "terminal": false},'
-    '{"id": "s3", "action": "enrich_entity", '
-    '"params": {"transactions": "{{s1.output}}"}, '
-    '"depends_on": ["s1"], "terminal": false},'
-    '{"id": "s4", "action": "submit_to_regulator", '
-    '"params": {"sar_summary": "综合可疑标注和实体关联的 SAR 报告", '
-    '"suspicious_tx_ids": ["TX-1002", "TX-1003", "TX-1004"]}, '
-    '"depends_on": ["s2", "s3"], "terminal": true}'
-    ']}'
-)
-
-# ── Planner.replan() 的替换步骤 ─────────────────────────────────────────────
-# submit_to_regulator 被人类 Reject 后，LLM 不再重试 submit（会再次弹窗被拒），
-# 改调只读的 draft_sar_for_review：复用已完成的 s1/s2/s3（抽取/标注/关联），
-# 草拟 SAR 留待合规官人工复核。LOW 副作用 → 不弹审批 → 直接执行完。
-# 这就是「增量重规划 = 换一个动作 + 不重跑已完成步骤」：
-# 对应第八章灾备迁移里「只换传输协议、复用 dump」。
-
-_REPLAN_JSON = (
-    '{"steps": ['
-    '{"id": "s4_v2", "action": "draft_sar_for_review", '
-    '"params": {"flagged": "{{s2.output.flagged}}", '
-    '"entities": "{{s3.output.entities}}", '
-    '"reason": "自动提交被审批拒绝，复用既有分析，转草拟 SAR 留待合规官人工复核"}, '
-    '"depends_on": ["s2", "s3"], "terminal": true, "replaces": "s4"}'
-    ']}'
-)
-
-
-# ── 主 agent REACTIVE 响应 ──────────────────────────────────────────────────
+# ── 主 agent 响应 ─────────────────────────────────────────────────────────
 
 
 def _spawn_audit_workflow_call() -> LLMResponse:
@@ -156,7 +122,7 @@ def _last_user_of(messages: MessageList) -> str:
 
 
 def _route_main_agent(messages: MessageList) -> LLMResponse:
-    """REACTIVE 轨迹: spawn → 总结 → 追问 → replan。"""
+    """主 agent 轨迹: spawn → 总结 → 追问。"""
     last_non_assistant = next(
         (m for m in reversed(messages) if m.get("role") != "assistant"),
         None,
@@ -176,10 +142,9 @@ def _route_main_agent(messages: MessageList) -> LLMResponse:
 
 
 def build_fake_llm() -> LLMClient:
-    """离线 demo 用: 主 agent + Planner + s2/s3 工具 LLM 调用全 scripted。"""
+    """离线 demo 用: 主 agent + plan/work 两节点 + s2/s3 工具 LLM 调用全 scripted。"""
     flag_q: list[LLMResponse] = []
     entity_q: list[LLMResponse] = []
-    replan_calls = 0
 
     def _route_flag(_messages: MessageList) -> LLMResponse:
         return flag_q.pop(0) if flag_q else _FLAG_RESPONSE
@@ -187,29 +152,21 @@ def build_fake_llm() -> LLMClient:
     def _route_entity(_messages: MessageList) -> LLMResponse:
         return entity_q.pop(0) if entity_q else _ENTITY_RESPONSE
 
-    def _route_planner_generate(_messages: MessageList) -> LLMResponse:
+    def _route_plan_node(_messages: MessageList) -> LLMResponse:
+        """The plan node (one fixed-prompt LLM call): its output is the
+        worker's goal — task-list DATA, not a graph (column 24)."""
         return LLMResponse(
-            content=_PLAN_JSON,
-            stop_reason="end_turn",
-            input_tokens=100,
-            output_tokens=80,
-        )
-
-    def _route_planner_replan(_messages: MessageList) -> LLMResponse:
-        nonlocal replan_calls
-        replan_calls += 1
-        if replan_calls > 2:
-            return LLMResponse(
-                content='{"steps": []}',
-                stop_reason="end_turn",
-                input_tokens=50,
-                output_tokens=10,
-            )
-        return LLMResponse(
-            content=_REPLAN_JSON,
+            content=(
+                "审计目标清单：\n"
+                "1. 调用 extract_transactions 抽取今日交易流水。\n"
+                "2. 调用 flag_suspicious 标注可疑交易，调用 enrich_entity 关联实体。\n"
+                "3. 综合结果调用 submit_to_regulator 提交 SAR 可疑活动报告"
+                "（高危写操作，执行前有人工审批；若被拒绝，改调 "
+                "draft_sar_for_review 草拟 SAR 留待人工复核）。"
+            ),
             stop_reason="end_turn",
             input_tokens=80,
-            output_tokens=60,
+            output_tokens=90,
         )
 
     def _route_worker(messages: MessageList) -> LLMResponse:

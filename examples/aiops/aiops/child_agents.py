@@ -27,7 +27,7 @@ from aiops.tools import (
 
 
 def log_analysis_agent() -> Agent:
-    """只读日志专家 —— REACTIVE，让并行 gather 能跑。"""
+    """只读日志专家 —— ReAct，让并行 gather 能跑。"""
     return Agent(
         "log_analysis",
         system_prompt=(
@@ -45,7 +45,7 @@ def log_analysis_agent() -> Agent:
 
 
 def deploy_correlation_agent() -> Agent:
-    """只读部署专家 —— REACTIVE。"""
+    """只读部署专家 —— ReAct。"""
     return Agent(
         "deploy_correlation",
         system_prompt=(
@@ -63,7 +63,7 @@ def deploy_correlation_agent() -> Agent:
 
 
 def metric_anomaly_agent() -> Agent:
-    """只读指标专家 —— REACTIVE。"""
+    """只读指标专家 —— ReAct。"""
     return Agent(
         "metric_anomaly",
         system_prompt=(

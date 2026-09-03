@@ -27,8 +27,8 @@ from typing import TYPE_CHECKING, Any
 from prodagent.base.config import ContextConfig
 from prodagent.base.errors import PermissionDenied
 from prodagent.kernel.budget import SAFETY_NET_BUDGET
-from prodagent.kernel.types import ToolResult
 from prodagent.kernel.bus import Gate, HookEvent
+from prodagent.kernel.types import ToolResult
 from prodagent.runtime.recipes.agent_loop import AgentLoop
 from prodagent.tooling.dispatcher import ToolDispatcher
 from prodagent.tooling.merge import merge_tools_by_name
@@ -40,10 +40,10 @@ if TYPE_CHECKING:
     from prodagent.kernel.bus import HookRegistry
     from prodagent.kernel.run import Run
     from prodagent.kernel.types import MessageList
-    from prodagent.ports import CheckpointStore, EventLog, Executor, RunnerPort, SessionStore
+    from prodagent.ports import CheckpointStore, EventLog, Executor, SessionStore
     from prodagent.ports.execution import HandoffActivation
-    from prodagent.ports.persistence import BlobStore
     from prodagent.ports.llm import LLMClient
+    from prodagent.ports.persistence import BlobStore
     from prodagent.runtime.agent import Agent
     from prodagent.runtime.runner import RunContext
 
@@ -186,7 +186,7 @@ class ChildResult:
 
 
 async def activate_child(
-    runner: RunnerPort,
+    ctx: Any,
     agent: Agent,
     task: str,
     *,
@@ -195,10 +195,9 @@ async def activate_child(
     child_run_id: str | None = None,
     default_timeout_s: float = DEFAULT_TIMEOUT_S,
 ) -> ChildResult:
-    """Activate one child and fold its terminal run.
-
-    The wall-clock clamp is the child's own budget's seconds axis, not a
-    guess; a timeout is a *result*, not an exception."""
+    """Activate one child — forked under this hop's wiring — and fold its
+    terminal run. The wall-clock clamp is the child's own budget's seconds
+    axis, not a guess; a timeout is a *result*, not an exception."""
     from prodagent.kernel.run import child_run_id as mint_child_id
 
     run_id = child_run_id or mint_child_id(parent_run_id or "", agent.name)
@@ -206,7 +205,7 @@ async def activate_child(
     timeout = min(default_timeout_s, budget_s) if budget_s else default_timeout_s
     try:
         activation_run = await asyncio.wait_for(
-            _drive_child(runner, agent, task, run_id, parent_run_id, depth),
+            _drive_child(ctx, agent, task, run_id, parent_run_id, depth),
             timeout=timeout,
         )
     except TimeoutError:
@@ -219,23 +218,29 @@ async def activate_child(
 
 
 async def _drive_child(
-    runner: RunnerPort,
+    ctx: Any,
     agent: Agent,
     task: str,
     run_id: str,
     parent_run_id: str | None,
     depth: int,
 ) -> Run:
-    """Drive the child to its terminal run through the port (the terminal
-    event carries the run — that is the port's whole contract)."""
+    """Drive the child to its terminal run — fork under this hop's wiring,
+    then drive. The terminal event carries the run."""
     from prodagent.kernel.run import collect_final_run
-    from prodagent.ports.execution import AgentActivation
+    from prodagent.runtime.runner import drive_stream
 
-    activation = AgentActivation(
-        agent=agent, task=task, run_id=run_id, parent_run_id=parent_run_id, depth=depth
-    )
+    forked = agent.fork_as_spawn(ctx)
     return await collect_final_run(
-        runner.activate(activation), fallback_run_id=run_id, fallback_task=task
+        drive_stream(
+            forked,
+            task,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
+            budget_ledger=ctx.budget_ledger,
+        ),
+        fallback_run_id=run_id,
+        fallback_task=task,
     )
 
 
@@ -298,7 +303,7 @@ def assemble_spawn_tools(
     seam the factory calls."""
     agent = ctx.agent
     roster = [a.name for a in agent.child_agents]
-    if not roster or ctx.runner is None:
+    if not roster:
         return spawn_acc
 
     async def _spawn_agent(name: str, task: str) -> dict[str, Any]:
@@ -310,7 +315,7 @@ def assemble_spawn_tools(
                 "message": f"Unknown agent {name!r}. Available: {roster}",
             }
         result = await activate_child(
-            ctx.runner,
+            ctx,
             child,
             task,
             parent_run_id=ctx.run_id,
@@ -318,7 +323,9 @@ def assemble_spawn_tools(
         )
         return asdict(result)
 
-    agent_lines = "\n".join(f"  - {a.name}: {a.config.description or a.name}" for a in agent.child_agents)
+    agent_lines = "\n".join(
+        f"  - {a.name}: {a.config.description or a.name}" for a in agent.child_agents
+    )
     description = (
         "Delegate a sub-task to a specialised sub-agent and return its result.\n"
         f"Available sub-agents:\n{agent_lines}"
@@ -467,20 +474,14 @@ def default_bundles(fw: FrameworkConfig | None) -> list[HookBundle]:
 
 def _subagent_invoker(ctx: Any) -> Any:
     """Delegation nodes' activation port: resolve the child on the parent's
-    roster, activate through the hop's RunnerPort on the shared
+    roster, activate through the shared
     ``activate_subagent`` core — the same core the spawn tool uses, so both
     entry points grow isomorphic Run trees."""
     from prodagent.runtime.compose import activate_child
 
     agent = ctx.agent
-    runner = ctx.runner
 
     async def _invoke(child_name: str, task: str, run_id: str = "") -> dict[str, Any]:
-        if runner is None:
-            raise RuntimeError(
-                f"subagent node {child_name!r}: no RunnerPort on this hop — "
-                "delegation needs the activation port wired by the RunLoop"
-            )
         spec = next((a for a in agent.child_agents if a.name == child_name), None)
         if spec is None:
             from prodagent.base.errors import ErrorReason
@@ -495,7 +496,7 @@ def _subagent_invoker(ctx: Any) -> Any:
         from dataclasses import asdict
 
         result = await activate_child(
-            runner,
+            ctx,
             spec,
             task,
             parent_run_id=ctx.run_id,

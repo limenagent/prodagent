@@ -1,7 +1,7 @@
 """AgentEvent — the stream vocabulary of an agent run, and its wire codec.
 
 Lifted from ``kernel/types.py``: these events are the wire contract of every
-stream consumer — the Executor and RunnerPort outputs, the playground,
+stream consumer — the Executor output, the playground,
 and (next) the remote plane. ``kernel/types`` re-exports them so kernel
 consumers keep one import site, same precedent as the base-vocabulary
 re-exports there.

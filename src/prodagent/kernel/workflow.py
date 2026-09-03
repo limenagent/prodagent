@@ -39,7 +39,6 @@ from prodagent.kernel.graph_validator import PlanValidator
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-    from prodagent.kernel.graph import Plan
     from prodagent.llm import LLMConfig
     from prodagent.runtime.agent import Agent
 

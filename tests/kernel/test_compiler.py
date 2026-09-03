@@ -12,10 +12,10 @@ from __future__ import annotations
 
 from prodagent.kernel.channels import add, last
 from prodagent.kernel.command import Update
-from prodagent.kernel.compiler import CompileError, compile as wcompile
+from prodagent.kernel.compiler import CompileError
+from prodagent.kernel.compiler import compile as wcompile
 from prodagent.kernel.scheduler import Scheduler
 from prodagent.tooling.dispatcher import ToolDispatcher
-
 
 # ── the compile-time translation ─────────────────────────────────────────────
 
@@ -56,10 +56,22 @@ async def _parallel_body(ctx, s):
 
 def test_sequence_becomes_edges_and_if_a_conditional_edge():
     c = wcompile(_if_body)
-    edges = {(e.source, e.target) for e in c.plan.edges}
     # the merge gate is join-any (exactly one branch runs)
     gate = next(n for n in c.plan.nodes.values() if n.join == "any")
     assert gate is not None
+    # the written order becomes edges: fetch fans into the branch and the
+    # fall-through, both merge at the gate, then report follows
+    nodes = set(c.plan.nodes)
+    fetch = next(n for n in nodes if n.startswith("_fetch"))
+    analyze = next(n for n in nodes if n.startswith("_analyze"))
+    report = next(n for n in nodes if n.startswith("_report"))
+    edges = {(e.source, e.target) for e in c.plan.edges}
+    assert {
+        (fetch, analyze),
+        (fetch, gate.node_id),
+        (analyze, gate.node_id),
+        (gate.node_id, report),
+    } <= edges
     # the branch edge carries a predicate; the fall-through does too
     when_edges = [e for e in c.plan.edges if e.when is not None]
     assert len(when_edges) == 2
@@ -136,7 +148,9 @@ async def test_if_branch_is_chosen_at_runtime_not_scrapped_early():
     _E2E_CALLS.clear()
     c = wcompile(_e2e_if_body)
     c.plan.declare_channels({"need_deep": last(False)})
-    terminal = await _drive(Scheduler(initial_plan=c.plan, fns=c.fns, dispatcher=ToolDispatcher({})))
+    terminal = await _drive(
+        Scheduler(initial_plan=c.plan, fns=c.fns, dispatcher=ToolDispatcher({}))
+    )
     assert _E2E_CALLS == ["fetch", "analyze", "report"], _E2E_CALLS
     assert terminal.run.state.value == "completed"
 
@@ -170,6 +184,8 @@ async def test_while_loop_turns_then_exits():
     _W_CALLS.clear()
     c = wcompile(_w_body)
     c.plan.declare_channels({"count": add(0)})
-    terminal = await _drive(Scheduler(initial_plan=c.plan, fns=c.fns, dispatcher=ToolDispatcher({})))
+    terminal = await _drive(
+        Scheduler(initial_plan=c.plan, fns=c.fns, dispatcher=ToolDispatcher({}))
+    )
     assert _W_CALLS == ["fetch", "step", "step", "step", "report"], _W_CALLS
     assert terminal.run.shared["count"] == 3

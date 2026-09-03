@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    pass
+from typing import Any
 
 
 async def resolve_suspended_peer_run_id(agent: Any, root_run_id: str) -> str | None:

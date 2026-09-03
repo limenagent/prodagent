@@ -1,6 +1,6 @@
-"""Code Detective FakeLLM 脚本 —— REACTIVE 多轮修 bug 轨迹。
+"""Code Detective FakeLLM 脚本 —— ReAct 多轮修 bug 轨迹。
 
-REACTIVE 模式下,每个 turn LLM 发 tool_call,框架执行后把结果喂回 LLM,
+ReAct 模式下,每个 turn LLM 发 tool_call,框架执行后把结果喂回 LLM,
 LLM 看结果决定下一步。这样能精确模拟「看测试失败 → 读更多源 → 重提 patch」的调试循环。
 
 轨迹(7 turn):
@@ -68,7 +68,7 @@ def login(username: str, password: str) -> bool:
 
 
 def build_fake_llm() -> LLMClient:
-    """REACTIVE 修 bug 轨迹:加载 runbook → 读测试 → grep → 读源 → 错 patch → 测试失败
+    """ReAct 修 bug 轨迹:加载 runbook → 读测试 → grep → 读源 → 错 patch → 测试失败
     → 读 password.py → 正确 patch → 测试通过 → 总结。"""
     return script(
         {"tool": "get_skill", "params": {"name": "debug-workflow"}},

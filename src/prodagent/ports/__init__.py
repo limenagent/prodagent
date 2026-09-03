@@ -26,16 +26,8 @@ from prodagent.ports.agent_events import (
     event_to_wire,
 )
 from prodagent.ports.budget_ledger import BudgetLedgerPort, SpendView
-from prodagent.ports.execution import (
-    AgentActivation,
-    AgentSpec,
-    Executor,
-    HandoffActivation,
-    InProcessChatRunner,
-    RunnerPort,
-)
+from prodagent.ports.execution import AgentSpec, Executor, HandoffActivation
 from prodagent.ports.llm import LLMClient
-from prodagent.ports.persistence import LockStore, LockToken
 from prodagent.ports.observability import (
     ApprovalStore,
     CacheStore,
@@ -47,6 +39,8 @@ from prodagent.ports.persistence import (
     DocumentStore,
     ExperienceStore,
     GraphStore,
+    LockStore,
+    LockToken,
     SessionStore,
 )
 from prodagent.ports.tool import Tool
@@ -54,7 +48,6 @@ from prodagent.ports.tool import Tool
 __all__ = [
     "AgentEvent",
     "AgentSpec",
-    "AgentActivation",
     "ApprovalStore",
     "BudgetLedgerPort",
     "CacheStore",
@@ -75,12 +68,10 @@ __all__ = [
     "event_from_wire",
     "event_to_wire",
     "HandoffActivation",
-    "InProcessChatRunner",
     "Executor",
     "LLMClient",
     "LockStore",
     "LockToken",
-    "RunnerPort",
     "SessionStore",
     "SpendView",
     "SpanExporter",

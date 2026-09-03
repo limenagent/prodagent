@@ -1,7 +1,7 @@
-"""Deep Research —— REACTIVE 多轮探索 + context 压缩。
+"""Deep Research —— ReAct 多轮探索 + context 压缩。
 
 本示例展示:
-  - ``REACTIVE`` 多轮探索: 每 turn LLM 发一个 tool_call,看结果决定下一步。
+  - ``ReAct`` 多轮探索: 每 turn LLM 发一个 tool_call,看结果决定下一步。
     「fetch → 读内容 → 记数字 → fetch 下一页 → 综合」的线性探索流程。
   - ``ContextManager`` 压缩: 长跑后历史 + 工具结果累积超阈值,框架自动从
     NONE → TOOL_COMPRESS → HISTORY_SUMMARY 压缩,早期对话被总结,LLM 不丢
@@ -28,7 +28,7 @@ SKILLS_DIR = _BASE / "skills"
 
 _SYSTEM_PROMPT = """\
 你是深度研究 agent。研究是探索性的 —— 你不知道下一步要搜什么,直到你看完
-上一步的结果。所以用 REACTIVE 多轮探索,不是一次性 plan:
+上一步的结果。所以用 ReAct 多轮探索,不是一次性 plan:
 
 1. 先调 ``get_skill(name="deep-research")`` 加载研究 runbook。
 2. 按 runbook 依次 fetch 每个 URL → 读 content → 记关键数字。

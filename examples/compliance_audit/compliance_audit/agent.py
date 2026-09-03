@@ -1,19 +1,14 @@
-"""合规审计 —— REACTIVE 主 agent + PLAN_FIRST 子 agent（LLM 动态 Plan + 增量重规划）。
+"""合规审计 —— ReAct 主 agent + plan-and-resolve 子 agent。
 
 本示例展示:
-  - **LLM 动态生成 Plan** —— 子 agent 是 ``PLAN_FIRST`` 模式但**没有 hardcoded
-    workflow**，LLM 在运行时根据任务和工具列表动态生成执行 Plan DAG。
-  - **增量重规划** —— ``submit_to_regulator``（HIGH 副作用）执行前触发人工审批。
-    人类 Reject → 步骤失败 → ``mark_downstream_obsolete`` + ``Planner.replan()``
-    + ``Plan.merge()`` → 已完成的抽取/标注/关联步骤保留，被替换步骤标记 OBSOLETE，
-    新步骤续跑。不推倒重来。**fallback**：被拒后不再重试 submit（避免再次弹窗被拒），
-    改调只读的 ``draft_sar_for_review`` 草拟 SAR 留待合规官人工复核——对应第八章
-    「传输失败 → 换协议 SCP」的「换一个动作」。
+  - **plan-and-resolve 用内核原语拼装**（专栏 24 讲）—— 子 agent 是两个节点一条边：
+    ``plan`` 节点（一次 LLM 调用）产出审计目标清单**文本**（数据，不是执行图），
+    ``work`` 节点（LoopBody 循环）用同一套工具把清单做完。执行图是代码写死的。
+  - **审批在工具级** —— ``submit_to_regulator``（HIGH 副作用）执行前弹人工审批；
+    被 Reject 后拒绝结果回喂循环，改调只读的 ``draft_sar_for_review`` 草拟 SAR
+    留待人工复核（恢复路径在提示词里，不在框架里）。
   - **幂等写** —— ``submit_to_regulator`` 标记 ``enforced_idempotent=True``，
     重试不会重复提交 SAR。
-
-和 AIOps 一样，审批在工具级（写操作），不在 Plan 级。Plan 直接执行，只有最后的
-提交动作需要人类确认。
 """
 
 from __future__ import annotations
@@ -132,7 +127,7 @@ def build_audit_workflow_agent(
     )
 
 
-# ── 主 agent: compliance_audit (REACTIVE 对话入口) ────────────────────────
+# ── 主 agent: compliance_audit (ReAct 对话入口) ────────────────────────
 
 _MAIN_SYSTEM = (
     "你是合规审计编排 agent。用户想审计交易流水时，调 "
@@ -154,9 +149,9 @@ def build_compliance_audit_agent(
     llm: LLMClient | None = None,
     framework_config: FrameworkConfig | None = None,
 ) -> Agent:
-    """主 agent —— REACTIVE 对话入口。
+    """主 agent —— ReAct 对话入口。
 
-    用户说"审计今天的交易" → 调 ``spawn_agent`` 委派 PLAN_FIRST 子 agent
+    用户说"审计今天的交易" → 调 ``spawn_agent`` 委派 plan-and-resolve 子 agent
     → 子 agent 动态出 Plan → 执行 → submit_to_regulator 弹审批 → 人类决定
     → SAR 结果返回。主 agent 永远可交互。
     """

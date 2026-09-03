@@ -323,13 +323,12 @@ test_spawn_child_budget_settles_at_handoff
 | 四轴预算 | `kernel/budget.py` |
 | 乐观并发 | `ports/persistence.py` |
 | 工具错误处理 | `tooling/base.py` |
-| 协作三件套 | `runtime/collab.py` |
+| 协作三件套 | `runtime/compose.py` |
 | 代码成边 | `kernel/compiler.py` |
 | FakeLLM | `llm/fake.py` |
 | 消息格式宪法 | `base/types.py` `kernel/types.py` |
 | thinking 往返 | `llm/anthropic_adapter.py` |
 | 结算信封 | `kernel/budget.py` |
-| Transport 端口 | `ports/messaging.py` |
 | RunnerPort | `ports/execution.py` |
 | AgentSpec 投影 | `ports/execution.py` |
 | 账本工厂 open_ledger | `kernel/budget.py` |

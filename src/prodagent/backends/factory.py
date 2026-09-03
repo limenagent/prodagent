@@ -59,7 +59,6 @@ def in_process_lock_store() -> LockStore:
     return InProcessLockStore()
 
 
-
 def in_memory_session_store() -> SessionStore:
     """In-process session store — the bare profile's default (no disk)."""
 
@@ -195,7 +194,6 @@ _BACKENDS: dict[str, dict[str, Spec]] = {
             {"namespace": _b("redis_namespace")},
         ),
     },
-
     "graph": {
         "file": ("prodagent.backends.file.graph:FileGraphStore", [_o("runs_dir")], {}),
         "neo4j": (
@@ -283,7 +281,6 @@ def resolve_approval(framework_config: FrameworkConfig | None = None) -> Approva
 def resolve_lock(framework_config: FrameworkConfig | None = None) -> LockStore:
     """Lock store per ``fw.backend.lock`` (memory default)."""
     return cast("LockStore", _resolve("lock", framework_config, expect=LockStore))
-
 
 
 def resolve_graph(framework_config: FrameworkConfig | None = None) -> GraphStore:
