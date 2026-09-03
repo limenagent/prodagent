@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from prodagent import Agent, AgentConfig, ExecutionMode, RunState
+from prodagent import Agent, AgentConfig, RunState
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.base.errors import SensitiveContentDetected
 from prodagent.kernel.bus import Gate, HookRegistry
@@ -22,7 +22,6 @@ def _veto_agent(store: FileCheckpointStore) -> Agent:
     return Agent(
         name="veto-demo",
         system_prompt="Answer directly.",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="veto-demo",
             llm=script({"content": "Contact alice@example.com for details."}),
@@ -56,7 +55,6 @@ def test_clean_run_unaffected_by_veto_checker(tmp_path):
     agent = Agent(
         name="veto-clean",
         system_prompt="Answer directly.",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="veto-clean",
             llm=script({"content": "The audit found no issues."}),

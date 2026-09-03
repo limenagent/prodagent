@@ -34,13 +34,12 @@ except ImportError as exc:  # pragma: no cover - exercised via missing-dep test
     ) from exc
 
 from prodagent.kernel.types import (
-    ExecutionMode,
     RunCompletedEvent,
     RunFailedEvent,
     RunState,
     RunSuspendedEvent,
 )
-from prodagent.playground.multiagent import MultiAgentRun
+from prodagent.playground.multiagent import MultiRun
 from prodagent.playground.registry import (
     CheckpointFactory,
     RunReconstructError,
@@ -57,7 +56,7 @@ if TYPE_CHECKING:
     from starlette.types import Scope
 
     from prodagent.base.session import ConversationSession
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.run import Run
     from prodagent.ports.observability import EventLog
     from prodagent.ports.persistence import BlobStore
     from prodagent.runtime.agent import Agent
@@ -100,7 +99,7 @@ class AppState:
     checkpoint_for: CheckpointFactory | None = None
     session_store_for: SessionStoreFactory | None = None
     tape_event_log: EventLog | None = None
-    multiagent_runs: dict[str, MultiAgentRun] = field(default_factory=dict)
+    multiagent_runs: dict[str, MultiRun] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.registry is None:
@@ -250,11 +249,10 @@ class AppState:
     async def drive(
         self, ctx: RunContext, run_id: str, message: str, *, reactive: bool = False
     ) -> None:
-        mode = ExecutionMode.REACTIVE if reactive else None
         await self.drive_stream(
             ctx,
             run_id,
-            lambda **_: ctx.agent.chat_stream(message, session_id=run_id, mode=mode),
+            lambda **_: ctx.agent.chat_stream(message, session_id=run_id),
             label="chat",
         )
 
@@ -276,7 +274,7 @@ def _attach_web_hooks(agent: Agent, queue: asyncio.Queue[dict[str, Any]]) -> Non
     WebPushHooks(queue).attach(registry)
 
 
-def _task_from_run(run: AgentRun) -> str:
+def _task_from_run(run: Run) -> str:
     for msg in run.messages:
         content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
         role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
@@ -358,7 +356,7 @@ def build_app(
             )
         adapter = spec.multiagent_adapter()
         run_id = uuid.uuid4().hex[:12]
-        run = MultiAgentRun(adapter, run_id=run_id, event_log=state.tape_event_log)
+        run = MultiRun(adapter, run_id=run_id, event_log=state.tape_event_log)
         state.multiagent_runs[run_id] = run
         run.start()
         return {"run_id": run_id}

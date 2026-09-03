@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent import Agent, AgentConfig
 from prodagent.base.config import FrameworkConfig
 from prodagent.base.errors import PlanAlreadyCompletedError
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.kernel.types import RunState
 from prodagent.llm.fake import script
 from prodagent.plan.workflow import Workflow
@@ -55,7 +55,6 @@ def _reactive_agent(tmp_path) -> Agent:
     return Agent(
         "reactive_chat",
         system_prompt="Reply briefly.",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="reactive_chat",
             llm=script({"content": "first reply"}, {"content": "second reply"}),
@@ -68,7 +67,6 @@ def _plan_first_agent(tmp_path) -> Agent:
     return Agent(
         "plan_first_chat",
         system_prompt="Reply briefly.",
-        mode=ExecutionMode.PLAN_FIRST,
         config=AgentConfig(
             name="plan_first_chat",
             llm=script(
@@ -111,7 +109,7 @@ async def test_workflow_chat_with_explicit_reactive_mode_continues(tmp_path):
     r1 = await agent.chat("first turn", session_id="wf-react-A")
     assert r1.state.value == "completed"
 
-    r2 = await agent.chat("second turn", session_id="wf-react-A", mode=ExecutionMode.REACTIVE)
+    r2 = await agent.chat("second turn", session_id="wf-react-A", as_unit=True)
     assert r2.state.value == "completed"
     assert r1.run_id != r2.run_id
     assert len(r2.messages) > len(r1.messages)
@@ -164,7 +162,7 @@ async def test_suspended_resume_reuses_run_id_and_rejects_mode_mismatch(tmp_path
 
     # Same mode resumes (reuses run_id); different mode raises ValueError.
     with pytest.raises(ValueError, match="SUSPENDED"):
-        session.start_turn("follow", mode=ExecutionMode.PLAN_FIRST)
+        session.start_turn("follow", single_unit=False)
 
 
 @pytest.mark.asyncio
@@ -188,22 +186,21 @@ def test_construction_asserts_initial_plan_requires_plan_first():
 
     ``.workflow()`` sets ``_mode=PLAN_FIRST`` and ``_initial_plan=wf.compile()``
     atomically. The assertion at ``agent.py:85`` —
-    ``self._initial_plan is None or self._mode is ExecutionMode.PLAN_FIRST`` —
+    ``self._initial_plan is None`` —
     is defence against a future API breaking that. This test confirms the
     expression itself catches the broken state.
     """
-    from prodagent.plan.dag import Plan
+    from prodagent.kernel.graph import Plan
 
     agent = Agent(
         "bad",
         system_prompt="",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(name="bad", llm=script({"content": "x"})),
     )
     # Simulate the broken invariant a future API might introduce.
     agent.config.initial_plan = Plan(plan_id="x")
     # The exact expression from agent.py:85 — must be False for this state.
-    invariant = agent.config.initial_plan is None or agent.config.mode is ExecutionMode.PLAN_FIRST
+    invariant = agent.config.initial_plan is None
     assert invariant is False, (
         "the construction assertion must reject REACTIVE + initial_plan — "
         "if this passes, the guard at agent.py:85 is broken"
@@ -241,7 +238,7 @@ async def test_crash_window_does_not_deadlock_session(tmp_path):
     store = agent._ensure_session_store_resolved()
     session = await store.load("crash-A")
     assert session is not None
-    crashed_alloc = session.start_turn("crashed turn", mode=ExecutionMode.REACTIVE)
+    crashed_alloc = session.start_turn("crashed turn", single_unit=True)
     assert crashed_alloc.is_new is True
     assert crashed_alloc.run_id == "crash-A:2"  # would-be turn 2
     # NOT saved — simulating the crash. Discard the in-memory mutation.
@@ -280,7 +277,7 @@ async def test_orphan_checkpoint_raises_run_id_collision(tmp_path):
     # Pre-seed an orphan checkpoint at the run_id the next turn *would* mint
     # ("orphan-A:2") — simulating a leftover from a pre-fix crash.
     checkpoint = agent._ensure_checkpoint_resolved()
-    orphan_run = AgentRun(run_id="orphan-A:2", task="leftover")
+    orphan_run = Run(run_id="orphan-A:2", task="leftover")
     orphan_run.state = RunState.SUSPENDED
     await checkpoint.save(orphan_run)
 

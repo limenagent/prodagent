@@ -10,8 +10,9 @@ from the checkpoint.
 
 from __future__ import annotations
 
-from prodagent import Agent, AgentConfig, ExecutionMode, HardBudget, script, tool
+from prodagent import Agent, AgentConfig, HardBudget, script, tool
 from prodagent.kernel.types import RunState, SideEffectLevel, ToolMeta
+from prodagent.plan.planner import Planner
 
 
 @tool(name="low_step", readonly=True)
@@ -44,12 +45,12 @@ def _agent(session: str, tmp_path) -> Agent:
     return Agent(
         "resume-accounting",
         tools=[low_step, high_step],
-        mode=ExecutionMode.PLAN_FIRST,
         budget=HardBudget(max_turns=6),
         config=AgentConfig(
             name="resume-accounting",
             llm=script({"content": _PLAN}, {"content": "done"}),
             framework=_production_fw(tmp_path),
+            planner=Planner(script({"content": _PLAN}, {"content": "done"})),
         ),
     )
 

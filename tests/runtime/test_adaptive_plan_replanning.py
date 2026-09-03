@@ -1,12 +1,12 @@
 import pytest
 
-from prodagent.kernel.bodies.base import ToolBody
+from prodagent.kernel.graph import Node, Plan, fresh_states, state_of
 from prodagent.kernel.types import NodeStatus
-from prodagent.plan.dag import Node, Plan, fresh_states, state_of
+from prodagent.kernel.units import ToolUnit
 
 
 def _node(sid: str, depends_on: list[str] | None = None, **kw) -> Node:
-    return Node(node_id=sid, body=ToolBody(sid), depends_on=depends_on or [], **kw)
+    return Node(node_id=sid, body=ToolUnit(sid), depends_on=depends_on or [], **kw)
 
 
 def _states_for(

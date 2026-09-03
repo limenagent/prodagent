@@ -40,7 +40,7 @@ from prodagent.kernel.types import (
     ToolResult,
     ToolResultEvent,
 )
-from prodagent.tooling.base import coerce_result
+from prodagent.kernel.unit import coerce_result
 from prodagent.tooling.skill_resolver import SkillResolver
 
 TRANSIENT_EXC: tuple[type[BaseException], ...] = (
@@ -76,7 +76,7 @@ if TYPE_CHECKING:
     from prodagent.cognition.context.spill import ToolResultSpillStore
     from prodagent.kernel.bus import HookRegistry
     from prodagent.kernel.progress import ProgressMonitor
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.run import Run
     from prodagent.kernel.types import AgentEvent
     from prodagent.ports.observability import EventLog
     from prodagent.ports.persistence import BlobStore
@@ -162,7 +162,7 @@ class ToolDispatcher:
 
     async def run_batch(
         self,
-        run: AgentRun,
+        run: Run,
         calls: list[ToolCall],
     ) -> AsyncIterator[AgentEvent]:
         """Execute the model's requested calls for one turn. Emits a start
@@ -240,7 +240,7 @@ class ToolDispatcher:
         self,
         result: ToolResult,
         call: ToolCall,
-        run: AgentRun,
+        run: Run,
         deferred_injections: list[str],
         emitted: set[str] | None = None,
     ) -> bool:
@@ -259,7 +259,7 @@ class ToolDispatcher:
 
     @staticmethod
     def _balance_batch(
-        run: AgentRun, calls: list[ToolCall], emitted: set[str], *, keep: ToolCall
+        run: Run, calls: list[ToolCall], emitted: set[str], *, keep: ToolCall
     ) -> None:
         """Keep the transcript wire-valid when a batch ends early (suspend/handoff).
 
@@ -283,12 +283,12 @@ class ToolDispatcher:
             run.tool_history = [c for c in run.tool_history if c is not call]
 
     @staticmethod
-    def _flush_injections(run: AgentRun, deferred_injections: list[str]) -> None:
+    def _flush_injections(run: Run, deferred_injections: list[str]) -> None:
         """Don't drop already-collected skill injections when a batch ends early."""
         for injection in deferred_injections:
             run.messages.append(Message(role="user", content=injection))
 
-    def build_tool_message(self, wire: dict[str, Any], call: ToolCall, run: AgentRun) -> Message:
+    def build_tool_message(self, wire: dict[str, Any], call: ToolCall, run: Run) -> Message:
         """The one way a tool result becomes a transcript message — shared by
         both execution modes so spill truncation and ``max_result_chars``
         behave identically whether the batch came from a REACTIVE turn or a
@@ -304,7 +304,7 @@ class ToolDispatcher:
         )
 
     @staticmethod
-    def _is_suspended(result: ToolResult, call: ToolCall, run: AgentRun) -> bool:
+    def _is_suspended(result: ToolResult, call: ToolCall, run: Run) -> bool:
         if result.outcome is ToolOutcome.SUSPENDED:
             # Batch discipline guarantees a single park here (suspension stops
             # the batch), so the bool is ignored — the method is the invariant.
@@ -314,10 +314,10 @@ class ToolDispatcher:
         return False
 
     @staticmethod
-    def _is_handoff(result: ToolResult, call: ToolCall, run: AgentRun) -> bool:
+    def _is_handoff(result: ToolResult, call: ToolCall, run: Run) -> bool:
         if result.outcome is not ToolOutcome.HANDOFF:
             return False
-        from prodagent.kernel.state import PendingHandoff
+        from prodagent.kernel.run import PendingHandoff
 
         h = result.handoff or {}
         run.park_handoff(
@@ -332,7 +332,7 @@ class ToolDispatcher:
         return True
 
     @staticmethod
-    def _coerce_outcome(outcome: Any, call: ToolCall, run: AgentRun) -> ToolResult:
+    def _coerce_outcome(outcome: Any, call: ToolCall, run: Run) -> ToolResult:
         if isinstance(outcome, BaseException):
             run.tool_failures += 1
             logger.error("Tool '%s' parallel error: %s", call.name, outcome)
@@ -522,7 +522,7 @@ class ToolDispatcher:
             return blocked
         return result
 
-    async def dispatch_with_retry(self, call: ToolCall, run: AgentRun) -> ToolResult:
+    async def dispatch_with_retry(self, call: ToolCall, run: Run) -> ToolResult:
         """Serial-path wrapper honoring the retry policy — which defaults to
         max_attempts=1 (no retries): YELLOW errors are the model's feedback,
         and RED/terminal outcomes never earn a second attempt."""

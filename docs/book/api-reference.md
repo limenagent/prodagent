@@ -11,18 +11,21 @@
 ### Agent
 
 ```python
-from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent import Agent, AgentConfig
 agent = Agent(
     "demo",                                    # name（位置参数，必填）
     system_prompt="你是一个 helpful assistant",  # 系统提示
     tools=[search, fetch],                     # 可用工具
-    mode=ExecutionMode.REACTIVE,               # REACTIVE / PLAN_FIRST
     budget=HardBudget(max_turns=20),           # 四轴预算
-    workflow=wf,                               # 可选：手写 Workflow（自动设为 PLAN_FIRST）
-    allow_replan=True,                         # PLAN_FIRST 模式下是否允许增量重规划
+    workflow=wf,                               # 可选：手写 Workflow（绑定为预置图）
+    allow_replan=True,                         # 图执行失败时是否允许增量重规划
     config=AgentConfig(name="demo"),           # 完整配置（LLM、后端、hooks 等）
 )
 ```
+
+> 执行没有模式枚举：不绑 workflow、不配 planner 的 agent，对话就是它本体在跑
+> （单节点图）；绑了 workflow 或 `AgentConfig(planner=...)` 的 agent，每轮先起草
+> 一张 DAG 再执行。形状是组合决定，不是开关。
 
 **主要方法**：
 
@@ -41,7 +44,6 @@ class AgentConfig:
     name: str
     system_prompt: str = ""
     tools: list[Tool] = field(default_factory=list)
-    mode: ExecutionMode = ExecutionMode.REACTIVE
     budget: HardBudget = field(default_factory=HardBudget)
     llm: LLMClient | None = None               # LLM 客户端或 LLMConfig
     framework: FrameworkConfig | None = None   # 框架配置（后端、压缩等）
@@ -50,7 +52,9 @@ class AgentConfig:
     peers: list[Agent] = field(default_factory=list)    # peer 接力
     memory: MemoryProvider | None = None       # 记忆系统
     skills: SkillRegistry | None = None        # 技能注册表
-    initial_plan: Plan | None = None           # 预编译计划
+    initial_plan: Plan | None = None           # 预置图（绑 workflow= 时自动设置）
+    planner: PlannerPort | None = None         # 每轮起草 DAG 的规划器（注入）
+    registry: UnitRegistry | None = None       # 命名单元名册（规划可引用）
     # ... 更多字段见 runtime/config.py
 ```
 
@@ -120,13 +124,18 @@ class SideEffectLevel(StrEnum):
 
 ---
 
-## 执行模式
+## 执行形状（无模式枚举）
 
 ```python
-from prodagent import ExecutionMode
-ExecutionMode.REACTIVE      # 边走边想（默认）
-ExecutionMode.PLAN_FIRST    # 先规划 DAG 后执行
-# 没有 ExecutionMode.WORKFLOW——Workflow 通过 workflow= 参数传入
+# 形状一：agent 本体（默认）——对话即循环，无规划
+agent = Agent("demo", system_prompt="...")
+
+# 形状二：每轮起草 DAG——注入规划器
+from prodagent.plan.planner import Planner
+agent = Agent("demo", config=AgentConfig(name="demo", llm=llm, planner=Planner(llm)))
+
+# 形状三：预置图——手写 Workflow 绑定为固定流程
+agent = Agent("demo", workflow=wf)
 ```
 
 ### Workflow
@@ -240,68 +249,18 @@ config = FrameworkConfig(backend=BackendConfig(
 ## 多 Agent 协作
 
 ```python
-from prodagent import AgentConfig
-from prodagent.coordination.ensemble import (
-    EnsembleSpec, ensemble_stream, AgentFloorMember, RoundRobin,
-)
-from prodagent.coordination.blackboard import (
-    BlackboardSpec, blackboard_stream, AgentBlackboardMember, Trigger,
-)
-from prodagent.coordination.work_queue import (
-    WorkQueueSpec, work_queue_stream, WorkItem,
-)
-# ① Spawn（通过 agents= 配置）
+from prodagent import Agent, AgentConfig
+# ① Spawn（通过 agents= 配置）——委派，call-return：父保持控制权等结果
 parent = Agent("manager", config=AgentConfig(
     name="manager", agents=[child_a, child_b],
 ))
-# ② Peer（通过 peers= 配置）
+# ② Peer（通过 peers= 配置）——接力，handoff：当前 run 结束，同伴的 run 接过链条
 first = Agent("researcher", config=AgentConfig(
     name="researcher", peers=[writer, reviewer],
 ))
-# ③ Ensemble
-spec = EnsembleSpec(
-    members=[AgentFloorMember(a, session_id="s1") for a in agents],
-    topic="讨论话题",
-    order=RoundRobin(),
-)
-async for event in ensemble_stream(spec):
-    ...
-# ④ Blackboard
-spec = BlackboardSpec(
-    experts={"researcher": AgentBlackboardMember(a, write_key="research")},
-    triggers={"kickoff": Trigger(name="kickoff", keys=[], experts=["researcher"])},
-)
-async for event in blackboard_stream(spec):
-    ...
-# ⑤ WorkQueue
-spec = WorkQueueSpec(
-    workers={"w1": worker1, "w2": worker2},
-    items=[WorkItem(item_id="1", payload="任务")],
-)
-async for event in work_queue_stream(spec):
-    ...
 ```
 
-## 循环工具
-
-```python
-from prodagent import Agent, AgentConfig
-from prodagent.coordination.ensemble import AgentFloorMember, EnsembleSpec
-from prodagent.coordination.work_queue import AgentWorkMember, WorkQueueSpec
-panel = EnsembleSpec(
-    name="panel",                      # 有名字才生成工具
-    members=[AgentFloorMember(pro, session_id="pro"), AgentFloorMember(con, session_id="con")],
-    topic="待定议题",
-)
-chores = WorkQueueSpec(name="chores", workers={"w1": AgentWorkMember(w1)}, items=[])
-host = Agent("host", config=AgentConfig(
-    name="host",
-    ensembles=[panel],      # → run_ensemble(name, task)
-    work_queues=[chores],   # → run_work_queue(name, items)
-))
-```
-
-`run_ensemble` 拿回完整 transcript，`run_work_queue` 拿回完成清单；没名字的 Spec 不生成工具。完整示例：`examples/council`。
+委派语义是显式的两种：spawn 是 call-return（结果回到调用方），peer 是 handoff（控制权真转移、不回来）。黑板形的协作（专家机会式写共享工作区）不是第三个原语——它由图原子（Route 的 selector 读完整 state + Loop）拼装，见 [ch10](ch10.md)。
 
 ---
 
@@ -376,11 +335,11 @@ from prodagent.base.errors import (
 
 | 模块 | 内容 |
 |------|------|
-| `prodagent` | Agent, AgentConfig, ExecutionMode, HardBudget, tool 等顶层导出 |
+| `prodagent` | Agent, AgentConfig, HardBudget, tool 等顶层导出 |
 | `prodagent.runtime.agent` | Agent 类 |
 | `prodagent.runtime.config` | AgentConfig |
-| `prodagent.kernel.react` | ReactEngine |
-| `prodagent.kernel.turn` | Turn |
+| `prodagent.runtime.agent_loop` | AgentLoop / Round |
+| `prodagent.kernel.scheduler` | Scheduler / PlannerPort |
 | `prodagent.kernel.budget` | HardBudget / BudgetLedger |
 | `prodagent.kernel.bus` | HookEvent / Gate / HookRegistry |
 | `prodagent.kernel.types` | LLMResponse / ToolCall / ToolMeta / StopReason / 事件类型 |
@@ -388,6 +347,10 @@ from prodagent.base.errors import (
 | `prodagent.tooling.base` | FunctionTool |
 | `prodagent.tooling.dispatcher` | ToolDispatcher |
 | `prodagent.plan.workflow` | Workflow |
+| `prodagent.kernel.combinators` | Sequential / Parallel / Route / Loop |
+| `prodagent.coordination.as_tool` | as_tool |
+| `prodagent.coordination.handoff` | handoff 词汇 |
+| `prodagent.kernel.registry` | UnitRegistry |
 | `prodagent.ports.*` | 所有端口定义 |
 | `prodagent.coordination.*` | 多 Agent 协作原语 |
 | `prodagent.cognition.*` | 上下文压缩与记忆 |

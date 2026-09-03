@@ -5,22 +5,21 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from prodagent.kernel.types import ExecutionMode
-
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from prodagent.base.config import FrameworkConfig
     from prodagent.cognition.context.spill import ToolResultSpillStore
     from prodagent.cognition.memory.manager import MemoryProvider
-    from prodagent.coordination.blackboard import BlackboardSpec
     from prodagent.coordination.messaging.contract import MessageContract
     from prodagent.hooks.approval.gate import ApprovalProvider
     from prodagent.kernel.budget import HardBudget, SpawnAccumulator
     from prodagent.kernel.bus import Gate, HookEvent, HookRegistry, InjectionPoint
+    from prodagent.kernel.graph import Plan
+    from prodagent.kernel.registry import UnitRegistry
+    from prodagent.kernel.scheduler import PlannerPort
     from prodagent.llm import LLMClient
     from prodagent.mcp.config import MCPServerConfig
-    from prodagent.plan.dag import Plan
     from prodagent.ports import CheckpointStore, EventLog, SessionStore, Tool
     from prodagent.ports.persistence import BlobStore
     from prodagent.runtime.agent import Agent
@@ -41,7 +40,6 @@ class AgentConfig:
     system_prompt: str = ""
     framework: FrameworkConfig | None = None
     hooks: HookRegistry | None = None
-    mode: ExecutionMode = ExecutionMode.REACTIVE
     checkpoint: CheckpointStore | None = None
     event_log: EventLog | None = None
     blob_store: BlobStore | None = None
@@ -52,10 +50,17 @@ class AgentConfig:
     output_contract: MessageContract | None = None
     spawn_accumulator: SpawnAccumulator | None = None
     initial_plan: Plan | None = None
+    planner: PlannerPort | None = None
+    registry: UnitRegistry | None = None
+    """Named units the planner may draft steps against (``"unit": name``)
+    and checkpoints resolve ``unit_ref`` through — one roster per agent."""
+    """Per-turn drafting front-end: with no preset plan and no planner, a
+    chat turn runs the agent itself as the unit; with a planner, each turn
+    drafts a fresh graph. Composition decides, not a mode enum."""
     node_fns: dict[str, Callable[..., Any]] | None = None
     """Plain functions fn nodes invoke, by name — populated when a Workflow
     is bound (its declaration), consumed by the composition root's
-    BodyRunner at execution."""
+    UnitContext at execution."""
     max_replans: int = 2
     description: str = ""
     agents: list[Agent] = field(default_factory=list)
@@ -63,14 +68,6 @@ class AgentConfig:
     mcp: list[MCPServerConfig] = field(default_factory=list)
     approval: ApprovalProvider | None = None
     memory: MemoryProvider | None = None
-
-    """Named ensemble specs the model may convene via the ``run_ensemble``
-    tool (unnamed specs are skipped — the name is the handle)."""
-    """Named work-queue specs the model may run via the ``run_work_queue``
-    tool."""
-    blackboards: list[BlackboardSpec] = field(default_factory=list)
-    """Named blackboard specs the model may run via the ``run_blackboard``
-    tool."""
 
     injectors: list[tuple[InjectionPoint, Callable[..., Any]]] = field(default_factory=list)
     checkers: list[tuple[Gate, Callable[..., Any]]] = field(default_factory=list)

@@ -1,6 +1,6 @@
 """Crossing — the one envelope every agent-boundary message travels in.
 
-Collaboration primitives (``agents=`` tree, ``peers=`` chain, Blackboard board) share one fact: collaborating means
+Collaboration primitives (``agents=`` tree, ``peers=`` chain) share one fact: collaborating means
 messages crossing agent boundaries. A ``Crossing`` is one such boundary
 traversal, wrapped in a uniform envelope so every crossing — regardless of
 which primitive produced it — flows through the same checkpoint and gets the

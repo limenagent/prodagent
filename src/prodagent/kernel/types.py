@@ -24,9 +24,6 @@ from prodagent.base.errors import NON_RETRYABLE_REASONS, ErrorReason
 # import kernel); re-exported here so kernel consumers keep one import site.
 # The redundant `as` aliases mark the re-export explicitly (mypy strict reads it).
 from prodagent.base.types import (
-    ExecutionMode as ExecutionMode,
-)
-from prodagent.base.types import (
     Message as Message,
 )
 from prodagent.base.types import (

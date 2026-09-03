@@ -19,15 +19,14 @@ from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
 
-from prodagent.base.errors import NON_RETRYABLE_REASONS, ErrorReason
+from prodagent.base.errors import ErrorReason
 from prodagent.kernel.types import (
-    ErrorSeverity,
     ToolError,
     ToolMeta,
     ToolName,
-    ToolOutcome,
     ToolResult,
 )
+from prodagent.kernel.unit import coerce_result
 
 if typing.TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -36,7 +35,7 @@ if typing.TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["FunctionTool", "coerce_result"]
+__all__ = ["FunctionTool"]
 
 
 def _typed_params(
@@ -192,65 +191,3 @@ def _build_adapters(fn: Callable[..., Any], tool_name: str) -> dict[str, TypeAda
                 exc_info=True,
             )
     return adapters
-
-
-def coerce_result(raw: Any, *, tool: ToolName = "") -> ToolResult[Any]:
-    """Coerce whatever a tool function returned into a ToolResult.
-
-    A plain value is OK; a ToolResult/ToolError passes through; a dict can
-    carry the control-flow markers (suspended / handoff / blocked / error).
-    Everything else wraps as OK — this is the single throat tool output
-    passes through before entering a run's transcript."""
-    if isinstance(raw, ToolResult):
-        return raw
-    if isinstance(raw, ToolError):
-        return ToolResult.from_error(raw, tool=tool)
-    if isinstance(raw, dict):
-        # Control-flow markers: a plain function can still steer the loop by
-        # returning these dict shapes — no framework types required of it.
-        if raw.get("suspended"):
-            return ToolResult.suspended(
-                reason=raw.get("reason", ""),
-                tool=raw.get("tool", tool),
-                approval_request_id=raw.get("approval_request_id", ""),
-            )
-        if raw.get("handoff"):
-            return ToolResult.for_handoff(
-                peer=raw.get("peer", ""),
-                task=raw.get("task", ""),
-                input_refs=raw.get("input_refs"),
-                tool=raw.get("tool", tool),
-            )
-        if raw.get("blocked"):
-            return ToolResult.blocked_by(raw.get("reason", ""), tool=raw.get("tool", tool))
-        if raw.get("error"):
-            raw_reason = raw.get("reason", "")
-            err_val = raw.get("error")
-            message = raw.get("message", "")
-            if isinstance(err_val, str) and not message:
-                message = err_val  # tolerate {"error": "text"} as the message form
-            try:
-                reason = ErrorReason(raw_reason)
-            except ValueError:
-                # Unknown reason strings degrade to UNKNOWN (still retryable)
-                # rather than crashing the tool boundary.
-                reason = ErrorReason.UNKNOWN
-                message = message or f"invalid ErrorReason: {raw_reason!r}"
-            return ToolResult.from_error(
-                ToolError(
-                    reason=reason,
-                    code=raw.get("code", ""),
-                    error_severity=ErrorSeverity.coerce(
-                        raw.get("error_severity"),
-                        default=(
-                            ErrorSeverity.RED
-                            if reason in NON_RETRYABLE_REASONS
-                            else ErrorSeverity.YELLOW
-                        ),
-                    ),
-                    message=message,
-                    hint=raw.get("hint", ""),
-                ),
-                tool=tool,
-            )
-    return ToolResult(ToolOutcome.OK, value=raw, tool=tool)

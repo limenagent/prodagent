@@ -6,12 +6,12 @@ from prodagent.coordination.spawn import (
     short_result,
 )
 from prodagent.kernel.budget import SpawnAccumulator
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.kernel.types import ErrorSeverity, ToolOutcome
+from prodagent.kernel.unit import coerce_result
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.runtime.parent_runtime import ParentRuntime
 from prodagent.runtime.runner import InProcessRunner, RunContext, RunLoop
-from prodagent.tooling.base import coerce_result
 
 
 async def test_spawn_timeout_returns_permanent_error(monkeypatch) -> None:
@@ -65,7 +65,7 @@ async def test_finalize_run_folds_spawn_accounting_without_hooks() -> None:
     ctx = RunContext(agent=agent, task="t", run_id="r1", depth=0)
     loop = RunLoop(root_agent=agent, initial_ctx=ctx, root_run_id="r1", output_schema=None)
 
-    run = AgentRun(run_id="r1", task="t")
+    run = Run(run_id="r1", task="t")
     accumulator = SpawnAccumulator(
         cost_usd=1.5, turns=3, input_tokens=50, output_tokens=25, spawn_count=1
     )

@@ -10,7 +10,7 @@ Pins three contracts:
 - the relay's checkpoint save going through ``save_and_fire_checkpoint`` —
   a failing relay save must fire CHECKPOINT_FAILED like every other save
   path (it used to call ``store.save`` directly and fail silently);
-- ``AgentRun`` serialization schema versioning.
+- ``Run`` serialization schema versioning.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from __future__ import annotations
 import pytest
 
 import prodagent.backends.file.checkpoint as checkpoint_module
-from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent import Agent, AgentConfig
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.kernel.budget import (
     BudgetLedger,
@@ -28,7 +28,7 @@ from prodagent.kernel.budget import (
     run_enveloped,
 )
 from prodagent.kernel.bus import HookEvent, HookRegistry
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.llm.fake import script
 
 
@@ -116,7 +116,7 @@ def returning(actuals: tuple[int, int, float]):
 
 
 def test_hop_own_share_subtracts_children_folded_into_run_totals():
-    run = AgentRun(run_id="r", task="t")
+    run = Run(run_id="r", task="t")
     run.metrics.turn_count = 6
     run.metrics.input_tokens = 100
     run.metrics.output_tokens = 40
@@ -131,7 +131,7 @@ def test_hop_own_share_subtracts_children_folded_into_run_totals():
 
 
 def test_hop_own_share_clamps_at_zero_and_tolerates_missing_accumulator():
-    run = AgentRun(run_id="r", task="t")
+    run = Run(run_id="r", task="t")
     run.metrics.turn_count = 1
     run.metrics.input_tokens = 5
     run.metrics.output_tokens = 5
@@ -140,7 +140,7 @@ def test_hop_own_share_clamps_at_zero_and_tolerates_missing_accumulator():
 
     assert hop_own_share(run, acc) == (0, 0, 0.0)
 
-    bare = AgentRun(run_id="r2", task="t")
+    bare = Run(run_id="r2", task="t")
     bare.metrics.turn_count = 2
     bare.metrics.input_tokens = 7
     bare.metrics.output_tokens = 3
@@ -174,13 +174,12 @@ async def test_relay_checkpoint_failure_fires_checkpoint_failed(tmp_path, monkey
     failures: list[dict] = []
     hooks.register_event(HookEvent.CHECKPOINT_FAILED, lambda **kw: failures.append(kw))
 
-    peer_b = Agent("B", system_prompt="you are B", mode=ExecutionMode.REACTIVE)
+    peer_b = Agent("B", system_prompt="you are B")
     peer_b.config.llm = script({"content": "B done"})
     peer_b.config.hooks = hooks
     agent_a = Agent(
         "A",
         system_prompt="you are A",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="A", peers=[peer_b], checkpoint=FileCheckpointStore(directory=tmp_path)
         ),
@@ -199,19 +198,19 @@ async def test_relay_checkpoint_failure_fires_checkpoint_failed(tmp_path, monkey
 
 
 def test_run_dict_carries_schema_version_and_round_trips():
-    run = AgentRun(run_id="r", task="t")
+    run = Run(run_id="r", task="t")
     d = run.to_dict()
     assert d["schema_version"] == 2
 
-    restored = AgentRun.from_dict(d)
+    restored = Run.from_dict(d)
     assert restored.to_dict()["schema_version"] == 2
 
 
 def test_from_dict_tolerates_legacy_checkpoint_without_schema_version():
-    legacy = AgentRun(run_id="r", task="t").to_dict()
+    legacy = Run(run_id="r", task="t").to_dict()
     del legacy["schema_version"]
 
-    restored = AgentRun.from_dict(legacy)
+    restored = Run.from_dict(legacy)
     assert restored.run_id == "r"
     assert restored.to_dict()["schema_version"] == 2
 
@@ -227,7 +226,7 @@ def test_v1_checkpoint_with_flat_cursor_fields_migrates_into_boxed_cursors():
         "plan_last_seq": 5,
         "last_event_seq": 9,
     }
-    run = AgentRun.from_dict(v1)
+    run = Run.from_dict(v1)
     assert run.cursor("plan") == {
         "state": {"version": 2, "nodes": {"s1": {"status": "completed"}}},
         "last_seq": 5,
@@ -239,12 +238,12 @@ def test_v1_checkpoint_with_flat_cursor_fields_migrates_into_boxed_cursors():
 
 
 def test_from_dict_warns_but_loads_a_newer_schema_checkpoint(caplog):
-    future = AgentRun(run_id="r", task="t").to_dict()
+    future = Run(run_id="r", task="t").to_dict()
     future["schema_version"] = 99
     future["some_future_field"] = {"unknown": True}
 
     with caplog.at_level("WARNING"):
-        restored = AgentRun.from_dict(future)
+        restored = Run.from_dict(future)
 
     assert restored.run_id == "r"
     assert "newer" in caplog.text

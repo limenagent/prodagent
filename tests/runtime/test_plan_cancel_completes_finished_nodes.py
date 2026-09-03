@@ -8,10 +8,10 @@ import pytest
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
 from prodagent.base.event_log import PlanEventType
-from prodagent.kernel.bodies.runner import BodyRunner
+from prodagent.kernel.scheduler import Scheduler
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.scheduler import Scheduler
+from prodagent.plan.planner import Planner
 
 
 def _plan_llm(*plans: dict) -> FakeLLMAdapter:
@@ -55,8 +55,8 @@ async def test_cancel_after_one_step_completes_persists_event(tmp_path):
     events, checkpoints = _stores(tmp_path)
     executor = _CancellableExecutor()
     planner = Scheduler(
-        _plan_llm(_parallel_plan()),
-        BodyRunner(tools=executor),
+        planner=Planner(_plan_llm(_parallel_plan())),
+        tools=executor,
         system="sys",
         initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,

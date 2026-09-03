@@ -37,7 +37,7 @@ from prodagent.kernel.bus import Gate, HookEvent, InjectionPoint
 if TYPE_CHECKING:
     from prodagent.cognition.context.spill import ToolResultSpillStore
     from prodagent.kernel.bus import HookRegistry
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.run import Run
     from prodagent.kernel.types import Message, MessageList
     from prodagent.llm import LLMClient
 
@@ -78,7 +78,7 @@ class _Sandwich:
         return len(self.history)
 
 
-def format_state(run: AgentRun) -> str:
+def format_state(run: Run) -> str:
     """The L1 state line — the run's own vitals, recomposed every turn."""
     return (
         f"Turn: {run.turn_count} | "
@@ -155,7 +155,7 @@ class ContextManager:
 
     async def prepare(
         self,
-        run: AgentRun,
+        run: Run,
         *,
         memory_snippets: list[str] | None = None,
         hooks: HookRegistry | None = None,
@@ -210,7 +210,7 @@ class ContextManager:
         logger.debug("Context assembled: %d tokens, compression=%s", total, compression.name)
         return self._system, messages
 
-    def _alloc_state_block(self, budget: ContextBudget, run: AgentRun) -> tuple[str, int]:
+    def _alloc_state_block(self, budget: ContextBudget, run: Run) -> tuple[str, int]:
         budget.alloc(Layer.L0, self._system_tokens)
         if budget.is_over(Layer.L0):
             logger.warning(
@@ -235,7 +235,7 @@ class ContextManager:
     async def _alloc_memory_block(
         self,
         budget: ContextBudget,
-        run: AgentRun,
+        run: Run,
         hooks: HookRegistry | None,
         memory_snippets: list[str] | None,
     ) -> tuple[str, int]:
@@ -339,7 +339,7 @@ class ContextManager:
 
     async def _compress_history(
         self,
-        run: AgentRun,
+        run: Run,
         state_tokens: int,
         memory_tokens: int,
         skills_tokens: int,
@@ -378,7 +378,7 @@ class ContextManager:
         messages: MessageList,
         hooks: HookRegistry | None,
         *,
-        run: AgentRun | None = None,
+        run: Run | None = None,
         layer_tokens: dict[str, int] | None = None,
         pre_history_tokens: int = 0,
         max_tokens: int = 0,
@@ -403,7 +403,7 @@ class ContextManager:
 
     async def _collect_memory(
         self,
-        run: AgentRun,
+        run: Run,
         hooks: HookRegistry | None,
         memory_snippets: list[str] | None,
     ) -> list[str]:

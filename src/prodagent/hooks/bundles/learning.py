@@ -12,7 +12,7 @@ from prodagent.ports.persistence import ExperienceOutcome, ExperienceRecord
 if TYPE_CHECKING:
     from prodagent.base.config import FrameworkConfig
     from prodagent.kernel.bus import HookRegistry
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.run import Run
     from prodagent.ports.persistence import ExperienceStore
     from prodagent.skills.registry import SkillContent, SkillRegistry
     from prodagent.skills.skill_synthesizer import SkillSynthesizer
@@ -93,13 +93,13 @@ class LearningHooks:
                 timeout,
             )
 
-    async def _on_session_end(self, *, run: AgentRun | None = None, **_: Any) -> None:
+    async def _on_session_end(self, *, run: Run | None = None, **_: Any) -> None:
         """Record + spawn the background patch. Subordinate children are
         skipped — their transcript folds into the parent, whose own end
         carries the whole story."""
         if run is None:
             return
-        from prodagent.kernel.state import is_child_subordinate
+        from prodagent.kernel.run import is_child_subordinate
 
         if is_child_subordinate(run):
             return
@@ -109,7 +109,7 @@ class LearningHooks:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
-    async def _safely_run_loop(self, run: AgentRun) -> None:
+    async def _safely_run_loop(self, run: Run) -> None:
         # Best-effort: swallow exceptions.
         try:
             rec = ExperienceRecord.from_run(run)

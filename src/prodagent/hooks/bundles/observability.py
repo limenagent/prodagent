@@ -177,7 +177,7 @@ class SpanObserverHooks:
                 ]
 
     def on_session_end(self, *, run_id: str = "", run: Any = None, **_: Any) -> None:
-        from prodagent.kernel.state import is_child_subordinate
+        from prodagent.kernel.run import is_child_subordinate
 
         if run is not None and is_child_subordinate(run):
             return

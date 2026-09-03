@@ -6,13 +6,13 @@ from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.kernel.bus import HookEvent, HookRegistry
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.scheduler import reactive_scheduler
+from prodagent.runtime.agent_loop import agent_scheduler
 from prodagent.tooling.dispatcher import ToolDispatcher
 
 
 def _make_loop(llm, store, hooks):
     dispatcher = ToolDispatcher({})
-    return reactive_scheduler(
+    return agent_scheduler(
         llm,
         dispatcher,
         system_prompt="test",

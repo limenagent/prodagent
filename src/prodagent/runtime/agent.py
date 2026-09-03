@@ -17,9 +17,8 @@ from prodagent.base.errors import (
 from prodagent.base.session import ConversationSession
 from prodagent.kernel.budget import SpawnAccumulator
 from prodagent.kernel.bus import Gate, HookEvent, HookRegistry, InjectionPoint
-from prodagent.kernel.state import CHILD_SEPARATOR, collect_final_run
+from prodagent.kernel.run import CHILD_SEPARATOR, collect_final_run
 from prodagent.kernel.types import (
-    ExecutionMode,
     MessageList,
     RunCompletedEvent,
     RunFailedEvent,
@@ -40,7 +39,7 @@ if TYPE_CHECKING:
     from prodagent.cognition.memory import MemoryProvider
     from prodagent.hooks.approval import ApprovalProvider
     from prodagent.kernel.budget import HardBudget
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.run import Run
     from prodagent.kernel.types import AgentEvent
     from prodagent.mcp.config import MCPServerConfig
     from prodagent.plan.workflow import Workflow
@@ -125,7 +124,6 @@ class Agent:
         *,
         system_prompt: str | None = None,
         tools: Sequence[Tool] | None = None,
-        mode: ExecutionMode | None = None,
         budget: HardBudget | None = None,
         workflow: Workflow | None = None,
         allow_replan: bool = True,
@@ -145,8 +143,6 @@ class Agent:
             cfg.system_prompt = system_prompt
         if tools is not None:
             cfg.tools = list(tools)  # defensive copy — never alias caller lists
-        if mode is not None:
-            cfg.mode = mode
         if budget is not None:
             cfg.budget = budget
         if cfg.llm is not None and not isinstance(cfg.llm, LLMClient):
@@ -176,15 +172,6 @@ class Agent:
                 "reserved for parent::child run_id derivation; pick a name without it"
             )
 
-        if (
-            self.config.initial_plan is not None
-            and self.config.mode is not ExecutionMode.PLAN_FIRST
-        ):
-            raise ValueError(
-                "initial_plan requires PLAN_FIRST mode — pass workflow=wf to set both atomically. "
-                f"Got mode={self.config.mode.value}, initial_plan is set."
-            )
-
         self._hooks_wired: bool = False
         self._session_store: SessionStore | None = None
         self._plan_event_log: EventLog | None = None
@@ -196,7 +183,6 @@ class Agent:
 
             if not isinstance(workflow, _Workflow):
                 raise TypeError(f"workflow= expects a Workflow, got {type(workflow).__name__}")
-            self.config.mode = ExecutionMode.PLAN_FIRST
             self.config.initial_plan = workflow.compile()
             self.config.node_fns = workflow.fns
             if not allow_replan:
@@ -210,7 +196,7 @@ class Agent:
         *,
         session_id: str | None = None,
         resume: bool = False,
-        mode: ExecutionMode | None = None,
+        as_unit: bool = False,
     ) -> AsyncGenerator[AgentEvent, None]:
         """One conversational turn as an event stream. Session-scoped: the
         session allocates (or resumes) the run identity, the transcript folds
@@ -223,11 +209,11 @@ class Agent:
         sid = session_id or str(uuid.uuid4())
         store = self._ensure_session_store_resolved()
         if resume:
-            session, run_id, resolved_mode = await self._load_suspended_turn(sid, store)
+            session, run_id, single_unit = await self._load_suspended_turn(sid, store)
             messages: MessageList | None = None
         else:
-            session, run_id, resolved_mode, messages = await self._begin_chat_turn(
-                message, sid, mode
+            session, run_id, single_unit, messages = await self._begin_chat_turn(
+                message, sid, as_unit=as_unit
             )
 
         # A consumer that abandons this stream mid-run leaves the turn RUNNING
@@ -240,14 +226,14 @@ class Agent:
             self,
             message,
             run_id=self._tape_prefixed(run_id),
-            forced_mode=resolved_mode,
+            single_unit=single_unit,
             initial_messages=messages,
         ):
             if isinstance(event, (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)):
                 # Fold the finished transcript back and persist before the
                 # consumer sees the terminal event — a crash right after
                 # still leaves a resumable session on disk.
-                session.complete_turn(run_id, resolved_mode, event.run)
+                session.complete_turn(run_id, single_unit, event.run)
                 await store.save(session, expected_version=session.version)
             yield event
 
@@ -257,8 +243,8 @@ class Agent:
         *,
         session_id: str | None = None,
         resume: bool = False,
-        mode: ExecutionMode | None = None,
-    ) -> AgentRun:
+        as_unit: bool = False,
+    ) -> Run:
         """Stream-and-settle convenience over ``chat_stream`` — reduces the
         stream to its terminal run (a synthetic FAILED one if the stream
         somehow ends bare)."""
@@ -267,7 +253,9 @@ class Agent:
                 "chat() requires a message (or resume=True with an explicit session_id). "
                 "For the visual playground, run the `prodagent` CLI instead."
             )
-        stream = self.chat_stream(message or "", session_id=session_id, resume=resume, mode=mode)
+        stream = self.chat_stream(
+            message or "", session_id=session_id, resume=resume, as_unit=as_unit
+        )
         return await collect_final_run(
             stream,
             fallback_run_id=session_id or str(uuid.uuid4()),
@@ -315,7 +303,7 @@ class Agent:
         self,
         session_id: str,
         store: SessionStore,
-    ) -> tuple[ConversationSession, str, ExecutionMode]:
+    ) -> tuple[ConversationSession, str, bool]:
         session = await store.load(session_id)
         if session is None:
             raise PlanAlreadyCompletedError(f"<unknown:{session_id}>")
@@ -329,7 +317,7 @@ class Agent:
             raise PlanAlreadyCompletedError(
                 session.last_turn.run_id if session.last_turn else f"<{session_id}>"
             )
-        return session, session.last_turn.run_id, session.last_turn.mode
+        return session, session.last_turn.run_id, session.last_turn.single_unit
 
     @staticmethod
     def _tape_prefixed(run_id: str) -> str:
@@ -349,25 +337,29 @@ class Agent:
         self,
         message: str,
         session_id: str,
-        mode: ExecutionMode | None,
-    ) -> tuple[ConversationSession, str, ExecutionMode, MessageList]:
+        *,
+        as_unit: bool = False,
+    ) -> tuple[ConversationSession, str, bool, MessageList]:
         """Open a fresh turn: allocate the run id (a SUSPENDED predecessor
         is resumed instead — see ``start_turn``), guard against an orphan
         checkpoint stealing the id, and persist the session before any work
         starts, so a crash mid-turn finds a resumable record."""
-        resolved_mode = mode or self.config.mode
+        # A chat turn runs the agent itself as the unit — unless the agent
+        # carries a preset graph (a bound Workflow), in which case the turn
+        # runs that graph. Composition decides, not a mode enum.
+        single_unit = as_unit or (self.config.initial_plan is None and self.config.planner is None)
         store = self._ensure_session_store_resolved()
         session = await store.load(session_id)
         if session is None:
             session = ConversationSession(session_id=session_id, agent_id=self.config.name)
         if (
             self.config.initial_plan is not None
+            and not single_unit
             and session.last_turn is not None
             and session.last_turn.state is not RunState.SUSPENDED
-            and resolved_mode is ExecutionMode.PLAN_FIRST
         ):
             raise PlanAlreadyCompletedError(session.last_turn.run_id)
-        alloc = session.start_turn(message, mode=resolved_mode)
+        alloc = session.start_turn(message, single_unit=single_unit)
 
         if alloc.is_new:
             checkpoint = self._ensure_checkpoint_resolved()
@@ -377,7 +369,7 @@ class Agent:
                     raise RunIdCollisionError(alloc.run_id)
             await store.save(session, expected_version=session.version)
 
-        return session, alloc.run_id, alloc.mode, alloc.messages
+        return session, alloc.run_id, alloc.single_unit, alloc.messages
 
     def _ensure_checkpoint_resolved(self) -> CheckpointStore | None:
         from prodagent.runtime.compose import resolve_checkpoint
@@ -392,10 +384,10 @@ class Agent:
         return self._session_store
 
     def ensure_plan_event_log_fallback(self) -> EventLog:
-        """PLAN_FIRST's DAG state always needs a working event log — unlike
-        ``ctx.event_log`` (``None`` is a valid REACTIVE default), a bare
-        profile still gets a real (in-process) store here, cached on the
-        agent so repeated hops/resumes within the same process share it."""
+        """Graph tracking always needs a working event log — unlike the
+        single-unit shape (where ``ctx.event_log`` ``None`` is valid), a
+        bare profile still gets a real (in-process) store here, cached on
+        the agent so repeated hops/resumes within the same process share it."""
         if self._plan_event_log is None:
             from prodagent.backends.factory import in_memory_event_log
 
@@ -404,7 +396,7 @@ class Agent:
 
     def ensure_plan_checkpoint_fallback(self) -> CheckpointStore:
         """Counterpart to :meth:`ensure_plan_event_log_fallback` for the
-        checkpoint side of PLAN_FIRST's persistence pair."""
+        checkpoint side of graph tracking's persistence pair."""
         if self._plan_checkpoint_store is None:
             from prodagent.backends.factory import in_memory_checkpoint_store
 
@@ -537,7 +529,6 @@ class Agent:
             name=self.config.name,
             description=self.config.description,
             system_prompt=self.config.system_prompt,
-            mode=self.config.mode,
             constraints=list(self.config.constraints),
             budget=self.config.budget,
             tools_schema=[t.schema for t in self.config.tools],
@@ -568,8 +559,11 @@ class Agent:
     def _runtime_overrides(self, runtime: ParentRuntime) -> dict[str, Any]:
         """The field-replacement set a fork takes from the parent's wiring —
         exactly the ParentRuntime subset (budget, stores, llm, hooks), never
-        the parent's per-hop state."""
-        return {
+        the parent's per-hop state. A config-time planner follows the llm:
+        spec-built children capture a placeholder (often ``None``) llm at
+        construction — the fork rebinds the planner to the wiring's live
+        client, or the child would draft against a dead reference."""
+        overrides: dict[str, Any] = {
             "llm": runtime.llm,
             "hooks": runtime.hooks,
             "framework": runtime.framework_config,
@@ -579,6 +573,11 @@ class Agent:
             "event_log": runtime.event_log,
             "spawn_accumulator": runtime.accumulator,
         }
+        if self.config.planner is not None and runtime.llm is not None:
+            from prodagent.plan.planner import Planner
+
+            overrides["planner"] = Planner(runtime.llm, tool_schemas=[], hooks=runtime.hooks)
+        return overrides
 
     def fork_as_peer(
         self,
@@ -631,10 +630,6 @@ class Agent:
     @property
     def name(self) -> str:
         return self.config.name
-
-    @property
-    def mode(self) -> ExecutionMode:
-        return self.config.mode
 
     @property
     def skills(self) -> SkillRegistry | None:

@@ -27,8 +27,8 @@ from prodagent.backends.memory.event_log import InMemoryEventLog
 from prodagent.kernel.types import SideEffectLevel, ToolMeta
 from prodagent.llm.fake import script
 from prodagent.llm.recording import RecordingLLMClient
-from prodagent.plan.scheduler import reactive_scheduler
 from prodagent.playground import server as server_mod
+from prodagent.runtime.agent_loop import agent_scheduler
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -62,7 +62,7 @@ def _build(log: InMemoryEventLog, checkpoint: InMemoryCheckpointStore) -> Any:
 async def _drive_run(log: InMemoryEventLog, checkpoint: InMemoryCheckpointStore, task: str) -> str:
     """A real recorded run: LLM + tool facts, clock facts, markers, checkpoint."""
     dispatcher = ToolDispatcher({"probe": _tool("probe")}, event_log=log)
-    loop = reactive_scheduler(
+    loop = agent_scheduler(
         RecordingLLMClient(script({"tool": "probe", "params": {}}, {"content": "all done"}), log),
         dispatcher,
         event_log=log,

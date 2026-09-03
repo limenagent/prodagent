@@ -14,7 +14,7 @@ import pytest
 
 from prodagent import SideEffectLevel, ToolMeta
 from prodagent.base.errors import ErrorReason
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.kernel.types import ErrorSeverity, ToolCall, ToolOutcome
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
@@ -96,7 +96,7 @@ async def test_resource_busy_not_retried_by_dispatcher(monkeypatch):
         return _busy_dict(f"Resource 'orders' is busy (attempt {attempts}).")
 
     dispatcher = ToolDispatcher({busy_tool.name: busy_tool})
-    run = AgentRun(run_id="r-busy", task="t")
+    run = Run(run_id="r-busy", task="t")
     result = await dispatcher.dispatch_with_retry(ToolCall(name="busy_tool", params={}), run)
 
     assert attempts == 1, "RESOURCE_BUSY must be deferred to the LLM, not retried"
@@ -127,7 +127,7 @@ async def test_resource_busy_returns_first_attempt_even_with_retry_budget():
         return _busy_dict(f"busy-{attempts}")
 
     dispatcher = ToolDispatcher({busy_tool2.name: busy_tool2})
-    run = AgentRun(run_id="r-busy2", task="t")
+    run = Run(run_id="r-busy2", task="t")
     result = await dispatcher.dispatch_with_retry(ToolCall(name="busy_tool2", params={}), run)
 
     assert attempts == 1
@@ -170,7 +170,7 @@ async def test_yellow_non_busy_reason_still_retries(monkeypatch):
         {flaky_conn.name: flaky_conn},
         retry_policy=RetryPolicy(max_attempts=4, base_delay=0.0, backoff=Backoff.FIXED),
     )
-    run = AgentRun(run_id="r-conn", task="t")
+    run = Run(run_id="r-conn", task="t")
     await dispatcher.dispatch_with_retry(ToolCall(name="flaky_conn", params={}), run)
 
     assert attempts == 4, "CONNECTION-reason YELLOW must still retry 1+3 times"

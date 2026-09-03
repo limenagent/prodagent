@@ -39,7 +39,7 @@ from prodagent.cognition.memory.forgetting import RECALL_FLOOR, activation
 from prodagent.cognition.memory.storage import MemoryRecord, MemoryType
 from prodagent.cognition.memory.touch_worker import TouchBackWorker
 from prodagent.kernel.bus import Gate, HookEvent
-from prodagent.kernel.state import is_child_subordinate
+from prodagent.kernel.run import is_child_subordinate
 from prodagent.kernel.types import RunState
 
 if TYPE_CHECKING:
@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 
     from prodagent.base.config import FrameworkConfig
     from prodagent.cognition.memory.classification import MemoryClassifier
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.run import Run
     from prodagent.ports.llm import LLMClient
     from prodagent.ports.persistence import DocumentStore, GraphStore
 
@@ -193,7 +193,7 @@ class MemoryManager:
     async def aclose(self) -> None:
         await self._touch_worker.aclose()
 
-    async def classify(self, *, run: AgentRun | None = None, state: str = "", **_: Any) -> None:
+    async def classify(self, *, run: Run | None = None, state: str = "", **_: Any) -> None:
         if state != RunState.COMPLETED or run is None:
             return
         if self._classifier is None:

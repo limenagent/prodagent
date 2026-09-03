@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 from prodagent import RunState
 from prodagent.backends.file.experience import FileExperienceStore
 from prodagent.hooks.bundles.learning import LearningHooks
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.kernel.types import LLMResponse, MessageList, ToolCall
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.ports.persistence import ExperienceRecord
@@ -21,8 +21,8 @@ from prodagent.skills.registry import SkillRegistry
 from prodagent.skills.skill_synthesizer import SkillSynthesizer
 
 
-def _completed_run(run_id: str = "run-1", task: str = "restart the pod") -> AgentRun:
-    run = AgentRun(run_id=run_id, task=task, state=RunState.COMPLETED)
+def _completed_run(run_id: str = "run-1", task: str = "restart the pod") -> Run:
+    run = Run(run_id=run_id, task=task, state=RunState.COMPLETED)
     run.tool_history = [ToolCall(name="kubectl_restart", params={"pod": "web-1"})]
     run.final_output = "Pod restarted successfully."
     run.metrics.cost_usd = 0.002
@@ -55,7 +55,7 @@ def test_experience_record_captures_transcript():
 
 
 def test_experience_record_from_plan_first_run():
-    run = AgentRun(run_id="pf-1", task="respond to OOM incident", state=RunState.COMPLETED)
+    run = Run(run_id="pf-1", task="respond to OOM incident", state=RunState.COMPLETED)
     run.messages = [
         {"role": "user", "content": "respond to OOM incident"},
         {
@@ -359,7 +359,7 @@ async def test_patch_noop_for_failed_run():
     llm = _fake_llm(_SKILL_JSON)
     synth = SkillSynthesizer(llm, registry)
 
-    failed_run = AgentRun(run_id="f", task="restart pod", state=RunState.FAILED)
+    failed_run = Run(run_id="f", task="restart pod", state=RunState.FAILED)
     seed = ExperienceRecord.from_run(failed_run)
     seed.tags = ["pod"]
 
@@ -397,7 +397,7 @@ async def test_synthesizer_sends_full_transcript():
 async def test_synthesizer_truncates_tool_result_head_tail():
     from prodagent.skills.skill_synthesizer import _format_session_transcript
 
-    run = AgentRun(run_id="big", task="restart the pod", state=RunState.COMPLETED)
+    run = Run(run_id="big", task="restart the pod", state=RunState.COMPLETED)
     run.tool_history = [ToolCall(name="kubectl_logs", params={})]
     run.final_output = "done"
     run.metrics.cost_usd = 0.0

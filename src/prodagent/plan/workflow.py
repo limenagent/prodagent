@@ -21,14 +21,14 @@ import inspect
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from prodagent.kernel.bodies.base import FnBody, LLMBody, SubAgentBody, ToolBody
-from prodagent.plan.dag import Node, Origin
+from prodagent.kernel.graph import Node, Origin
+from prodagent.kernel.units import FnUnit, LLMUnit, SubAgentUnit, ToolUnit
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from prodagent.kernel.graph import Plan
     from prodagent.llm import LLMConfig
-    from prodagent.plan.dag import Plan
     from prodagent.runtime.agent import Agent
 
 __all__ = ["Workflow"]
@@ -39,7 +39,7 @@ class _NodeSpec:
     """Deferred description of one plan node, resolved at compile time."""
 
     node_id: str
-    body: FnBody | ToolBody | LLMBody | SubAgentBody
+    body: FnUnit | ToolUnit | LLMUnit | SubAgentUnit
     params: dict[str, Any] = field(default_factory=dict)
     depends_on: list[str] = field(default_factory=list)
     is_terminal: bool = False
@@ -55,7 +55,7 @@ class Workflow:
     @property
     def fns(self) -> dict[str, Callable[..., Any]]:
         """The plain functions fn nodes invoke, by name — handed to the
-        composition root so a BodyRunner can resolve them at execution."""
+        composition root so the scheduler's UnitContext can resolve them at execution."""
         return dict(self._fns)
 
     def step(
@@ -104,7 +104,7 @@ class Workflow:
         self._specs.append(
             _NodeSpec(
                 node_id=node_id,
-                body=FnBody(fn=node_id),
+                body=FnUnit(fn=node_id),
                 params=bound,
                 depends_on=list(depends_on or []),
                 is_terminal=is_terminal,
@@ -136,7 +136,7 @@ class Workflow:
         self._specs.append(
             _NodeSpec(
                 node_id=name,
-                body=LLMBody(prompt=prompt, system=system or ""),
+                body=LLMUnit(prompt=prompt, system=system or ""),
                 params=bound,
                 depends_on=list(depends_on or []),
                 is_terminal=is_terminal,
@@ -158,7 +158,7 @@ class Workflow:
         self._specs.append(
             _NodeSpec(
                 node_id=name,
-                body=ToolBody(tool=tool_name),
+                body=ToolUnit(tool=tool_name),
                 params=params or {},
                 depends_on=list(depends_on or []),
                 is_terminal=is_terminal,
@@ -206,7 +206,7 @@ class Workflow:
         self._specs.append(
             _NodeSpec(
                 node_id=node_id,
-                body=SubAgentBody(agent=agent.name, task=f"Execute {node_id}"),
+                body=SubAgentUnit(agent=agent.name, task=f"Execute {node_id}"),
                 params=merged,
                 depends_on=list(depends_on or []),
                 is_terminal=is_terminal,

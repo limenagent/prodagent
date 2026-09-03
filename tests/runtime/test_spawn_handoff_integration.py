@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent import Agent, AgentConfig
 from prodagent.llm.fake import script
 from prodagent.runtime.parent_runtime import ParentRuntime
 from prodagent.runtime.runner import InProcessRunner
@@ -19,7 +19,6 @@ async def test_spawn_tool_respects_duplicate_message_ids():
         "doubler",
         system_prompt="Double the number",
         tools=[tool],
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(name="doubler", description="Doubles a number"),
     )
 
@@ -54,7 +53,6 @@ async def test_spawn_tool_different_tasks_not_duplicated():
         "doubler",
         system_prompt="Double the number",
         tools=[tool],
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(name="doubler", description="Doubles a number"),
     )
 
@@ -78,7 +76,6 @@ async def test_spawn_tool_creates_handoff_packet():
     child = Agent(
         "echoer",
         system_prompt="Echo",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(name="echoer", description="Echoes input"),
     )
 
@@ -100,7 +97,6 @@ async def test_spawn_tool_result_has_output_and_state():
     child = Agent(
         "bad_agent",
         system_prompt="Returns malformed result",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(name="bad_agent", description="Returns malformed result"),
     )
 
@@ -127,7 +123,6 @@ def _spec(name="worker"):
     return Agent(
         name,
         system_prompt="work",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(name=name, description="worker"),
     )
 
@@ -204,14 +199,13 @@ async def test_security_veto_from_child_propagates_not_swallowed():
         await spawn.tool._fn(name="worker", task="do it")
 
 
-async def test_child_agent_preserves_reactive_mode():
-    child = Agent("child", system_prompt="child task", mode=ExecutionMode.REACTIVE)
+async def test_child_agent_rebuild_keeps_bare_shape():
+    child = Agent("child", system_prompt="child task")
 
     rebuilt = Agent(
         child.name,
         tools=list(child.inline_tools),
         system_prompt=child.config.system_prompt,
-        mode=child.mode,
     )
-    assert rebuilt.mode == ExecutionMode.REACTIVE
+    assert rebuilt.config.planner is None  # bare agent, same shape as the original
     assert rebuilt.child_agents == []

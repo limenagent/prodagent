@@ -28,13 +28,13 @@ from prodagent.kernel.types import LLMResponse, SideEffectLevel, ToolMeta
 from prodagent.llm.cache import cache_key_for
 from prodagent.llm.fake import FakeLLMAdapter, script
 from prodagent.llm.recording import RecordingLLMClient
-from prodagent.plan.scheduler import reactive_scheduler
 from prodagent.replay.cassette import (
     Cassette,
     CassetteMismatch,
     derive_cassette,
     tool_request_hash,
 )
+from prodagent.runtime.agent_loop import agent_scheduler
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -75,7 +75,7 @@ class _HashSpy(FakeLLMAdapter):
 async def _drive(log, blobs, turns, tools):
     spy = _HashSpy(turns)
     dispatcher = ToolDispatcher({t.name: t for t in tools}, event_log=log, blob_store=blobs)
-    loop = reactive_scheduler(RecordingLLMClient(spy, log, blobs=blobs), dispatcher, event_log=log)
+    loop = agent_scheduler(RecordingLLMClient(spy, log, blobs=blobs), dispatcher, event_log=log)
     run_id: str | None = None
     async for event in loop.stream("do the thing"):
         run_id = getattr(event, "run_id", None) or run_id

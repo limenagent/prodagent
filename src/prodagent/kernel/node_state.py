@@ -1,6 +1,6 @@
 """NodeRuntimeState — how far one run has gotten with one node.
 
-A :class:`~prodagent.plan.dag.Node` is static blueprint: what to run, what it
+A :class:`~prodagent.kernel.graph.Node` is static blueprint: what to run, what it
 waits for. How far it got — status, output, attempts — belongs to the run
 executing it, the same line Plan/Run itself splits along: one blueprint,
 many executions, each carrying its own state.
@@ -43,7 +43,7 @@ _ALLOWED: dict[NodeStatus, frozenset[NodeStatus]] = {
     ),
     NodeStatus.SUSPENDED: frozenset({NodeStatus.RUNNING, NodeStatus.PENDING, NodeStatus.OBSOLETE}),
     NodeStatus.COMPLETED: frozenset({NodeStatus.OBSOLETE, NodeStatus.PENDING}),
-    # PENDING-from-COMPLETED has exactly one door: an explicit Goto asking
+    # PENDING-from-COMPLETED has exactly one door: the graph asking
     # for a redo. Side effects already fired stay fired — the redo is the
     # graph's decision, taken with that knowledge, not a stale resume.
     NodeStatus.FAILED: frozenset({NodeStatus.OBSOLETE}),
@@ -99,7 +99,7 @@ class NodeRuntimeState:
 
     def reset_to_pending(self) -> None:
         """Back to never-run — crash recovery (mid-flight state is
-        unknowable), requeue-after-suspension, and an explicit Goto redo
+        unknowable), requeue-after-suspension, and a graph-level redo
         all land here. Attempts and the crash scene clear; a redo starts
         its own attempt history."""
         self._transition(NodeStatus.PENDING)

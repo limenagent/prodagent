@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from prodagent import Agent, AgentConfig, ExecutionMode, FrameworkConfig, tool
+from prodagent import Agent, AgentConfig, FrameworkConfig, tool
 
 
 @tool(name="greet", readonly=True)
@@ -34,6 +34,5 @@ def build_greeter_agent(*, framework_config: FrameworkConfig | None = None) -> A
         "greeter",
         system_prompt="你是友好的 greeter。用 greet 工具按名字跟用户打招呼。",
         tools=[greet],
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(name="greeter", framework=framework_config),
     )

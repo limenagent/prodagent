@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from prodagent.kernel.state import AgentRun, RunMetrics
+from prodagent.kernel.run import Run, RunMetrics
 from prodagent.kernel.types import LLMResponse
 
 
 def test_add_tokens_accumulates_cache_write_tokens() -> None:
-    run = AgentRun(run_id="r1", task="t")
+    run = Run(run_id="r1", task="t")
     response = LLMResponse(
         content="hi",
         input_tokens=100,

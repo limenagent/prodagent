@@ -11,12 +11,12 @@ import pytest
 
 from prodagent.backends.file.session_store import FileSessionStore
 from prodagent.base.session import ConversationSession
-from prodagent.kernel.state import AgentRun
-from prodagent.kernel.types import ExecutionMode, RunState
+from prodagent.kernel.run import Run
+from prodagent.kernel.types import RunState
 
 
-def _completed_run(run_id: str, messages=None, final_output: str = "ok") -> AgentRun:
-    run = AgentRun(run_id=run_id, task="t")
+def _completed_run(run_id: str, messages=None, final_output: str = "ok") -> Run:
+    run = Run(run_id=run_id, task="t")
     run.state = RunState.COMPLETED
     run.final_output = final_output
     if messages:
@@ -47,10 +47,10 @@ async def test_load_then_create_preserves_messages_on_reload(tmp_path):
     assert s1.agent_id == "agent"
     assert s1.messages == []
 
-    rid = s1.start_turn("hi", mode=ExecutionMode.REACTIVE).run_id
+    rid = s1.start_turn("hi", single_unit=True).run_id
     s1.complete_turn(
         rid,
-        ExecutionMode.REACTIVE,
+        True,
         _completed_run(
             rid,
             messages=[{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hey"}],
@@ -73,8 +73,8 @@ async def test_save_bumps_version_each_write(tmp_path):
     s = await _load_or_create(store, "sess-A", agent_id="agent")
     assert s.version == 0
 
-    rid = s.start_turn("m1", mode=ExecutionMode.REACTIVE).run_id
-    s.complete_turn(rid, ExecutionMode.REACTIVE, _completed_run(rid))
+    rid = s.start_turn("m1", single_unit=True).run_id
+    s.complete_turn(rid, True, _completed_run(rid))
     await store.save(s, expected_version=0)
     assert s.version == 1
 
@@ -89,16 +89,16 @@ async def test_save_rejects_stale_expected_version(tmp_path):
 
     store = FileSessionStore(tmp_path / "sessions")
     s = await _load_or_create(store, "sess-A", agent_id="agent")
-    rid = s.start_turn("m1", mode=ExecutionMode.REACTIVE).run_id
-    s.complete_turn(rid, ExecutionMode.REACTIVE, _completed_run(rid))
+    rid = s.start_turn("m1", single_unit=True).run_id
+    s.complete_turn(rid, True, _completed_run(rid))
     await store.save(s, expected_version=0)
     assert s.version == 1
 
     # A concurrent writer saved v2; the stale local copy with v0 must fail.
     s2 = await store.load("sess-A")
     assert s2.version == 1
-    rid2 = s2.start_turn("m2", mode=ExecutionMode.REACTIVE).run_id
-    s2.complete_turn(rid2, ExecutionMode.REACTIVE, _completed_run(rid2, final_output="r2"))
+    rid2 = s2.start_turn("m2", single_unit=True).run_id
+    s2.complete_turn(rid2, True, _completed_run(rid2, final_output="r2"))
     await store.save(s2, expected_version=1)
     assert s2.version == 2
 
@@ -110,8 +110,8 @@ async def test_save_rejects_stale_expected_version(tmp_path):
 async def test_save_with_expected_version_none_skips_check(tmp_path):
     store = FileSessionStore(tmp_path / "sessions")
     s = await _load_or_create(store, "sess-A", agent_id="agent")
-    rid = s.start_turn("m", mode=ExecutionMode.REACTIVE).run_id
-    s.complete_turn(rid, ExecutionMode.REACTIVE, _completed_run(rid))
+    rid = s.start_turn("m", single_unit=True).run_id
+    s.complete_turn(rid, True, _completed_run(rid))
     # No expected_version — unconditional write.
     await store.save(s)
     assert s.version == 1

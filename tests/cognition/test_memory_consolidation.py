@@ -17,15 +17,15 @@ from prodagent.cognition.memory.storage import (
     MemoryType,
     StoredMemory,
 )
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.kernel.types import RunState
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _reactive_run(*texts: str, completed: bool = True) -> AgentRun:
-    run = AgentRun(run_id="test", task="t")
+def _reactive_run(*texts: str, completed: bool = True) -> Run:
+    run = Run(run_id="test", task="t")
     run.state = RunState.COMPLETED if completed else RunState.FAILED
     for text in texts:
         run.messages.append({"role": "assistant", "content": text})
@@ -731,7 +731,7 @@ class TestActivation:
 
 @pytest.mark.asyncio
 async def test_classify_plan_first_run_uses_messages(tmp_path):
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.run import Run
     from prodagent.kernel.types import RunState
 
     captured: list[str] = []
@@ -748,7 +748,7 @@ async def test_classify_plan_first_run_uses_messages(tmp_path):
 
             return R()
 
-    run = AgentRun(run_id="x", task="fix oom")
+    run = Run(run_id="x", task="fix oom")
     run.state = RunState.COMPLETED
     long_output = "Root cause: OOM kill from unbounded heap growth in payment-service. " + "x" * 20
 

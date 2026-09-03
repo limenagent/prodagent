@@ -83,7 +83,7 @@ class AnthropicAdapter:
         """The config used when a caller passes ``config=None``.
 
         Public so the kernel can adopt it as the run's LLMConfig (model name,
-        pricing) without importing adapter types — see ReactEngine._build_turn.
+        pricing) without importing adapter types — see AgentLoop._build_turn.
         """
         return self._default_config
 

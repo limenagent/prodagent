@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent import Agent, AgentConfig
 from prodagent.kernel.bus import BlockingResult, Gate, HookEvent, HookRegistry, InjectionPoint
 from prodagent.llm.fake import script
 
@@ -9,7 +9,6 @@ def _agent(**kwargs) -> Agent:
     return Agent(
         "fluent-ext",
         system_prompt="verify",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="fluent-ext",
             llm=script({"content": "ok"}),

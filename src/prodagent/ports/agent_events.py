@@ -7,7 +7,7 @@ consumers keep one import site, same precedent as the base-vocabulary
 re-exports there.
 
 Type references into the kernel are annotation-only (``TYPE_CHECKING``)
-except in the codec, where ``ToolCall``/``AgentRun`` reconstruction goes
+except in the codec, where ``ToolCall``/``Run`` reconstruction goes
 through function-body imports — the repo's sanctioned lazy-resolution
 mechanism; layering pins module-level edges only.
 
@@ -17,7 +17,7 @@ when JSON-able, dataclasses with ``to_dict`` are converted, and anything
 else is stringified — the wire serves transport and observability, so
 round-trip (:func:`event_from_wire`) is lossless for JSON-able payloads and
 degrades to text for opaque ones. ``RunCompletedEvent``/``RunFailedEvent``/
-``RunSuspendedEvent`` carry the run as ``AgentRun.to_dict()`` — the same
+``RunSuspendedEvent`` carry the run as ``Run.to_dict()`` — the same
 document a checkpoint stores.
 """
 
@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 
 if TYPE_CHECKING:
     from prodagent.base.types import JsonDict
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.run import Run
     from prodagent.kernel.types import RunId, ToolCall, ToolName
 
 __all__ = [
@@ -96,20 +96,20 @@ class NodeFailedEvent:
 
 @dataclass(frozen=True, slots=True)
 class RunCompletedEvent:
-    run: AgentRun
+    run: Run
 
 
 @dataclass(frozen=True, slots=True)
 class RunFailedEvent:
     """Terminated due to budget, loop-detection, or abort."""
 
-    run: AgentRun
+    run: Run
     error: str
 
 
 @dataclass(frozen=True, slots=True)
 class RunSuspendedEvent:
-    run: AgentRun
+    run: Run
 
 
 AgentEvent: TypeAlias = (
@@ -178,7 +178,7 @@ def event_from_wire(d: JsonDict) -> AgentEvent:
     for JSON-able payloads."""
     from typing import cast
 
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.run import Run
     from prodagent.kernel.types import ToolCall
 
     kind = d.get("type")
@@ -187,7 +187,7 @@ def event_from_wire(d: JsonDict) -> AgentEvent:
         raise ValueError(f"unknown event type on the wire: {kind!r}")  # refuse, don't guess
     # Only two fields need reconstruction — the rest are wire scalars or
     # opaque payloads that round-trip as-is.
-    rebuild = {"call": ToolCall.from_dict, "run": AgentRun.from_dict}
+    rebuild = {"call": ToolCall.from_dict, "run": Run.from_dict}
     kwargs = {
         f.name: rebuild[f.name](d[f.name]) if f.name in rebuild else d[f.name] for f in fields(cls)
     }

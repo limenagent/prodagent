@@ -19,7 +19,7 @@ from prodagent.llm import LLMConfig, stream_text
 from prodagent.llm.structured_output import extract_json_object
 
 if TYPE_CHECKING:
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.run import Run
     from prodagent.llm import LLMClient
 
 logger = logging.getLogger(__name__)
@@ -181,7 +181,7 @@ Return a JSON object with exactly these fields (no prose, no markdown fences):
             return MemoryType.EPISODIC
 
 
-def reasoning_texts(run: AgentRun) -> list[str]:
+def reasoning_texts(run: Run) -> list[str]:
     return [
         str(m.get("content", ""))
         for m in run.messages

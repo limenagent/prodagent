@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 
 def is_subagent_run_id(run_id: str) -> bool:
-    from prodagent.kernel.state import is_child_run_id
+    from prodagent.kernel.run import is_child_run_id
 
     return bool(run_id) and is_child_run_id(run_id)
 
@@ -182,12 +182,14 @@ class ConsoleObserverHooks:
         names = names or []
         print(f"{self._label('SKILLS', _BLUE)}{count} runbooks: {self._dim(', '.join(names))}")
 
-    def _turn_start(self, *, turn: int, max_turns: int = 0, run_id: str = "", **_: Any) -> None:
-        self._turn = turn
+    def _turn_start(
+        self, *, round: int = 0, max_turns: int = 0, run_id: str = "", **_: Any
+    ) -> None:
+        self._turn = round
         self._think_started = False
-        # Surface sub-agent name so parallel turns don't look like one counter.
+        # Surface sub-agent name so parallel rounds don't look like one counter.
         suffix = _subagent_suffix(run_id)
-        bar = f"{'─' * 4} Turn {turn}"
+        bar = f"{'─' * 4} Round {round}"
         if max_turns:
             bar += f"/{max_turns}"
         bar += suffix
@@ -373,7 +375,7 @@ class ConsoleObserverHooks:
     def _token_update(
         self,
         *,
-        turn: int = 0,
+        round: int = 0,
         input_tokens: int = 0,
         output_tokens: int = 0,
         cost_usd: float = 0,
@@ -386,7 +388,7 @@ class ConsoleObserverHooks:
     ) -> None:
         total = input_tokens + output_tokens
         pct = (cost_usd / budget_usd * 100) if budget_usd else 0
-        turns_str = f"{turn}/{max_turns}" if max_turns else str(turn)
+        turns_str = f"{round}/{max_turns}" if max_turns else str(round)
         time_str = f"{elapsed_s:.1f}s/{max_seconds:.0f}s" if max_seconds else f"{elapsed_s:.1f}s"
         suffix = _subagent_suffix(run_id)
         print(
@@ -491,7 +493,7 @@ _HANDLERS: dict[HookEvent, str] = {
     HookEvent.MEMORY_CLASSIFY: "_memory_classify",
     HookEvent.INJECTION_FAILED: "_injection_failed",
     HookEvent.SKILLS_READY: "_skills",
-    HookEvent.TURN_START: "_turn_start",
+    HookEvent.ROUND_START: "_turn_start",
     HookEvent.LLM_REQUEST: "_llm_request",
     HookEvent.THINK: "_think",
     HookEvent.TOOL_CALL: "_tool_call",

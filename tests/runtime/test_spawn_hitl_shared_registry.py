@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent import Agent, AgentConfig, ExecutionMode, RunState, SideEffectLevel, ToolMeta
+from prodagent import Agent, AgentConfig, RunState, SideEffectLevel, ToolMeta
 from prodagent.base.config import FrameworkConfig
 from prodagent.hooks.approval import ApprovalDecision, ApprovalGate
 from prodagent.hooks.bundles.security import ApprovalHooks
@@ -65,7 +65,6 @@ def _reactive_parent(child: Agent, llm, gate: ApprovalGate, fw) -> Agent:
     return Agent(
         "parent",
         system_prompt="Spawn wf_child to delete the record.",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="parent",
             llm=llm,

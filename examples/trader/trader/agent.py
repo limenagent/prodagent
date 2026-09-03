@@ -23,7 +23,6 @@ from __future__ import annotations
 from prodagent import (
     Agent,
     AgentConfig,
-    ExecutionMode,
     FrameworkConfig,
     HardBudget,
     LLMClient,
@@ -147,7 +146,6 @@ def build_trader_agent(
         "trader",
         system_prompt=_SYSTEM_PROMPT,
         tools=[propose_order, place_order],
-        mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_turns=20, max_cost_usd=0.50, max_seconds=300.0),
         config=AgentConfig(
             name="trader",

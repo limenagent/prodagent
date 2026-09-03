@@ -46,8 +46,8 @@ function fmtCost(c) { return `$${(c || 0).toFixed(4)}`; }
 function updateHud() {
   hudEls.agent.textContent = hudState.agent;
   const turnStr = hudState.maxTurns
-    ? `Turn ${hudState.turn}/${hudState.maxTurns}`
-    : `Turn ${hudState.turn}`;
+    ? `Round ${hudState.turn}/${hudState.maxTurns}`
+    : `Round ${hudState.turn}`;
   hudEls.turn.textContent = turnStr;
   hudEls.tokens.textContent = `${fmtNum(hudState.inputTokens + hudState.outputTokens)} tok`;
   const budgetStr = hudState.budgetUsd > 0
@@ -1008,8 +1008,8 @@ const RENDER = {
       body: `<div class="skill-badges"><span class="dim">${names.length} runbooks</span>${badges}</div>`,
     };
   },
-  "turn.start": (ev) => {
-    hudState.turn = ev.turn || hudState.turn;
+  "round.start": (ev) => {
+    hudState.turn = ev.round || hudState.turn;
     hudState.maxTurns = ev.max_turns || hudState.maxTurns;
     updateHud();
     return null;
@@ -1088,7 +1088,7 @@ const RENDER = {
   "skill.load": (ev) => ({label: "SKILL", color: "magenta", body: `Loaded ${repr(ev.name)} (${ev.chars || 0} chars)`}),
   "budget.token_update": (ev) => {
     // Sync HUD — single source of truth for run-wide counters.
-    hudState.turn = ev.turn || hudState.turn;
+    hudState.turn = ev.round || hudState.turn;
     hudState.maxTurns = ev.max_turns || hudState.maxTurns;
     hudState.inputTokens = ev.input_tokens ?? hudState.inputTokens;
     hudState.outputTokens = ev.output_tokens ?? hudState.outputTokens;

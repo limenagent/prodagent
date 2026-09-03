@@ -46,7 +46,7 @@ class FakeLLMAdapter:
 
     @property
     def default_config(self) -> LLMConfig:
-        """The config Turn accounts cost against — mirrors the real adapters,
+        """The config Round accounts cost against — mirrors the real adapters,
         so a fake-driven run bills (and can be monkeypatched) like a real one."""
         from prodagent.llm import LLMConfig
 

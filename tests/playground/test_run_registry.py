@@ -8,7 +8,7 @@ import pytest
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.session_store import FileSessionStore
 from prodagent.base.session import ConversationSession
-from prodagent.kernel.state import AgentRun, child_run_id
+from prodagent.kernel.run import Run, child_run_id
 from prodagent.kernel.types import RunState
 from prodagent.playground.registry import RunReconstructError, RunRegistry
 
@@ -28,8 +28,8 @@ class _FakeSpec:
         self.factory = factory
 
 
-def _make_run(run_id: str, *, state: RunState = RunState.SUSPENDED) -> AgentRun:
-    run = AgentRun(run_id=run_id, task="demo")
+def _make_run(run_id: str, *, state: RunState = RunState.SUSPENDED) -> Run:
+    run = Run(run_id=run_id, task="demo")
     run.state = state
     return run
 
@@ -195,5 +195,5 @@ class _BoomStore:
     async def list_run_ids(self) -> list[str]:
         raise RuntimeError("disk gone")
 
-    async def load(self, run_id: str) -> AgentRun | None:  # noqa: ARG002
+    async def load(self, run_id: str) -> Run | None:  # noqa: ARG002
         raise RuntimeError("disk gone")

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from prodagent.coordination.spawn import build_spawn_tools_for_agent
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.kernel.types import ToolCall, ToolResultEvent
 from prodagent.llm.fake import script
 from prodagent.runtime.agent import Agent
@@ -10,7 +10,7 @@ from prodagent.runtime.runner import InProcessRunner
 from prodagent.tooling.dispatcher import ToolDispatcher
 
 
-async def _run_batch(runner: ToolDispatcher, run: AgentRun, calls: list[ToolCall]) -> list[dict]:
+async def _run_batch(runner: ToolDispatcher, run: Run, calls: list[ToolCall]) -> list[dict]:
     results = []
     async for event in runner.run_batch(run, calls):
         if isinstance(event, ToolResultEvent):
@@ -27,7 +27,7 @@ async def test_runner_injects_stable_key_and_retry_dedupes_via_handoff():
     assert worker is not None
     runner = ToolDispatcher({"spawn_agent": worker.tool})
 
-    run = AgentRun(run_id="R1", task="t")
+    run = Run(run_id="R1", task="t")
     call = ToolCall(name="spawn_agent", params={"name": "worker", "task": "do it"})
 
     [first] = await _run_batch(runner, run, [call])
@@ -48,7 +48,7 @@ async def test_different_batch_index_gets_a_different_key_and_is_not_deduped():
     assert worker is not None
     runner = ToolDispatcher({"spawn_agent": worker.tool})
 
-    run = AgentRun(run_id="R2", task="t")
+    run = Run(run_id="R2", task="t")
     calls = [
         ToolCall(name="spawn_agent", params={"name": "worker", "task": "do it"}),
         ToolCall(name="spawn_agent", params={"name": "worker", "task": "do it"}),

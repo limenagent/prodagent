@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from prodagent import Agent, AgentConfig, ExecutionMode, script
+from prodagent import Agent, AgentConfig, script
 from prodagent.base.errors import UnknownApprovalError
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -27,7 +27,6 @@ def _bare_agent() -> Agent:
         "bare",
         system_prompt="reply briefly.",
         tools=[],
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(name="bare", llm=script({"content": "done"})),
     )
 
@@ -47,7 +46,6 @@ async def test_bare_multi_turn_session_stays_in_memory(tmp_path, monkeypatch):
     agent = Agent(
         "chat",
         system_prompt="reply briefly.",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="chat",
             llm=script({"content": "first"}, {"content": "second: seen first"}),
@@ -69,7 +67,7 @@ async def test_bare_submit_approval_is_explicit_error(tmp_path, monkeypatch):
 
 
 def test_bare_default_mode_is_reactive():
-    assert AgentConfig(name="x").mode is ExecutionMode.REACTIVE
+    assert AgentConfig(name="x").initial_plan is None  # no preset graph by default
 
 
 def test_bare_bundles_exclude_observers_and_gate():
@@ -128,7 +126,6 @@ async def test_production_restores_the_full_stack(tmp_path, monkeypatch):
         "prod",
         system_prompt="use the tool",
         tools=[destroy],
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="prod",
             llm=script({"tool": "destroy", "params": {"target": "db"}}),

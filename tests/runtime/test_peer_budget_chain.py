@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent import Agent, AgentConfig
 from prodagent.kernel.budget import HardBudget
-from prodagent.kernel.state import is_child_run_id
+from prodagent.kernel.run import is_child_run_id
 from prodagent.llm.fake import script
 
 
@@ -22,7 +22,6 @@ def _reactive_agent(name: str, *, context: str = "", peers=None) -> Agent:
     return Agent(
         name,
         system_prompt=context,
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(name=name, peers=list(peers or [])),
     )
 

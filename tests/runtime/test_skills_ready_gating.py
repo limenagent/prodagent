@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 
-from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent import Agent, AgentConfig
 from prodagent.base.config import FrameworkConfig
 from prodagent.kernel.bus import HookEvent, HookRegistry
 from prodagent.llm.fake import script
@@ -32,7 +32,6 @@ def test_skills_ready_does_not_fire_without_registry():
     agent = Agent(
         name="no-skills",
         system_prompt="x",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="no-skills",
             llm=script({"content": "ok"}),
@@ -56,7 +55,6 @@ def test_skills_ready_fires_with_empty_registry():
     agent = Agent(
         name="empty-skills",
         system_prompt="x",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="empty-skills",
             llm=script({"content": "ok"}),

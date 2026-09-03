@@ -63,7 +63,7 @@ def test_kernel_does_not_import_plan() -> None:
     (it orchestrates hooks, models and tools), so the kernel stays pure —
     the reading unit below the blueprint, never above it."""
     loaded = _loaded_by(
-        "import prodagent.kernel.turn, prodagent.kernel.react, prodagent.kernel.bodies"
+        "import prodagent.runtime.agent_loop, prodagent.runtime.agent_loop, prodagent.kernel.units"
     )
     leaked = [m for m in loaded if m.startswith("prodagent.plan")]
     assert not leaked, f"kernel pulled the plan layer into its import chain: {leaked}"

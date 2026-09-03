@@ -1,9 +1,10 @@
 import pytest
 
-from prodagent.kernel.bodies.base import ToolBody
+from prodagent.kernel.graph import Node, Plan, fresh_states, state_of
+from prodagent.kernel.graph_validator import default_validator
 from prodagent.kernel.node_state import NodeRuntimeState
 from prodagent.kernel.types import NodeStatus
-from prodagent.plan.dag import Node, Plan, default_validator, fresh_states, state_of
+from prodagent.kernel.units import ToolUnit
 
 
 @pytest.fixture
@@ -14,10 +15,10 @@ def empty_plan():
 @pytest.fixture
 def sample_plan(empty_plan):
     nodes = [
-        Node(node_id="step_0", body=ToolBody("root"), params={}, depends_on=[]),
-        Node(node_id="step_1", body=ToolBody("middle"), params={}, depends_on=["step_0"]),
-        Node(node_id="step_2", body=ToolBody("branch"), params={}, depends_on=["step_0"]),
-        Node(node_id="step_3", body=ToolBody("end"), params={}, depends_on=["step_1", "step_2"]),
+        Node(node_id="step_0", body=ToolUnit("root"), params={}, depends_on=[]),
+        Node(node_id="step_1", body=ToolUnit("middle"), params={}, depends_on=["step_0"]),
+        Node(node_id="step_2", body=ToolUnit("branch"), params={}, depends_on=["step_0"]),
+        Node(node_id="step_3", body=ToolUnit("end"), params={}, depends_on=["step_1", "step_2"]),
     ]
     empty_plan.add_nodes(nodes)
     return empty_plan
@@ -41,7 +42,7 @@ def _failed(states, node_id):
 def test_node_creation():
     node = Node(
         node_id="test_node",
-        body=ToolBody("test_action"),
+        body=ToolUnit("test_action"),
         params={"arg": "value"},
     )
     assert node.node_id == "test_node"
@@ -55,7 +56,7 @@ def test_node_creation():
 def test_node_with_dependencies():
     node = Node(
         node_id="test_node",
-        body=ToolBody("test_action"),
+        body=ToolUnit("test_action"),
         params={},
         depends_on=["dep1", "dep2"],
     )
@@ -112,7 +113,7 @@ def test_ready_returns_multiple(sample_plan, states):
 
 
 def test_ready_returns_root(empty_plan):
-    nodes = [Node(node_id="step_0", body=ToolBody("root"), params={}, depends_on=[])]
+    nodes = [Node(node_id="step_0", body=ToolUnit("root"), params={}, depends_on=[])]
     empty_plan.add_nodes(nodes)
     ready = empty_plan.ready(fresh_states(empty_plan))
     assert len(ready) == 1
@@ -120,7 +121,7 @@ def test_ready_returns_root(empty_plan):
 
 
 def test_ready_raises_on_missing_dependency(empty_plan):
-    nodes = [Node(node_id="step_0", body=ToolBody("root"), params={}, depends_on=["missing_dep"])]
+    nodes = [Node(node_id="step_0", body=ToolUnit("root"), params={}, depends_on=["missing_dep"])]
     empty_plan.add_nodes(nodes)
     with pytest.raises(ValueError, match="unknown dependency"):
         empty_plan.ready({})
@@ -157,7 +158,7 @@ def test_mark_downstream_obsolete_on_nonexistent_node(sample_plan, states):
 
 
 def test_merge_adds_new_nodes(empty_plan):
-    new_nodes = [Node(node_id="new_node", body=ToolBody("new"), params={}, depends_on=[])]
+    new_nodes = [Node(node_id="new_node", body=ToolUnit("new"), params={}, depends_on=[])]
     merged = empty_plan.merge(new_nodes, {})
     assert merged.get_node("new_node") is not None
     assert merged.version == 2
@@ -167,7 +168,7 @@ def test_merge_replaces_node_if_specified(sample_plan, states):
     new_nodes = [
         Node(
             node_id="new_node",
-            body=ToolBody("new"),
+            body=ToolUnit("new"),
             params={},
             depends_on=[],
             replaces_node_id="step_1",
@@ -179,7 +180,7 @@ def test_merge_replaces_node_if_specified(sample_plan, states):
 
 
 def test_merge_raises_on_missing_dependency(empty_plan):
-    new_nodes = [Node(node_id="new_node", body=ToolBody("new"), params={}, depends_on=["missing"])]
+    new_nodes = [Node(node_id="new_node", body=ToolUnit("new"), params={}, depends_on=["missing"])]
     with pytest.raises(ValueError, match="dependency .* not found"):
         empty_plan.merge(new_nodes, {})
 
@@ -187,51 +188,51 @@ def test_merge_raises_on_missing_dependency(empty_plan):
 def test_merge_raises_on_obsolete_dependency(sample_plan, states):
     states["step_1"].mark_obsolete()
 
-    new_nodes = [Node(node_id="new_node", body=ToolBody("new"), params={}, depends_on=["step_1"])]
+    new_nodes = [Node(node_id="new_node", body=ToolUnit("new"), params={}, depends_on=["step_1"])]
     with pytest.raises(ValueError, match="dependency .* is OBSOLETE"):
         sample_plan.merge(new_nodes, states)
 
 
 def test_merge_returns_new_version(sample_plan):
     original_version = sample_plan.version
-    new_nodes = [Node(node_id="new_node", body=ToolBody("new"), params={}, depends_on=[])]
+    new_nodes = [Node(node_id="new_node", body=ToolUnit("new"), params={}, depends_on=[])]
     merged = sample_plan.merge(new_nodes, {})
     assert merged.version == original_version + 1
     assert sample_plan.version == original_version  # the old blueprint is untouched
 
 
 def test_merge_sets_version_created(sample_plan):
-    new_nodes = [Node(node_id="new_node", body=ToolBody("new"), params={}, depends_on=[])]
+    new_nodes = [Node(node_id="new_node", body=ToolUnit("new"), params={}, depends_on=[])]
     merged = sample_plan.merge(new_nodes, {})
     assert merged.get_node("new_node").version_created == 2
 
 
 def test_assert_no_cycles_passes_on_dag(empty_plan):
     nodes = [
-        Node(node_id="a", body=ToolBody("a"), params={}, depends_on=[]),
-        Node(node_id="b", body=ToolBody("b"), params={}, depends_on=["a"]),
-        Node(node_id="c", body=ToolBody("c"), params={}, depends_on=["a", "b"]),
+        Node(node_id="a", body=ToolUnit("a"), params={}, depends_on=[]),
+        Node(node_id="b", body=ToolUnit("b"), params={}, depends_on=["a"]),
+        Node(node_id="c", body=ToolUnit("c"), params={}, depends_on=["a", "b"]),
     ]
     empty_plan.add_nodes(nodes)
 
 
 def test_assert_no_cycles_detects_cycle(empty_plan):
     nodes = [
-        Node(node_id="a", body=ToolBody("a"), params={}, depends_on=["c"]),
-        Node(node_id="b", body=ToolBody("b"), params={}, depends_on=["a"]),
-        Node(node_id="c", body=ToolBody("c"), params={}, depends_on=["b"]),
+        Node(node_id="a", body=ToolUnit("a"), params={}, depends_on=["c"]),
+        Node(node_id="b", body=ToolUnit("b"), params={}, depends_on=["a"]),
+        Node(node_id="c", body=ToolUnit("c"), params={}, depends_on=["b"]),
     ]
     with pytest.raises(ValueError, match="Cycle detected"):
-        default_validator().validate(nodes)
+        default_validator().validate_nodes(nodes)
 
 
 def test_assert_no_cycles_in_cycle(empty_plan):
     nodes = [
-        Node(node_id="a", body=ToolBody("a"), params={}, depends_on=["b"]),
-        Node(node_id="b", body=ToolBody("b"), params={}, depends_on=["a"]),
+        Node(node_id="a", body=ToolUnit("a"), params={}, depends_on=["b"]),
+        Node(node_id="b", body=ToolUnit("b"), params={}, depends_on=["a"]),
     ]
     with pytest.raises(ValueError, match="Cycle detected"):
-        default_validator().validate(nodes)
+        default_validator().validate_nodes(nodes)
 
 
 def test_is_complete_when_all_completed(sample_plan, states):
@@ -261,7 +262,7 @@ def test_is_complete_when_failed(sample_plan, states):
 
 
 def test_add_nodes_preserves_version_on_first_add(empty_plan):
-    nodes = [Node(node_id="step_0", body=ToolBody("root"), params={}, depends_on=[])]
+    nodes = [Node(node_id="step_0", body=ToolUnit("root"), params={}, depends_on=[])]
     empty_plan.add_nodes(nodes)
     assert empty_plan.version == 1
 
@@ -275,9 +276,9 @@ def test_node_status_enum_values():
 
 
 def test_add_nodes_overwrites_existing_node(empty_plan):
-    nodes = [Node(node_id="dup", body=ToolBody("v1"), params={}, depends_on=[])]
+    nodes = [Node(node_id="dup", body=ToolUnit("v1"), params={}, depends_on=[])]
     empty_plan.add_nodes(nodes)
-    nodes2 = [Node(node_id="dup", body=ToolBody("v2"), params={}, depends_on=[])]
+    nodes2 = [Node(node_id="dup", body=ToolUnit("v2"), params={}, depends_on=[])]
     empty_plan.add_nodes(nodes2)
     assert empty_plan.get_node("dup").action == "v2"
 
@@ -304,7 +305,7 @@ def test_ready_filters_by_status(sample_plan, states):
 
 def test_mark_downstream_obsolete_uses_bfs(sample_plan, states):
     sample_plan.add_nodes(
-        [Node(node_id="step_4", body=ToolBody("deep"), params={}, depends_on=["step_3"])]
+        [Node(node_id="step_4", body=ToolUnit("deep"), params={}, depends_on=["step_3"])]
     )
     states["step_4"] = NodeRuntimeState("step_4")
 
@@ -317,7 +318,7 @@ def test_mark_downstream_obsolete_uses_bfs(sample_plan, states):
 def test_replaces_node_id_in_node():
     node = Node(
         node_id="new_node",
-        body=ToolBody("new"),
+        body=ToolUnit("new"),
         params={},
         depends_on=[],
         replaces_node_id="old_node",

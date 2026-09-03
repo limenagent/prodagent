@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent import Agent, AgentConfig
 from prodagent.backends.file import FileDocumentStore, FileGraphStore
 from prodagent.base.config import FrameworkConfig
 from prodagent.cognition.memory import MemoryProvider
@@ -17,7 +17,6 @@ def test_find_approval_gate_returns_gate_via_protocol():
     agent = Agent(
         name="t",
         system_prompt="x",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="t",
             llm=script({"content": "ok"}),
@@ -45,7 +44,6 @@ def test_memory_manager_returns_manager_via_protocol(tmp_path):
     agent = Agent(
         name="t",
         system_prompt="x",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="t",
             llm=script({"content": "ok"}),
@@ -69,7 +67,6 @@ def test_memory_manager_none_with_framework_but_no_hooks():
     agent = Agent(
         name="t",
         system_prompt="x",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="t",
             llm=script({"content": "ok"}),

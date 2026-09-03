@@ -15,11 +15,11 @@ from typing import Any
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
 from prodagent.hooks import HookRegistry
-from prodagent.kernel.bodies.runner import BodyRunner
 from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.scheduler import Scheduler
 from prodagent.kernel.types import LLMResponse, RunCompletedEvent, ToolMeta
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.scheduler import Scheduler
+from prodagent.plan.planner import Planner
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -59,8 +59,8 @@ async def test_plan_first_propagates_run_id_to_hooks_and_tools(tmp_path):
     dispatcher = ToolDispatcher({"echo_run_id": _echo_run_id_tool()}, hooks=hooks)
 
     executor = Scheduler(
-        _plan_llm(),
-        BodyRunner(tools=dispatcher.dispatch),
+        planner=Planner(_plan_llm()),
+        tools=dispatcher.dispatch,
         system="sys",
         initial_messages=[{"role": "user", "content": "do"}],
         hooks=hooks,

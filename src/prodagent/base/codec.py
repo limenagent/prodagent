@@ -3,7 +3,7 @@
 The hand-written ``to_dict``/``from_dict`` pairs this module replaces were
 all the same walk: dump in field order with enums as their values, load
 with ``d.get(name, default)`` coercing enums and recursing into nested
-dataclasses. Classes whose projection is *curated* — ``AgentRun``'s durable
+dataclasses. Classes whose projection is *curated* — ``Run``'s durable
 subset, the event wire's ``type`` discriminator — keep their hand-written
 methods; only mechanical mirrors delegate here.
 

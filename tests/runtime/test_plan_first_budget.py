@@ -7,11 +7,11 @@ import pytest
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
 from prodagent.base.errors import BudgetExceeded
-from prodagent.kernel.bodies.runner import BodyRunner
 from prodagent.kernel.budget import HardBudget
+from prodagent.kernel.scheduler import Scheduler
 from prodagent.kernel.types import LLMResponse, RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.scheduler import Scheduler
+from prodagent.plan.planner import Planner
 
 _TERMINAL = (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)
 
@@ -58,8 +58,8 @@ async def test_plan_first_budget_turns_trips_mid_plan(tmp_path):
     events, checkpoints = _stores(tmp_path)
     executor = _CountingExecutor()
     planner = Scheduler(
-        _plan_llm(_multi_step_plan(3)),
-        BodyRunner(tools=executor),
+        planner=Planner(_plan_llm(_multi_step_plan(3))),
+        tools=executor,
         system="sys",
         initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
@@ -79,8 +79,8 @@ async def test_plan_first_budget_turns_trips_mid_plan(tmp_path):
 async def test_plan_first_budget_zero_turns_blocks_even_plan_generation(tmp_path):
     events, checkpoints = _stores(tmp_path)
     planner = Scheduler(
-        _plan_llm(_multi_step_plan(2)),
-        BodyRunner(tools=_CountingExecutor()),
+        planner=Planner(_plan_llm(_multi_step_plan(2))),
+        tools=_CountingExecutor(),
         system="sys",
         initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
@@ -104,8 +104,8 @@ async def test_plan_first_trips_on_sibling_spend_it_never_directly_incurred(tmp_
     ledger = BudgetLedger(max=budget)
     await ledger.commit(member="sibling", turns=0, tokens=0, cost_usd=0.95)
     planner = Scheduler(
-        _plan_llm(_multi_step_plan(3)),
-        BodyRunner(tools=_CountingExecutor()),
+        planner=Planner(_plan_llm(_multi_step_plan(3))),
+        tools=_CountingExecutor(),
         system="sys",
         initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
@@ -126,8 +126,8 @@ async def test_plan_first_no_budget_runs_to_completion(tmp_path):
     events, checkpoints = _stores(tmp_path)
     executor = _CountingExecutor()
     planner = Scheduler(
-        _plan_llm(_multi_step_plan(2)),
-        BodyRunner(tools=executor),
+        planner=Planner(_plan_llm(_multi_step_plan(2))),
+        tools=executor,
         system="sys",
         initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,

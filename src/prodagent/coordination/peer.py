@@ -11,9 +11,8 @@ Three parts, one file:
   compose seam (``compose.peer_relay``) and interprets that descriptor —
   peer lookup, fork, next hop. Coordination never constructs runtime objects.
 
-Peer is a *delegation strategy*, not a multi-round staged topology: contrast
-with blackboard, which run their own round loop over a
-shared store."""
+Peer is a *delegation strategy*, not a staged topology: it has no round loop
+of its own — one handoff, one hop, the next run carries the chain."""
 
 from __future__ import annotations
 
@@ -31,7 +30,7 @@ from prodagent.coordination.messaging.transport import (
 )
 from prodagent.kernel.budget import hop_own_share
 from prodagent.kernel.bus import HookEvent, save_and_fire_checkpoint
-from prodagent.kernel.state import AgentRun, child_run_id
+from prodagent.kernel.run import Run, child_run_id
 from prodagent.kernel.types import RunState, SideEffectLevel, ToolError, ToolMeta, ToolResult
 from prodagent.ports.execution import HandoffActivation
 from prodagent.tooling.base import FunctionTool
@@ -39,7 +38,7 @@ from prodagent.tooling.merge import attach_tools
 
 if TYPE_CHECKING:
     from prodagent.kernel.budget import SpawnAccumulator
-    from prodagent.kernel.state import PendingHandoff
+    from prodagent.kernel.run import PendingHandoff
     from prodagent.ports import CheckpointStore, EventLog
     from prodagent.ports.budget_ledger import BudgetLedgerPort
     from prodagent.runtime.agent import Agent
@@ -226,7 +225,7 @@ class PeerRelay:
     async def next_hop(
         self,
         agent: Agent,
-        run: AgentRun,
+        run: Run,
         *,
         run_id: str,
         depth: int,

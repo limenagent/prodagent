@@ -11,12 +11,12 @@
 ### v1.0 — 生产级核心（当前版本）
 
 - [x] **纯内核**——kernel/ 独立，不依赖任何 capability 包
-- [x] **三执行模式**——REACTIVE / PLAN_FIRST / Workflow
+- [x] **无模式执行**——跑一个 agent 即单节点图；带规划器或预置图即图执行；组合决定形状（ExecutionMode 已删）
 - [x] **四轴预算**——turns / seconds / tokens / cost，共享 BudgetLedger
 - [x] **三协议总线**——fire（观察）/ check（拦截）/ collect（注入）
 - [x] **五级上下文压缩**——按 token 占比分级牺牲
 - [x] **四通道记忆**——规则 / 实体 / 精确 / 语义并行召回
-- [x] **五协作原语**——spawn / peer / ensemble / blackboard / work_queue
+- [x] **两协作原语**——spawn（委派，call-return）/ peer（接力，handoff）；board 形状由图原子拼装（Route+Loop），不再是核心类
 - [x] **统一消息平面**——去重 → 契约 → 安全 → 审计 → 死信
 - [x] **HITL 审批**——HIGH 副作用工具挂起等人
 - [x] **崩溃恢复**——checkpoint + 乐观版本控制
@@ -27,7 +27,7 @@
 - [x] **5 种后端**——file / memory / postgres / redis / neo4j
 - [x] **全离线测试**——1,182 个测试，零 API key，零网络
 - [x] **核心仅 4 依赖**——anyio / httpx / pydantic / typing-extensions
-- [x] **8 个端到端示例**——greeter / deep_research / dating_chat / trader / aiops / code_detective / compliance_audit 等
+- [x] **7 个端到端示例**——greeter / deep_research / trader / aiops / code_detective / compliance_audit / trip_planner 等
 - [x] **可视化 playground**——FastAPI 服务器，浏览器调试
 - [x] **完整文档**——七站之旅 + 生产问题域专题 + 设计取舍 + 术语表
 

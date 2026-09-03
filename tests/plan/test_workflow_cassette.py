@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent.base.types import ExecutionMode
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.plan.workflow import Workflow
@@ -30,7 +29,6 @@ async def test_llm_step_boundary_facts_land_on_the_cassette(tmp_path):
     log = in_memory_event_log()
     agent = Agent(
         name="wf-tape",
-        mode=ExecutionMode.PLAN_FIRST,
         workflow=wf,
         config=AgentConfig(
             name="wf-tape",

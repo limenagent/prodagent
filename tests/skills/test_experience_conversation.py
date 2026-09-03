@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.kernel.types import RunState
 from prodagent.ports.persistence import conversation_messages
 
 
-def _reactive_run() -> AgentRun:
-    run = AgentRun(run_id="r1", task="fix the bug")
+def _reactive_run() -> Run:
+    run = Run(run_id="r1", task="fix the bug")
     run.state = RunState.COMPLETED
     run.messages = [
         {"role": "user", "content": "fix the bug"},
@@ -22,8 +22,8 @@ def _reactive_run() -> AgentRun:
     return run
 
 
-def _plan_first_run() -> AgentRun:
-    run = AgentRun(run_id="r2", task="fix the bug")
+def _plan_first_run() -> Run:
+    run = Run(run_id="r2", task="fix the bug")
     run.state = RunState.COMPLETED
     run.messages = [
         {"role": "user", "content": "fix the bug"},
@@ -90,7 +90,7 @@ def test_conversation_messages_plan_first_all_roles_are_user_or_assistant():
 
 
 def test_conversation_messages_empty_run_returns_user_task_only():
-    run = AgentRun(run_id="empty", task="do something")
+    run = Run(run_id="empty", task="do something")
     msgs = conversation_messages(run)
     assert len(msgs) == 1
     assert msgs[0] == {"role": "user", "content": "do something"}

@@ -4,11 +4,11 @@ import pytest
 
 from prodagent.hooks import fire_checkpoint_failed
 from prodagent.kernel.bus import HookEvent, HookRegistry
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 
 
-def _run() -> AgentRun:
-    return AgentRun(run_id="R1", task="t")
+def _run() -> Run:
+    return Run(run_id="R1", task="t")
 
 
 @pytest.mark.asyncio

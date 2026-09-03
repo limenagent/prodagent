@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from prodagent.cognition.memory.classification import reasoning_texts
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.kernel.types import RunState
 
 
-def _reactive_run() -> AgentRun:
-    run = AgentRun(run_id="r1", task="fix the bug")
+def _reactive_run() -> Run:
+    run = Run(run_id="r1", task="fix the bug")
     run.state = RunState.COMPLETED
     run.messages = [
         {"role": "user", "content": "fix the bug"},
@@ -22,8 +22,8 @@ def _reactive_run() -> AgentRun:
     return run
 
 
-def _plan_first_run() -> AgentRun:
-    run = AgentRun(run_id="r2", task="fix the bug")
+def _plan_first_run() -> Run:
+    run = Run(run_id="r2", task="fix the bug")
     run.state = RunState.COMPLETED
     run.messages = [
         {"role": "user", "content": "fix the bug"},
@@ -78,7 +78,7 @@ def test_reasoning_texts_plan_first_returns_step_messages():
 
 
 def test_reasoning_texts_filters_short_outputs():
-    run = AgentRun(run_id="r3", task="t")
+    run = Run(run_id="r3", task="t")
     run.messages = [
         {"role": "user", "content": "t"},
         {"role": "assistant", "content": "short"},
@@ -90,5 +90,5 @@ def test_reasoning_texts_filters_short_outputs():
 
 
 def test_reasoning_texts_empty_run_returns_empty_list():
-    run = AgentRun(run_id="empty", task="t")
+    run = Run(run_id="empty", task="t")
     assert reasoning_texts(run) == []

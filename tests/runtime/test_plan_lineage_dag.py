@@ -2,19 +2,19 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent.kernel.bodies.base import ToolBody
+from prodagent.kernel.graph import Node, Plan, fresh_states, node_wire_dict
 from prodagent.kernel.node_state import NodeRuntimeState, NodeStateError
 from prodagent.kernel.types import NodeStatus
-from prodagent.plan.dag import Node, Plan, fresh_states, node_wire_dict
+from prodagent.kernel.units import ToolUnit
 
 
 def _make_plan_with_nodes() -> Plan:
     plan = Plan()
     plan.add_nodes(
         [
-            Node(node_id="s1", body=ToolBody("fetch")),
-            Node(node_id="s2", body=ToolBody("transform"), depends_on=["s1"]),
-            Node(node_id="s3", body=ToolBody("load"), depends_on=["s2"]),
+            Node(node_id="s1", body=ToolUnit("fetch")),
+            Node(node_id="s2", body=ToolUnit("transform"), depends_on=["s1"]),
+            Node(node_id="s3", body=ToolUnit("load"), depends_on=["s2"]),
         ]
     )
     return plan
@@ -26,7 +26,7 @@ def test_node_attempts_default_zero():
 
 
 def test_node_attempts_persisted_in_wire_dict():
-    node = Node(node_id="s1", body=ToolBody("x"))
+    node = Node(node_id="s1", body=ToolUnit("x"))
     state = NodeRuntimeState("s1", attempts=3)
     d = node_wire_dict(node, state)
     assert d["attempts"] == 3
@@ -72,7 +72,7 @@ def test_merge_returns_new_plan_and_marks_replaced_state():
     states["s2"].mark_failed("boom")
 
     replacement = Node(
-        node_id="s2b", body=ToolBody("transform_v2"), depends_on=["s1"], replaces_node_id="s2"
+        node_id="s2b", body=ToolUnit("transform_v2"), depends_on=["s1"], replaces_node_id="s2"
     )
     merged = plan.merge([replacement], states)
 
@@ -100,6 +100,6 @@ def test_downstream_obsolete_skips_completed():
 
 
 def test_frozen_node_rejects_field_writes():
-    node = Node(node_id="s1", body=ToolBody("fetch"))
+    node = Node(node_id="s1", body=ToolUnit("fetch"))
     with pytest.raises(Exception, match="cannot assign"):
         node.action = "other"  # type: ignore[misc]

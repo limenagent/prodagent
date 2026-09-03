@@ -13,7 +13,7 @@ from typing import Any
 from prodagent.backends.file._locking import _exclusive
 from prodagent.base.errors import CorruptedCheckpointError, VersionConflict
 from prodagent.base.io import safe_filename_component, write_atomic_json
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 
 logger = logging.getLogger(__name__)
 
@@ -48,14 +48,14 @@ class FileCheckpointStore:
                 best = max(best, int(m.group(1)))
         return best
 
-    async def save(self, run: AgentRun, expected_version: int | None = None) -> None:
+    async def save(self, run: Run, expected_version: int | None = None) -> None:
         """flock-guarded read-modify-write: latest version + 1, atomically
         renamed into place; a mismatched ``expected_version`` is a
         ``VersionConflict``. Disk work runs on a thread — file IO must never
         block the event loop a store serves."""
         await asyncio.to_thread(self._save_sync, run, expected_version)
 
-    def _save_sync(self, run: AgentRun, expected_version: int | None) -> None:
+    def _save_sync(self, run: Run, expected_version: int | None) -> None:
         try:
             with _exclusive(self._lock_path(run.run_id)):
                 # Read-modify-write under the cross-process lock: latest
@@ -96,12 +96,12 @@ class FileCheckpointStore:
                 exc,
             )
 
-    async def load(self, run_id: str, version: int | None = None) -> AgentRun | None:
+    async def load(self, run_id: str, version: int | None = None) -> Run | None:
         """Latest (or named) version; envelope's version rides back on the
         run so the next save's optimistic check starts from the truth."""
         return await asyncio.to_thread(self._load_sync, run_id, version)
 
-    def _load_sync(self, run_id: str, version: int | None = None) -> AgentRun | None:
+    def _load_sync(self, run_id: str, version: int | None = None) -> Run | None:
         if version is None:
             version = self._latest_version(run_id)
             if version == 0:
@@ -120,7 +120,7 @@ class FileCheckpointStore:
                 )
             run_payload = envelope["run"]
             stored_version = int(envelope.get("version", version))
-            run = AgentRun.from_dict(run_payload)
+            run = Run.from_dict(run_payload)
             run.checkpoint_version = stored_version
         except json.JSONDecodeError as exc:
             raise CorruptedCheckpointError(

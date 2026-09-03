@@ -23,7 +23,7 @@ from prodagent.kernel.types import RunState
 
 if TYPE_CHECKING:
     from prodagent.base.session import ConversationSession
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.run import Run
 
 # ════════════ from checkpoint.py ════════════
 
@@ -68,7 +68,7 @@ class CheckpointStore(Protocol):
     to ``save`` with ``expected_version`` for optimistic concurrency.
     """
 
-    async def save(self, run: AgentRun, expected_version: int | None = None) -> None:
+    async def save(self, run: Run, expected_version: int | None = None) -> None:
         """Idempotent atomic persist under ``run.run_id``.
 
         ``expected_version`` enables optimistic concurrency: raise
@@ -76,8 +76,8 @@ class CheckpointStore(Protocol):
         """
         ...
 
-    async def load(self, run_id: str, version: int | None = None) -> AgentRun | None:
-        """Return the ``AgentRun`` for ``run_id``, or ``None`` if absent.
+    async def load(self, run_id: str, version: int | None = None) -> Run | None:
+        """Return the ``Run`` for ``run_id``, or ``None`` if absent.
 
         ``version=None`` means latest; stores without version history may
         ignore it.
@@ -117,7 +117,7 @@ class SessionStore(Protocol):
 
     Same optimistic-concurrency API shape as ``CheckpointStore``/``EventLog``,
     but a different scope: a session spans many runs (one turn per
-    ``AgentRun``), while ``CheckpointStore``/``EventLog`` only ever track
+    ``Run``), while ``CheckpointStore``/``EventLog`` only ever track
     state *within* a single run. Peers, not layers — neither wraps the
     other.
     """
@@ -343,7 +343,7 @@ class ExperienceStore(Protocol):
         ...
 
 
-def conversation_messages(run: AgentRun) -> list[dict[str, Any]]:
+def conversation_messages(run: Run) -> list[dict[str, Any]]:
     """Copy of the run transcript; falls back to the seed task when empty."""
     if run.messages:
         return [dict(m) for m in run.messages]
@@ -386,8 +386,8 @@ class ExperienceRecord:
         return cls(**d)
 
     @classmethod
-    def from_run(cls, run: AgentRun, *, tags: list[str] | None = None) -> ExperienceRecord:
-        """Build a record from a completed ``AgentRun``.
+    def from_run(cls, run: Run, *, tags: list[str] | None = None) -> ExperienceRecord:
+        """Build a record from a completed ``Run``.
 
         ``tags`` overrides the keyword tagger; ``None`` derives tags from
         ``run.task``. Transcript is the full conversation — the synthesiser
@@ -407,7 +407,7 @@ class ExperienceRecord:
         )
 
 
-def _outcome_for(run: AgentRun) -> ExperienceOutcome:
+def _outcome_for(run: Run) -> ExperienceOutcome:
     """Grade a finished run for the learning loop's benefit."""
     if run.state == RunState.COMPLETED:
         output = str(run.final_output or "").strip()

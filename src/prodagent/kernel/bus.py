@@ -261,7 +261,7 @@ class HookEvent(StrEnum):
 
     SKILLS_READY = "skills.ready"
 
-    TURN_START = "turn.start"
+    ROUND_START = "round.start"
     LLM_REQUEST = "llm.request"
     THINK = "llm.think"
 

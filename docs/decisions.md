@@ -45,13 +45,13 @@
 
 **拆分前的问题**：
 - 循环逻辑和 Agent 装配逻辑混在一起
-- PLAN_FIRST 和 REACTIVE 共享代码但边界不清
+- 图执行与 agent 本体循环共享代码但边界不清（旧模式的产物，模式已删）
 - 测试需要 mock 很多 runtime 层的东西
 
 **拆分后**：
 - `kernel/` — 纯循环逻辑（Step、Loop、Budget、Bus），不依赖 runtime
 - `runtime/` — Agent 装配、工厂、父运行时，依赖 kernel
-- 两种执行模式（REACTIVE / PLAN_FIRST）共享同一个 Step
+- 每一种执行形状（图 / 单单元）共享同一个 Step
 - kernel 可以独立测试，不需要构造完整 Agent
 
 **类比**：就像把"发动机"从"整车"里拆出来——发动机可以独立测试、独立替换，整车负责装配。
@@ -262,14 +262,14 @@ else:
 
 ---
 
-### 为什么所有拓扑共用一个消息平面？
+### 为什么所有协作原语共用一个消息平面？
 
-五种拓扑（spawn/peer/ensemble/board/queue）的通信都走 Crossing 管道。
+spawn（树）和 peer（链）的通信都走 Crossing 管道。
 
 **理由**：
 - "不丢不重不乱序"是所有多 Agent 系统的共同需求
-- 在一个地方解决五道关卡（去重/契约/截断/Gate/死信），比在五个拓扑里各写一遍更可靠
-- 统一的可观测性——所有消息都有 trace，不需要为每种拓扑单独加埋点
+- 在一个地方解决五道关卡（去重/契约/截断/Gate/死信），比在每个原语里各写一遍更可靠
+- 统一的可观测性——所有消息都有 trace，不需要为每个原语单独加埋点
 
 ---
 
@@ -303,9 +303,9 @@ os.environ["USE_FAKE_LLM"] = "1"
 
 ```
 test_spawned_child_trips_on_spend_already_committed_by_a_sibling
-test_blackboard_buzz_in_lock_race
+test_plan_cancel_completes_finished_nodes
 test_plan_crash_recovery_e2e
-test_work_queue_lease_timeout_requeue
+test_spawn_child_budget_settles_at_handoff
 ```
 
 **理由**：测试名就是文档。看到测试名就知道它测什么场景、什么边界条件。不需要读测试代码就能理解测试意图。
@@ -329,7 +329,7 @@ test_work_queue_lease_timeout_requeue
 | step 失败 | `step.failed` | `StepFailedEvent` | `StepFailed` |
 | run 完成 | `run.complete` | `RunCompletedEvent` | `RunCompleted` |
 | run 失败 | `run.failed` | `RunFailedEvent` | `RunFailed` |
-| turn 完成（REACTIVE） | — | — | `TurnCompleted` |
+| round 完成（单单元） | — | — | `RoundCompleted` |
 
 事件流事件和它的 JSON 编解码（`event_to_wire` / `event_from_wire`）定义在 `ports/agent_events.py`；`kernel/types.py` 重导出，消费方保持单一导入站点。
 
@@ -351,9 +351,7 @@ test_work_queue_lease_timeout_requeue
 | 结算信封 | `kernel/budget.py` |
 | Transport 端口 | `ports/messaging.py` |
 | RunnerPort | `ports/execution.py` |
-| Activation 排班 | `ports/execution.py` |
 | AgentSpec 投影 | `ports/execution.py` |
-| 舞台工具 | `coordination/infra/stage_tools.py` |
 | 账本工厂 open_ledger | `kernel/budget.py` |
 | 事件编解码 | `ports/agent_events.py` |
 

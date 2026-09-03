@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent import Agent, AgentConfig
 from prodagent.coordination.peer import Peer, build_peer_tools_for_agent
-from prodagent.kernel.state import is_child_run_id
+from prodagent.kernel.run import is_child_run_id
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter, script
 
@@ -20,7 +20,6 @@ def _reactive_agent(name: str, *, context: str = "", peers=None, agents=None) ->
     return Agent(
         name,
         system_prompt=context,
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(name=name, peers=list(peers or []), agents=list(agents or [])),
     )
 
@@ -90,7 +89,6 @@ async def test_peer_handoff_basic_plan_first(hook_registry):
     agent_a = Agent(
         "A",
         system_prompt="you are A",
-        mode=ExecutionMode.PLAN_FIRST,
         config=AgentConfig(name="A", peers=[peer_b]),
     )
     plan_json = (
@@ -106,6 +104,9 @@ async def test_peer_handoff_basic_plan_first(hook_registry):
     )
     agent_a.config.hooks = hook_registry
     peer_b.config.hooks = hook_registry
+    from prodagent.plan.planner import Planner
+
+    agent_a.config.planner = Planner(agent_a.config.llm)
 
     run = await agent_a.chat("start the chain", session_id="peer-basic-plan-first")
 

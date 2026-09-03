@@ -7,9 +7,9 @@ import httpx
 import pytest
 
 from prodagent.kernel.types import ErrorSeverity, ToolOutcome
+from prodagent.kernel.unit import coerce_result
 from prodagent.mcp.client import MCPClient
 from prodagent.mcp.config import MCPServerConfig
-from prodagent.tooling.base import coerce_result
 
 
 def _json_response(req_id: int, result: dict[str, Any]) -> httpx.Response:

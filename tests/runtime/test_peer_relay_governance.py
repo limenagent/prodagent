@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent import Agent, AgentConfig
 from prodagent.coordination.messaging.contract import MessageContract
 from prodagent.kernel.bus import BlockingResult, Gate, HookEvent, HookRegistry
-from prodagent.kernel.state import PendingHandoff
+from prodagent.kernel.run import PendingHandoff
 from prodagent.llm.fake import script
 
 
@@ -21,7 +21,6 @@ def _reactive_agent(name: str, *, context: str = "", peers=None) -> Agent:
     return Agent(
         name,
         system_prompt=context,
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(name=name, peers=list(peers or [])),
     )
 

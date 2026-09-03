@@ -20,13 +20,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, cast, runtime_checkable
 
-from prodagent.kernel.state import is_child_run_id
+from prodagent.kernel.run import is_child_run_id
 from prodagent.kernel.types import RunState
 
 if TYPE_CHECKING:
     from prodagent.base.config import FrameworkConfig
     from prodagent.base.session import ConversationSession
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.run import Run
     from prodagent.ports import CheckpointStore, SessionStore
     from prodagent.runtime.agent import Agent
 
@@ -286,7 +286,7 @@ class RunSummary:
 class ReconstructResult:
     agent: Agent
     example_name: str
-    run: AgentRun | None = None
+    run: Run | None = None
     session: ConversationSession | None = None
     target_run_id: str = ""
 
@@ -448,14 +448,14 @@ class RunRegistry:
             summaries.extend(result)
         return summaries
 
-    async def _resolve_suspended_peer(self, spec: ExampleSpec, root: AgentRun) -> str | None:
+    async def _resolve_suspended_peer(self, spec: ExampleSpec, root: Run) -> str | None:
         from prodagent.coordination.peer import resolve_suspended_peer_run_id
 
         store = self.checkpoint_for(spec.name)
         return await resolve_suspended_peer_run_id(store, root.pending_handoff)
 
-    async def _find(self, run_id: str) -> tuple[ExampleSpec | None, AgentRun | None]:
-        async def probe(spec: ExampleSpec) -> tuple[ExampleSpec, AgentRun | None]:
+    async def _find(self, run_id: str) -> tuple[ExampleSpec | None, Run | None]:
+        async def probe(spec: ExampleSpec) -> tuple[ExampleSpec, Run | None]:
             store = self.checkpoint_for(spec.name)
             try:
                 run = await store.load(run_id)
@@ -517,7 +517,7 @@ class RunRegistry:
         return summaries
 
 
-def _summary_from(example: str, run: AgentRun) -> RunSummary:
+def _summary_from(example: str, run: Run) -> RunSummary:
     peer = run.pending_handoff.peer_name if run.pending_handoff else None
     return RunSummary(
         run_id=run.run_id,

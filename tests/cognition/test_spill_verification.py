@@ -9,7 +9,7 @@ from prodagent.base.config import ContextConfig
 from prodagent.cognition.context.budget import TokenCounter
 from prodagent.cognition.context.manager import ContextManager
 from prodagent.cognition.context.spill import ToolResultSpillStore
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.tooling.builtin.read_tool_result import make_read_tool_result
 
 
@@ -37,7 +37,7 @@ async def test_oversized_result_is_spilled_not_inlined():
     big_tokens = tc.count(big)
     assert big_tokens > 10_000
 
-    run = AgentRun(run_id="t", task="go")
+    run = Run(run_id="t", task="go")
     run.messages.append({"role": "user", "content": "incident"})
     run.messages.append(
         {

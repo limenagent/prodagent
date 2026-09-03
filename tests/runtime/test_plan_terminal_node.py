@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from prodagent.kernel.bodies.base import ToolBody
+from prodagent.kernel.finalize import finalize_run
+from prodagent.kernel.graph import Node, Plan
 from prodagent.kernel.node_state import NodeRuntimeState
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.kernel.types import NodeStatus, RunState
-from prodagent.plan.dag import Node, Plan
-from prodagent.plan.finalize import finalize_run
+from prodagent.kernel.units import ToolUnit
 
 
-def _make_run() -> AgentRun:
-    return AgentRun(run_id="test-run", task="test")
+def _make_run() -> Run:
+    return Run(run_id="test-run", task="test")
 
 
 def _node(
@@ -20,7 +20,7 @@ def _node(
     action: str = "noop",
     is_terminal: bool = False,
 ) -> Node:
-    return Node(node_id=node_id, body=ToolBody(action), is_terminal=is_terminal)
+    return Node(node_id=node_id, body=ToolUnit(action), is_terminal=is_terminal)
 
 
 def _state(
@@ -133,8 +133,8 @@ class TestNodeTerminalSerialization:
         plan = Plan(plan_id="p1")
         plan.add_nodes(
             [
-                Node(node_id="s1", body=ToolBody("noop"), is_terminal=True),
-                Node(node_id="s2", body=ToolBody("noop"), is_terminal=False),
+                Node(node_id="s1", body=ToolUnit("noop"), is_terminal=True),
+                Node(node_id="s2", body=ToolUnit("noop"), is_terminal=False),
             ]
         )
         states = {

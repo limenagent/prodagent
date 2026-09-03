@@ -17,7 +17,7 @@ from __future__ import annotations
 import dataclasses
 from pathlib import Path
 
-from prodagent import Agent, AgentConfig, ContextConfig, ExecutionMode, FrameworkConfig, HardBudget, use_fake_llm
+from prodagent import Agent, AgentConfig, ContextConfig, FrameworkConfig, HardBudget, use_fake_llm
 from prodagent.skills.registry import SkillRegistry
 
 from deep_research.fake_llm import build_fake_llm
@@ -111,7 +111,6 @@ def build_deep_research_agent(
         "deep_research",
         system_prompt=_SYSTEM_PROMPT,
         tools=[web_fetch, synthesize_report],
-        mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_turns=30, max_cost_usd=1.0, max_seconds=600.0),
         config=AgentConfig(
             name="deep_research",

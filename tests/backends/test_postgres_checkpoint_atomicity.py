@@ -14,7 +14,7 @@ import pytest
 
 from prodagent.backends.postgres.checkpoint import PostgresCheckpointStore
 from prodagent.base.errors import VersionConflict
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 
 
 class _AsyncCM:
@@ -46,7 +46,7 @@ def _mock_pool() -> tuple[MagicMock, AsyncMock, AsyncMock]:
 async def test_save_takes_advisory_lock_before_version_read_and_insert():
     pool, conn, cur = _mock_pool()
     store = PostgresCheckpointStore(pool, namespace="ns")
-    run = AgentRun(run_id="r1", task="t")
+    run = Run(run_id="r1", task="t")
 
     await store.save(run, expected_version=0)
 
@@ -64,7 +64,7 @@ async def test_save_raises_version_conflict_on_stale_tail():
     pool, conn, cur = _mock_pool()
     cur.fetchone.return_value = (3,)  # a concurrent writer already bumped the tail
     store = PostgresCheckpointStore(pool, namespace="ns")
-    run = AgentRun(run_id="r1", task="t")
+    run = Run(run_id="r1", task="t")
 
     with pytest.raises(VersionConflict):
         await store.save(run, expected_version=0)

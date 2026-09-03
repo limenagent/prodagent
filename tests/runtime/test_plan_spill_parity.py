@@ -18,10 +18,10 @@ from prodagent.backends.file.event_log import FileEventLog
 from prodagent.base.config import ContextConfig
 from prodagent.cognition.context.budget import TokenCounter
 from prodagent.cognition.context.spill import ToolResultSpillStore
-from prodagent.kernel.bodies.runner import BodyRunner
+from prodagent.kernel.scheduler import Scheduler
 from prodagent.kernel.types import LLMResponse, RunCompletedEvent, SideEffectLevel, ToolMeta
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.scheduler import Scheduler
+from prodagent.plan.planner import Planner
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -59,8 +59,8 @@ async def test_plan_step_tool_result_is_spill_truncated(tmp_path):
     dispatcher.configure_batch(context_config=ContextConfig(), spill_store=store)
 
     executor = Scheduler(
-        _plan_llm(),
-        BodyRunner(tools=dispatcher.dispatch),
+        planner=Planner(_plan_llm()),
+        tools=dispatcher.dispatch,
         system="sys",
         initial_messages=[{"role": "user", "content": "do"}],
         event_log=FileEventLog(tmp_path / "events"),

@@ -48,15 +48,9 @@ MANIFEST: list[Entry] = [
     # kernel.bus.Pipeline was removed from this manifest when pipeline.py
     # merged into bus.py: the plumbing is now module-internal to its only
     # consumer (HookRegistry), so there is no cross-module wiring to lose.
-    Entry(
-        name="coordination.activation.ActivationPolicy (Blackboard)",
-        pattern=r"ActivationPolicy",
-        defining_file="src/prodagent/coordination/activation.py",
-        min_hits=1,
-        status="wired",
-        note="implemented by BlackboardPolicy and consumed by Blackboard._rounds",
-        scope_file="src/prodagent/coordination/blackboard.py",
-    ),
+    # coordination.activation.ActivationPolicy left when blackboard (its only
+    # implementor and consumer) was removed 2026-09-02; the batch-activation
+    # vocabulary went with it (REFACTOR-PLAN.md U1).
 ]
 
 

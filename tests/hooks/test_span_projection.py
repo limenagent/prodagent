@@ -28,7 +28,7 @@ from prodagent.hooks.audit import AuditLogger, rebuild_spans
 from prodagent.kernel.bus import HookRegistry
 from prodagent.kernel.types import SideEffectLevel, ToolMeta
 from prodagent.llm.fake import script
-from prodagent.plan.scheduler import reactive_scheduler
+from prodagent.runtime.agent_loop import agent_scheduler
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -74,7 +74,7 @@ def _audit_span(run_id: str, action: str) -> AgentSpan:
 
 async def _drive_run(hooks: HookRegistry, log: InMemoryEventLog) -> str:
     dispatcher = ToolDispatcher({"probe": _tool("probe")}, event_log=log)
-    loop = reactive_scheduler(script({"content": "done"}), dispatcher, event_log=log, hooks=hooks)
+    loop = agent_scheduler(script({"content": "done"}), dispatcher, event_log=log, hooks=hooks)
     run_id: str | None = None
     async for event in loop.stream("task"):
         run_id = getattr(event, "run_id", None) or run_id

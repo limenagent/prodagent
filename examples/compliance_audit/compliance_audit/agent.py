@@ -21,7 +21,6 @@ from __future__ import annotations
 from prodagent import (
     Agent,
     AgentConfig,
-    ExecutionMode,
     FrameworkConfig,
     HardBudget,
     LLMClient,
@@ -91,7 +90,6 @@ def build_audit_workflow_agent(
             submit_to_regulator,
             draft_sar_for_review,
         ],
-        mode=ExecutionMode.PLAN_FIRST,
         budget=HardBudget(max_turns=12, max_cost_usd=0.40, max_seconds=120.0),
         config=AgentConfig(
             name="audit_workflow",
@@ -150,7 +148,6 @@ def build_compliance_audit_agent(
         "compliance_audit",
         system_prompt=_MAIN_SYSTEM,
         tools=[extract_transactions],
-        mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_turns=20, max_cost_usd=0.60, max_seconds=180.0),
         config=AgentConfig(
             name="compliance_audit",

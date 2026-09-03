@@ -1,6 +1,6 @@
 """Shared vocabulary types — the bottom layer's words.
 
-``Message`` / ``MessageList`` / ``RunState`` / ``ExecutionMode`` and
+``Message`` / ``MessageList`` / ``RunState`` and
 ``stable_serialize`` are used by both ``base`` (session records) and
 ``kernel`` (the loop's state machine). They live here so the dependency
 stays one-way: kernel imports base, base never imports kernel.
@@ -22,7 +22,6 @@ ToolParams: TypeAlias = dict[str, Any]
 ToolSchema: TypeAlias = dict[str, Any]
 
 __all__ = [
-    "ExecutionMode",
     "JsonDict",
     "Message",
     "MessageList",
@@ -76,16 +75,3 @@ class RunState(StrEnum):
     SUSPENDED = "suspended"
     COMPLETED = "completed"
     FAILED = "failed"
-
-
-class ExecutionMode(StrEnum):
-    """Controls how an Agent decides which tools to call and in what order."""
-
-    PLAN_FIRST = "plan_first"
-    """LLM proposes a full execution plan (JSON DAG); framework executes it.
-    Enables plan auditing and HITL plan review. Opt-in (AgentConfig default
-    is REACTIVE — the default path pays no planning tax)."""
-
-    REACTIVE = "reactive"
-    """Each turn picks the next tool based on the previous result.
-    WARNING: bypasses plan auditing and HITL plan review. Default."""

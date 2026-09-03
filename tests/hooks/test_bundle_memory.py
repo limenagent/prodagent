@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent import Agent, AgentConfig
 from prodagent.backends.file import FileDocumentStore, FileGraphStore
 from prodagent.cognition.memory.manager import MemoryManager
 from prodagent.hooks.bundles.memory import MemoryHooks
@@ -23,7 +23,6 @@ def _agent() -> Agent:
     return Agent(
         "mem-bundle",
         system_prompt="verify",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="mem-bundle",
             llm=script({"content": "ok"}),
@@ -67,7 +66,6 @@ async def test_memory_hooks_plugs_in_via_extend():
     agent = Agent(
         "mem-bundle",
         system_prompt="verify",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="mem-bundle",
             llm=script({"content": "ok"}),
@@ -128,7 +126,7 @@ async def test_classify_runs_on_peer_continuation(tmp_path):
     horizontal handoff (peer) from vertical delegation (spawn child).
     """
     from prodagent.cognition.memory.classification import MemoryClassifier
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.run import Run
     from prodagent.kernel.types import RunState
 
     class _FakeLLM:
@@ -151,7 +149,7 @@ async def test_classify_runs_on_peer_continuation(tmp_path):
     hooks = HookRegistry()
     MemoryHooks(mgr).attach(hooks)
 
-    peer_run = AgentRun(
+    peer_run = Run(
         run_id="root::remediator",
         task="fix the incident",
         state=RunState.COMPLETED,
@@ -180,7 +178,7 @@ async def test_classify_runs_on_peer_continuation(tmp_path):
 async def test_classify_skips_spawn_child(tmp_path):
     """Spawn children (vertical delegation) must still be skipped."""
     from prodagent.cognition.memory.classification import MemoryClassifier
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.run import Run
     from prodagent.kernel.types import RunState
 
     class _FakeLLM:
@@ -203,7 +201,7 @@ async def test_classify_skips_spawn_child(tmp_path):
     hooks = HookRegistry()
     MemoryHooks(mgr).attach(hooks)
 
-    child_run = AgentRun(
+    child_run = Run(
         run_id="root::log_analysis",
         task="tail logs",
         state=RunState.COMPLETED,

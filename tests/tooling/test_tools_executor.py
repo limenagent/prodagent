@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from prodagent import RunState, SideEffectLevel, ToolMeta
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.kernel.types import ToolCall, ToolResultEvent
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
@@ -13,7 +13,7 @@ def _dispatcher(*tools_list) -> ToolDispatcher:
     return ToolDispatcher({t.name: t for t in tools_list})
 
 
-async def _run_batch(runner: ToolDispatcher, run: AgentRun, calls: list[ToolCall]) -> list[dict]:
+async def _run_batch(runner: ToolDispatcher, run: Run, calls: list[ToolCall]) -> list[dict]:
     results = []
     async for event in runner.run_batch(run, calls):
         if isinstance(event, ToolResultEvent):
@@ -32,7 +32,7 @@ async def test_parallel_readonly_all_returned():
     async def read_b() -> dict:
         return {"b": 2}
 
-    run = AgentRun(run_id="r1", task="test")
+    run = Run(run_id="r1", task="test")
     calls = [ToolCall(name="read_a", params={}), ToolCall(name="read_b", params={})]
     runner = _dispatcher(read_a, read_b)
 
@@ -62,7 +62,7 @@ async def test_serial_write_order_preserved():
         order.append("y")
         return {"wrote": "y"}
 
-    run = AgentRun(run_id="r2", task="test")
+    run = Run(run_id="r2", task="test")
     calls = [ToolCall(name="write_x", params={}), ToolCall(name="write_y", params={})]
     runner = _dispatcher(write_x, write_y)
 
@@ -81,7 +81,7 @@ async def test_high_tool_suspends_without_approval_bundle():
     async def page_oncall(team: str) -> dict:  # pragma: no cover — must not run
         return {"paged": team}
 
-    run = AgentRun(run_id="r3", task="test")
+    run = Run(run_id="r3", task="test")
     calls = [ToolCall(name="page_oncall", params={"team": "platform"})]
     runner = _dispatcher(page_oncall)
 
@@ -103,7 +103,7 @@ async def test_high_tool_suspends_leaves_no_tool_result():
     async def critical_op() -> dict:  # pragma: no cover — must not run
         return {"done": True}
 
-    run = AgentRun(run_id="r4", task="test")
+    run = Run(run_id="r4", task="test")
     calls = [ToolCall(name="critical_op", params={})]
     runner = _dispatcher(critical_op)
 
@@ -132,7 +132,7 @@ async def test_mixed_reads_and_writes():
     async def do_write() -> dict:
         return {"type": "write"}
 
-    run = AgentRun(run_id="r5", task="test")
+    run = Run(run_id="r5", task="test")
     calls = [
         ToolCall(name="read_only", params={}),
         ToolCall(name="do_write", params={}),
@@ -159,7 +159,7 @@ async def test_high_tool_does_not_drop_prior_readonly_results():
     async def dangerous_write() -> dict:  # pragma: no cover — must not run
         return {}
 
-    run = AgentRun(run_id="r6", task="test")
+    run = Run(run_id="r6", task="test")
     calls = [
         ToolCall(name="safe_read", params={}),
         ToolCall(name="dangerous_write", params={}),
@@ -195,7 +195,7 @@ async def test_high_tool_first_still_allows_later_readonly():
     async def dangerous_write() -> dict:  # pragma: no cover
         return {}
 
-    run = AgentRun(run_id="r7", task="test")
+    run = Run(run_id="r7", task="test")
     calls = [
         ToolCall(name="dangerous_write", params={}),
         ToolCall(name="safe_read", params={}),
@@ -233,7 +233,7 @@ async def test_readonly_concurrency_cap_enforced():
             in_flight -= 1
         return {"ok": True}
 
-    run = AgentRun(run_id="rcap", task="test")
+    run = Run(run_id="rcap", task="test")
     calls = [ToolCall(name="probe", params={}) for _ in range(20)]
     runner = _dispatcher(probe)
     runner.configure_batch(loop_config=LoopConfig(readonly_concurrency=4, repeat_threshold=100))
@@ -265,7 +265,7 @@ async def test_readonly_concurrency_default_8_when_no_loop_config():
             in_flight -= 1
         return {"ok": True}
 
-    run = AgentRun(run_id="rcap-default", task="test")
+    run = Run(run_id="rcap-default", task="test")
     calls = [ToolCall(name="probe2", params={}) for _ in range(20)]
     runner = _dispatcher(probe2)
     runner.configure_batch(loop_config=LoopConfig(repeat_threshold=100))
@@ -291,7 +291,7 @@ async def test_enforced_idempotent_injects_key_bound_to_call_site():
         captured.append({"order_id": order_id, "idempotency_key": idempotency_key})
         return {"refunded": order_id}
 
-    run = AgentRun(run_id="run-xyz", task="refund")
+    run = Run(run_id="run-xyz", task="refund")
     run.metrics.turn_count = 3
     calls = [
         ToolCall(name="refund_order", params={"order_id": "A1"}),
@@ -329,7 +329,7 @@ async def test_rollback_restore_rederives_same_idempotency_keys():
         captured.append({"order_id": order_id, "idempotency_key": idempotency_key})
         return {"refunded": order_id}
 
-    async def _drive(run: AgentRun) -> list[str]:
+    async def _drive(run: Run) -> list[str]:
         captured.clear()
         calls = [
             ToolCall(name="refund_order", params={"order_id": "A1"}),
@@ -339,11 +339,11 @@ async def test_rollback_restore_rederives_same_idempotency_keys():
         await _run_batch(runner, run, calls)
         return [c["idempotency_key"] for c in captured]
 
-    run = AgentRun(run_id="rb", task="refund")
+    run = Run(run_id="rb", task="refund")
     checkpoint = run.to_dict()  # saved before the side-effect batch
 
     first = await _drive(run)
-    restored = AgentRun.from_dict(checkpoint)
+    restored = Run.from_dict(checkpoint)
     second = await _drive(restored)
 
     assert first == ["rb:c1", "rb:c2"]
@@ -367,7 +367,7 @@ async def test_enforced_idempotent_does_not_overwrite_model_supplied_key():
         captured.append(idempotency_key)
         return {"ok": True}
 
-    run = AgentRun(run_id="r-key", task="charge")
+    run = Run(run_id="r-key", task="charge")
     calls = [ToolCall(name="charge_card", params={"idempotency_key": "client-supplied"})]
     runner = _dispatcher(charge_card)
 
@@ -385,7 +385,7 @@ async def test_non_enforced_tool_gets_no_key():
         captured.append({"idempotency_key": idempotency_key})
         return {"pong": True}
 
-    run = AgentRun(run_id="r-ping", task="ping")
+    run = Run(run_id="r-ping", task="ping")
     calls = [ToolCall(name="ping", params={})]
     runner = _dispatcher(ping)
 
@@ -429,7 +429,7 @@ async def test_skill_injection_deferred_after_all_tool_results():
     async def load_skill(skill: str) -> dict:
         return {SKILL_INJECTION_KEY: f"[SKILL: {skill}] full doc", "skill": skill, "loaded": True}
 
-    run = AgentRun(run_id="r-skill", task="load skills")
+    run = Run(run_id="r-skill", task="load skills")
     calls = [
         ToolCall(name="load_skill", params={"skill": "alpha"}),
         ToolCall(name="load_skill", params={"skill": "beta"}),

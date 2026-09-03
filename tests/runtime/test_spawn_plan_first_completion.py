@@ -4,9 +4,10 @@ import json
 
 import pytest
 
-from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent import Agent, AgentConfig
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
+from prodagent.plan.planner import Planner
 from prodagent.tooling import tool
 
 
@@ -21,7 +22,7 @@ def _plan_llm() -> FakeLLMAdapter:
 
 
 @pytest.mark.asyncio
-async def test_plan_first_child_reports_completed_not_failed():
+async def test_drafting_child_reports_completed_not_failed():
 
     @tool(name="collect", readonly=True)
     async def collect() -> dict:
@@ -35,10 +36,14 @@ async def test_plan_first_child_reports_completed_not_failed():
         "worker",
         system_prompt="do the work",
         tools=[collect, report],
-        mode=ExecutionMode.PLAN_FIRST,
-        config=AgentConfig(name="worker", llm=_plan_llm(), description="A PLAN_FIRST worker"),
+        config=AgentConfig(
+            name="worker",
+            llm=_plan_llm(),
+            description="A drafting worker",
+            planner=Planner(_plan_llm()),
+        ),
     )
-    assert child.mode is ExecutionMode.PLAN_FIRST
+    assert child.config.planner is not None or child.config.initial_plan is not None
 
     from prodagent.coordination.spawn import build_spawn_tools_for_agent
     from prodagent.runtime.parent_runtime import ParentRuntime

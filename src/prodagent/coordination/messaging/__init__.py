@@ -1,8 +1,8 @@
-"""The communication substrate under all five collaboration primitives.
+"""The communication substrate under every collaboration primitive.
 
-``agents=`` (tree), ``peers=`` (chain), Blackboard (board) differ in topology, but collaboration in every one of them
-is messages crossing agent boundaries. This package is the single checkpoint
-those crossings flow through:
+``agents=`` (tree) and ``peers=`` (chain) differ in topology, but collaboration
+in every shape is messages crossing agent boundaries. This package is the
+single checkpoint those crossings flow through:
 
 - :mod:`envelope` — :class:`Crossing`, one boundary traversal in a uniform
   envelope (identity, lineage, direction, kind, typed payload).

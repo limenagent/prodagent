@@ -7,7 +7,7 @@ from __future__ import annotations
 from dataclasses import replace as _dc_replace
 from typing import TYPE_CHECKING
 
-from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent import Agent, AgentConfig
 from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
 from prodagent.base.config import FrameworkConfig
 from prodagent.coordination.messaging.contract import MessageContract
@@ -26,7 +26,6 @@ def _reactive_child(*, output_contract: MessageContract | None = None) -> Agent:
     return Agent(
         "responder",
         system_prompt="reply with status",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="responder",
             output_contract=output_contract,

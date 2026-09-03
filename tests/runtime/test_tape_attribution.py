@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING
 from prodagent.backends.memory.event_log import InMemoryEventLog
 from prodagent.base.config import FrameworkConfig
 from prodagent.base.run_context import tape_root_scope
-from prodagent.kernel.types import ExecutionMode
 from prodagent.llm.fake import script
 from prodagent.runtime.agent import Agent
 from prodagent.runtime.config import AgentConfig
@@ -38,7 +37,6 @@ def _member(log: InMemoryEventLog) -> Agent:
     return Agent(
         "member",
         system_prompt="Reply briefly.",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="member",
             llm=script({"content": "member reply"}),
@@ -83,7 +81,6 @@ async def test_prefix_is_deterministic_across_turns(tmp_path: Path) -> None:
     agent = Agent(
         "member2",
         system_prompt="Reply briefly.",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="member2",
             llm=script({"content": "r1"}, {"content": "r2"}),

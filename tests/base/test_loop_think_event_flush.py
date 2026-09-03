@@ -12,7 +12,7 @@ from prodagent.kernel.bus import HookEvent, HookRegistry
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.llm.recording import RecordingLLMClient
-from prodagent.plan.scheduler import reactive_scheduler
+from prodagent.runtime.agent_loop import agent_scheduler
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -25,9 +25,9 @@ async def _noop_tool() -> dict:
     return {"result": "ok"}
 
 
-def _make_loop(llm, hooks, event_log=None) -> reactive_scheduler:
+def _make_loop(llm, hooks, event_log=None) -> agent_scheduler:
     dispatcher = ToolDispatcher({"noop": _noop_tool})
-    return reactive_scheduler(
+    return agent_scheduler(
         llm,
         dispatcher,
         system_prompt="test",

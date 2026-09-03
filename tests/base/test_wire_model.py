@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import json
 
-from prodagent import Agent, ExecutionMode
+from prodagent import Agent
 from prodagent.kernel.budget import HardBudget
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.kernel.types import (
     NodeCompletedEvent,
     NodeFailedEvent,
@@ -37,7 +37,6 @@ def test_agent_spec_round_trips_with_nesting_and_budget() -> None:
         name="root",
         description="does root things",
         system_prompt="be root",
-        mode=ExecutionMode.PLAN_FIRST,
         constraints=["no prod writes"],
         budget=HardBudget(max_turns=7, max_seconds=99.0, max_tokens=1234, max_cost_usd=0.5),
         tools_schema=[{"name": "t1", "input_schema": {"type": "object"}}],
@@ -92,7 +91,7 @@ def test_spec_describe_prefers_description_then_prompt() -> None:
 
 
 def test_every_event_type_round_trips_through_the_wire() -> None:
-    run = AgentRun(run_id="r1", task="t")
+    run = Run(run_id="r1", task="t")
     run.metrics.turn_count = 2
     events = [
         ThinkTokenEvent(token="hi", run_id="r1"),
@@ -113,7 +112,7 @@ def test_every_event_type_round_trips_through_the_wire() -> None:
 
 
 def test_run_events_carry_the_run_as_the_checkpoint_document() -> None:
-    run = AgentRun(run_id="wire-run", task="t")
+    run = Run(run_id="wire-run", task="t")
     run.set_cursor("plan", {"state": {"nodes": {}}, "last_seq": 4})
     wire = event_to_wire(RunCompletedEvent(run=run))
     assert wire["run"]["cursors"]["plan"]["last_seq"] == 4

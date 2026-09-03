@@ -25,12 +25,12 @@ from prodagent.backends.memory.event_log import InMemoryEventLog
 from prodagent.base.blobs import BLOB_REF_KEY, fetch_ref
 from prodagent.base.event_log import BoundaryEventType, RunEventType, boundary_stream
 from prodagent.base.run_context import current_run_id
-from prodagent.kernel.bodies.runner import BodyRunner
 from prodagent.kernel.types import LLMResponse, SideEffectLevel, ToolMeta
 from prodagent.llm.cache import cache_key_for
 from prodagent.llm.fake import FakeLLMAdapter, script
 from prodagent.llm.recording import RecordingLLMClient
-from prodagent.plan.scheduler import reactive_scheduler
+from prodagent.plan.planner import Planner
+from prodagent.runtime.agent_loop import agent_scheduler as reactive_scheduler
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -138,17 +138,17 @@ async def test_plan_first_records_boundary_facts_through_dispatcher() -> None:
     """Mode uniformity: PLAN_FIRST tool facts land on the same boundary
     stream shape, recorded by the same dispatcher choke point."""
     from prodagent.backends.factory import in_memory_checkpoint_store
-    from prodagent.kernel.bodies.base import ToolBody
-    from prodagent.plan.dag import Node, Plan
-    from prodagent.plan.scheduler import Scheduler
+    from prodagent.kernel.graph import Node, Plan
+    from prodagent.kernel.scheduler import Scheduler
+    from prodagent.kernel.units import ToolUnit
 
     log = InMemoryEventLog()
     plan = Plan()
-    plan.add_nodes([Node(node_id="s1", body=ToolBody("probe"), params={})])
+    plan.add_nodes([Node(node_id="s1", body=ToolUnit("probe"), params={})])
     dispatcher = ToolDispatcher({"probe": _tool("probe")}, event_log=log)
     executor = Scheduler(
-        script({"content": "unused — preset DAG needs no planner"}),
-        BodyRunner(tools=dispatcher.dispatch),
+        planner=Planner(script({"content": "unused — preset DAG needs no planner"})),
+        tools=dispatcher.dispatch,
         dispatcher=dispatcher,
         event_log=log,
         checkpoint_store=in_memory_checkpoint_store(),

@@ -7,6 +7,7 @@ import pytest
 from prodagent.kernel.bus import HookEvent, HookRegistry
 from prodagent.kernel.types import RunState
 from prodagent.llm.fake import FakeLLMAdapter
+from prodagent.plan.planner import Planner
 from prodagent.runtime.agent import Agent
 from prodagent.runtime.config import AgentConfig
 
@@ -47,17 +48,18 @@ async def test_cancelled_run_reports_failed_state() -> None:
     )
 
     plan_json = '{"steps": [{"id": "s1", "action": "block", "params": {}, "depends_on": []}]}'
-    from prodagent import ExecutionMode
 
     agent = Agent(
         "cancel_me",
         system_prompt="plan something",
         tools=[tool],
-        mode=ExecutionMode.PLAN_FIRST,
         config=AgentConfig(
             name="cancel_me",
             llm=FakeLLMAdapter(responses=[LLMResponse(content=plan_json, stop_reason="end_turn")]),
             hooks=hooks,
+            planner=Planner(
+                FakeLLMAdapter(responses=[LLMResponse(content=plan_json, stop_reason="end_turn")])
+            ),
         ),
     )
 

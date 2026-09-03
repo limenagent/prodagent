@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING
 
 from prodagent.base.codec import dump, load
 from prodagent.base.determinism import now_wall
-from prodagent.base.types import ExecutionMode, Message, MessageList, RunState
+from prodagent.base.types import Message, MessageList, RunState
 
 if TYPE_CHECKING:
     from prodagent.base.types import JsonDict
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.run import Run
 
 
 @dataclass
@@ -19,7 +19,7 @@ class TurnRecord:
     """One executed Run's footprint in a Session — append-only, immutable once settled."""
 
     run_id: str
-    mode: ExecutionMode
+    single_unit: bool
     state: RunState
     final_output: str | None = None
     started_at: float = field(default_factory=now_wall)
@@ -33,7 +33,7 @@ class TurnRecord:
         return load(
             cls,
             d,
-            defaults={"mode": ExecutionMode.PLAN_FIRST.value, "state": RunState.RUNNING.value},
+            defaults={"single_unit": False, "state": RunState.RUNNING.value},
         )
 
 
@@ -42,7 +42,7 @@ class TurnAllocation:
     """Result of ``ConversationSession.start_turn`` for the upcoming Run."""
 
     run_id: str
-    mode: ExecutionMode
+    single_unit: bool
     messages: MessageList
     is_new: bool
 
@@ -62,7 +62,7 @@ class ConversationSession:
     def last_turn(self) -> TurnRecord | None:
         return self.turns[-1] if self.turns else None
 
-    def start_turn(self, message: str, *, mode: ExecutionMode) -> TurnAllocation:
+    def start_turn(self, message: str, *, single_unit: bool) -> TurnAllocation:
         """Return a ``TurnAllocation`` for the upcoming Run."""
         # A SUSPENDED run resumes under its original run_id (not a fresh one)
         # so checkpoints, ledger reservations and approval requests stay
@@ -74,12 +74,12 @@ class ConversationSession:
             # A suspended run keeps its original run_id so checkpoints, ledger
             # reservations and approval requests stay correlated.
             assert last is not None  # resume implies last_turn exists
-            if mode != last.mode:
+            if single_unit != last.single_unit:
                 # Resuming under a different executor would orphan the parked
                 # state (a plan cursor in a reactive run) — refuse.
                 raise ValueError(
                     f"session {self.session_id} has a SUSPENDED run under "
-                    f"{last.mode}; cannot resume with mode={mode}"
+                    f"{last.single_unit}; cannot resume with single_unit={single_unit}"
                 )
             run_id = last.run_id
             is_new = False
@@ -87,17 +87,19 @@ class ConversationSession:
             self.turn_seq += 1
             run_id = f"{self.session_id}:{self.turn_seq}"  # deterministic, human-greppable turn id
             is_new = True
-            self.turns.append(TurnRecord(run_id=run_id, mode=mode, state=RunState.RUNNING))
-        return TurnAllocation(run_id, mode, list(self.messages), is_new)
+            self.turns.append(
+                TurnRecord(run_id=run_id, single_unit=single_unit, state=RunState.RUNNING)
+            )
+        return TurnAllocation(run_id, single_unit, list(self.messages), is_new)
 
-    def complete_turn(self, run_id: str, mode: ExecutionMode, run: AgentRun) -> None:
+    def complete_turn(self, run_id: str, single_unit: bool, run: Run) -> None:
         """Fold the Run's finished transcript back into the Session."""
         # The run's transcript replaces the session's wholesale — the turn's
         # working copy becomes the conversation's new truth.
         self.messages = list(run.messages)
         record = TurnRecord(
             run_id=run_id,
-            mode=mode,
+            single_unit=single_unit,
             state=run.state,
             final_output=run.final_output,
             ended_at=now_wall(),

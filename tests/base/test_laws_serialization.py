@@ -10,7 +10,7 @@ intermediate — what actually persists is JSON text. A pair that round-trips
 as dicts but breaks as JSON (NaN, exotic keys) would corrupt checkpoints.
 
 These classes were chosen because they are the persisted vocabulary:
-``AgentRun`` (checkpoint), ``LLMResponse`` (response cache), and the codec's
+``Run`` (checkpoint), ``LLMResponse`` (response cache), and the codec's
 plain mirrors (``ToolCall`` / ``RunMetrics`` / ``PendingHandoff`` /
 ``ClassifiedError`` / ``TurnRecord`` / ``StoredMemory``).
 """
@@ -27,10 +27,9 @@ from hypothesis import strategies as st
 from prodagent.base.codec import dump
 from prodagent.base.errors import ClassifiedError, ErrorReason
 from prodagent.base.session import TurnRecord
-from prodagent.base.types import ExecutionMode, RunState
 from prodagent.cognition.memory.storage import StoredMemory
-from prodagent.kernel.state import AgentRun, PendingHandoff, RunMetrics
-from prodagent.kernel.types import LLMResponse, StopReason, ToolCall
+from prodagent.kernel.run import PendingHandoff, Run, RunMetrics
+from prodagent.kernel.types import LLMResponse, RunState, StopReason, ToolCall
 from prodagent.ports.persistence import MemoryType
 
 if TYPE_CHECKING:
@@ -97,7 +96,7 @@ _handoffs = st.builds(
 )
 
 _agent_runs = st.builds(
-    AgentRun,
+    Run,
     run_id=st.text(min_size=1, max_size=16),
     task=st.text(max_size=24),
     state=st.sampled_from(list(RunState)),
@@ -142,7 +141,7 @@ _llm_responses = st.builds(
 _turn_records = st.builds(
     TurnRecord,
     run_id=st.text(min_size=1, max_size=16),
-    mode=st.sampled_from(list(ExecutionMode)),
+    single_unit=st.booleans(),
     state=st.sampled_from(list(RunState)),
     final_output=st.none() | st.text(max_size=24),
     started_at=st.floats(allow_nan=False, allow_infinity=False, width=64),
@@ -212,7 +211,7 @@ def test_stored_memory_roundtrip_law(mem: StoredMemory) -> None:
 
 @_settings
 @given(_agent_runs)
-def test_agent_run_checkpoint_roundtrip_law(run: AgentRun) -> None:
+def test_agent_run_checkpoint_roundtrip_law(run: Run) -> None:
     """The checkpoint law: what to_dict persists, from_dict rebuilds exactly —
     schema v2's boxed cursors included.
 
@@ -223,7 +222,7 @@ def test_agent_run_checkpoint_roundtrip_law(run: AgentRun) -> None:
     (the durable record is the CHECKPOINT_FAILED event; a resumed run starts
     with a clean flag and re-observes)."""
     as_json = json.dumps(run.to_dict(), default=str)
-    revived = AgentRun.from_dict(json.loads(as_json))
+    revived = Run.from_dict(json.loads(as_json))
     assert revived == replace(run, checkpoint_version=0, checkpoint_failed=False)
     assert revived.checkpoint_version == 0
     assert revived.checkpoint_failed is False

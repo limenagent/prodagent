@@ -11,7 +11,7 @@ does uses one of them:
 - **Bus attachment** — register on the kernel bus: observers, gates,
   injectors (memory recall, approval veto, spans, learning).
 - **Executor replacement** — implement ``Executor``: the default is the
-  second strategy for iterating the Turn atom.
+  second strategy for iterating the Round atom.
 
 Tools arrive through the hop seam (``tool_assemblers``); capabilities are
 found via the bus's typed slots (``provide``/``require``).
@@ -24,8 +24,8 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from prodagent.base.config import FrameworkConfig
-    from prodagent.coordination.infra.settle import Settler
     from prodagent.coordination.peer import PeerRelay
+    from prodagent.coordination.settle import Settler
     from prodagent.hooks.bundles.base import HookBundle
     from prodagent.ports import CheckpointStore, EventLog, SessionStore
     from prodagent.ports.llm import LLMClient
@@ -110,14 +110,12 @@ def hop_tool_assemblers() -> list[Any]:
     The driver attaches these to ``RunContext.tool_assemblers``; the factory
     consumes them blind. As the assembly root, this is the one place runtime
     may name coordination capabilities."""
-    from prodagent.coordination.infra.stage_tools import assemble_stage_tools
     from prodagent.coordination.peer import assemble_peer_tools
     from prodagent.coordination.spawn import assemble_spawn_tools
 
     return [
         lambda ctx, tools, schemas, acc: assemble_spawn_tools(ctx, tools, schemas),
         assemble_peer_tools,
-        assemble_stage_tools,
     ]
 
 
@@ -144,7 +142,7 @@ def make_settler(
 ) -> Settler:
     """Terminal-state discipline for a finished chain — same seam rule as
     :func:`peer_relay`."""
-    from prodagent.coordination.infra.settle import Settler as _Settler
+    from prodagent.coordination.settle import Settler as _Settler
 
     return _Settler(
         agent_name=agent_name,

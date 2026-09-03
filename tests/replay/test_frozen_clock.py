@@ -22,9 +22,9 @@ from prodagent.base.event_log import BoundaryEventType, boundary_stream
 from prodagent.kernel.types import SideEffectLevel, ToolMeta
 from prodagent.llm.fake import script
 from prodagent.llm.recording import RecordingLLMClient
-from prodagent.plan.scheduler import reactive_scheduler
 from prodagent.replay.cassette import derive_cassette
 from prodagent.replay.engine import FrozenClock
+from prodagent.runtime.agent_loop import agent_scheduler
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -48,7 +48,7 @@ def _tool(name: str) -> FunctionTool:
 async def _live_run() -> tuple[Any, InMemoryEventLog]:
     log = InMemoryEventLog()
     dispatcher = ToolDispatcher({"probe": _tool("probe")}, event_log=log)
-    loop = reactive_scheduler(
+    loop = agent_scheduler(
         RecordingLLMClient(script({"tool": "probe", "params": {}}, {"content": "done"}), log),
         dispatcher,
         event_log=log,

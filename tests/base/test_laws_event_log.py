@@ -28,7 +28,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from prodagent.base.event_log import Event
-from prodagent.plan.event_log import apply_event  # the real plan reducer
+from prodagent.kernel.event_log import apply_event  # the real plan reducer
 
 _node_ids = st.sampled_from(["s1", "s2", "s3", "s4"])
 _texts = st.text(min_size=0, max_size=24)

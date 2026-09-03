@@ -6,13 +6,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from prodagent import ExecutionMode
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
 from prodagent.base.event_log import PlanEventType
 from prodagent.kernel.bus import HookRegistry
 from prodagent.kernel.types import LLMResponse, RunState
 from prodagent.llm.fake import FakeLLMAdapter
+from prodagent.plan.planner import Planner
 from prodagent.runtime.agent import Agent
 from prodagent.runtime.config import AgentConfig
 from prodagent.tooling import tool
@@ -103,10 +103,10 @@ async def test_plan_crash_recovery_resumes_from_last_checkpoint(tmp_path):
             name="aiops",
             system_prompt="Remediate incidents.",
             tools=[collect_logs, restart_pod, check_health, post_report],
-            mode=ExecutionMode.PLAN_FIRST,
             config=AgentConfig(
                 name="aiops",
                 llm=_plan_llm(),
+                planner=Planner(_plan_llm()),
                 hooks=HookRegistry(),
                 checkpoint=checkpoints,
                 event_log=events,

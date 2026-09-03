@@ -12,7 +12,7 @@ import pytest
 
 from prodagent.base.errors import BudgetExceeded
 from prodagent.kernel.budget import HardBudget, check_budget
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm import LLMConfig
 from prodagent.llm.pricing import pricing_for_model
@@ -60,7 +60,7 @@ def _response() -> LLMResponse:
 def test_cost_axis_hard_stops_run() -> None:
     """50 input @ 2.5/M + 10 output @ 10/M = $0.000225 per turn."""
     cfg = LLMConfig(model="gpt-4o")
-    run = AgentRun(run_id="r-cost", task="t")
+    run = Run(run_id="r-cost", task="t")
     run.add_tokens(_response(), cost_usd=cfg.cost_for_response(_response()))
     assert run.cost_usd == pytest.approx(0.000225)
 
@@ -78,11 +78,11 @@ def test_cost_axis_hard_stops_run() -> None:
 
 
 def test_reactive_loop_accounts_catalog_priced_turns(monkeypatch: pytest.MonkeyPatch) -> None:
-    """End-to-end: the reactive_scheduler's internal LLMConfig() picks up env-model
+    """End-to-end: the agent_scheduler's internal LLMConfig() picks up env-model
     pricing, so run.cost_usd moves without any explicit rate configuration."""
     from prodagent.llm import providers
 
     monkeypatch.setattr(providers, "detect_default_model", lambda: "deepseek-chat")
 
-    cfg = LLMConfig()  # exactly what reactive_scheduler constructs internally
+    cfg = LLMConfig()  # exactly what agent_scheduler constructs internally
     assert cfg.cost_for_response(_response()) == pytest.approx((50 * 0.27 + 10 * 1.1) / 1_000_000)

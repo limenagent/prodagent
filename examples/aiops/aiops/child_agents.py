@@ -9,7 +9,7 @@ peer 模式下 remediator 不共享父 LLM，``_build_peer_agent`` 复制
 
 from __future__ import annotations
 
-from prodagent import Agent, AgentConfig, ExecutionMode, HardBudget, LLMClient
+from prodagent import Agent, AgentConfig, HardBudget, LLMClient
 
 from aiops.tools import (
     check_slo,
@@ -36,7 +36,6 @@ def log_analysis_agent() -> Agent:
             "报告 '无有效信号'。"
         ),
         tools=[tail_logs, get_pod_status],
-        mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_seconds=600),
         config=AgentConfig(
             name="log_analysis",
@@ -55,7 +54,6 @@ def deploy_correlation_agent() -> Agent:
             "上一个好 SHA。如果不是: 报告 '无相关部署'。"
         ),
         tools=[get_recent_deploys, get_pr_diff],
-        mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_seconds=600),
         config=AgentConfig(
             name="deploy_correlation",
@@ -73,7 +71,6 @@ def metric_anomaly_agent() -> Agent:
             " burn rate 和驱动的指标；如果一切正常，报告 '指标正常'。"
         ),
         tools=[query_metrics],
-        mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_seconds=600),
         config=AgentConfig(
             name="metric_anomaly",
@@ -126,7 +123,6 @@ def remediator_agent(*, llm: LLMClient | None = None) -> Agent:
             check_slo,
             page_oncall,
         ],
-        mode=ExecutionMode.PLAN_FIRST,
         budget=HardBudget(max_seconds=600),
         config=AgentConfig(
             name="remediator",

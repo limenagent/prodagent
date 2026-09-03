@@ -19,8 +19,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 from prodagent.backends.file.checkpoint import FileCheckpointStore  # noqa: E402
 from prodagent.backends.file.session_store import FileSessionStore  # noqa: E402
 from prodagent.base.session import ConversationSession, TurnRecord  # noqa: E402
-from prodagent.kernel.state import AgentRun, PendingHandoff  # noqa: E402
-from prodagent.kernel.types import ExecutionMode, Message, RunState  # noqa: E402
+from prodagent.kernel.run import PendingHandoff, Run  # noqa: E402
+from prodagent.kernel.types import Message, RunState  # noqa: E402
 from prodagent.playground import server as server_mod  # noqa: E402
 
 if TYPE_CHECKING:
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 def _seed_suspended_run(checkpoint_dir: Path, run_id: str, task: str, request_id: str) -> None:
     cp = FileCheckpointStore(checkpoint_dir)
-    run = AgentRun(run_id=run_id, task=task)
+    run = Run(run_id=run_id, task=task)
     run.state = RunState.SUSPENDED
     run.pending_approval_id = request_id
     run.messages = [Message(role="user", content=task)]
@@ -88,7 +88,7 @@ def _patch_example(
         async def stream(self, task: str, *, run_id: str):  # noqa: ARG002
             from prodagent.kernel.types import RunCompletedEvent
 
-            completed_run = AgentRun(run_id=run_id, task=task)
+            completed_run = Run(run_id=run_id, task=task)
             completed_run.state = RunState.COMPLETED
             completed_run.final_output = "ok"
             yield RunCompletedEvent(run=completed_run)
@@ -96,7 +96,7 @@ def _patch_example(
         async def chat_stream(self, message: str, *, session_id: str):  # noqa: ARG002
             from prodagent.kernel.types import RunCompletedEvent
 
-            completed_run = AgentRun(run_id=session_id, task=message)
+            completed_run = Run(run_id=session_id, task=message)
             completed_run.state = RunState.COMPLETED
             completed_run.final_output = f"chat:{message}"
             yield RunCompletedEvent(run=completed_run)
@@ -104,7 +104,7 @@ def _patch_example(
         async def chat_resume_stream(self, *, session_id: str):  # noqa: ARG002
             from prodagent.kernel.types import RunCompletedEvent
 
-            completed_run = AgentRun(run_id=session_id, task="resumed")
+            completed_run = Run(run_id=session_id, task="resumed")
             completed_run.state = RunState.COMPLETED
             completed_run.final_output = "resumed"
             yield RunCompletedEvent(run=completed_run)
@@ -236,10 +236,10 @@ def test_runs_listing_returns_suspended_and_completed(
 
     import asyncio
 
-    suspended = AgentRun(run_id="root-suspended", task="t1")
+    suspended = Run(run_id="root-suspended", task="t1")
     suspended.state = RunState.SUSPENDED
     suspended.pending_approval_id = "req-x"
-    completed = AgentRun(run_id="root-done", task="t2")
+    completed = Run(run_id="root-done", task="t2")
     completed.state = RunState.COMPLETED
     completed.final_output = "done"
     asyncio.run(cp.save(suspended))
@@ -267,7 +267,7 @@ def test_stream_history_replay_for_unknown_driving_run(
 
     import asyncio
 
-    completed = AgentRun(run_id="root-hist", task="t")
+    completed = Run(run_id="root-hist", task="t")
     completed.state = RunState.COMPLETED
     completed.final_output = "history output"
     asyncio.run(cp.save(completed))
@@ -295,7 +295,7 @@ def test_approve_on_already_completed_run_is_idempotent(
 
     import asyncio
 
-    completed = AgentRun(run_id="cc1cb9174d99", task="t")
+    completed = Run(run_id="cc1cb9174d99", task="t")
     completed.state = RunState.COMPLETED
     completed.final_output = "done"
     asyncio.run(cp.save(completed))
@@ -324,7 +324,7 @@ def test_reject_on_already_completed_run_returns_409(
 
     import asyncio
 
-    completed = AgentRun(run_id="cc1cb9174d99", task="t")
+    completed = Run(run_id="cc1cb9174d99", task="t")
     completed.state = RunState.COMPLETED
     completed.final_output = "done"
     asyncio.run(cp.save(completed))
@@ -359,7 +359,7 @@ def test_approve_completed_root_with_suspended_peer_resumes(
     request_id = "req-peer-1"
     task = "支付服务有告警"
 
-    root = AgentRun(run_id=root_run_id, task=task)
+    root = Run(run_id=root_run_id, task=task)
     root.state = RunState.COMPLETED
     root.final_output = '{"recommended_action": "rollback"}'
     root.pending_handoff = PendingHandoff(
@@ -367,7 +367,7 @@ def test_approve_completed_root_with_suspended_peer_resumes(
     )
     asyncio.run(cp.save(root))
 
-    peer = AgentRun(run_id=peer_run_id, task="remediate")
+    peer = Run(run_id=peer_run_id, task="remediate")
     peer.state = RunState.SUSPENDED
     peer.pending_approval_id = request_id
     asyncio.run(cp.save(peer))
@@ -410,7 +410,7 @@ def test_reconstruct_target_run_id_is_self_for_genuinely_terminal_run(
 
     import asyncio
 
-    completed = AgentRun(run_id="truly-done", task="t")
+    completed = Run(run_id="truly-done", task="t")
     completed.state = RunState.COMPLETED
     completed.final_output = "done"
     asyncio.run(cp.save(completed))
@@ -442,14 +442,14 @@ def test_reconstruct_target_run_id_is_peer_for_handoff_in_flight(
     root_run_id = "handoff-root"
     peer_run_id = "handoff-root::remediator"
 
-    root = AgentRun(run_id=root_run_id, task="t")
+    root = Run(run_id=root_run_id, task="t")
     root.state = RunState.COMPLETED
     root.pending_handoff = PendingHandoff(
         peer_name="remediator", task="remediate", peer_run_id=peer_run_id
     )
     asyncio.run(cp.save(root))
 
-    peer = AgentRun(run_id=peer_run_id, task="remediate")
+    peer = Run(run_id=peer_run_id, task="remediate")
     peer.state = RunState.SUSPENDED
     asyncio.run(cp.save(peer))
 
@@ -538,7 +538,7 @@ def test_approve_after_restart_uses_session_to_find_run(
     task = "订 10 杯奶茶"
 
     cp = FileCheckpointStore(checkpoint_dir)
-    suspended_run = AgentRun(run_id=real_run_id, task=task)
+    suspended_run = Run(run_id=real_run_id, task=task)
     suspended_run.state = RunState.SUSPENDED
     suspended_run.pending_approval_id = request_id
     suspended_run.messages = [Message(role="user", content=task)]
@@ -547,8 +547,8 @@ def test_approve_after_restart_uses_session_to_find_run(
     session = ConversationSession(session_id=session_id, agent_id="trader")
     session.turns = [
         TurnRecord(
+            single_unit=True,
             run_id=real_run_id,
-            mode=ExecutionMode.REACTIVE,
             state=RunState.SUSPENDED,
         )
     ]

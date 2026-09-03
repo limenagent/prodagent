@@ -14,11 +14,10 @@ from typing import TYPE_CHECKING
 import pytest
 
 from prodagent import SideEffectLevel, ToolMeta
-from prodagent.kernel.bodies.base import ToolBody
-from prodagent.kernel.bodies.runner import BodyRunner
-from prodagent.kernel.state import AgentRun
-from prodagent.plan.dag import Node, Plan
-from prodagent.plan.node_runner import NodeRunner
+from prodagent.kernel.graph import Node, Plan
+from prodagent.kernel.node_runner import NodeRunner
+from prodagent.kernel.run import Run
+from prodagent.kernel.units import ToolUnit
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -27,11 +26,11 @@ if TYPE_CHECKING:
 
 
 class _StubEventLog:
-    async def record_node_started(self, plan: Plan, run: AgentRun, node_id: str) -> int:
+    async def record_node_started(self, plan: Plan, run: Run, node_id: str) -> int:
         return 0
 
     async def record_node_completed(
-        self, plan: Plan, run: AgentRun, node_id: str, result: object
+        self, plan: Plan, run: Run, node_id: str, result: object
     ) -> int:
         return 0
 
@@ -56,7 +55,7 @@ def _plan_with_node(action: str = "refund_order", params: dict | None = None) ->
     plan = Plan(plan_id="p-idem")
     node = Node(
         node_id="s1",
-        body=ToolBody(action),
+        body=ToolUnit(action),
         params={"order_id": "A1"} if params is None else params,
     )
     plan.add_nodes([node])
@@ -66,9 +65,9 @@ def _plan_with_node(action: str = "refund_order", params: dict | None = None) ->
 def _node_runner(fn) -> NodeRunner:
     dispatcher = ToolDispatcher({fn.name: fn})
     return NodeRunner(
-        BodyRunner(lambda call, run_id="": _execute(fn, call)),
         _StubEventLog(),
         dispatcher=dispatcher,
+        tools=(lambda call, run_id="": _execute(fn, call)),
     )
 
 
@@ -81,7 +80,7 @@ async def test_enforced_idempotent_node_gets_node_anchored_key():
     captured: list[str] = []
     runner = _node_runner(_capturing_tool(captured))
     plan, node = _plan_with_node()
-    run = AgentRun(run_id="r-idem", task="t")
+    run = Run(run_id="r-idem", task="t")
 
     await runner.run_one(node, plan, run)
 
@@ -95,7 +94,7 @@ async def test_reexecuted_dangling_node_rederives_same_key():
     first_attempt: list[str] = []
     runner = _node_runner(_capturing_tool(first_attempt))
     plan, node = _plan_with_node()
-    run = AgentRun(run_id="r-idem", task="t")
+    run = Run(run_id="r-idem", task="t")
     await runner.run_one(node, plan, run)
     assert first_attempt == ["r-idem:s1:a1"]
 
@@ -123,7 +122,7 @@ async def test_reexecuted_dangling_node_rederives_same_key():
 
     rerun_keys: list[str] = []
     rerun_runner = _node_runner(_capturing_tool(rerun_keys))
-    rerun_run = AgentRun(run_id="r-idem", task="t")
+    rerun_run = Run(run_id="r-idem", task="t")
     rerun_run.node_states = restored_states
     await rerun_runner.run_one(restored_node, restored_plan, rerun_run)
 
@@ -136,7 +135,7 @@ async def test_model_supplied_key_not_overwritten():
     fn = _capturing_tool(captured)
     runner = _node_runner(fn)
     plan, node = _plan_with_node(params={"order_id": "A1", "idempotency_key": "client-supplied"})
-    run = AgentRun(run_id="r-idem", task="t")
+    run = Run(run_id="r-idem", task="t")
 
     await runner.run_one(node, plan, run)
 
@@ -154,7 +153,7 @@ async def test_non_enforced_node_gets_no_key():
 
     runner = _node_runner(plain_read)
     plan, node = _plan_with_node(action="plain_read", params={})
-    run = AgentRun(run_id="r-idem", task="t")
+    run = Run(run_id="r-idem", task="t")
 
     await runner.run_one(node, plan, run)
 

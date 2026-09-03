@@ -9,15 +9,15 @@ from prodagent.base.event_log import (
     PlanEventType,
     hybrid_restore,
 )
-from prodagent.kernel.state import AgentRun
-from prodagent.plan.event_log import apply_event
+from prodagent.kernel.event_log import apply_event
+from prodagent.kernel.run import Run
 
 
 def _make(event_type: PlanEventType, stream_id: str = "p1", version: int = 1, **data) -> Event:
     return Event.make(event_type, stream_id, version, **data)
 
 
-def _extract_base(run: AgentRun) -> tuple[dict, int, int] | None:
+def _extract_base(run: Run) -> tuple[dict, int, int] | None:
     tail = run.cursor("plan") or {}
     return (
         (tail.get("state"), run.checkpoint_version, tail.get("last_seq", 0))
@@ -154,7 +154,7 @@ class TestHybridRestore:
         log, plan_id = await self._build_log_with_plan(tmp_path)
         cs = FileCheckpointStore(directory=tmp_path / "ckpt")
 
-        run = AgentRun(run_id=plan_id, task="t")
+        run = Run(run_id=plan_id, task="t")
         run.set_cursor(
             "plan",
             {
@@ -185,7 +185,7 @@ class TestHybridRestore:
         log, plan_id = await self._build_log_with_plan(tmp_path)
         cs = FileCheckpointStore(directory=tmp_path / "ckpt")
 
-        run = AgentRun(run_id=plan_id, task="t")
+        run = Run(run_id=plan_id, task="t")
         run.set_cursor(
             "plan",
             {
@@ -214,7 +214,7 @@ class TestHybridRestore:
         log, plan_id = await self._build_log_with_plan(tmp_path)
         cs = FileCheckpointStore(directory=tmp_path / "ckpt")
 
-        run = AgentRun(run_id=plan_id, task="t")
+        run = Run(run_id=plan_id, task="t")
         run.set_cursor(
             "plan",
             {

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from prodagent import Agent, AgentConfig, ExecutionMode, HardBudget
+from prodagent import Agent, AgentConfig, HardBudget
 from prodagent.base.config import FrameworkConfig
 from prodagent.kernel.bus import HookEvent, HookRegistry
 from prodagent.llm.fake import script
@@ -40,7 +40,6 @@ async def test_agent_lifecycle_full_roundtrip():
             system_prompt="Echo the input",
             tools=[echo_tool],
             budget=HardBudget(max_turns=2),
-            mode=ExecutionMode.REACTIVE,
             config=AgentConfig(
                 name="lifecycle-agent",
                 llm=script({"content": "Echoed: hello world"}),
@@ -71,7 +70,6 @@ async def test_agent_lifecycle_with_early_termination():
             system_prompt="Count up",
             tools=[increment_tool],
             budget=HardBudget(max_turns=1),
-            mode=ExecutionMode.REACTIVE,
             config=AgentConfig(
                 name="early-term-agent",
                 llm=script({"content": "Calling increment"}),
@@ -109,7 +107,7 @@ async def test_agent_lifecycle_with_hooks():
             events.append("session.end")
 
         hooks.register_event(HookEvent.SESSION_START, on_session_start)
-        hooks.register_event(HookEvent.TURN_START, on_turn_start)
+        hooks.register_event(HookEvent.ROUND_START, on_turn_start)
         hooks.register_event(HookEvent.TOOL_CALL, on_tool_call)
         hooks.register_event(HookEvent.TOOL_RESULT, on_tool_result)
         hooks.register_event(HookEvent.SESSION_END, on_session_end)
@@ -119,7 +117,6 @@ async def test_agent_lifecycle_with_hooks():
             system_prompt="Echo input",
             tools=[echo_tool],
             budget=HardBudget(max_turns=2),
-            mode=ExecutionMode.REACTIVE,
             config=AgentConfig(
                 name="hooks-agent",
                 llm=script({"content": "Echoed: test"}),
@@ -144,7 +141,6 @@ async def test_agent_lifecycle_crash_recovery():
             system_prompt="Echo input",
             tools=[echo_tool],
             budget=HardBudget(max_turns=2),
-            mode=ExecutionMode.REACTIVE,
             config=AgentConfig(
                 name="crash-agent",
                 llm=script({"content": "Echoed: before crash"}),
@@ -163,7 +159,6 @@ async def test_agent_lifecycle_crash_recovery():
             system_prompt="Echo input",
             tools=[echo_tool],
             budget=HardBudget(max_turns=2),
-            mode=ExecutionMode.REACTIVE,
             config=AgentConfig(
                 name="recovery-agent",
                 llm=script({"content": "Echoed: after recovery"}),

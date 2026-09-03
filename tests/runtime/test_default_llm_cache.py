@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent import Agent, AgentConfig
 from prodagent.kernel.budget import HardBudget
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm import LLMConfig, noop_chunk
@@ -84,7 +84,6 @@ class TestDefaultCacheWiring:
         agent = Agent(
             "billing",
             system_prompt="x",
-            mode=ExecutionMode.REACTIVE,
             config=AgentConfig(name="billing", llm=llm, framework=self._fw("production")),
         )
         from prodagent.runtime.runner import _resolve_llm
@@ -170,13 +169,13 @@ class TestDefaultCacheWiring:
 
 class TestCostSkipping:
     def test_post_llm_accounting_skips_cached_response(self):
-        from prodagent.kernel.state import AgentRun
+        from prodagent.kernel.run import Run
 
-        run = AgentRun(run_id="r1", task="t")
+        run = Run(run_id="r1", task="t")
 
-        from prodagent.kernel.turn import Turn
+        from prodagent.runtime.agent_loop import Round
 
-        step = object.__new__(Turn)
+        step = object.__new__(Round)
         step._llm_config = LLMConfig(model="m")
         step._bus = None
         step._budget = (
@@ -192,7 +191,7 @@ class TestCostSkipping:
         )
         import asyncio
 
-        asyncio.run(Turn._account(step, run, cached_resp))  # type: ignore[arg-type]
+        asyncio.run(Round._account(step, run, cached_resp))  # type: ignore[arg-type]
 
         assert run.turn_count == 1
         assert run.input_tokens == 0
@@ -200,12 +199,12 @@ class TestCostSkipping:
         assert run.cost_usd == 0.0
 
     def test_post_llm_accounting_bills_fresh_response(self):
-        from prodagent.kernel.state import AgentRun
+        from prodagent.kernel.run import Run
 
-        run = AgentRun(run_id="r1", task="t")
-        from prodagent.kernel.turn import Turn
+        run = Run(run_id="r1", task="t")
+        from prodagent.runtime.agent_loop import Round
 
-        step = object.__new__(Turn)
+        step = object.__new__(Round)
         step._llm_config = LLMConfig(
             model="m",
             cost_per_million_input=1.0,
@@ -224,7 +223,7 @@ class TestCostSkipping:
         )
         import asyncio
 
-        asyncio.run(Turn._account(step, run, fresh_resp))  # type: ignore[arg-type]
+        asyncio.run(Round._account(step, run, fresh_resp))  # type: ignore[arg-type]
 
         assert run.turn_count == 1
         assert run.input_tokens == 100

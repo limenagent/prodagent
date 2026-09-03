@@ -2,17 +2,17 @@
 
 The storage is three nullable fields (checkpoint compatibility); the
 invariant — at most one logically active park, handoff outranking approval —
-lives in AgentRun's park methods, and these tests make sure it stays there:
+lives in Run's park methods, and these tests make sure it stays there:
 park twice, park in the wrong order, consume and re-park.
 """
 
 from __future__ import annotations
 
-from prodagent.kernel.state import (
-    AgentRun,
+from prodagent.kernel.run import (
     AwaitingApproval,
     AwaitingHandoff,
     PendingHandoff,
+    Run,
 )
 from prodagent.kernel.types import RunState, ToolCall
 
@@ -29,12 +29,12 @@ def _handoff(peer: str = "B") -> PendingHandoff:
 
 
 def test_resume_point_none_when_unparked():
-    run = AgentRun(run_id="r", task="t")
+    run = Run(run_id="r", task="t")
     assert run.resume_point() is None
 
 
 def test_resume_point_reads_approval_then_handoff():
-    run = AgentRun(run_id="r", task="t")
+    run = Run(run_id="r", task="t")
     assert run.park_for_approval(_call(), "req-1")
     point = run.resume_point()
     assert isinstance(point, AwaitingApproval)
@@ -48,7 +48,7 @@ def test_resume_point_reads_approval_then_handoff():
 
 
 def test_park_for_approval_sets_state_and_fields():
-    run = AgentRun(run_id="r", task="t")
+    run = Run(run_id="r", task="t")
     call = _call()
 
     assert run.park_for_approval(call, "req-1")
@@ -59,7 +59,7 @@ def test_park_for_approval_sets_state_and_fields():
 
 
 def test_second_suspension_never_moves_the_first_parked_call():
-    run = AgentRun(run_id="r", task="t")
+    run = Run(run_id="r", task="t")
     first = _call("first")
     assert run.park_for_approval(first, "req-1")
 
@@ -69,7 +69,7 @@ def test_second_suspension_never_moves_the_first_parked_call():
 
 
 def test_handoff_park_refuses_when_a_handoff_is_already_parked():
-    run = AgentRun(run_id="r", task="t")
+    run = Run(run_id="r", task="t")
     assert run.park_handoff(_handoff("B"))
     assert run.park_handoff(_handoff("C")) is False
     assert run.pending_handoff.peer_name == "B"  # first handoff wins
@@ -77,7 +77,7 @@ def test_handoff_park_refuses_when_a_handoff_is_already_parked():
 
 
 def test_handoff_park_overwrites_an_approval_park_and_finishes_the_run():
-    run = AgentRun(run_id="r", task="t")
+    run = Run(run_id="r", task="t")
     assert run.park_for_approval(_call(), "req-1")
 
     assert run.park_handoff(_handoff("B"))
@@ -89,7 +89,7 @@ def test_handoff_park_overwrites_an_approval_park_and_finishes_the_run():
 
 
 def test_approval_park_refuses_once_a_handoff_is_parked():
-    run = AgentRun(run_id="r", task="t")
+    run = Run(run_id="r", task="t")
     assert run.park_handoff(_handoff("B"))
 
     assert run.park_for_approval(_call(), "req-1") is False
@@ -101,7 +101,7 @@ def test_approval_park_refuses_once_a_handoff_is_parked():
 
 
 def test_clear_approval_park_returns_the_pair_and_clears():
-    run = AgentRun(run_id="r", task="t")
+    run = Run(run_id="r", task="t")
     call = _call()
     assert run.park_for_approval(call, "req-1")
 
@@ -114,7 +114,7 @@ def test_clear_approval_park_returns_the_pair_and_clears():
 
 
 def test_clear_approval_park_does_not_touch_a_handoff_park():
-    run = AgentRun(run_id="r", task="t")
+    run = Run(run_id="r", task="t")
     assert run.park_handoff(_handoff())
 
     assert run.clear_approval_park() is None

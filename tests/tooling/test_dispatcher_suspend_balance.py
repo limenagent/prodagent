@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.kernel.types import Message, SideEffectLevel, ToolCall, ToolMeta
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.dispatcher import ToolDispatcher
@@ -40,8 +40,8 @@ def _write_tool(name: str, ret: Any, *, readonly: bool = False) -> FunctionTool:
     )
 
 
-def _run_with_assistant_batch(call_ids: list[str]) -> AgentRun:
-    run = AgentRun(run_id="r-balance", task="t")
+def _run_with_assistant_batch(call_ids: list[str]) -> Run:
+    run = Run(run_id="r-balance", task="t")
     msg: Message = {
         "role": "assistant",
         "content": "",
@@ -54,7 +54,7 @@ def _run_with_assistant_batch(call_ids: list[str]) -> AgentRun:
     return run
 
 
-def _tool_result_ids(run: AgentRun) -> set[str]:
+def _tool_result_ids(run: Run) -> set[str]:
     return {
         m.get("tool_call_id", "")
         for m in run.messages

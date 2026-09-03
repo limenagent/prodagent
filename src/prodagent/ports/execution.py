@@ -3,108 +3,32 @@
 Family home for the book's model-and-execution socket family plus its internal
 contracts (four modules merged 2026-08: activation / runner / leaf_executor
 / agent_spec, whose docstrings cite each other — ``AgentActivation`` is the
-single-unit form of ``Activation``'s batch, ``Executor`` is the cited
-precedent for a port typing itself against kernel events, ``AgentSpec`` is
-what a distributed runner resolves agent names against).
+single-unit form of a batch activation, ``Executor`` is the cited precedent
+for a port typing itself against kernel events, ``AgentSpec`` is what a
+distributed runner resolves agent names against).
 
-Contents, in dependency order: the activation vocabulary (``DispatchMode``,
-``StageStore``, ``Activation``, ``ActivationContext``, ``ActivationPolicy``)
-decides who acts next; ``RunnerPort`` + the two activation descriptors decide
-where that activation executes; ``Executor`` is the one engine's contract
-(the Scheduler implements it); ``AgentSpec`` is the serializable projection
-of an agent.
+Contents, in dependency order: the activation descriptors
+(``AgentActivation``, ``HandoffActivation``) decide who acts next;
+``RunnerPort`` decides where that activation executes; ``Executor`` is the
+one engine's contract (the Scheduler implements it); ``AgentSpec`` is the
+serializable projection of an agent. The batch-activation vocabulary
+(``Activation``/``ActivationPolicy``/``StageStore``) left with blackboard,
+its only consumer, in 2026-09-02 (REFACTOR-PLAN.md U1).
 """
 
 from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, runtime_checkable
-
-from prodagent.base.types import ExecutionMode, JsonDict
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Awaitable
+    from collections.abc import AsyncGenerator
 
+    from prodagent.base.types import JsonDict
     from prodagent.kernel.budget import HardBudget
     from prodagent.kernel.types import AgentEvent
     from prodagent.ports.budget_ledger import BudgetLedgerPort
-
-# ════════════ from activation.py ════════════
-
-DispatchMode = Literal["serial", "concurrent", "single_winner"]
-"""How an activation's members run:
-
-- ``serial`` — one at a time, in member order (round-robin floor, moderated pick).
-- ``concurrent`` — all at once, results collected together (event-mode trigger
-  fan-out, a work-queue round's claim race).
-- ``single_winner`` — all *race*, but only one computes (buzz_in: the first to
-  grab the lock wins; losers must never start real work).
-"""
-
-
-@runtime_checkable
-class StageStore(Protocol):
-    """Read-side contract of a stage's shared store, as an activation policy
-    sees it. Satisfied structurally by coordination's ``SharedStore`` family;
-    policies that need a concrete store's specifics down-cast in their own
-    layer."""
-
-    def round_count(self) -> int: ...
-
-    def snapshot(self) -> dict[str, Any]: ...
-
-    def fingerprint(self) -> Any: ...
-
-
-@dataclass(frozen=True)
-class Activation:
-    """One scheduled batch of member activations.
-
-    ``round_num`` is the round this batch belongs to — computed by the policy,
-    because "when does a round advance" is order-specific (round-robin wraps by
-    member position; a free-for-all advances every batch; a trigger board
-    advances every drain cycle).
-    """
-
-    members: list[str]
-    dispatch: DispatchMode = "serial"
-    round_num: int = 0
-    label: str = ""
-    """Why this activation exists — trigger name, order name, "pull". For logs/events."""
-
-    def why(self) -> str:
-        return self.label or ",".join(self.members)
-
-
-@dataclass(frozen=True)
-class ActivationContext:
-    """What an ActivationPolicy sees when deciding the next activation(s).
-
-    ``store`` is the live shared store (floor / board / queue — read-only from
-    the policy's perspective). ``changed_keys`` is what mutated last round:
-    the board's drained change list; empty/None for stores whose writes aren't
-    key-shaped (transcripts, queue transitions).
-    """
-
-    store: StageStore
-    changed_keys: tuple[str, ...] = ()
-    round_num: int = 0
-    """The round the *next* activation would run in (same convention as
-    ``TerminationStrategy.should_stop(next_round=...)``)."""
-
-
-@runtime_checkable
-class ActivationPolicy(Protocol):
-    """Decides who acts next. Returns one or more :class:`Activation` batches
-    for the coming round, or an empty list when there is no pending work —
-    which the driver surfaces as its quiescent/no-activation stop reason.
-
-    Async by design: a moderated picker may await an LLM to name the next
-    speaker."""
-
-    def next_activations(self, ctx: ActivationContext) -> Awaitable[list[Activation]]: ...
-
 
 # ════════════ from runner.py ════════════
 
@@ -208,7 +132,6 @@ class AgentSpec:
     name: str
     description: str = ""
     system_prompt: str = ""
-    mode: ExecutionMode = ExecutionMode.REACTIVE
     constraints: list[str] = field(default_factory=list)
     budget: HardBudget | None = None
     tools_schema: list[JsonDict] = field(default_factory=list)
@@ -234,7 +157,6 @@ class AgentSpec:
             "name": self.name,
             "description": self.description,
             "system_prompt": self.system_prompt,
-            "mode": self.mode.value,
             "constraints": list(self.constraints),
             "budget": dataclasses.asdict(self.budget) if self.budget is not None else None,
             "tools_schema": [dict(s) for s in self.tools_schema],
@@ -253,7 +175,6 @@ class AgentSpec:
             name=d["name"],
             description=d.get("description", ""),
             system_prompt=d.get("system_prompt", ""),
-            mode=ExecutionMode(d.get("mode", ExecutionMode.REACTIVE.value)),
             constraints=list(d.get("constraints") or []),
             budget=HardBudget(**budget) if budget is not None else None,
             tools_schema=[dict(s) for s in d.get("tools_schema") or []],
@@ -264,7 +185,7 @@ class AgentSpec:
 
     def summary(self) -> str:
         """Human-readable one-liner for logs and rosters."""
-        parts = [self.name, self.mode.value]
+        parts = [self.name]
         if self.child_agents:
             parts.append(f"children={len(self.child_agents)}")
         if self.peers:

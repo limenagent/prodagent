@@ -174,10 +174,9 @@
 | deep_research | 自主研究：REACTIVE 长任务 + 预算 + 压缩 | 3、4、6 |
 | trip_planner | 先规划后执行（PLAN_FIRST） | 8 |
 | compliance_audit | 审批工作流：挂起-决定-恢复 | 9 |
-| dating_chat | 长对话 + 四通道记忆 | 6 |
 | trader | 多 Agent 接力（peer） | 10 |
-| code_detective | 黑板协作（blackboard） | 10 |
-| aiops | 黑板协作运维（blackboard） | 10 |
+| code_detective | MCP 桥接：stdio 子进程工具接入 | 5 |
+| aiops | 委派扇出 + 接力修复（spawn fan-out + peer） | 10 |
 
 ## API 速查
 

@@ -10,11 +10,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from prodagent.kernel.bodies.base import ToolBody
-from prodagent.kernel.bodies.runner import BodyRunner
-from prodagent.kernel.state import AgentRun
-from prodagent.plan.dag import Node, Plan
-from prodagent.plan.node_runner import NodeFailed, NodeRunner
+from prodagent.kernel.graph import Node, Plan
+from prodagent.kernel.node_runner import NodeFailed, NodeRunner
+from prodagent.kernel.run import Run
+from prodagent.kernel.units import ToolUnit
 
 if TYPE_CHECKING:
     from prodagent.kernel.types import ToolCall
@@ -29,7 +28,7 @@ _BUSY_RAW = {
 
 
 class _StubEventLog:
-    async def record_node_started(self, plan: Plan, run: AgentRun, node_id: str) -> int:
+    async def record_node_started(self, plan: Plan, run: Run, node_id: str) -> int:
         return 0
 
 
@@ -40,10 +39,10 @@ async def _busy_executor(call: ToolCall, *, run_id: str = "") -> dict:
 @pytest.mark.asyncio
 async def test_resource_busy_failure_message_includes_hint_for_replan():
     plan = Plan(plan_id="p-hint")
-    step = Node(node_id="s1", body=ToolBody("write_progress"))
+    step = Node(node_id="s1", body=ToolUnit("write_progress"))
     plan.add_nodes([step])
-    run = AgentRun(run_id="r-hint", task="t")
-    runner = NodeRunner(BodyRunner(_busy_executor), _StubEventLog(), agent_name="test")
+    run = Run(run_id="r-hint", task="t")
+    runner = NodeRunner(_StubEventLog(), tools=_busy_executor, agent_name="test")
 
     outcome = await runner.run_one(step, plan, run)
 
@@ -61,10 +60,10 @@ async def test_failure_message_without_hint_stays_clean():
         return raw
 
     plan = Plan(plan_id="p-plain")
-    step = Node(node_id="s1", body=ToolBody("upload"))
+    step = Node(node_id="s1", body=ToolUnit("upload"))
     plan.add_nodes([step])
-    run = AgentRun(run_id="r-plain", task="t")
-    runner = NodeRunner(BodyRunner(executor), _StubEventLog(), agent_name="test")
+    run = Run(run_id="r-plain", task="t")
+    runner = NodeRunner(_StubEventLog(), tools=executor, agent_name="test")
 
     outcome = await runner.run_one(step, plan, run)
 

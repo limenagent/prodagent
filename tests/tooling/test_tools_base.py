@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from prodagent import SideEffectLevel, ToolMeta
-from prodagent.tooling.base import coerce_result
+from prodagent.kernel.unit import coerce_result
 from prodagent.tooling.decorator import _infer_schema, tool
 
 

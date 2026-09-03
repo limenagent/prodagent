@@ -1,4 +1,4 @@
-"""SubAgentBody — delegation as a node, on the shared activation core.
+"""SubAgentUnit — delegation as a node, on the shared activation core.
 
 Column 26's acceptance: whether a delegation arrives as a tool call the
 model made or as a node written into the graph, the Run tree underneath is
@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent.base.types import ExecutionMode
 from prodagent.kernel.types import LLMResponse, RunState, ToolCall
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.plan.workflow import Workflow
@@ -19,7 +18,7 @@ from prodagent.runtime.config import AgentConfig
 
 
 def _child(name: str, answer: str) -> Agent:
-    child = Agent(name, system_prompt=f"does {name}", mode=ExecutionMode.REACTIVE)
+    child = Agent(name, system_prompt=f"does {name}")
     child.config.llm = FakeLLMAdapter(
         responses=[LLMResponse(content=answer, stop_reason="end_turn")]
     )
@@ -36,10 +35,10 @@ async def _collect(stream):
 class TestSubagentNode:
     @pytest.mark.asyncio
     async def test_graph_node_delegation_runs_the_child_and_folds_output(self):
-        child = Agent("worker", system_prompt="does work", mode=ExecutionMode.REACTIVE)
+        child = Agent("worker", system_prompt="does work")
 
         wf = Workflow()
-        wf.step(child, is_terminal=True)  # an Agent step compiles to SubAgentBody
+        wf.step(child, is_terminal=True)  # an Agent step compiles to SubAgentUnit
 
         # A forked child speaks under the parent hop's wiring — its LLM is
         # the parent's (that is what fork-as-spawn means), so the scripted
@@ -47,7 +46,6 @@ class TestSubagentNode:
         parent = Agent(
             "chief",
             system_prompt="delegates",
-            mode=ExecutionMode.PLAN_FIRST,
             workflow=wf,
             config=AgentConfig(
                 name="chief",
@@ -65,10 +63,10 @@ class TestSubagentNode:
 
     @pytest.mark.asyncio
     async def test_child_run_carries_parentage_and_depth(self):
-        from prodagent.kernel.state import child_run_id
+        from prodagent.kernel.run import child_run_id
         from prodagent.runtime import runner as runner_mod
 
-        child = Agent("digger", system_prompt="digs", mode=ExecutionMode.REACTIVE)
+        child = Agent("digger", system_prompt="digs")
         activations: list = []
 
         original_activate = runner_mod.InProcessRunner.activate
@@ -83,7 +81,6 @@ class TestSubagentNode:
             wf.step(child, is_terminal=True)
             parent = Agent(
                 "root-chief",
-                mode=ExecutionMode.PLAN_FIRST,
                 workflow=wf,
                 config=AgentConfig(
                     name="root-chief",
@@ -97,7 +94,7 @@ class TestSubagentNode:
         finally:
             runner_mod.InProcessRunner.activate = original_activate
 
-        assert activations, "the SubAgentBody node must activate through the port"
+        assert activations, "the SubAgentUnit node must activate through the port"
         activation = activations[0]
         assert activation.agent is child
         assert activation.parent_run_id is not None
@@ -107,16 +104,15 @@ class TestSubagentNode:
     @pytest.mark.asyncio
     async def test_tool_and_graph_entry_points_grow_isomorphic_trees(self):
         """Same child, two doors: the model calling ``spawn_agent`` mid-Turn
-        and the graph carrying a SubAgentBody node must produce the same
+        and the graph carrying a SubAgentUnit node must produce the same
         child id, depth and completed fold — one core, many doors."""
-        from prodagent.kernel.state import child_run_id
+        from prodagent.kernel.run import child_run_id
 
         # door 1: the tool (REACTIVE parent, model-driven spawn)
         child_a = _child("scout", "scouted")
         parent_tool = Agent(
             "tool-parent",
             system_prompt="spawn it",
-            mode=ExecutionMode.REACTIVE,
             config=AgentConfig(
                 name="tool-parent",
                 llm=FakeLLMAdapter(
@@ -146,7 +142,6 @@ class TestSubagentNode:
         wf.step(child_b, is_terminal=True)
         parent_graph = Agent(
             "graph-parent",
-            mode=ExecutionMode.PLAN_FIRST,
             workflow=wf,
             config=AgentConfig(name="graph-parent", agents=[child_b]),
         )

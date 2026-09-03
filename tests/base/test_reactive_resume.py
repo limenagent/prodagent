@@ -4,15 +4,15 @@ import pytest
 
 from prodagent import RunState
 from prodagent.backends.file.checkpoint import FileCheckpointStore
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.kernel.types import LLMResponse, RunCompletedEvent, ToolCall
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.scheduler import reactive_scheduler
+from prodagent.runtime.agent_loop import agent_scheduler
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
 
-def _final_run(events: list) -> AgentRun:
+def _final_run(events: list) -> Run:
     for event in reversed(events):
         if isinstance(event, RunCompletedEvent):
             return event.run
@@ -26,7 +26,7 @@ async def _collect_tool() -> dict:
 
 def _make_loop(llm, store):
     dispatcher = ToolDispatcher({"collect": _collect_tool})
-    return reactive_scheduler(
+    return agent_scheduler(
         llm,
         dispatcher,
         system_prompt="test",
@@ -99,7 +99,7 @@ async def test_resume_continues_from_checkpoint(tmp_path):
 @pytest.mark.asyncio
 async def test_completed_run_is_not_resumed(tmp_path):
     store = FileCheckpointStore(tmp_path)
-    done = AgentRun(run_id="run-C", task="x")
+    done = Run(run_id="run-C", task="x")
     done.state = RunState.COMPLETED
     done.messages = [{"role": "user", "content": "x"}]
     await store.save(done)

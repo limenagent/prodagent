@@ -1,7 +1,7 @@
 """RecordingLLMClient — every LLM answer lands on the run's boundary stream.
 
 The LLM half of the unified fact pipeline: one wrapper
-over the shared client catches every mode's calls — REACTIVE's Turn,
+over the shared client catches every shape's calls — the loop's Round,
 PLAN_FIRST's planner and step runner, Workflow — because they all drive the
 same wired client. Facts append to ``<run_id>#boundary`` (a sibling stream,
 so the marker stream's single-writer discipline is untouched), keyed by the

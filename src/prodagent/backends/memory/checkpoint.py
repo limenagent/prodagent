@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from prodagent.base.errors import VersionConflict
 
 if TYPE_CHECKING:
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.run import Run
 
 __all__ = ["InMemoryCheckpointStore"]
 
@@ -30,11 +30,11 @@ class InMemoryCheckpointStore:
     """
 
     def __init__(self) -> None:
-        self._runs: dict[str, AgentRun] = {}
+        self._runs: dict[str, Run] = {}
         self._versions: dict[str, int] = {}
         self._lock = asyncio.Lock()
 
-    async def save(self, run: AgentRun, expected_version: int | None = None) -> None:
+    async def save(self, run: Run, expected_version: int | None = None) -> None:
         async with self._lock:
             stored_version = self._versions.get(run.run_id, 0)
             if expected_version is not None and expected_version != stored_version:
@@ -46,7 +46,7 @@ class InMemoryCheckpointStore:
             self._runs[run.run_id] = run
             self._versions[run.run_id] = run.checkpoint_version
 
-    async def load(self, run_id: str, version: int | None = None) -> AgentRun | None:
+    async def load(self, run_id: str, version: int | None = None) -> Run | None:
         async with self._lock:
             return self._runs.get(run_id)
 

@@ -7,7 +7,7 @@ import pytest
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
-from prodagent.kernel.bodies.runner import BodyRunner
+from prodagent.kernel.scheduler import Scheduler
 from prodagent.kernel.types import (
     LLMResponse,
     RunCompletedEvent,
@@ -17,7 +17,7 @@ from prodagent.kernel.types import (
     ToolResult,
 )
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.scheduler import Scheduler
+from prodagent.plan.planner import Planner
 
 _TERMINAL = (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)
 
@@ -61,15 +61,17 @@ async def test_suspend_completes_sibling_steps(tmp_path):
     events, checkpoints = _stores(tmp_path)
     executor = _SuspendOnCall(trigger="b")
     planner = Scheduler(
-        _plan_llm(
-            {
-                "steps": [
-                    {"id": "a", "action": "a", "params": {}, "depends_on": []},
-                    {"id": "b", "action": "b", "params": {}, "depends_on": []},
-                ]
-            }
+        planner=Planner(
+            _plan_llm(
+                {
+                    "steps": [
+                        {"id": "a", "action": "a", "params": {}, "depends_on": []},
+                        {"id": "b", "action": "b", "params": {}, "depends_on": []},
+                    ]
+                }
+            )
         ),
-        BodyRunner(tools=executor),
+        tools=executor,
         system="sys",
         initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
@@ -90,15 +92,17 @@ async def test_suspend_completes_sibling_steps(tmp_path):
 async def test_suspend_step_is_suspended_not_running(tmp_path):
     events, checkpoints = _stores(tmp_path)
     planner = Scheduler(
-        _plan_llm(
-            {
-                "steps": [
-                    {"id": "a", "action": "a", "params": {}, "depends_on": []},
-                    {"id": "b", "action": "b", "params": {}, "depends_on": []},
-                ]
-            }
+        planner=Planner(
+            _plan_llm(
+                {
+                    "steps": [
+                        {"id": "a", "action": "a", "params": {}, "depends_on": []},
+                        {"id": "b", "action": "b", "params": {}, "depends_on": []},
+                    ]
+                }
+            )
         ),
-        BodyRunner(tools=_SuspendOnCall(trigger="b")),
+        tools=_SuspendOnCall(trigger="b"),
         system="sys",
         initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
@@ -120,15 +124,17 @@ async def test_resume_after_suspend_does_not_reexecute_suspended_step(tmp_path):
     events, checkpoints = _stores(tmp_path)
     executor = _SuspendOnCall(trigger="b")
     planner = Scheduler(
-        _plan_llm(
-            {
-                "steps": [
-                    {"id": "a", "action": "a", "params": {}, "depends_on": []},
-                    {"id": "b", "action": "b", "params": {}, "depends_on": []},
-                ]
-            }
+        planner=Planner(
+            _plan_llm(
+                {
+                    "steps": [
+                        {"id": "a", "action": "a", "params": {}, "depends_on": []},
+                        {"id": "b", "action": "b", "params": {}, "depends_on": []},
+                    ]
+                }
+            )
         ),
-        BodyRunner(tools=executor),
+        tools=executor,
         system="sys",
         initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
@@ -157,12 +163,13 @@ async def test_resume_after_approval_reexecutes_suspended_step(tmp_path):
     from run.pending_approval_id on resume."""
     import json
 
-    from prodagent import Agent, AgentConfig, ExecutionMode, SideEffectLevel, ToolMeta
+    from prodagent import Agent, AgentConfig, SideEffectLevel, ToolMeta
     from prodagent.hooks.approval import ApprovalGate
     from prodagent.hooks.bundles.security import ApprovalHooks
     from prodagent.kernel.bus import HookRegistry
     from prodagent.kernel.types import LLMResponse
     from prodagent.llm.fake import FakeLLMAdapter
+    from prodagent.plan.planner import Planner
     from prodagent.tooling import tool
 
     call_log: list[str] = []
@@ -206,7 +213,6 @@ async def test_resume_after_approval_reexecutes_suspended_step(tmp_path):
         name="remediator",
         system_prompt="Fix the incident.",
         tools=[rollback, verify],
-        mode=ExecutionMode.PLAN_FIRST,
         config=AgentConfig(
             name="remediator",
             llm=llm,
@@ -214,9 +220,10 @@ async def test_resume_after_approval_reexecutes_suspended_step(tmp_path):
             checkpoint=store,
             event_log=events,
             extensions=[ApprovalHooks(gate=gate)],
+            planner=Planner(llm),
         ),
     )
-    assert agent.mode is ExecutionMode.PLAN_FIRST
+    assert agent.config.planner is not None  # per-turn drafting agent
 
     session_id = "resume-approval-test"
 
@@ -266,15 +273,17 @@ async def test_handoff_wins_concurrent_sibling_does_not_commit(tmp_path):
     events, checkpoints = _stores(tmp_path)
     executor = _HandoffOnA()
     planner = Scheduler(
-        _plan_llm(
-            {
-                "steps": [
-                    {"id": "a", "action": "a", "params": {}, "depends_on": []},
-                    {"id": "b", "action": "b", "params": {}, "depends_on": []},
-                ]
-            }
+        planner=Planner(
+            _plan_llm(
+                {
+                    "steps": [
+                        {"id": "a", "action": "a", "params": {}, "depends_on": []},
+                        {"id": "b", "action": "b", "params": {}, "depends_on": []},
+                    ]
+                }
+            )
         ),
-        BodyRunner(tools=executor),
+        tools=executor,
         system="sys",
         initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
@@ -307,15 +316,17 @@ async def test_transcript_order_matches_step_order_not_completion_order(tmp_path
     order (a is slow, b is fast — but 'a' must still precede 'b')."""
     events, checkpoints = _stores(tmp_path)
     planner = Scheduler(
-        _plan_llm(
-            {
-                "steps": [
-                    {"id": "a", "action": "a", "params": {}, "depends_on": []},
-                    {"id": "b", "action": "b", "params": {}, "depends_on": []},
-                ]
-            }
+        planner=Planner(
+            _plan_llm(
+                {
+                    "steps": [
+                        {"id": "a", "action": "a", "params": {}, "depends_on": []},
+                        {"id": "b", "action": "b", "params": {}, "depends_on": []},
+                    ]
+                }
+            )
         ),
-        BodyRunner(tools=_SlowFirst()),
+        tools=_SlowFirst(),
         system="sys",
         initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,

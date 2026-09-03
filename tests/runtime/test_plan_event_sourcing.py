@@ -8,10 +8,10 @@ import pytest
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
 from prodagent.base.event_log import Event, PlanEventType
-from prodagent.kernel.bodies.runner import BodyRunner
+from prodagent.kernel.scheduler import Scheduler
 from prodagent.kernel.types import LLMResponse, RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.scheduler import Scheduler
+from prodagent.plan.planner import Planner
 
 _TERMINAL = (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)
 
@@ -59,8 +59,8 @@ async def test_emits_event_sequence(tmp_path):
     events, checkpoints = _stores(tmp_path)
     executor = _RecordingExecutor()
     planner = Scheduler(
-        _plan_llm(_two_step_plan()),
-        BodyRunner(tools=executor),
+        planner=Planner(_plan_llm(_two_step_plan())),
+        tools=executor,
         system="sys",
         initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
@@ -111,8 +111,8 @@ async def test_resume_skips_completed(tmp_path):
     executor = _RecordingExecutor()
     llm = _plan_llm(_two_step_plan())
     planner = Scheduler(
-        llm,
-        BodyRunner(tools=executor),
+        planner=Planner(llm),
+        tools=executor,
         system="sys",
         initial_messages=[{"role": "user", "content": "resume"}],
         event_log=events,
@@ -143,8 +143,8 @@ async def test_dangling_step_started_reruns(tmp_path):
 
     executor = _RecordingExecutor()
     planner = Scheduler(
-        _plan_llm(_two_step_plan()),
-        BodyRunner(tools=executor),
+        planner=Planner(_plan_llm(_two_step_plan())),
+        tools=executor,
         system="sys",
         initial_messages=[{"role": "user", "content": "resume"}],
         event_log=events,
@@ -162,8 +162,12 @@ async def test_checkpoint_only_at_step_boundary(tmp_path):
     events, checkpoints = _stores(tmp_path)
     executor = _RecordingExecutor()
     planner = Scheduler(
-        _plan_llm({"steps": [{"id": "s1", "action": "collect", "params": {}, "depends_on": []}]}),
-        BodyRunner(tools=executor),
+        planner=Planner(
+            _plan_llm(
+                {"steps": [{"id": "s1", "action": "collect", "params": {}, "depends_on": []}]}
+            )
+        ),
+        tools=executor,
         system="sys",
         initial_messages=[{"role": "user", "content": "go"}],
         event_log=events,
@@ -191,8 +195,8 @@ async def test_retry_same_run_id_after_plan_failure_does_not_conflict(tmp_path):
         responses=[LLMResponse(content="not json at all", stop_reason="end_turn")]
     )
     planner1 = Scheduler(
-        bad_llm,
-        BodyRunner(tools=executor),
+        planner=Planner(bad_llm),
+        tools=executor,
         system="sys",
         initial_messages=[{"role": "user", "content": "go"}],
         event_log=events,
@@ -206,8 +210,12 @@ async def test_retry_same_run_id_after_plan_failure_does_not_conflict(tmp_path):
     assert run1.last_error == "Failed to parse plan JSON — no nodes to execute"
 
     planner2 = Scheduler(
-        _plan_llm({"steps": [{"id": "s1", "action": "collect", "params": {}, "depends_on": []}]}),
-        BodyRunner(tools=executor),
+        planner=Planner(
+            _plan_llm(
+                {"steps": [{"id": "s1", "action": "collect", "params": {}, "depends_on": []}]}
+            )
+        ),
+        tools=executor,
         system="sys",
         initial_messages=[{"role": "user", "content": "go"}],
         event_log=events,
@@ -225,23 +233,23 @@ async def test_retry_same_run_id_after_plan_failure_does_not_conflict(tmp_path):
 
 @pytest.mark.asyncio
 async def test_complete_step_aborts_when_step_obsoleted_mid_flight(tmp_path):
-    from prodagent.kernel.bodies.base import ToolBody
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.graph import Node, NodeStatus, Plan
+    from prodagent.kernel.run import Run
     from prodagent.kernel.types import RunState, ToolCall
-    from prodagent.plan.dag import Node, NodeStatus, Plan
+    from prodagent.kernel.units import ToolUnit
 
     events, checkpoints = _stores(tmp_path)
     planner = Scheduler(
-        _plan_llm({"steps": []}),
-        BodyRunner(tools=_RecordingExecutor()),
+        planner=Planner(_plan_llm({"steps": []})),
+        tools=_RecordingExecutor(),
         event_log=events,
         checkpoint_store=checkpoints,
     )
     plan = Plan(plan_id="R5")
-    s0 = Node(node_id="s0", body=ToolBody("do_first"), depends_on=[])
-    step = Node(node_id="s1", body=ToolBody("do_thing"), depends_on=["s0"])
+    s0 = Node(node_id="s0", body=ToolUnit("do_first"), depends_on=[])
+    step = Node(node_id="s1", body=ToolUnit("do_thing"), depends_on=["s0"])
     plan.add_nodes([s0, step])
-    run = AgentRun(run_id="R5", task="t")
+    run = Run(run_id="R5", task="t")
     run.state = RunState.RUNNING
 
     run.node_state("s0").mark_running()
@@ -275,8 +283,8 @@ async def test_complete_step_aborts_when_step_obsoleted_mid_flight(tmp_path):
 
 @pytest.mark.asyncio
 async def test_cold_start_replan_marks_replaced_step_obsolete(tmp_path):
-    from prodagent.plan.dag import NodeStatus, Plan
-    from prodagent.plan.event_log import apply_event
+    from prodagent.kernel.event_log import apply_event
+    from prodagent.kernel.graph import NodeStatus, Plan
 
     events, checkpoints = _stores(tmp_path)
 
@@ -334,8 +342,8 @@ async def test_resume_rebases_checkpoint_version(tmp_path):
     events, checkpoints = _stores(tmp_path)
     executor = _RecordingExecutor()
     planner = Scheduler(
-        _plan_llm(_two_step_plan()),
-        BodyRunner(tools=executor),
+        planner=Planner(_plan_llm(_two_step_plan())),
+        tools=executor,
         system="sys",
         initial_messages=[{"role": "user", "content": "do"}],
         event_log=events,
@@ -350,8 +358,8 @@ async def test_resume_rebases_checkpoint_version(tmp_path):
 
     executor2 = _RecordingExecutor()
     planner2 = Scheduler(
-        _plan_llm(_two_step_plan()),
-        BodyRunner(tools=executor2),
+        planner=Planner(_plan_llm(_two_step_plan())),
+        tools=executor2,
         system="sys",
         initial_messages=[{"role": "user", "content": "resume"}],
         event_log=events,

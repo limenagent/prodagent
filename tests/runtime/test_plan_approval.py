@@ -9,11 +9,11 @@ from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.backends.file.event_log import FileEventLog
 from prodagent.base.errors import SuspendPendingApproval
 from prodagent.hooks import HookRegistry
-from prodagent.kernel.bodies.runner import BodyRunner
 from prodagent.kernel.bus import BlockingResult, Gate
+from prodagent.kernel.scheduler import Scheduler
 from prodagent.kernel.types import LLMResponse, RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.scheduler import Scheduler
+from prodagent.plan.planner import Planner
 
 _TERMINAL = (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)
 
@@ -69,8 +69,8 @@ def _executor_with_checker(checker, tmp_path):
     hooks = HookRegistry()
     hooks.register_checker(Gate.PLAN_APPROVAL, checker, priority=100)
     return Scheduler(
-        _plan_llm(_basic_plan()),
-        BodyRunner(tools=_noop_executor),
+        planner=Planner(_plan_llm(_basic_plan())),
+        tools=_noop_executor,
         system="sys",
         initial_messages=[{"role": "user", "content": "do"}],
         hooks=hooks,
@@ -141,8 +141,8 @@ async def test_plan_suspend_resume_via_pending_approval_id(tmp_path):
 
     hooks.register_checker(Gate.PLAN_APPROVAL, checker, priority=100)
     planner = Scheduler(
-        _plan_llm(_basic_plan()),
-        BodyRunner(tools=_noop_executor),
+        planner=Planner(_plan_llm(_basic_plan())),
+        tools=_noop_executor,
         system="sys",
         initial_messages=[{"role": "user", "content": "do"}],
         hooks=hooks,
@@ -173,8 +173,8 @@ async def test_plan_suspend_resume_via_pending_approval_id(tmp_path):
 async def test_no_hooks_no_plan_approval_gate(tmp_path):
     events, checkpoints = _stores(tmp_path)
     planner = Scheduler(
-        _plan_llm(_basic_plan()),
-        BodyRunner(tools=_noop_executor),
+        planner=Planner(_plan_llm(_basic_plan())),
+        tools=_noop_executor,
         system="sys",
         initial_messages=[{"role": "user", "content": "do"}],
         hooks=None,

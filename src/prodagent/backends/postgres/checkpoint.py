@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from prodagent.backends.postgres._versioned import lock_and_check_version
 from prodagent.backends.postgres.schema import ensure_schema_via_pool_async
 from prodagent.base.errors import VersionConflict
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 
 if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
@@ -34,7 +34,7 @@ class PostgresCheckpointStore:
             row = await cur.fetchone()
             return int(row[0]) if row else 0
 
-    async def save(self, run: AgentRun, expected_version: int | None = None) -> None:
+    async def save(self, run: Run, expected_version: int | None = None) -> None:
         await ensure_schema_via_pool_async(self._pool)
         async with self._pool.connection() as conn:
             async with conn.cursor() as cur:
@@ -57,7 +57,7 @@ class PostgresCheckpointStore:
                 )
             await conn.commit()
 
-    async def load(self, run_id: str, version: int | None = None) -> AgentRun | None:
+    async def load(self, run_id: str, version: int | None = None) -> Run | None:
         await ensure_schema_via_pool_async(self._pool)
         if version is None:
             version = await self._latest_version(run_id)
@@ -72,7 +72,7 @@ class PostgresCheckpointStore:
             row = await cur.fetchone()
         if row is None:
             return None
-        run = AgentRun.from_dict(json.loads(row[0]))
+        run = Run.from_dict(json.loads(row[0]))
         run.checkpoint_version = version
         return run
 

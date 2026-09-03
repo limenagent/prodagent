@@ -12,7 +12,7 @@ from prodagent.base.errors import InfiniteLoopDetected
 from prodagent.base.types import stable_serialize
 
 if TYPE_CHECKING:
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.run import Run
     from prodagent.kernel.types import ToolCall
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ def _tool_fingerprint(call: ToolCall) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()[:20]
 
 
-def _context_hash(run: AgentRun) -> str:
+def _context_hash(run: Run) -> str:
     recent = run.messages[-6:] if len(run.messages) >= 6 else run.messages
     payload = json.dumps(recent, default=stable_serialize)
     return hashlib.md5(payload.encode()).hexdigest()
@@ -46,7 +46,7 @@ def _context_hash(run: AgentRun) -> str:
 class ProgressMonitor:
     """Detect dead loops and ghost loops for one run.
 
-    The dead-loop window lives on the run (``AgentRun.fingerprints``) so it is
+    The dead-loop window lives on the run (``Run.fingerprints``) so it is
     checkpointed: a resumed run keeps its loop memory instead of re-tripping
     the same loop from a zeroed counter."""
 
@@ -62,7 +62,7 @@ class ProgressMonitor:
         self._stall_threshold = stall_threshold
         self._hashes: collections.deque[str] = collections.deque(maxlen=stall_threshold)
 
-    def check(self, run: AgentRun, new_call: ToolCall | None = None) -> None:
+    def check(self, run: Run, new_call: ToolCall | None = None) -> None:
         """Entry point for both guards: with a call, hunt repeated
         fingerprints (dead loop); without one, hunt an unchanged context
         hash (ghost loop). Raises ``InfiniteLoopDetected`` — that's the
@@ -72,7 +72,7 @@ class ProgressMonitor:
         else:
             self._check_ghost_loop(run)
 
-    def _check_dead_loop(self, run: AgentRun, new_call: ToolCall) -> None:
+    def _check_dead_loop(self, run: Run, new_call: ToolCall) -> None:
         fp = _tool_fingerprint(new_call)
         count = run.push_fingerprint(
             fp, window=self._window_size
@@ -87,7 +87,7 @@ class ProgressMonitor:
                 tool=new_call.name,
             )
 
-    def _check_ghost_loop(self, run: AgentRun) -> None:
+    def _check_ghost_loop(self, run: Run) -> None:
         # Ghost loop: turns keep happening but the recent context stops
         # changing — work with no progress, the quieter sibling of a dead loop.
         current = _context_hash(run)

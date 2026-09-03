@@ -188,7 +188,7 @@ def build_tape_router(state: Any, event_log: EventLog, blobs: BlobStore | None) 
         """Re-enact the tape offline and return the verdict: the replayed
         terminal state against the recorded one, and whether the tape was
         consumed exactly (no record left unplayed, none re-asked)."""
-        from prodagent.plan.scheduler import reactive_scheduler
+        from prodagent.runtime.agent_loop import agent_scheduler
         from prodagent.tooling.dispatcher import ToolDispatcher
 
         cassette = await derive_cassette(event_log, run_id, blobs=blobs)
@@ -198,7 +198,7 @@ def build_tape_router(state: Any, event_log: EventLog, blobs: BlobStore | None) 
         task = _task_from_tape(cassette)
         player = CassettePlayer(cassette)
         dispatcher = ToolDispatcher(replay_tools(cassette, player))
-        loop = reactive_scheduler(CassetteLLMClient(player), dispatcher)
+        loop = agent_scheduler(CassetteLLMClient(player), dispatcher)
 
         replay_run = None
         replay_events: list[Any] = []

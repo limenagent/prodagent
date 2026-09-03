@@ -1,7 +1,7 @@
 """activate_subagent — the one activation core every delegation path shares.
 
-Whether a delegation arrives as a tool call the model made mid-Turn
-(``spawn_agent``) or as a node written into the graph (SubAgentBody), the
+Whether a delegation arrives as a tool call the model made mid-Round
+(``spawn_agent``) or as a node written into the graph (SubAgentUnit), the
 execution underneath is identical: resolve the target, activate it through
 the RunnerPort with parentage and the chained ledger, clamp it to its own
 budget's clock, and fold the child run's terminal state into a
@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 from prodagent.base.errors import SECURITY_VETO_EXCEPTIONS
 from prodagent.coordination.spawn import ChildResult, short_result
-from prodagent.kernel.state import collect_final_run
+from prodagent.kernel.run import collect_final_run
 from prodagent.kernel.types import RunState, ToolResult
 from prodagent.ports.execution import AgentActivation
 
@@ -57,7 +57,7 @@ async def activate_subagent(
     # NB: `child_run_id` is also this function's parameter — alias the
     # helper instead of shadowing it, or the function object rides home as
     # the run id (found the hard way: one TypeError in safe_filename).
-    from prodagent.kernel.state import child_run_id as mint_child_id
+    from prodagent.kernel.run import child_run_id as mint_child_id
 
     resolved_child_id = child_run_id or (
         mint_child_id(parent_run_id, spec.name) if parent_run_id else None
@@ -136,7 +136,7 @@ async def _activate_and_fold(
 
 
 def child_result_to_outcome(result: ChildResult) -> ToolResult:
-    """A ChildResult as a node outcome envelope — how a SubAgentBody folds
+    """A ChildResult as a node outcome envelope — how a SubAgentUnit folds
     the child's terminal state into the parent graph: completion carries the
     report, suspension parks the parent node on the same approval, failure
     becomes red feedback (replanning IS the recovery)."""

@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 from prodagent.kernel.budget import SpawnAccumulator, open_ledger
 from prodagent.kernel.bus import HookEvent
-from prodagent.kernel.state import (
-    AgentRun,
+from prodagent.kernel.run import (
+    Run,
     collect_final_run,
     is_child_subordinate,
     make_failed_run,
@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from prodagent.cognition.context.spill import ToolResultSpillStore
     from prodagent.kernel.budget import BudgetLedger
     from prodagent.kernel.bus import HookRegistry
-    from prodagent.kernel.types import AgentEvent, ExecutionMode, MessageList
+    from prodagent.kernel.types import AgentEvent, MessageList
     from prodagent.ports import CheckpointStore, EventLog
     from prodagent.ports.budget_ledger import BudgetLedgerPort
     from prodagent.ports.execution import (
@@ -63,7 +63,7 @@ if TYPE_CHECKING:
         async def next_hop(
             self,
             agent: Agent,
-            run: AgentRun,
+            run: Run,
             *,
             run_id: str,
             depth: int,
@@ -155,7 +155,7 @@ class RunContext:
         self.blob_store = resolve_blob_store(fw, cfg.blob_store, event_log=self.event_log)
         # Boundary recorder: with an event log configured,
         # every LLM answer this hop's client gives lands on the driving run's
-        # boundary stream. One wrap point covers all three execution modes —
+        # boundary stream. One wrap point covers every execution shape —
         # they share this client. Off-scope calls (background distillation)
         # skip themselves inside the recorder.
         if self.event_log is not None:
@@ -224,7 +224,7 @@ async def drive_stream(
     *,
     run_id: str | None = None,
     output_schema: type[BaseModel] | None = None,
-    forced_mode: ExecutionMode | None = None,
+    single_unit: bool = False,
     initial_messages: MessageList | None = None,
     parent_run_id: str | None = None,
     budget_ledger: BudgetLedger | None = None,
@@ -242,7 +242,7 @@ async def drive_stream(
         initial_ctx=initial_ctx,
         root_run_id=root_run_id,
         output_schema=output_schema,
-        forced_mode=forced_mode,
+        single_unit=single_unit,
         initial_messages=initial_messages,
         budget_ledger=budget_ledger,
     )
@@ -256,17 +256,17 @@ async def drive(
     *,
     run_id: str | None = None,
     parent_run_id: str | None = None,
-    forced_mode: ExecutionMode | None = None,
+    single_unit: bool = False,
     initial_messages: MessageList | None = None,
     budget_ledger: BudgetLedger | None = None,
-) -> AgentRun:
+) -> Run:
     """Drive an agent to terminal state and return the final run. Used by spawn."""
     root_run_id = run_id or str(uuid.uuid4())
     stream = drive_stream(
         agent,
         task,
         run_id=root_run_id,
-        forced_mode=forced_mode,
+        single_unit=single_unit,
         initial_messages=initial_messages,
         parent_run_id=parent_run_id,
         budget_ledger=budget_ledger,
@@ -316,8 +316,8 @@ class RunLoop:
     A "hop" is one agent's turn: build its executor via ``SchedulerFactory``,
     run it to completion, then check whether it produced a peer hand-off. If so,
     loop again with the peer as the new root agent; otherwise the run is done.
-    Not to be confused with the ReactEngine — the Turn loop inside a
-    react node, which drives the think/act steps *inside* a single hop;
+    Not to be confused with the AgentLoop — the round loop inside an
+    autonomous node, which drives the think/act steps *inside* a single hop;
     ``RunLoop`` never
     talks to an LLM directly, it only orchestrates which agent gets the next hop.
     """
@@ -329,7 +329,7 @@ class RunLoop:
         root_run_id: str,
         output_schema: type[BaseModel] | None,
         *,
-        forced_mode: ExecutionMode | None = None,
+        single_unit: bool = False,
         initial_messages: MessageList | None = None,
         budget_ledger: BudgetLedger | None = None,
     ) -> None:
@@ -337,7 +337,7 @@ class RunLoop:
         self._ctx = initial_ctx
         self._root_run_id = root_run_id
         self._output_schema = output_schema
-        self._factory = SchedulerFactory(forced_mode=forced_mode, initial_messages=initial_messages)
+        self._factory = SchedulerFactory(single_unit=single_unit, initial_messages=initial_messages)
         # One ledger for the whole tree: a spawned child arrives with its
         # parent's ledger (siblings visible); a root run mints a fresh one.
         self._ledger = open_ledger(root_agent.budget_config, existing=budget_ledger)
@@ -349,7 +349,7 @@ class RunLoop:
         drain observers) → relay a handoff into the next hop, or settle the
         whole chain. Cancellation still finalizes — a killed chain leaves a
         settled FAILED run on disk, never a dangling one."""
-        overall_final_run: AgentRun | None = None
+        overall_final_run: Run | None = None
         settle_hooks: HookRegistry | None = None
 
         while True:
@@ -357,7 +357,7 @@ class RunLoop:
             ctx.budget_ledger = self._ledger
             if not ctx.tool_assemblers:
                 ctx.tool_assemblers = hop_tool_assemblers()
-            final_run: AgentRun | None = None
+            final_run: Run | None = None
             next_ctx: RunContext | None = None
             try:
                 async with ctx:
@@ -416,7 +416,7 @@ class RunLoop:
 
     async def _next_context(
         self,
-        run: AgentRun | None,
+        run: Run | None,
         ctx: RunContext,
         spawn_acc: SpawnAccumulator | None = None,
     ) -> RunContext | None:
@@ -467,7 +467,7 @@ class RunLoop:
 
     async def _settle(
         self,
-        run: AgentRun,
+        run: Run,
         checkpoint: Any,
         hooks: HookRegistry | None,
     ) -> None:
@@ -484,7 +484,7 @@ class RunLoop:
 
     async def _finalize_run(
         self,
-        run: AgentRun | None,
+        run: Run | None,
         ctx: RunContext,
         hooks: HookRegistry | None,
         spawn_acc: SpawnAccumulator | None,

@@ -7,7 +7,6 @@ from pathlib import Path
 from prodagent import (
     Agent,
     AgentConfig,
-    ExecutionMode,
     FrameworkConfig,
     HardBudget,
     LLMClient,
@@ -87,7 +86,6 @@ def build_aiops_agent(
         "investigate",
         tools=[page_oncall],
         system_prompt=_SYSTEM_PROMPT,
-        mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_turns=20, max_cost_usd=1.0, max_seconds=1800.0),
         config=AgentConfig(
             name="investigate",

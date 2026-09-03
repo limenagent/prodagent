@@ -20,7 +20,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from prodagent import Agent, AgentConfig, ExecutionMode, FrameworkConfig, HardBudget, use_fake_llm
+from prodagent import Agent, AgentConfig, FrameworkConfig, HardBudget, use_fake_llm
 from prodagent.skills.registry import SkillRegistry
 from prodagent.mcp.config import MCPServerConfig
 
@@ -105,7 +105,6 @@ def build_code_detective_agent(
         "code_detective",
         system_prompt=_SYSTEM_PROMPT,
         tools=[],
-        mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_turns=20, max_cost_usd=0.80, max_seconds=300.0),
         config=AgentConfig(
             name="code_detective",

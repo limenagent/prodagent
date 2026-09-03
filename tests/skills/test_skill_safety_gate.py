@@ -16,7 +16,7 @@ import pytest
 
 from prodagent import RunState
 from prodagent.backends.file.experience import FileExperienceStore
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.ports.persistence import ExperienceRecord
@@ -36,7 +36,7 @@ def _fake_llm(*contents: str) -> FakeLLMAdapter:
 def _seed(tags: list[str], run_id: str = "r") -> ExperienceRecord:
     from prodagent.kernel.types import ToolCall
 
-    run = AgentRun(run_id=run_id, task="do the thing", state=RunState.COMPLETED)
+    run = Run(run_id=run_id, task="do the thing", state=RunState.COMPLETED)
     run.tool_history = [ToolCall(name="do_it", params={})]
     run.final_output = "done"
     return ExperienceRecord.from_run(run, tags=tags)

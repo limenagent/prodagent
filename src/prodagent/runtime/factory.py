@@ -2,8 +2,8 @@
 
 One public method (``prepare``) and three build steps, top to bottom:
 tools → runtime → engine. No pass-through relays, no mode branches: the
-same Scheduler leaves the factory whether the plan comes from a model, a
-hand-written Workflow, or the REACTIVE degenerate blueprint.
+same Scheduler leaves the factory whether the graph comes from a model, a
+hand-written Workflow, or the agent itself as a single unit.
 """
 
 from __future__ import annotations
@@ -13,17 +13,17 @@ from typing import TYPE_CHECKING, Any
 
 from prodagent.base.config import ContextConfig
 from prodagent.base.errors import PermissionDenied
-from prodagent.kernel.bodies.runner import BodyRunner
 from prodagent.kernel.budget import SAFETY_NET_BUDGET
 from prodagent.kernel.bus import Gate, HookEvent
-from prodagent.kernel.react import ReactEngine
-from prodagent.kernel.types import ExecutionMode, MessageList
+from prodagent.kernel.types import MessageList
+from prodagent.runtime.agent_loop import AgentLoop
 from prodagent.tooling.dispatcher import ToolDispatcher
 from prodagent.tooling.merge import merge_tools_by_name
 
 if TYPE_CHECKING:
     from prodagent.kernel.budget import SpawnAccumulator
     from prodagent.kernel.bus import HookRegistry
+    from prodagent.kernel.types import MessageList
     from prodagent.ports import Executor
     from prodagent.runtime.agent import Agent
     from prodagent.runtime.runner import RunContext
@@ -113,10 +113,10 @@ class SchedulerFactory:
     def __init__(
         self,
         *,
-        forced_mode: ExecutionMode | None = None,
+        single_unit: bool = False,
         initial_messages: MessageList | None = None,
     ) -> None:
-        self._forced_mode = forced_mode
+        self._single_unit = single_unit
         self._initial_messages = initial_messages
 
     async def prepare(
@@ -149,7 +149,7 @@ class SchedulerFactory:
         system = agent.build_system_prompt()
         effective_budget = agent.budget_config or SAFETY_NET_BUDGET
         # Compression is opt-in: bare agents send the loop's messages through
-        # untouched (the ReactEngine handles a None context manager).
+        # untouched (the AgentLoop handles a None context manager).
         ctx_manager = (
             agent.build_context_manager(system, fw, ctx) if fw.context.compression else None
         )
@@ -165,18 +165,23 @@ class SchedulerFactory:
             blob_threshold_bytes=fw.boundary_blob_threshold_bytes,
         )
         is_root = ctx.depth == 0
-        effective_mode = (
-            self._forced_mode if (is_root and self._forced_mode is not None) else agent.mode
+        # The chat path runs the agent itself as the unit (one-node graph,
+        # checkpoint-resumable); the work path runs a drafted or preset
+        # graph. An agent with neither a preset nor a planner IS its unit at
+        # every hop — composition decides, not a mode enum.
+        single_unit = (is_root and self._single_unit) or (
+            agent.config.initial_plan is None and agent.config.planner is None
         )
         initial_messages = self._initial_messages if is_root else None
 
-        # 3. the engine: one Scheduler for every source. REACTIVE is a
-        # single-react-node plan; PLAN_FIRST is a drafted or preset DAG —
-        # the wave loop never learns which. (Lazily imported: importing an
-        # Agent stays execution-free — the engine loads when a run starts.)
-        from prodagent.plan.scheduler import Scheduler
+        # 3. the engine: one Scheduler for every shape. (Lazily imported:
+        # importing an Agent stays execution-free — the engine loads when a
+        # run starts.)
+        from prodagent.kernel.scheduler import Scheduler
+        from prodagent.kernel.units import AutonomousUnit
+        from prodagent.plan.planner import Planner
 
-        react = ReactEngine(
+        engine = AgentLoop(
             ctx.llm,
             dispatcher,
             system_prompt=system,
@@ -190,10 +195,11 @@ class SchedulerFactory:
             spill_store=ctx.spill_store,
             budget_ledger=ctx.budget_ledger,
         )
-        # Both modes share this dispatcher, so both get spill truncation —
-        # PLAN_FIRST tool results must not accumulate raw in the transcript
-        # either. REACTIVE additionally fingerprints tool batches through the
-        # dead-loop guard; PLAN_FIRST nodes fail into replans instead.
+        # Both shapes share this dispatcher, so both get spill truncation —
+        # graph tool results must not accumulate raw in the transcript
+        # either. The single-unit shape additionally fingerprints tool
+        # batches through the dead-loop guard; graph nodes fail into
+        # replans instead.
         dispatcher.configure_batch(
             loop_config=fw.loop,
             context_config=(
@@ -202,33 +208,42 @@ class SchedulerFactory:
                 else (ContextConfig() if ctx.spill_store is not None else None)
             ),
             spill_store=ctx.spill_store,
-            progress_monitor=react.progress if effective_mode is ExecutionMode.REACTIVE else None,
+            progress_monitor=engine.progress if single_unit else None,
         )
         executor: Scheduler = Scheduler(
-            ctx.llm,
-            BodyRunner(
-                dispatcher.dispatch,
-                fns=agent.config.node_fns,
-                llm=_llm_invoker(ctx.llm, hooks),
-                react=react,
-                subagent=_subagent_invoker(ctx),
-            ),
-            mode=effective_mode,
             system=system,
             initial_messages=initial_messages,
             hooks=agent.hooks,
             agent_name=agent.name,
-            tool_schemas=tool_schemas,
-            # Reactive treats both stores as opt-in (None stays None); plan
-            # mode always tracks DAG state, so it gets the agent's fallbacks.
+            # Planning is injected: the kernel takes a PlannerPort, the LLM
+            # implementation is composed here (one layer up, where it belongs).
+            # Parentheses matter: the default planner is an alternative to the
+            # injected one, gated by single_unit as a whole.
+            planner=(
+                agent.config.planner
+                or Planner(
+                    llm=ctx.llm,
+                    config=None,
+                    tool_schemas=tool_schemas or [],
+                    hooks=agent.hooks,
+                    framework_config=fw,
+                    registry=agent.config.registry,
+                )
+                if not single_unit
+                else None
+            ),
+            initial_unit=AutonomousUnit() if single_unit else None,
+            # The single-unit shape treats both stores as opt-in (None stays
+            # None); graph tracking always tracks DAG state, so it gets the
+            # agent's fallbacks.
             event_log=(
                 ctx.event_log
-                if effective_mode is ExecutionMode.REACTIVE
+                if single_unit
                 else ctx.event_log or agent.ensure_plan_event_log_fallback()
             ),
             checkpoint_store=(
                 ctx.checkpoint
-                if effective_mode is ExecutionMode.REACTIVE
+                if single_unit
                 else ctx.checkpoint or agent.ensure_plan_checkpoint_fallback()
             ),
             framework_config=fw,
@@ -237,8 +252,11 @@ class SchedulerFactory:
             budget_ledger=ctx.budget_ledger,
             max_replans=agent.config.max_replans,
             dispatcher=dispatcher,
-            react=react,
+            engine=engine,
             depth=ctx.depth,
+            fns=agent.config.node_fns,
+            llm_invoker=_llm_invoker(ctx.llm, hooks),
+            subagent=_subagent_invoker(ctx),
         )
         return hooks, executor, spawn_acc
 

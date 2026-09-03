@@ -5,25 +5,25 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
-from dataclasses import dataclass
 from importlib import resources
 from typing import TYPE_CHECKING, Any
 
 from prodagent.base.errors import SECURITY_VETO_EXCEPTIONS, LLMError
 from prodagent.hooks import fire as _fire
-from prodagent.kernel.bodies.base import ReActBody, ToolBody
 from prodagent.kernel.bus import HookEvent
+from prodagent.kernel.graph import Node, Plan, PlanDraft
 from prodagent.kernel.types import NodeStatus
+from prodagent.kernel.units import AutonomousUnit, ToolUnit
 from prodagent.llm import LLMConfig
 from prodagent.llm.structured_output import extract_json_object
-from prodagent.plan.dag import Node, Plan
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from prodagent.kernel.bus import HookRegistry
     from prodagent.kernel.node_state import NodeRuntimeState
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.registry import UnitRegistry
+    from prodagent.kernel.run import Run
     from prodagent.kernel.types import MessageList
     from prodagent.llm import LLMClient
 
@@ -32,27 +32,31 @@ logger = logging.getLogger(__name__)
 _DEFAULT_PLANNING_MAX_TOKENS = 16_384
 
 
-@dataclass
-class PlanDraft:
-    """Parsed nodes (empty means no plan) + raw response text from one
-    planning LLM call — parse success and raw evidence travel together so
-    a bad draft is auditable against what the model actually said."""
-
-    nodes: list[Node]
-    raw_text: str
-
-
 def _load_prompt(name: str) -> str:
     return (resources.files("prodagent.plan.prompts") / f"{name}.txt").read_text()
 
 
-def _tool_reference(tool_schemas: list[dict[str, Any]]) -> str:
-    """The only tool catalogue the planner sees."""
+def _tool_reference(
+    tool_schemas: list[dict[str, Any]], registry: UnitRegistry | None = None
+) -> str:
+    """The only catalogue the planner sees: tools, plus any registered
+    units a step may name under ``"unit"`` (a composed Sequential, a
+    workflow, another agent — the registry is the roster)."""
     compact = [
         {"name": s.get("name", "?"), "input_schema": s.get("input_schema", {})}
         for s in tool_schemas
     ]
-    return "Available tools (use ONLY these):\n" + json.dumps(compact, indent=2)
+    out = "Available tools (use ONLY these):\n" + json.dumps(compact, indent=2)
+    if registry:
+        entries = []
+        for name in registry.names():
+            meta = registry.meta_of(name)
+            entries.append({"unit": name, "description": meta.description if meta else ""})
+        out += (
+            '\nRegistered units (a step may set "unit": "<name>" to run one '
+            "instead of a plain tool call):\n" + json.dumps(entries, indent=2)
+        )
+    return out
 
 
 def _replan_user_prompt(
@@ -94,16 +98,18 @@ class Planner:
     def __init__(
         self,
         llm: LLMClient,
-        config: LLMConfig | None,
-        tool_schemas: list[dict[str, Any]] | None,
+        config: LLMConfig | None = None,
+        tool_schemas: list[dict[str, Any]] | None = None,
         *,
         hooks: HookRegistry | None = None,
         framework_config: Any = None,
+        registry: UnitRegistry | None = None,
     ) -> None:
         self._llm = llm
         self._config = config
         self._tool_schemas = tool_schemas or []
         self._hooks = hooks
+        self._registry = registry
         if framework_config is not None:
             self._max_tokens = framework_config.orchestration.planning_max_tokens
         else:
@@ -116,7 +122,7 @@ class Planner:
         task: str,
         system: str,
         messages: MessageList,
-        run: AgentRun,
+        run: Run,
     ) -> PlanDraft:
         """One planning call. Returns the draft *with raw text* — parse
         success and raw evidence travel together so a bad plan is auditable
@@ -131,7 +137,7 @@ class Planner:
         issues: str,
         task: str,
         system: str,
-        run: AgentRun,
+        run: Run,
     ) -> PlanDraft:
         """One repair round: the rejected draft and its validator issues go
         back to the model — errors are feedback, not exceptions (column 16)."""
@@ -153,7 +159,7 @@ class Planner:
         error: str,
         system: str,
         original_messages: MessageList,
-        run: AgentRun,
+        run: Run,
     ) -> list[Node]:
         """One recovery call — replacement steps only, never a full re-plan.
         The prompt shows what survived (completed), what died (obsolete), and
@@ -177,7 +183,7 @@ class Planner:
     def _build_system(self, caller_system: str, prompt: str) -> str:
         parts = [caller_system, prompt]
         if self._tool_schemas:
-            parts.append(_tool_reference(self._tool_schemas))
+            parts.append(_tool_reference(self._tool_schemas, self._registry))
         return "\n\n".join(parts)
 
     def _planning_cfg(self) -> LLMConfig:
@@ -189,7 +195,7 @@ class Planner:
         self,
         messages: MessageList,
         system: str,
-        run: AgentRun,
+        run: Run,
     ) -> str:
         await _fire(
             self._hooks,
@@ -238,11 +244,27 @@ class Planner:
         nodes: list[Node] = []
         for s in data.get("steps", []):
             try:
-                if s.get("goal"):
+                if s.get("unit") is not None:
+                    if self._registry is None:
+                        logger.warning(
+                            "[Plan] step %r names a unit but no registry is wired", s.get("id")
+                        )
+                        continue
                     nodes.append(
                         Node(
                             node_id=s["id"],
-                            body=ReActBody(goal=str(s["goal"])),
+                            body=self._registry.require(str(s["unit"])),
+                            params=s.get("params", {}),
+                            depends_on=s.get("depends_on", []),
+                            is_terminal=bool(s.get("terminal", False)),
+                            replaces_node_id=s.get("replaces"),
+                        )
+                    )
+                elif s.get("goal"):
+                    nodes.append(
+                        Node(
+                            node_id=s["id"],
+                            body=AutonomousUnit(goal=str(s["goal"])),
                             params={},
                             depends_on=s.get("depends_on", []),
                             is_terminal=bool(s.get("terminal", False)),
@@ -253,7 +275,7 @@ class Planner:
                     nodes.append(
                         Node(
                             node_id=s["id"],
-                            body=ToolBody(s["action"]),
+                            body=ToolUnit(s["action"]),
                             params=s.get("params", {}),
                             depends_on=s.get("depends_on", []),
                             is_terminal=bool(s.get("terminal", False)),

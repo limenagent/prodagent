@@ -10,12 +10,12 @@ from __future__ import annotations
 import pytest
 
 from prodagent.base.session import ConversationSession, TurnRecord
-from prodagent.kernel.state import AgentRun
-from prodagent.kernel.types import ExecutionMode, RunState
+from prodagent.kernel.run import Run
+from prodagent.kernel.types import RunState
 
 
-def _completed_run(run_id: str, *, messages=None, final_output: str = "ok") -> AgentRun:
-    run = AgentRun(run_id=run_id, task="t")
+def _completed_run(run_id: str, *, messages=None, final_output: str = "ok") -> Run:
+    run = Run(run_id=run_id, task="t")
     run.state = RunState.COMPLETED
     run.final_output = final_output
     if messages:
@@ -23,8 +23,8 @@ def _completed_run(run_id: str, *, messages=None, final_output: str = "ok") -> A
     return run
 
 
-def _suspended_run(run_id: str, *, messages=None) -> AgentRun:
-    run = AgentRun(run_id=run_id, task="t")
+def _suspended_run(run_id: str, *, messages=None) -> Run:
+    run = Run(run_id=run_id, task="t")
     run.state = RunState.SUSPENDED
     if messages:
         run.messages = list(messages)
@@ -34,9 +34,9 @@ def _suspended_run(run_id: str, *, messages=None) -> AgentRun:
 class TestStartTurn:
     def test_first_turn_mints_run_id_with_seq_and_is_new(self):
         s = ConversationSession(session_id="sess-A", agent_id="agent")
-        alloc = s.start_turn("hi", mode=ExecutionMode.REACTIVE)
+        alloc = s.start_turn("hi", single_unit=True)
         assert alloc.run_id == "sess-A:1"
-        assert alloc.mode is ExecutionMode.REACTIVE
+        assert alloc.single_unit is True
         assert alloc.is_new is True
         assert len(alloc.messages) == 1
         assert alloc.messages[0]["role"] == "user"
@@ -44,9 +44,9 @@ class TestStartTurn:
 
     def test_completed_prior_turn_mints_new_run_id(self):
         s = ConversationSession(session_id="sess-A", agent_id="agent")
-        rid1 = s.start_turn("m1", mode=ExecutionMode.PLAN_FIRST).run_id
-        s.complete_turn(rid1, ExecutionMode.PLAN_FIRST, _completed_run(rid1))
-        alloc2 = s.start_turn("m2", mode=ExecutionMode.PLAN_FIRST)
+        rid1 = s.start_turn("m1", single_unit=False).run_id
+        s.complete_turn(rid1, False, _completed_run(rid1))
+        alloc2 = s.start_turn("m2", single_unit=False)
         assert rid1 != alloc2.run_id
         assert rid1 == "sess-A:1"
         assert alloc2.run_id == "sess-A:2"
@@ -54,25 +54,25 @@ class TestStartTurn:
 
     def test_suspended_prior_turn_reuses_run_id_same_mode_not_new(self):
         s = ConversationSession(session_id="sess-A", agent_id="agent")
-        rid1 = s.start_turn("m1", mode=ExecutionMode.PLAN_FIRST).run_id
-        s.complete_turn(rid1, ExecutionMode.PLAN_FIRST, _suspended_run(rid1))
-        alloc2 = s.start_turn("resume", mode=ExecutionMode.PLAN_FIRST)
+        rid1 = s.start_turn("m1", single_unit=False).run_id
+        s.complete_turn(rid1, False, _suspended_run(rid1))
+        alloc2 = s.start_turn("resume", single_unit=False)
         assert rid1 == alloc2.run_id
         assert alloc2.is_new is False
 
     def test_suspended_prior_turn_rejects_mode_mismatch(self):
         s = ConversationSession(session_id="sess-A", agent_id="agent")
-        rid1 = s.start_turn("m1", mode=ExecutionMode.PLAN_FIRST).run_id
-        s.complete_turn(rid1, ExecutionMode.PLAN_FIRST, _suspended_run(rid1))
+        rid1 = s.start_turn("m1", single_unit=False).run_id
+        s.complete_turn(rid1, False, _suspended_run(rid1))
         with pytest.raises(ValueError, match="SUSPENDED"):
-            s.start_turn("resume", mode=ExecutionMode.REACTIVE)
+            s.start_turn("resume", single_unit=True)
 
     def test_messages_accumulate_across_turns(self):
         s = ConversationSession(session_id="sess-A", agent_id="agent")
-        rid1 = s.start_turn("first", mode=ExecutionMode.REACTIVE).run_id
+        rid1 = s.start_turn("first", single_unit=True).run_id
         s.complete_turn(
             rid1,
-            ExecutionMode.REACTIVE,
+            True,
             _completed_run(
                 rid1,
                 messages=[
@@ -81,7 +81,7 @@ class TestStartTurn:
                 ],
             ),
         )
-        m2 = s.start_turn("second", mode=ExecutionMode.REACTIVE).messages
+        m2 = s.start_turn("second", single_unit=True).messages
         assert len(m2) == 3
         assert m2[0]["content"] == "first"
         assert m2[2]["content"] == "second"
@@ -90,29 +90,29 @@ class TestStartTurn:
 class TestCompleteTurn:
     def test_folds_run_messages_into_session(self):
         s = ConversationSession(session_id="sess-A", agent_id="agent")
-        rid = s.start_turn("hi", mode=ExecutionMode.REACTIVE).run_id
+        rid = s.start_turn("hi", single_unit=True).run_id
         msgs = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hey"}]
-        s.complete_turn(rid, ExecutionMode.REACTIVE, _completed_run(rid, messages=msgs))
+        s.complete_turn(rid, True, _completed_run(rid, messages=msgs))
         assert s.messages == msgs
 
     def test_records_turn_with_state_and_output(self):
         s = ConversationSession(session_id="sess-A", agent_id="agent")
-        rid = s.start_turn("hi", mode=ExecutionMode.REACTIVE).run_id
-        s.complete_turn(rid, ExecutionMode.REACTIVE, _completed_run(rid, final_output="done"))
+        rid = s.start_turn("hi", single_unit=True).run_id
+        s.complete_turn(rid, True, _completed_run(rid, final_output="done"))
         assert len(s.turns) == 1
         t = s.last_turn
         assert t.run_id == rid
-        assert t.mode is ExecutionMode.REACTIVE
+        assert t.single_unit is True
         assert t.state is RunState.COMPLETED
         assert t.final_output == "done"
 
     def test_suspended_then_resumed_replaces_turn_record(self):
         s = ConversationSession(session_id="sess-A", agent_id="agent")
-        rid = s.start_turn("m1", mode=ExecutionMode.PLAN_FIRST).run_id
-        s.complete_turn(rid, ExecutionMode.PLAN_FIRST, _suspended_run(rid))
+        rid = s.start_turn("m1", single_unit=False).run_id
+        s.complete_turn(rid, False, _suspended_run(rid))
         assert s.last_turn.state is RunState.SUSPENDED
         # Resume path reuses the same run_id, so the turn record is replaced in place.
-        s.complete_turn(rid, ExecutionMode.PLAN_FIRST, _completed_run(rid, final_output="finished"))
+        s.complete_turn(rid, False, _completed_run(rid, final_output="finished"))
         assert len(s.turns) == 1
         assert s.last_turn.state is RunState.COMPLETED
         assert s.last_turn.final_output == "finished"
@@ -122,13 +122,13 @@ class TestCompleteTurn:
         # or delta. If someone later "optimizes" this to a shallow ref or
         # incremental copy, history silently drops — this test fails first.
         s = ConversationSession(session_id="sess-A", agent_id="agent")
-        rid = s.start_turn("hi", mode=ExecutionMode.REACTIVE).run_id
+        rid = s.start_turn("hi", single_unit=True).run_id
         run_msgs = [
             {"role": "user", "content": "hi"},
             {"role": "assistant", "content": "hey"},
             {"role": "user", "content": "more"},
         ]
-        s.complete_turn(rid, ExecutionMode.REACTIVE, _completed_run(rid, messages=run_msgs))
+        s.complete_turn(rid, True, _completed_run(rid, messages=run_msgs))
         assert s.messages == run_msgs
         # Mutating the run's list post-complete must not leak into the session.
         run_msgs.append({"role": "assistant", "content": "late"})
@@ -149,10 +149,10 @@ class TestCompleteTurn:
 class TestSerialization:
     def test_round_trip_preserves_messages_and_turns(self):
         s = ConversationSession(session_id="sess-A", agent_id="agent")
-        rid = s.start_turn("m1", mode=ExecutionMode.PLAN_FIRST).run_id
+        rid = s.start_turn("m1", single_unit=False).run_id
         s.complete_turn(
             rid,
-            ExecutionMode.PLAN_FIRST,
+            False,
             _completed_run(
                 rid,
                 messages=[
@@ -170,7 +170,7 @@ class TestSerialization:
         assert len(s2.turns) == 1
         assert s2.turns[0].run_id == rid
         assert s2.turns[0].state is RunState.COMPLETED
-        assert s2.turns[0].mode is ExecutionMode.PLAN_FIRST
+        assert s2.turns[0].single_unit is False
 
     def test_empty_session_round_trip(self):
         s = ConversationSession(session_id="empty", agent_id="agent")
@@ -182,19 +182,19 @@ class TestSerialization:
 
 class TestTurnRecord:
     def test_to_dict_serializes_enums(self):
-        t = TurnRecord(run_id="r", mode=ExecutionMode.REACTIVE, state=RunState.SUSPENDED)
+        t = TurnRecord(run_id="r", single_unit=True, state=RunState.SUSPENDED)
         d = t.to_dict()
-        assert d["mode"] == ExecutionMode.REACTIVE.value
+        assert d["single_unit"] is True
         assert d["state"] == RunState.SUSPENDED.value
 
     def test_from_dict_reads_enums(self):
         t = TurnRecord.from_dict(
             {
                 "run_id": "r",
-                "mode": ExecutionMode.PLAN_FIRST.value,
+                "single_unit": False,
                 "state": RunState.COMPLETED.value,
                 "final_output": "ok",
             }
         )
-        assert t.mode is ExecutionMode.PLAN_FIRST
+        assert t.single_unit is False
         assert t.state is RunState.COMPLETED

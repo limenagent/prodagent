@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent import Agent, AgentConfig
 from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.kernel.bus import HookEvent, HookRegistry
 from prodagent.llm.fake import script
@@ -24,7 +24,6 @@ async def test_agent_run_fires_checkpoint_failed_once_across_both_save_sites(tmp
     agent = Agent(
         "checkpoint-fail-agent",
         system_prompt="Say hi",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="checkpoint-fail-agent",
             llm=script({"content": "hi"}),
@@ -49,7 +48,6 @@ async def test_agent_run_never_fires_checkpoint_failed_when_healthy(tmp_path):
     agent = Agent(
         "checkpoint-ok-agent",
         system_prompt="Say hi",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="checkpoint-ok-agent",
             llm=script({"content": "hi"}),

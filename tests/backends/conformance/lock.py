@@ -53,7 +53,7 @@ async def run_lock_nonblocking_tryacquire_conformance(make_store: Factory) -> No
     the acquire in ``asyncio.wait_for(..., timeout=0)`` raced its zero-second
     cancellation against the acquire's own scheduling and lost every time,
     so a completely free lock still reported a timeout. Buzz-in arbitration
-    (blackboard.py) depends on ``timeout=0`` being a working trylock.
+    depends on ``timeout=0`` being a working trylock.
     """
     store = make_store()
 

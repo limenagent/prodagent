@@ -2,28 +2,28 @@ from __future__ import annotations
 
 import pytest
 
-from prodagent import Agent, AgentConfig, ExecutionMode
+from prodagent import Agent, AgentConfig
 from prodagent.coordination.spawn import ChildResult
 from prodagent.kernel.budget import HardBudget, SpawnAccumulator
 from prodagent.kernel.bus import HookRegistry
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.kernel.types import LLMResponse, ToolCall
 from prodagent.llm import LLMConfig
 from prodagent.llm.fake import FakeLLMAdapter
 
 
-def fold_spawn_accounting(run: AgentRun, accumulator: SpawnAccumulator | None) -> None:
+def fold_spawn_accounting(run: Run, accumulator: SpawnAccumulator | None) -> None:
     """The runner-side entry: hop-end fold, no-op when nothing was spawned."""
     if accumulator is not None:
         accumulator.fold_into(run)
 
 
 def _reactive_agent(name: str, *, context: str = "") -> Agent:
-    return Agent(name, system_prompt=context, mode=ExecutionMode.REACTIVE)
+    return Agent(name, system_prompt=context)
 
 
 def test_fold_spawn_accounting_adds_onto_existing_run_totals():
-    run = AgentRun(run_id="r1", task="t")
+    run = Run(run_id="r1", task="t")
     run.metrics.cost_usd = 0.5
     run.metrics.turn_count = 3
     run.metrics.input_tokens = 100
@@ -49,7 +49,7 @@ def test_fold_spawn_accounting_adds_onto_existing_run_totals():
 
 
 def test_fold_spawn_accounting_noop_when_accumulator_none_or_empty():
-    run = AgentRun(run_id="r1", task="t")
+    run = Run(run_id="r1", task="t")
     run.metrics.cost_usd = 0.5
     run.metrics.turn_count = 3
     run.metrics.input_tokens = 1
@@ -110,7 +110,6 @@ async def test_concurrent_spawns_fold_into_parent_run_end_to_end(monkeypatch):
     parent = Agent(
         "parent",
         system_prompt="delegates to A and B",
-        mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_cost_usd=100.0, max_tokens=10_000_000),
         config=AgentConfig(name="parent", agents=[child_a, child_b]),
     )
@@ -147,10 +146,10 @@ async def test_concurrent_spawns_fold_into_parent_run_end_to_end(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_spawned_child_run_has_parent_run_id(tmp_path, monkeypatch):
-    """A spawned child's AgentRun carries parent_run_id — the explicit field
+    """A spawned child's Run carries parent_run_id — the explicit field
     that replaces ::-string parsing in is_child_subordinate."""
     from prodagent.base.config import FrameworkConfig
-    from prodagent.kernel.state import is_child_subordinate
+    from prodagent.kernel.run import is_child_subordinate
 
     monkeypatch.setattr(
         LLMConfig,
@@ -163,13 +162,12 @@ async def test_spawned_child_run_has_parent_run_id(tmp_path, monkeypatch):
     fw = production(FrameworkConfig.default())
     fw.orchestration.runs_dir = str(tmp_path / "runs")
 
-    child = Agent("childA", system_prompt="does A", mode=ExecutionMode.REACTIVE)
+    child = Agent("childA", system_prompt="does A")
     child.config.hooks = HookRegistry()
 
     parent = Agent(
         "parent",
         system_prompt="delegates to A",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(name="parent", framework=fw, agents=[child]),
     )
     parent.config.hooks = HookRegistry()

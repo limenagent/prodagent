@@ -8,14 +8,14 @@ import pytest
 
 from prodagent import CorruptedCheckpointError, VersionConflict
 from prodagent.backends.file.checkpoint import FileCheckpointStore
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _run(run_id: str = "R1") -> AgentRun:
-    return AgentRun(run_id=run_id, task="t")
+def _run(run_id: str = "R1") -> Run:
+    return Run(run_id=run_id, task="t")
 
 
 @pytest.mark.asyncio

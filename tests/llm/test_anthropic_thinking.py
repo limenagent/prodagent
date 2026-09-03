@@ -17,11 +17,11 @@ from types import SimpleNamespace
 import pytest
 
 from prodagent.kernel.budget import HardBudget
-from prodagent.kernel.state import AgentRun
-from prodagent.kernel.turn import Turn
+from prodagent.kernel.run import Run
 from prodagent.kernel.types import LLMResponse, ToolCall
 from prodagent.llm import LLMConfig
 from prodagent.llm.anthropic_adapter import AnthropicAdapter
+from prodagent.runtime.agent_loop import Round
 
 
 @pytest.fixture
@@ -123,8 +123,8 @@ async def test_step_account_parks_thinking_blocks_on_assistant_message():
         async def complete(self, messages, *, system="", tools=None, config=None, on_chunk=None):
             return llm_response
 
-    run = AgentRun(run_id="r", task="t")
-    step = Turn(_OneShotLLM(), _NoopRunner(), budget=HardBudget(max_turns=5))
+    run = Run(run_id="r", task="t")
+    step = Round(_OneShotLLM(), _NoopRunner(), budget=HardBudget(max_turns=5))
 
     async for _ in step.run(run, system="s", tools=None):
         pass

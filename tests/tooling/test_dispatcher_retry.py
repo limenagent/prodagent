@@ -5,7 +5,7 @@ import pytest
 from prodagent import SideEffectLevel, ToolMeta
 from prodagent.base.errors import ErrorReason
 from prodagent.base.retry import Backoff, RetryPolicy
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.kernel.types import ErrorSeverity, ToolCall, ToolError, ToolOutcome
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher, _default_tool_retry_policy
@@ -59,7 +59,7 @@ async def test_dispatch_with_retry_default_does_not_retry(monkeypatch):
         attempts += 1
         return _yellow_result(f"try-{attempts}")
 
-    run = AgentRun(run_id="r1", task="t")
+    run = Run(run_id="r1", task="t")
     call = ToolCall(name="flaky", params={})
     dispatcher = ToolDispatcher({flaky.name: flaky})
 
@@ -99,7 +99,7 @@ async def test_dispatch_with_retry_honours_custom_policy(monkeypatch):
         backoff=Backoff.EXPONENTIAL,
     )
     dispatcher = ToolDispatcher({flaky2.name: flaky2}, retry_policy=policy)
-    run = AgentRun(run_id="r2", task="t")
+    run = Run(run_id="r2", task="t")
     call = ToolCall(name="flaky2", params={})
 
     await dispatcher.dispatch_with_retry(call, run)
@@ -123,7 +123,7 @@ async def test_dispatch_with_retry_red_does_not_retry():
         return _red_result()
 
     dispatcher = ToolDispatcher({bad.name: bad})
-    run = AgentRun(run_id="r3", task="t")
+    run = Run(run_id="r3", task="t")
     call = ToolCall(name="bad", params={})
 
     result = await dispatcher.dispatch_with_retry(call, run)
@@ -148,7 +148,7 @@ async def test_dispatch_with_retry_ok_returns_immediately():
         return {"ok": True}
 
     dispatcher = ToolDispatcher({ok_tool.name: ok_tool})
-    run = AgentRun(run_id="r4", task="t")
+    run = Run(run_id="r4", task="t")
     call = ToolCall(name="ok_tool", params={})
 
     result = await dispatcher.dispatch_with_retry(call, run)

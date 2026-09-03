@@ -4,7 +4,7 @@ import pytest
 
 from prodagent.base.errors import InfiniteLoopDetected
 from prodagent.kernel.progress import ProgressMonitor, _tool_fingerprint
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.kernel.types import ToolCall
 
 
@@ -14,7 +14,7 @@ def _call(name: str, **params) -> ToolCall:
 
 @pytest.fixture
 def run():
-    return AgentRun(run_id="test", task="t")
+    return Run(run_id="test", task="t")
 
 
 def _monitor(**kw):
@@ -103,7 +103,7 @@ class TestDeadLoopDetection:
         mon = _monitor()
         for _ in range(4):
             mon.check(run, new_call=a)
-        restored = AgentRun.from_dict(run.to_dict())
+        restored = Run.from_dict(run.to_dict())
         a_key = _tool_fingerprint(a)
         assert restored.fingerprints == [a_key] * 4
         # A resumed run keeps its loop memory: the 5th identical call trips.

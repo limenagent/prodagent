@@ -6,16 +6,16 @@ import pytest
 
 from prodagent.base.errors import BudgetExceeded
 from prodagent.kernel.budget import HardBudget, check_budget
-from prodagent.kernel.state import AgentRun
+from prodagent.kernel.run import Run
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.scheduler import reactive_scheduler
+from prodagent.runtime.agent_loop import agent_scheduler
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
 
 def _make_run(*, input_tokens=0, output_tokens=0, cache_read_tokens=0, turns=1):
-    run = AgentRun(run_id="test", task="t")
+    run = Run(run_id="test", task="t")
     run.metrics.input_tokens = input_tokens
     run.metrics.output_tokens = output_tokens
     run.metrics.cache_read_tokens = cache_read_tokens
@@ -117,7 +117,7 @@ class TestAxisPrecedenceConsistency:
             await ledger.check(member="x")
 
 
-class Testreactive_schedulerSpawnAccumulators:
+class Testagent_schedulerSpawnAccumulators:
     async def test_loop_trips_on_sibling_spend_it_never_directly_incurred(self):
         from prodagent.kernel.budget import BudgetLedger
         from prodagent.kernel.types import RunFailedEvent
@@ -127,7 +127,7 @@ class Testreactive_schedulerSpawnAccumulators:
         await ledger.commit(member="sibling", turns=0, tokens=0, cost_usd=0.95)
         llm = FakeLLMAdapter(responses=[LLMResponse(content="done", stop_reason="end_turn")])
         dispatcher = ToolDispatcher({"noop": _noop_tool})
-        loop = reactive_scheduler(
+        loop = agent_scheduler(
             llm,
             dispatcher,
             system_prompt="test",
@@ -147,9 +147,9 @@ async def _noop_tool() -> dict:
     return {"result": "ok"}
 
 
-def _make_loop(llm: FakeLLMAdapter, budget: HardBudget) -> reactive_scheduler:
+def _make_loop(llm: FakeLLMAdapter, budget: HardBudget) -> agent_scheduler:
     dispatcher = ToolDispatcher({"noop": _noop_tool})
-    return reactive_scheduler(
+    return agent_scheduler(
         llm,
         dispatcher,
         system_prompt="test",

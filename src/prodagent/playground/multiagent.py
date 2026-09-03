@@ -5,7 +5,7 @@
   ``BoardWriteEvent``, ``ItemClaimedEvent``, …) into one normalized
   :class:`MultiAgentEvent` envelope. Stateful: tracks current phase, validated
   items, participant states, whatever the example needs.
-- **Driver** (:class:`MultiAgentRun`) — primitive-agnostic. Pumps
+- **Driver** (:class:`MultiRun`) — primitive-agnostic. Pumps
   ``adapter.stream()`` through ``adapter.map_event()`` onto an ``asyncio.Queue``
   that the SSE route reads. Catches adapter crashes and emits a terminal
   ``failed`` envelope.
@@ -44,7 +44,7 @@ __all__ = [
     "MultiAgentAdapter",
     "PhaseStarted",
     "PhaseCompleted",
-    "MultiAgentRun",
+    "MultiRun",
     "event_to_dict",
 ]
 
@@ -134,8 +134,8 @@ class MultiAgentAdapter(Protocol):
     """Owns the primitive's ``stream()`` and maps its events to the envelope.
 
     The adapter is stateful (current phase, validated items, participant roster,
-    side-channel accumulators). Only one :class:`MultiAgentRun` should drive an
-    adapter instance — :meth:`MultiAgentRun.__init__` asserts this.
+    side-channel accumulators). Only one :class:`MultiRun` should drive an
+    adapter instance — :meth:`MultiRun.__init__` asserts this.
     """
 
     name: str
@@ -156,8 +156,8 @@ class MultiAgentAdapter(Protocol):
 
     def stream(self) -> AsyncGenerator[Any, None]:
         """Yield primitive events and phase sentinels. The adapter owns the
-        primitive's construction (``EnsembleSpec`` / ``BlackboardSpec`` /
-        ``WorkQueueSpec``) and any cross-primitive sequencing."""
+        primitive's construction (e.g. a spawn batch or a peer chain) and any
+        cross-primitive sequencing."""
         ...
 
 
@@ -166,7 +166,7 @@ class MultiAgentAdapter(Protocol):
 # ---------------------------------------------------------------------------
 
 
-class MultiAgentRun:
+class MultiRun:
     """Drives one adapter instance, pushes envelopes onto a queue for SSE.
 
     Ephemeral: unlike single-agent runs (which have checkpoint reconstruction),

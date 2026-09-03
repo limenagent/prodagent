@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from prodagent import Agent, AgentConfig, ExecutionMode, HardBudget
+from prodagent import Agent, AgentConfig, HardBudget
 from prodagent.base.config import ContextConfig, FrameworkConfig
 from prodagent.kernel.bus import HookRegistry
 from prodagent.llm.fake import script
@@ -21,7 +21,6 @@ async def test_budget_turn_limit_exceeded():
         system_prompt="Never stop.",
         tools=[never_finish_tool],
         budget=HardBudget(max_turns=2),
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="budget-turn-agent",
             llm=script({"content": "Keep calling never_finish"}),
@@ -47,7 +46,6 @@ async def test_budget_cost_limit_exceeded():
         system_prompt="Spend money.",
         tools=[expensive_tool],
         budget=HardBudget(max_cost_usd=0.0001),
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="budget-cost-agent",
             llm=script({"content": "Call expensive"}),
@@ -74,7 +72,6 @@ async def test_budget_time_limit_exceeded():
         system_prompt="Take time.",
         tools=[slow_tool],
         budget=HardBudget(max_seconds=1.0),
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="budget-time-agent",
             llm=script({"content": "Call slow tool"}),
@@ -100,7 +97,6 @@ async def test_context_window_overflow():
         system_prompt="Fill context.",
         tools=[grow_context_tool],
         budget=HardBudget(max_turns=5),
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="context-overflow-agent",
             framework=FrameworkConfig(context=ContextConfig(max_tokens=500)),
@@ -128,7 +124,6 @@ async def test_tool_execution_timeout():
         system_prompt="Test timeout.",
         tools=[hangs_tool],
         budget=HardBudget(max_turns=1),
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="timeout-agent",
             llm=script({"content": "Call hangs"}),
@@ -153,7 +148,6 @@ async def test_infinite_loop_detection():
         system_prompt="Repeat forever.",
         tools=[repeat_tool],
         budget=HardBudget(max_turns=10),
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="infinite-loop-agent",
             llm=script({"content": "Call repeat"}),
@@ -179,7 +173,6 @@ async def test_tool_parameter_validation_failure():
         system_prompt="Test validation.",
         tools=[validated_tool],
         budget=HardBudget(max_turns=5),
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="validation-agent",
             llm=script({"content": "Call validated"}),
@@ -205,7 +198,6 @@ async def test_memory_overflow():
         system_prompt="Test memory limit.",
         tools=[consume_memory_tool],
         budget=HardBudget(max_turns=3),
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="memory-agent",
             llm=script({"content": "Consume memory"}),
@@ -231,7 +223,6 @@ async def test_empty_tool_result():
         system_prompt="Test empty result.",
         tools=[empty_tool],
         budget=HardBudget(max_turns=5),
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="empty-agent",
             llm=script({"content": "Empty result"}),
@@ -257,7 +248,6 @@ async def test_rapid_sequential_runs():
         system_prompt="Run fast.",
         tools=[fast_tool],
         budget=HardBudget(max_turns=1),
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="rapid-agent",
             llm=script({"content": "Fast"}),
@@ -287,7 +277,6 @@ async def test_graceful_shutdown():
         system_prompt="Test shutdown.",
         tools=[interruptible_tool],
         budget=HardBudget(max_turns=1),
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="shutdown-agent",
             llm=script({"content": "Call tool"}),

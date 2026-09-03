@@ -1,11 +1,10 @@
 """Spawn — vertical sub-agent delegation (``agents=``).
 
 A single LLM tool call decides dispatch and the parent keeps running while it
-waits for a result — there is no round loop here. Contrast with the three
-stage-driven topologies (blackboard), which iterate
-rounds over a shared store until a :class:`~prodagent.coordination.termination.TerminationPolicy`
-fires. Spawn and :mod:`~prodagent.coordination.peer` are *delegation
-strategies*; they are not a fourth and fifth "topology."
+waits for a result — there is no round loop here. Spawn and
+:mod:`~prodagent.coordination.peer` are the two *delegation strategies*
+(call-return and handoff respectively); staged, board-shaped collaboration
+composes from graph atoms instead (see package docstring).
 """
 
 from __future__ import annotations
@@ -63,7 +62,7 @@ def child_run_id_for(parent_run_id: str | None, name: str) -> str | None:
     """Deterministic child run id (``parent::name``) — same name always maps
     to the same id, so replayed spawns correlate and checkpoint collision
     checks catch an orphan from a prior attempt."""
-    from prodagent.kernel.state import child_run_id
+    from prodagent.kernel.run import child_run_id
 
     return child_run_id(parent_run_id, name) if parent_run_id else None
 
@@ -485,7 +484,7 @@ class Spawn:
         self, spec: Agent, task: str, packet: HandoffPacket, child_run_id: str | None
     ) -> ChildResult:
         """The tool form of delegation, on the shared activation core — the
-        same ``activate_subagent`` a graph's SubAgentBody runs through, so
+        same ``activate_subagent`` a graph's SubAgentUnit runs through, so
         both entry points produce isomorphic Run trees (one core, many
         doors). Only the governance shell (dispatch, admission, DLQ) is
         tool-specific and lives around this call."""

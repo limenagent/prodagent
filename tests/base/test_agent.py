@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from prodagent import Agent, AgentConfig, ExecutionMode, HardBudget, RunState
+from prodagent import Agent, AgentConfig, HardBudget, RunState
 from prodagent.kernel.bus import HookRegistry
 from prodagent.llm.fake import script
 from prodagent.tooling import tool
@@ -16,7 +16,6 @@ def _simple_agent(llm, **kwargs) -> Agent:
     return Agent(
         "test-agent",
         system_prompt="Verify system status.",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(name="test-agent", llm=llm, hooks=HookRegistry()),
         **kwargs,
     )
@@ -26,7 +25,7 @@ def test_agent_creation():
     llm = script({"content": "all good"})
     agent = _simple_agent(llm)
     assert agent.name == "test-agent"
-    assert agent.mode == ExecutionMode.REACTIVE
+    assert agent.config.initial_plan is None  # no preset graph: chat runs the agent itself
 
 
 def test_agent_run_completes():
@@ -38,12 +37,12 @@ def test_agent_run_completes():
 
 
 def test_agent_run_returns_agent_run():
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.run import Run
 
     llm = script({"content": "done"})
     agent = _simple_agent(llm)
     run = asyncio.run(agent.chat("any task"))
-    assert isinstance(run, AgentRun)
+    assert isinstance(run, Run)
 
 
 def test_agent_with_tools():
@@ -59,7 +58,6 @@ def test_agent_with_tools():
         "ops",
         system_prompt="Run health check.",
         tools=[health_check],
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(name="ops", llm=llm, hooks=HookRegistry()),
     )
     run = asyncio.run(agent.chat("Is the API healthy?"))
@@ -81,7 +79,6 @@ def test_agent_constraints_in_system_prompt():
     agent = Agent(
         "constrained",
         system_prompt="Check things.",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(
             name="constrained",
             constraints=["ALWAYS validate input", "NEVER skip logging"],
@@ -109,7 +106,6 @@ def test_agent_context_in_system_prompt():
     agent = Agent(
         "ctx-agent",
         system_prompt="Incident INC-001: payment service down",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(name="ctx-agent", llm=CaptureLLM(), hooks=HookRegistry()),
     )
     asyncio.run(agent.chat("handle incident"))
@@ -151,19 +147,23 @@ def test_fluent_api_budget():
     assert agent.budget_config.max_turns == 10
 
 
-def test_fluent_api_reactive_plan_first():
+def test_fluent_api_drafting_vs_bare():
+    from prodagent.plan.planner import Planner
+
     agent = Agent(
         "test-agent",
-        mode=ExecutionMode.PLAN_FIRST,
-        config=AgentConfig(name="test-agent", llm=script({"content": "ok"})),
+        config=AgentConfig(
+            name="test-agent",
+            llm=script({"content": "ok"}),
+            planner=Planner(script({"content": "ok"})),
+        ),
     )
-    assert agent.mode == ExecutionMode.PLAN_FIRST
+    assert agent.config.planner is not None  # drafts a graph per turn
     agent2 = Agent(
         "test-agent-2",
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(name="test-agent-2", llm=script({"content": "ok"})),
     )
-    assert agent2.mode == ExecutionMode.REACTIVE
+    assert agent2.config.planner is None  # bare agent: chat runs the agent itself
 
 
 def test_agent_saves_to_session_dir():
@@ -187,7 +187,6 @@ def test_agent_saves_to_session_dir():
         agent = Agent(
             "session-agent",
             system_prompt="Do some work.",
-            mode=ExecutionMode.REACTIVE,
             config=AgentConfig(name="session-agent", llm=llm, hooks=HookRegistry(), framework=fw),
         )
         run = asyncio.run(agent.chat("save this run", session_id="run-save-001"))
@@ -209,7 +208,6 @@ def test_agent_budget_respected():
         "budget-test",
         system_prompt="Keep going.",
         budget=HardBudget(max_turns=2, max_seconds=30.0),
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(name="budget-test", llm=InfiniteLoopLLM(), hooks=HookRegistry()),
     )
     run = asyncio.run(agent.chat("test budget"))
@@ -233,7 +231,6 @@ def test_agent_stream_yields_events():
         "stream-test",
         system_prompt="Check systems.",
         tools=[probe],
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(name="stream-test", llm=llm, hooks=HookRegistry()),
     )
 
@@ -264,7 +261,6 @@ def test_agent_stream_run_failed_event_on_budget_exhaustion():
         "budget-stream",
         system_prompt="Loop forever.",
         budget=HardBudget(max_turns=2, max_seconds=30.0),
-        mode=ExecutionMode.REACTIVE,
         config=AgentConfig(name="budget-stream", llm=LoopingLLM(), hooks=HookRegistry()),
     )
 
@@ -292,13 +288,16 @@ async def test_plan_first_failed_run_does_not_raise_attribute_error():
         responses=[LLMResponse(content="not valid json", stop_reason="end_turn")]
     )
 
+    from prodagent.plan.planner import Planner
+
     agent = Agent(
         "plan-fail",
         system_prompt="Parse my plan.",
-        mode=ExecutionMode.PLAN_FIRST,
-        config=AgentConfig(name="plan-fail", llm=bad_plan_llm, hooks=HookRegistry()),
+        config=AgentConfig(
+            name="plan-fail", llm=bad_plan_llm, hooks=HookRegistry(), planner=Planner(bad_plan_llm)
+        ),
     )
-    assert agent.mode is ExecutionMode.PLAN_FIRST
+    assert agent.config.planner is not None
 
     events: list = []
 

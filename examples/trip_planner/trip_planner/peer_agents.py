@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from prodagent import Agent, AgentConfig, ExecutionMode, HardBudget
+from prodagent import Agent, AgentConfig, HardBudget
 
 from trip_planner.tools import (
     book_restaurant,
@@ -34,7 +34,6 @@ def itinerary_peer_agent() -> Agent:
             "\"activities\": [...]}], \"total_hotel_cost\": <n>}。"
         ),
         tools=[search_hotels, get_weather],
-        mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_seconds=300),
         config=AgentConfig(
             name="itinerary",
@@ -55,7 +54,6 @@ def restaurant_peer_agent() -> Agent:
             "\"total_cost\": <n>}。"
         ),
         tools=[search_restaurants, book_restaurant],
-        mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_seconds=300),
         config=AgentConfig(
             name="restaurant",
@@ -80,7 +78,6 @@ def transport_peer_agent() -> Agent:
             "\"price\": <n>}], \"total_cost\": <n>}。"
         ),
         tools=[search_flights, search_trains],
-        mode=ExecutionMode.REACTIVE,
         budget=HardBudget(max_seconds=300),
         config=AgentConfig(
             name="transport",

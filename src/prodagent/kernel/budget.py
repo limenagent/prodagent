@@ -21,7 +21,7 @@ from prodagent.base.errors import BudgetExceeded
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from prodagent.kernel.state import AgentRun
+    from prodagent.kernel.run import Run
     from prodagent.kernel.types import ToolCall
     from prodagent.ports.budget_ledger import BudgetLedgerPort
 
@@ -89,7 +89,7 @@ def open_ledger(
 
 
 def check_budget(
-    run: AgentRun,
+    run: Run,
     budget: HardBudget,
     *,
     extra_turns: int = 0,
@@ -431,10 +431,8 @@ async def run_enveloped(
     "exhausted" outcome. ``ledger=None`` runs ``act`` bare (no budget wiring)
     and returns its actuals unchanged.
 
-    This is the single home for the reserve/commit invariants; stage drivers
-    (:meth:`StageDriver._run_enveloped
-    <prodagent.coordination._stage.StageDriver._run_enveloped>`) and spawn
-    both delegate here so the policy cannot drift between them.
+    This is the single home for the reserve/commit invariants; spawn (and any
+    future enveloped caller) delegates here so the policy cannot drift.
     """
     if ledger is None:
         return await act()
@@ -469,7 +467,7 @@ class SpendSnapshot(Protocol):
 
 
 def check_spawn_budget(
-    run: AgentRun,
+    run: Run,
     budget: HardBudget | None,
     ledger: BudgetLedger | None = None,
 ) -> None:
@@ -502,7 +500,7 @@ def check_spawn_budget(
 # child results, same concept family as run_enveloped/check_spawn_budget. The
 # enforcement view is the BudgetLedger above; this section is the metrics/
 # transcript fold — child spend that must land on the parent's persisted
-# AgentRun.metrics at hop end.
+# Run.metrics at hop end.
 
 
 def fold_spawn_fields(target: Any, source: Any) -> None:
@@ -520,7 +518,7 @@ class SpawnAccumulator:
 
     The enforcement view is the shared ``BudgetLedger`` above; this
     accumulator is the metrics/transcript fold sink — child spend that must
-    land on the parent's persisted ``AgentRun.metrics`` at hop end.
+    land on the parent's persisted ``Run.metrics`` at hop end.
     """
 
     cost_usd: float = 0.0
@@ -535,13 +533,13 @@ class SpawnAccumulator:
         self.turns += result.turns
         self.spawn_count += 1
 
-    def fold_into(self, run: AgentRun) -> None:
+    def fold_into(self, run: Run) -> None:
         """Fold accumulator totals onto a run's persisted metrics, in place.
 
         The single home for the accumulator→metrics arithmetic (the other
         direction — child result→accumulator — is :func:`fold_spawn_fields`);
         ``RunLoop._finalize_run`` calls this at hop end so child spend lands
-        on the parent's persisted ``AgentRun.metrics``. No-op when nothing
+        on the parent's persisted ``Run.metrics``. No-op when nothing
         was spawned.
         """
         if self.spawn_count == 0:
@@ -562,7 +560,7 @@ class SpawnAccumulator:
         )
 
 
-def hop_own_share(run: AgentRun, acc: SpawnAccumulator | None) -> tuple[int, int, float]:
+def hop_own_share(run: Run, acc: SpawnAccumulator | None) -> tuple[int, int, float]:
     """(turns, tokens, cost_usd) the hop itself spent, children excluded.
 
     By relay time ``RunLoop._finalize_run`` has already folded the

@@ -33,7 +33,7 @@ class RunEventType(StrEnum):
     """REACTIVE-mode counterpart to ``PlanEventType`` — one entry per turn,
     plus terminal markers mirroring PLAN_FIRST's step lifecycle events."""
 
-    TURN_COMPLETED = "TurnCompleted"
+    ROUND_COMPLETED = "RoundCompleted"
     RUN_COMPLETED = "RunCompleted"
     RUN_FAILED = "RunFailed"
     RUN_SUSPENDED = "RunSuspended"

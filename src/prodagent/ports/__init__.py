@@ -28,17 +28,12 @@ from prodagent.ports.agent_events import (
 )
 from prodagent.ports.budget_ledger import BudgetLedgerPort, SpendView
 from prodagent.ports.execution import (
-    Activation,
-    ActivationContext,
-    ActivationPolicy,
     AgentActivation,
     AgentSpec,
-    DispatchMode,
     Executor,
     HandoffActivation,
     InProcessChatRunner,
     RunnerPort,
-    StageStore,
 )
 from prodagent.ports.llm import LLMClient
 from prodagent.ports.messaging import DeadLetterStore, LockStore, LockToken, Transport
@@ -58,18 +53,14 @@ from prodagent.ports.persistence import (
 from prodagent.ports.tool import Tool
 
 __all__ = [
-    "Activation",
     "AgentEvent",
     "AgentSpec",
-    "ActivationContext",
-    "ActivationPolicy",
     "AgentActivation",
     "ApprovalStore",
     "BudgetLedgerPort",
     "CacheStore",
     "CheckpointStore",
     "DeadLetterStore",
-    "DispatchMode",
     "DocumentStore",
     "IdPort",
     "RandomPort",
@@ -95,7 +86,6 @@ __all__ = [
     "SessionStore",
     "SpendView",
     "SpanExporter",
-    "StageStore",
     "Tool",
     "Transport",
 ]
