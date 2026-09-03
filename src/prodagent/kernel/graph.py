@@ -8,18 +8,27 @@ That is what lets one hand-written graph serve many runs, and what lets a
 replanning on top without touching the topology layer.
 
 Edges are the runtime truth. ``Node.depends_on`` is declaration sugar —
-the form every front-end (model JSON, hand-written Workflow, checkpoint
-wire) naturally speaks — and :meth:`Graph.add_nodes` folds it into edges
-at construction; the two mutation sites that ever rewire
-(:meth:`Plan.merge`) rebuilds both together, so the
-declared view never drifts from the edge set. What ONLY lives on an Edge
+the form every front-end (hand-written Workflow, checkpoint wire) naturally
+speaks — and :meth:`Graph.add_nodes` folds it into edges at construction;
+the one mutation site that ever grows the set (:meth:`Send` instantiation)
+goes through ``add_nodes`` too, so the declared view never drifts from the
+edge set. What ONLY lives on an Edge
 is the condition: ``when`` is the predicate form of Route — the edge is
 active while ``when(shared_state)`` holds, and a waived edge satisfies the
 dependency without the source ever running.
 
-The acyclicity law lives one file over (``graph_validator``): every Graph
-is acyclic — loops come from the Loop unit's interpreted execution, never
-from edges (REFACTOR-PLAN ruling 2).
+Cycles are legal (column 5/6: agents iterate, so the execution graph is a
+graph-that-may-loop and a DAG is just the loop-free special case). An edge
+that closes a cycle is a *back edge* — :meth:`Graph.back_edges` — and back
+edges never gate readiness (first activation comes from forward edges
+only, or a cycle could never start). Re-activation is the engine's
+requeue: when a node succeeds, every active outgoing edge whose target is
+already COMPLETED puts that target back to PENDING — a back edge restarting
+its loop, a forward edge cascading a redo (a re-run source's old output is
+stale for its dependents). Termination is the blueprint's promise (a back
+edge carries or implies its exit condition); the engine's guards — the
+wave cap, the empty-ready :class:`Stalled`, and the no-progress detector —
+are the backstop, not the proof.
 """
 
 from __future__ import annotations
@@ -27,37 +36,35 @@ from __future__ import annotations
 import re
 from collections import deque
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from prodagent.base.determinism import new_uuid4
+from prodagent.kernel.bodies import NodeKind
 from prodagent.kernel.node_state import NodeRuntimeState
 from prodagent.kernel.types import NodeStatus
-from prodagent.kernel.units import NodeKind
-
-if TYPE_CHECKING:
-    from prodagent.kernel.unit import GraphUnit
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from prodagent.kernel.body import NodeBody
+    from prodagent.kernel.channels import Channel
+
 
 class Origin(StrEnum):
-    """Where a node (and the plan carrying it) came from — the trust label
-    that survives unification (column 8: unify the format, never flatten
-    the lineage).
+    """Where a node came from — the trust label that survives the wire.
 
-    STATIC — hand-written, trusted, validated once at compile time.
-    CONDITIONAL — hand-written candidates; runtime picks by rule (reserved).
-    PLANNED — model-drafted, untrusted, revalidated on every submission.
-    DYNAMIC — grown at runtime (reserved; combinators grow at interpretation time).
-    """
+    STATIC — declared in code, trusted, validated once at compile time.
+    DYNAMIC — grown at runtime (a Send's instantiated template, a
+    combinator's compiled shape).
+
+    The old PLANNED label (a model-drafted graph) is gone with the planner:
+    models produce task lists, not graphs (column 24). Legacy wire values
+    read back as STATIC (coerced at the read site)."""
 
     STATIC = "static"
-    CONDITIONAL = "conditional"
-    PLANNED = "planned"
     DYNAMIC = "dynamic"
 
 
@@ -76,6 +83,11 @@ class Edge:
     source: str
     target: str
     when: Callable[[Mapping[str, Any]], bool] | None = None
+    back: bool | None = None
+    """Back-edge role (column 5): ``True`` forces it a back edge (the loop's
+    requeue trigger, never a readiness gate); ``False`` forces it a forward
+    edge (a loop's *entry* edge — it gates readiness even though it sits in
+    a cycle); ``None`` lets the topology decide (auto-detect the cycle)."""
 
     def is_active(self, shared: Mapping[str, Any] | None = None) -> bool:
         if self.when is None:
@@ -95,8 +107,8 @@ class Node:
     change after construction."""
 
     node_id: str
-    body: GraphUnit
-    """Any Unit — the five built-ins (wire-restorable) or a composed one
+    body: NodeBody
+    """Any NodeBody — the five built-ins (wire-restorable) or a composed one
     (Sequential/Parallel/Route/Loop, a user class). Composed bodies are
     process-local: their wire form records kind and target, but restore
     re-materializes only the built-ins — composition is re-declared in
@@ -106,15 +118,19 @@ class Node:
     """Declaration sugar for plain incoming edges; conditional edges are
     graph-level (``Graph.edge(..., when=...)``) and never appear here."""
     is_terminal: bool = False
-    origin: Origin = Origin.PLANNED
-    """Unstated lineage reads as PLANNED — untrusted, revalidated. A wire
-    written before origins existed resumes under the conservative label."""
-
-    version_created: int = 1
-    replaces_node_id: str | None = None
-    """Replan lineage: the node this one replaced. Completed nodes may carry
-    side effects (a sent email, a written row) — replans must reroute around
-    them, never re-execute them."""
+    is_template: bool = False
+    """A Send target (column 17): the node is a *template*, never executed
+    itself — Sends instantiate copies of it at runtime. Excluded from
+    readiness and from completion's demands; its body and params are the
+    stamp the instances carry."""
+    join: Literal["all", "any"] = "all"
+    """How multiple incoming edges gate readiness (column 5): ``all``
+    waits for every active source (the barrier), ``any`` proceeds on the
+    first one done. A conditional branch's merge is ``any`` — exactly one
+    branch runs, the other is SKIPPED — while a fan-in is ``all``."""
+    origin: Origin = Origin.STATIC
+    """Unstated lineage reads as STATIC — code-declared is the default the
+    compile-time validator has already gated."""
 
     def __post_init__(self) -> None:
         # Freeze the containers: the frozen dataclass guards the fields, the
@@ -124,14 +140,14 @@ class Node:
 
     @property
     def action(self) -> str:
-        """The unit's target name — the one string events, hooks, and the
+        """The body's target name — the one string events, hooks, and the
         wire all use for "what this node invokes"."""
-        return self.body.target
+        return str(getattr(self.body, "target", ""))
 
     @property
     def kind(self) -> Any:
         """``NodeKind`` for built-in bodies, a plain string for composed ones."""
-        return self.body.kind
+        return getattr(self.body, "kind", None)
 
     def to_hook_dict(self, *, include_terminal: bool = False) -> dict[str, Any]:
         """Hook/event form: only what an observer needs. Slimmer than the
@@ -153,7 +169,7 @@ def node_wire_dict(node: Node, state: NodeRuntimeState) -> dict[str, Any]:
     (kind, target, unit extras), progress fields from the run's state. One
     dict, both halves: the durable wire predates the Graph/Plan split and
     stays stable across it."""
-    from prodagent.kernel.units import unit_to_wire_extras
+    from prodagent.kernel.bodies import body_to_wire_extras
 
     kind = node.kind
     return {
@@ -161,17 +177,17 @@ def node_wire_dict(node: Node, state: NodeRuntimeState) -> dict[str, Any]:
         "kind": kind.value if isinstance(kind, NodeKind) else str(kind),
         "action": node.action,
         "origin": node.origin.value,
-        **unit_to_wire_extras(node.body),
+        **body_to_wire_extras(node.body),
         "params": dict(node.params),
         "depends_on": list(node.depends_on),
         "is_terminal": node.is_terminal,
+        "is_template": node.is_template,
+        "join": node.join,
         "status": state.status.value,
         "output_ref": state.output_ref,
         "error": state.error,
         "attempts": state.attempts,
         "completed_at": state.completed_at,
-        "version_created": node.version_created,
-        "replaces_node_id": node.replaces_node_id,
     }
 
 
@@ -190,13 +206,15 @@ class Graph:
     """Pure topology: nodes + edges. Reusable across runs by construction —
     nothing here is per-run state."""
 
-    def __init__(self, *, origin: Origin = Origin.PLANNED) -> None:
+    def __init__(self, *, origin: Origin = Origin.STATIC) -> None:
         self.origin = origin
         self._nodes: dict[str, Node] = {}
         self._incoming: dict[str, list[Edge]] = {}
         # Reverse index (source -> dependents) so "what becomes ready when
         # this node lands" is a lookup, not a graph rescan.
         self._dependents: dict[str, list[str]] = {}
+        self._outgoing: dict[str, list[Edge]] = {}
+        self._back_edges: frozenset[Edge] | None = None
 
     # ── Construction ────────────────────────────────────────────────────────
 
@@ -222,20 +240,25 @@ class Graph:
         target: str,
         *,
         when: Callable[[Mapping[str, Any]], bool] | None = None,
+        back: bool | None = None,
     ) -> Edge:
-        """Add one edge explicitly — the conditional form's entry point."""
-        e = Edge(source=source, target=target, when=when)
+        """Add one edge explicitly — the conditional form's entry point.
+        ``back`` forces the edge's back-edge role (see :class:`Edge.back`)."""
+        e = Edge(source=source, target=target, when=when, back=back)
         self._add_edge(e)
         return e
 
     def _add_edge(self, e: Edge) -> None:
         self._incoming.setdefault(e.target, []).append(e)
         self._dependents.setdefault(e.source, []).append(e.target)
+        self._outgoing.setdefault(e.source, []).append(e)
+        self._back_edges = None
 
     def _reindex(self) -> None:
         edges = [e for es in self._incoming.values() for e in es]
         self._incoming = {}
         self._dependents = {}
+        self._outgoing = {}
         for e in edges:
             self._add_edge(e)
 
@@ -256,6 +279,48 @@ class Graph:
         """The edges pointing at ``node_id`` (declared and conditional)."""
         return list(self._incoming.get(node_id, ()))
 
+    def outgoing(self, node_id: str) -> list[Edge]:
+        """The edges leaving ``node_id`` — what its completion can wake."""
+        return list(self._outgoing.get(node_id, ()))
+
+    def back_edges(self) -> frozenset[Edge]:
+        """The edges that close a cycle (column 5's 回边): source→target
+        where the target already reaches the source. These are the engine's
+        only implicit requeue trigger — a forward edge into a completed node
+        never restarts it. An explicit ``back=`` tag overrides the topology:
+        ``back=True`` is a back edge even if drawn against the flow,
+        ``back=False`` is a *forward* edge even inside a cycle (a loop's
+        entry edge — it gates readiness, it doesn't requeue). Cached per
+        topology version."""
+        if self._back_edges is None:
+            back: set[Edge] = set()
+            for edges in self._outgoing.values():
+                for e in edges:
+                    if e.back is True:
+                        back.add(e)
+                    elif e.back is None and (
+                        e.target == e.source or self._reaches(e.target, e.source, skip=e)
+                    ):
+                        back.add(e)
+            self._back_edges = frozenset(back)
+        return self._back_edges
+
+    def _reaches(self, start: str, goal: str, *, skip: Edge | None = None) -> bool:
+        """Does a path start ⇝ goal exist (optionally ignoring one edge)?"""
+        seen = {start}
+        queue = deque([start])
+        while queue:
+            nid = queue.popleft()
+            for e in self._outgoing.get(nid, ()):
+                if e is skip:
+                    continue
+                if e.target == goal:
+                    return True
+                if e.target not in seen:
+                    seen.add(e.target)
+                    queue.append(e.target)
+        return False
+
     def deps_of(self, node_id: str) -> tuple[str, ...]:
         """The wire/hook view of a node's dependencies — derived from edges."""
         return tuple(e.source for e in self._incoming.get(node_id, ()))
@@ -271,16 +336,22 @@ class Graph:
         """PENDING nodes whose dependencies are all satisfied — the wave the
         executor fans out concurrently. A dependency is satisfied when its
         source is COMPLETED; a waived conditional edge contributes nothing
-        (the source does not feed this target). A node every incoming edge
-        of which is waived is not ready at all — it is *skipped* (see
-        :meth:`skipped`). Read-only tools racing inside a node is a
-        lower-level concern; *this* is the DAG's parallelism unit."""
+        (the source does not feed this target). Back edges never gate
+        readiness — first activation comes from the forward edges only, or
+        a cycle could never start (the node would wait on a source that is
+        itself waiting on it); re-activation flows through the requeue the
+        back edge triggers instead. A node every incoming edge of which is
+        waived is not ready at all — it is *skipped* (see :meth:`skipped`).
+        Read-only tools racing inside a node is a lower-level concern;
+        *this* is the graph's parallelism unit."""
+        back = self.back_edges()
         return [
             n
             for n in self._nodes.values()
-            if state_of(states, n.node_id).status is NodeStatus.PENDING
+            if not n.is_template
+            and state_of(states, n.node_id).status is NodeStatus.PENDING
             and not self._all_edges_waived(n.node_id, shared)
-            and self._deps_done(n, states, shared)
+            and self._deps_done(n, states, shared, back_edges=back)
         ]
 
     def _all_edges_waived(self, node_id: str, shared: Mapping[str, Any] | None) -> bool:
@@ -293,22 +364,46 @@ class Graph:
         shared: Mapping[str, Any] | None = None,
     ) -> list[Node]:
         """PENDING nodes whose incoming edges are ALL waived — Route's roads
-        not taken. They will never run; the driver marks them OBSOLETE so
+        not taken. They will never run; the driver marks them SKIPPED so
         the graph converges. (A node with no incoming edges is a root and
         never skipped. The verdict is permanent for the run: a branch not
-        taken stays not taken.)"""
-        return [
-            n
-            for n in self._nodes.values()
-            if state_of(states, n.node_id).status is NodeStatus.PENDING
-            and self._all_edges_waived(n.node_id, shared)
-        ]
+        taken stays not taken.)
+
+        Two guards against scrapping a node that is only *temporarily*
+        starved:
+        - a waived source that hasn't COMPLETED yet may still write the
+          state its edge's predicate reads — wait for it, don't scrap;
+        - a waived source in an *active back edge's* target set is about to
+          re-run and re-decide — wait for it, don't scrap.
+        Only a node whose sources are all done *and* done-for is SKIPPED."""
+        active_back_targets = {
+            e.target for e in self.back_edges() if e.is_active(shared)
+        }
+        out: list[Node] = []
+        for n in self._nodes.values():
+            if state_of(states, n.node_id).status is not NodeStatus.PENDING:
+                continue
+            if not self._all_edges_waived(n.node_id, shared):
+                continue
+            sources = {e.source for e in self._incoming.get(n.node_id, ())}
+            if any(
+                state_of(states, s).status is not NodeStatus.COMPLETED
+                for s in sources
+            ):
+                continue  # a source may still write the predicate's input
+            if sources & active_back_targets:
+                continue  # a source is about to re-run — wait, don't scrap
+            out.append(n)
+        return out
 
     def is_complete(self, states: Mapping[str, NodeRuntimeState]) -> bool:
-        """OBSOLETE counts as done: a node scrapped by replan neither ran nor
-        failed — it simply stopped mattering."""
+        """SKIPPED counts as done: a node scrapped by a waived branch or a
+        failure's quarantine neither ran nor failed — it simply stopped
+        mattering. Templates never run, so they never stand between a run
+        and its completion."""
         return all(
-            state_of(states, n.node_id).status in (NodeStatus.COMPLETED, NodeStatus.OBSOLETE)
+            n.is_template
+            or state_of(states, n.node_id).status in (NodeStatus.COMPLETED, NodeStatus.SKIPPED)
             for n in self._nodes.values()
         )
 
@@ -317,10 +412,25 @@ class Graph:
         node: Node,
         states: Mapping[str, NodeRuntimeState],
         shared: Mapping[str, Any] | None = None,
+        *,
+        back_edges: frozenset[Edge] | None = None,
     ) -> bool:
-        for e in self._incoming.get(node.node_id, ()):
+        def active(e: Edge) -> bool:
             if not e.is_active(shared):
-                continue  # waived — this source does not feed the target
+                return False  # waived — this source does not feed the target
+            if back_edges is not None and e in back_edges:
+                return False  # a back edge is a requeue trigger, never a wait
+            return True
+
+        incoming = [e for e in self._incoming.get(node.node_id, ()) if active(e)]
+        if node.join == "any":
+            # First-completed wins (column 5): a conditional merge where
+            # exactly one branch runs — the SKIPPED one never counts.
+            return any(
+                state_of(states, e.source).status is NodeStatus.COMPLETED
+                for e in incoming
+            )
+        for e in incoming:
             dep = self._nodes.get(e.source)
             if dep is None:
                 raise ValueError(
@@ -353,11 +463,26 @@ class Plan(Graph):
     blueprint answers "what would be ready if execution were here", the run
     answers where execution actually is."""
 
-    def __init__(self, plan_id: str | None = None, *, origin: Origin = Origin.PLANNED) -> None:
+    def __init__(self, plan_id: str | None = None, *, origin: Origin = Origin.STATIC) -> None:
         super().__init__(origin=origin)
         self.plan_id = plan_id or new_uuid4()
         self.version: int = 1
         self.task_input: str = ""
+        self.channels: dict[str, Channel] = {}
+        """State's merge rules, declared on the blueprint (column 7): the
+        *rules* live here, the folded values live in ``run.shared``."""
+
+    def declare_channels(self, channels: Mapping[str, Any]) -> None:
+        """Adopt named state lanes — the Plan's third component. Accepts
+        :class:`~prodagent.kernel.channels.Channel` values or wire dicts;
+        a plan with no declared channels keeps the legacy immediate-apply
+        write path."""
+        from prodagent.kernel.channels import Channel, channel_from_wire
+
+        for name, channel in channels.items():
+            self.channels[name] = (
+                channel if isinstance(channel, Channel) else channel_from_wire(channel)
+            )
 
     # ── Replan — new version, never in-place mutation ──────────────────────
 
@@ -368,72 +493,22 @@ class Plan(Graph):
         derived = Plan(plan_id=plan_id, origin=self.origin)
         derived.version = self.version
         derived.task_input = task_input
+        derived.channels = dict(self.channels)
         derived._nodes = dict(self._nodes)
         derived._incoming = {k: list(v) for k, v in self._incoming.items()}
         derived._reindex()
         return derived
 
-    def merge(self, new_nodes: list[Node], states: Mapping[str, NodeRuntimeState]) -> Plan:
-        """Fold replacement nodes into the next plan version.
-
-        Returns a new Plan (version + 1) sharing every untouched node; the
-        *states* side is updated in place — replaced nodes flip to OBSOLETE
-        where the caller can see it, because "replaced" is progress, not
-        blueprint. Dependency validation runs against the merged graph so a
-        replan can re-link onto surviving nodes, and acyclicity is asserted
-        before anything lands."""
-        new_ids = {n.node_id for n in new_nodes}
-        for nn in new_nodes:
-            for dep in nn.depends_on:
-                if (
-                    dep in self._nodes
-                    and state_of(states, dep).status is NodeStatus.OBSOLETE
-                    and dep not in new_ids
-                ):
-                    raise ValueError(
-                        f"Node {nn.node_id!r}: dependency {dep!r} is OBSOLETE "
-                        f"(and not replaced in this merge)"
-                    )
-
-        # One validator, five checks, over the live union — the same gate
-        # every other birth line passes through (dangling refs name the
-        # offender; cycles name their members).
-        live = [
-            n
-            for n in self._nodes.values()
-            if state_of(states, n.node_id).status is not NodeStatus.OBSOLETE
-        ]
-        from prodagent.kernel.graph_validator import default_validator
-
-        default_validator().validate_nodes([*live, *new_nodes])
-
-        merged = Plan(plan_id=self.plan_id, origin=self.origin)
-        merged.version = self.version + 1  # every replan advances the version — lineage
-        merged.task_input = self.task_input
-        merged._nodes = dict(self._nodes)
-        merged._incoming = {k: list(v) for k, v in self._incoming.items()}
-        for nn in new_nodes:
-            stamped = replace(nn, version_created=merged.version)
-            if stamped.replaces_node_id:
-                old_state = states.get(stamped.replaces_node_id)
-                if old_state is not None:
-                    old_state.mark_obsolete()  # replaced, not deleted — history replays
-            merged._nodes[stamped.node_id] = stamped
-            for dep in stamped.depends_on:
-                merged._add_edge(Edge(source=dep, target=stamped.node_id))
-        merged._reindex()
-        return merged
-
-    def mark_downstream_obsolete(
+    def mark_downstream_skipped(
         self, failed_node_id: str, states: dict[str, NodeRuntimeState]
     ) -> list[str]:
         """On failure, quarantine everything that (transitively) depended on
         the failed node — their inputs will never materialize.
 
         COMPLETED dependents are skipped but traversed so their own PENDING
-        downstream still gets obsoleted: a finished node's failure-cousins
+        downstream still gets skipped: a finished node's failure-cousins
         down the chain are just as doomed as direct dependents."""
-        obsolete: list[str] = []
+        skipped: list[str] = []
         queue: deque[str] = deque(self._dependents.get(failed_node_id, ()))
         seen: set[str] = set(queue)
 
@@ -443,14 +518,14 @@ class Plan(Graph):
             if st is None:
                 continue
             if st.status is not NodeStatus.COMPLETED:
-                st.mark_obsolete()
-                obsolete.append(nid)
+                st.mark_skipped()
+                skipped.append(nid)
             for child_id in self._dependents.get(nid, ()):
                 if child_id not in seen:
                     seen.add(child_id)
                     queue.append(child_id)
 
-        return obsolete
+        return skipped
 
     # ── Durable wire (the checkpoint/event form predates the split) ────────
 
@@ -458,13 +533,16 @@ class Plan(Graph):
         """The dict that rides inside the checkpoint's plan cursor — version
         plus every node's static fields *and* progress, so ``from_state``
         rebuilds both halves losslessly."""
-        return {
+        state = {
             "version": self.version,
             "nodes": {
                 n.node_id: node_wire_dict(n, state_of(states, n.node_id))
                 for n in self._nodes.values()
             },
         }
+        if self.channels:
+            state["channels"] = {name: ch.to_wire() for name, ch in self.channels.items()}
+        return state
 
     @classmethod
     def from_state(
@@ -479,19 +557,21 @@ class Plan(Graph):
         already happened)."""
         plan = cls(plan_id=plan_id)
         plan.version = state.get("version", 1)
+        if state.get("channels"):
+            plan.declare_channels(state["channels"])
         node_states: dict[str, NodeRuntimeState] = {}
         for nid, nd in state.get("nodes", {}).items():
-            from prodagent.kernel.units import unit_from_wire
+            from prodagent.kernel.bodies import body_from_wire
 
             plan._nodes[nid] = Node(
                 node_id=nid,
-                body=unit_from_wire(nd.get("kind", ""), nd.get("action", ""), nd),
+                body=body_from_wire(nd.get("kind", ""), nd.get("action", ""), nd),
                 params=nd.get("params", {}),
                 depends_on=nd.get("depends_on", []),
                 is_terminal=nd.get("is_terminal", False),
-                origin=Origin(nd.get("origin", Origin.PLANNED.value)),
-                version_created=nd.get("version_created", plan.version),
-                replaces_node_id=nd.get("replaces_node_id"),
+                is_template=nd.get("is_template", False),
+                join=nd.get("join", "all"),
+                origin=_origin_of(nd.get("origin")),
             )
             for dep in nd.get("depends_on", []):
                 plan._add_edge(Edge(source=dep, target=nid))
@@ -637,27 +717,23 @@ def _lookup(
     return st.output_ref[key]
 
 
-@dataclass(frozen=True)
-class PlanDraft:
-    """Parsed nodes (empty means no plan) + raw response text from one
-    planning call — parse success and raw evidence travel together so a
-    bad draft is auditable against what the model actually said. The
-    kernel's :class:`~prodagent.kernel.scheduler.PlannerPort` speaks this
-    type; the LLM implementation lives above the kernel."""
-
-    nodes: list[Node]
-    raw_text: str
+def _origin_of(value: object) -> Origin:
+    """Wire origin → Origin, with legacy labels reading as STATIC."""
+    try:
+        return Origin(str(value))
+    except ValueError:
+        return Origin.STATIC
 
 
-def compile_planned(nodes: list[Node], *, revision: int = 1) -> Plan:
-    """Planner output → validate(origin=PLANNED) → Plan.
-
-    Every model draft revalidates: the model is an untrusted front-end
-    that hallucinated edges and cycles will keep doing so."""
+def compile_planned(nodes: list[Node]) -> Plan:
+    """A node list → validate → Plan: the generic birth line every code
+    front-end shares (Workflow compile, tests, embedders). Validation runs
+    here so no plan enters execution ungated — whoever wrote the nodes,
+    the shape checks are the same."""
     from prodagent.kernel.graph_validator import PlanValidator
 
     PlanValidator().validate_nodes(nodes)
-    plan = Plan(origin=Origin.PLANNED)
+    plan = Plan(origin=Origin.STATIC)
     plan.add_nodes(list(nodes))
     return plan
 
@@ -665,7 +741,6 @@ def compile_planned(nodes: list[Node], *, revision: int = 1) -> Plan:
 __all__ = [
     "Origin",
     "Edge",
-    "PlanDraft",
     "Node",
     "Graph",
     "Plan",

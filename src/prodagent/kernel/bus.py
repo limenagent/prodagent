@@ -270,7 +270,6 @@ class HookEvent(StrEnum):
     TOOL_RESULT = "tool.result"
 
     PLAN_READY = "plan.ready"
-    PLAN_REPLANNED = "plan.replanned"
 
     NODE_STARTED = "node.started"
     NODE_COMPLETED = "node.completed"

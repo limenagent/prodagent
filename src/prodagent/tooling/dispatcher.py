@@ -25,6 +25,7 @@ from prodagent.base.determinism import new_uuid4, now_wall
 from prodagent.base.errors import SECURITY_VETO_EXCEPTIONS, ErrorLayer, ErrorReason, classify_error
 from prodagent.base.event_log import BoundaryEventType, Event, boundary_stream
 from prodagent.base.retry import Backoff, RetryPolicy
+from prodagent.kernel.body import coerce_result
 from prodagent.kernel.bus import Gate, HookEvent
 from prodagent.kernel.types import (
     GET_SKILL_TOOL_NAME,
@@ -40,7 +41,6 @@ from prodagent.kernel.types import (
     ToolResult,
     ToolResultEvent,
 )
-from prodagent.kernel.unit import coerce_result
 from prodagent.tooling.skill_resolver import SkillResolver
 
 TRANSIENT_EXC: tuple[type[BaseException], ...] = (

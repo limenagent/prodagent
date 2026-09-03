@@ -199,7 +199,6 @@ def build_fake_llm() -> LLMClient:
         nonlocal replan_calls
         replan_calls += 1
         if replan_calls > 2:
-            # 超过 max_replans，返回空步骤 → Scheduler 停止
             return LLMResponse(
                 content='{"steps": []}',
                 stop_reason="end_turn",
@@ -213,12 +212,81 @@ def build_fake_llm() -> LLMClient:
             output_tokens=60,
         )
 
+    def _route_worker(messages: MessageList) -> LLMResponse:
+        """The work node (a ReAct loop over the five tools). Rounds advance
+        by what has already come back: extract → flag+enrich → submit (the
+        HIGH one parks at approval) → final summary."""
+        got = {m.get("role") for m in messages}
+        has_tool = any(m.get("role") == "tool" for m in messages)
+        # count executed tools by scanning tool messages for call names
+        done: set[str] = set()
+        for m in messages:
+            if m.get("role") == "tool":
+                name = m.get("name") or m.get("tool_call_id") or ""
+                done.add(str(name))
+        tool_names = "extract_transactions flag_suspicious enrich_entity submit_to_regulator draft_sar_for_review"
+        del tool_names
+        if not has_tool:
+            return LLMResponse(
+                content="",
+                tool_calls=[ToolCall(
+                    name="extract_transactions",
+                    params={},
+                )],
+                stop_reason="tool_use",
+                input_tokens=200,
+                output_tokens=20,
+            )
+        if "extract_transactions" not in done and "plan_extract_transactions" not in done:
+            return LLMResponse(
+                content="",
+                tool_calls=[ToolCall(name="extract_transactions", params={})],
+                stop_reason="tool_use",
+                input_tokens=200,
+                output_tokens=20,
+            )
+        if not ({"flag_suspicious", "enrich_entity"} & done):
+            return LLMResponse(
+                content="",
+                tool_calls=[
+                    ToolCall(name="flag_suspicious", params={}),
+                    ToolCall(name="enrich_entity", params={}),
+                ],
+                stop_reason="tool_use",
+                input_tokens=400,
+                output_tokens=40,
+            )
+        if "submit_to_regulator" not in done and "draft_sar_for_review" not in done:
+            return LLMResponse(
+                content="",
+                tool_calls=[ToolCall(
+                    name="submit_to_regulator",
+                    params={
+                        "sar_summary": "综合可疑标注和实体关联的 SAR 报告",
+                        "suspicious_tx_ids": ["TX-1002", "TX-1003", "TX-1004"],
+                    },
+                )],
+                stop_reason="tool_use",
+                input_tokens=600,
+                output_tokens=60,
+            )
+        # submit came back (approved or rejected-as-fallback) — finish
+        return LLMResponse(
+            content=(
+                "审计完成：3 笔可疑交易（TX-1002/TX-1004 同一壳公司拆分汇款、"
+                "TX-1003 逼近申报阈值的加密兑换），SAR 报告已按流程处理。"
+            ),
+            stop_reason="end_turn",
+            input_tokens=800,
+            output_tokens=80,
+        )
+
     return RoutingFakeLLM(
         routes={
-            # 注册顺序即路由优先级（首匹配生效），镜像原来的 elif 链
+            # 注册顺序即路由优先级（首匹配生效）
             "合规审计编排 agent": [_route_main_agent],
-            "RESPOND WITH JSON ONLY": [_route_planner_generate],
-            "incremental replanning": [_route_planner_replan],
+            "你是合规审计 agent": [_route_plan_node],
+            "# audit_workflow Agent": [_route_worker],
             "反洗钱分析师": [_route_flag],
             "实体关联分析师": [_route_entity],
         }

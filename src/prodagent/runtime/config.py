@@ -11,13 +11,11 @@ if TYPE_CHECKING:
     from prodagent.base.config import FrameworkConfig
     from prodagent.cognition.context.spill import ToolResultSpillStore
     from prodagent.cognition.memory.manager import MemoryProvider
-    from prodagent.coordination.messaging.contract import MessageContract
     from prodagent.hooks.approval.gate import ApprovalProvider
     from prodagent.kernel.budget import HardBudget, SpawnAccumulator
     from prodagent.kernel.bus import Gate, HookEvent, HookRegistry, InjectionPoint
     from prodagent.kernel.graph import Plan
-    from prodagent.kernel.registry import UnitRegistry
-    from prodagent.kernel.scheduler import PlannerPort
+    from prodagent.kernel.registry import BodyRegistry
     from prodagent.llm import LLMClient
     from prodagent.mcp.config import MCPServerConfig
     from prodagent.ports import CheckpointStore, EventLog, SessionStore, Tool
@@ -47,21 +45,15 @@ class AgentConfig:
     event log is configured, the runtime resolves one from the profile."""
     session_store: SessionStore | None = None
     spill_store: ToolResultSpillStore | None = None
-    output_contract: MessageContract | None = None
     spawn_accumulator: SpawnAccumulator | None = None
     initial_plan: Plan | None = None
-    planner: PlannerPort | None = None
-    registry: UnitRegistry | None = None
-    """Named units the planner may draft steps against (``"unit": name``)
-    and checkpoints resolve ``unit_ref`` through — one roster per agent."""
-    """Per-turn drafting front-end: with no preset plan and no planner, a
-    chat turn runs the agent itself as the unit; with a planner, each turn
-    drafts a fresh graph. Composition decides, not a mode enum."""
+    registry: BodyRegistry | None = None
+    """Named bodies checkpoints resolve ``unit_ref`` through, and the
+    spawn roster addresses children by — one roster per agent."""
     node_fns: dict[str, Callable[..., Any]] | None = None
     """Plain functions fn nodes invoke, by name — populated when a Workflow
     is bound (its declaration), consumed by the composition root's
-    UnitContext at execution."""
-    max_replans: int = 2
+    NodeContext at execution."""
     description: str = ""
     agents: list[Agent] = field(default_factory=list)
     peers: list[Agent] = field(default_factory=list)

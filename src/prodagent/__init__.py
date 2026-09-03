@@ -45,6 +45,9 @@ _SYMBOL_SOURCES: dict[str, str] = {
     "script": "prodagent.llm.fake",
     "use_fake_llm": "prodagent.llm.providers",
     "BudgetLedger": "prodagent.kernel.budget",
+    "Workflow": "prodagent.kernel.workflow",
+    "workflow": "prodagent.kernel.compiler",
+    "compile": "prodagent.kernel.compiler",
     "MemoryManager": "prodagent.cognition.memory",
     "build_memory_manager": "prodagent.cognition.memory",
 }

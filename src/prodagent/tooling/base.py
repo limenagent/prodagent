@@ -20,13 +20,13 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from prodagent.base.errors import ErrorReason
+from prodagent.kernel.body import coerce_result
 from prodagent.kernel.types import (
     ToolError,
     ToolMeta,
     ToolName,
     ToolResult,
 )
-from prodagent.kernel.unit import coerce_result
 
 if typing.TYPE_CHECKING:
     from collections.abc import Callable, Iterator

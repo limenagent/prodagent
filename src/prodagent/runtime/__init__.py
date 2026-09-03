@@ -7,7 +7,7 @@ from prodagent.base.lazy import lazy_package
 _SYMBOL_SOURCES: dict[str, str] = {
     "Agent": "prodagent.runtime.agent",
     "AgentConfig": "prodagent.runtime.config",
-    "Workflow": "prodagent.plan.workflow",
+    "Workflow": "prodagent.kernel.workflow",
     "drive": "prodagent.runtime.runner",
     "drive_stream": "prodagent.runtime.runner",
 }

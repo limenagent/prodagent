@@ -58,16 +58,6 @@
 
 ---
 
-### 为什么执行一个 agent 也走端口？
-
-spawn 里直接 `import` runner 调用、舞台成员直接 `agent.chat()`，单进程下没有问题——但协作代码从此和进程内执行绑死：把任何一个成员挪到别的机器上，要改的就是协作层。
-
-prodagent 的做法：激活一次执行就是一次端口调用（`ports/execution.py`）。`RunnerPort.activate()` 的入参 `AgentActivation` 只带可序列化字段——agent、任务、run_id、账本，或 session_id；进程内实现 `InProcessRunner` 持有本跳的 hooks/checkpoint/账本并负责子 agent 的 fork，成员会话用更轻的 `InProcessChatRunner`。接力同理：relay 返回 `HandoffActivation`，peer 查找与 fork 由驱动方解释，协作层不构造运行时对象。
-
-**理由**：这让"`coordination` 不 import `runtime`"成为一条 CI 能检查的红线（两个方向都有测试）。换分布式执行就是换一个端口实现，协作原语一行不改。
-
----
-
 ### 为什么 AgentSpec 和 AgentConfig 是两个东西？
 
 `AgentConfig` 里是 LLM 客户端、hooks 注册表、存储、工具实例——只在当前进程有意义，序列化不了。远程派活需要传递的是另一组信息：名字、系统提示、模式、预算、工具 schema、子 agent 与同伴的规格。
@@ -262,17 +252,6 @@ else:
 
 ---
 
-### 为什么所有协作原语共用一个消息平面？
-
-spawn（树）和 peer（链）的通信都走 Crossing 管道。
-
-**理由**：
-- "不丢不重不乱序"是所有多 Agent 系统的共同需求
-- 在一个地方解决五道关卡（去重/契约/截断/Gate/死信），比在每个原语里各写一遍更可靠
-- 统一的可观测性——所有消息都有 trace，不需要为每个原语单独加埋点
-
----
-
 ## 测试层
 
 ### 为什么全部测试用 FakeLLM 离线跑？
@@ -344,7 +323,8 @@ test_spawn_child_budget_settles_at_handoff
 | 四轴预算 | `kernel/budget.py` |
 | 乐观并发 | `ports/persistence.py` |
 | 工具错误处理 | `tooling/base.py` |
-| 消息平面 | `coordination/messaging/` |
+| 协作三件套 | `runtime/collab.py` |
+| 代码成边 | `kernel/compiler.py` |
 | FakeLLM | `llm/fake.py` |
 | 消息格式宪法 | `base/types.py` `kernel/types.py` |
 | thinking 往返 | `llm/anthropic_adapter.py` |

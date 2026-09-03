@@ -1,6 +1,6 @@
 """Wire model round-trips — the data-model unit's two schemas.
 
-Unit 2 of arch-review-2026-08-27-atomicity-verdict.md: AgentSpec (the "who
+NodeBody 2 of arch-review-2026-08-27-atomicity-verdict.md: AgentSpec (the "who
 runs" document) and AgentEvent's wire codec (the "what happened" stream)
 must survive a to_wire/from_wire cycle losslessly for JSON-able payloads.
 The v1-checkpoint migration regression lives in
@@ -40,7 +40,6 @@ def test_agent_spec_round_trips_with_nesting_and_budget() -> None:
         constraints=["no prod writes"],
         budget=HardBudget(max_turns=7, max_seconds=99.0, max_tokens=1234, max_cost_usd=0.5),
         tools_schema=[{"name": "t1", "input_schema": {"type": "object"}}],
-        max_replans=0,
         child_agents=[AgentSpec(name="child", description="a child")],
         peers=[AgentSpec(name="peer", system_prompt="peer prompt")],
     )

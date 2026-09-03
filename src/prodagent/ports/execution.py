@@ -123,11 +123,46 @@ class Executor(Protocol):
 
 
 @dataclass
+class Limits:
+    """A role's hard boundaries (column 25): what a body physically can do,
+    as data — not the soft guidance of a system prompt.
+
+    - ``max_turns`` — the loop's ceiling (a budget axis);
+    - ``channels`` — the state channels the role may read/write (the scope
+      authorization; an empty frozenset reads as "all", a non-empty one is
+      a whitelist);
+    - ``can_delegate`` — the child agents the role may hand work to (an
+      empty frozenset reads as "none", a non-empty one is the whitelist);
+    - ``max_cost_usd`` — the spending ceiling (a budget axis).
+
+    These are what a ``check`` gate enforces at the boundary — what you can
+    reach is sturdier than what you were told to do."""
+
+    max_turns: int = 20
+    channels: frozenset[str] = frozenset()
+    can_delegate: frozenset[str] = frozenset()
+    max_cost_usd: float = 1.0
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "max_turns": self.max_turns,
+            "channels": sorted(self.channels),
+            "can_delegate": sorted(self.can_delegate),
+            "max_cost_usd": self.max_cost_usd,
+        }
+
+
+@dataclass
 class AgentSpec:
     """Pure-data agent projection — the wire form of "who runs".
 
     Live wiring (LLM client, hooks, stores, tool callables, registries)
-    stays on ``AgentConfig``; a spec never holds a reference to any of it."""
+    stays on ``AgentConfig``; a spec never holds a reference to any of it.
+
+    The role (column 25) is exactly four things folded together: the soft
+    instruction (``system_prompt``), the hard tool boundary (``tools_schema``
+    is what the model sees; the whitelist is the composition root's), the
+    outward contract (``output_model``), and the limits (``limits``)."""
 
     name: str
     description: str = ""
@@ -136,9 +171,14 @@ class AgentSpec:
     budget: HardBudget | None = None
     tools_schema: list[JsonDict] = field(default_factory=list)
     """Tool JSON schemas (what the model sees) — not tool objects."""
-    max_replans: int = 2
     child_agents: list[AgentSpec] = field(default_factory=list)
     peers: list[AgentSpec] = field(default_factory=list)
+    output_model: type[Any] | None = None
+    """The role's outward contract — the structured shape its answer is
+    validated against (column 25's ③)."""
+    limits: Limits | None = None
+    """The role's hard boundaries (channel auth, delegation whitelist,
+    ceilings) — checked at the boundary, never left to the prompt."""
 
     def describe(self) -> str:
         """One-line description: prefer ``description``, fall back to a
@@ -160,9 +200,12 @@ class AgentSpec:
             "constraints": list(self.constraints),
             "budget": dataclasses.asdict(self.budget) if self.budget is not None else None,
             "tools_schema": [dict(s) for s in self.tools_schema],
-            "max_replans": self.max_replans,
             "child_agents": [s.to_dict() for s in self.child_agents],
             "peers": [s.to_dict() for s in self.peers],
+            "output_model": (
+                self.output_model.__name__ if self.output_model is not None else None
+            ),
+            "limits": self.limits.to_dict() if self.limits is not None else None,
         }
 
     @classmethod
@@ -178,9 +221,18 @@ class AgentSpec:
             constraints=list(d.get("constraints") or []),
             budget=HardBudget(**budget) if budget is not None else None,
             tools_schema=[dict(s) for s in d.get("tools_schema") or []],
-            max_replans=d.get("max_replans", 2),
             child_agents=[cls.from_dict(s) for s in d.get("child_agents") or []],
             peers=[cls.from_dict(s) for s in d.get("peers") or []],
+            limits=(
+                Limits(
+                    max_turns=ld.get("max_turns", 20),
+                    channels=frozenset(ld.get("channels") or []),
+                    can_delegate=frozenset(ld.get("can_delegate") or []),
+                    max_cost_usd=ld.get("max_cost_usd", 1.0),
+                )
+                if (ld := d.get("limits")) is not None
+                else None
+            ),
         )
 
     def summary(self) -> str:

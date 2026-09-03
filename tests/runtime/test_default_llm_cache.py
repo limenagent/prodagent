@@ -173,7 +173,7 @@ class TestCostSkipping:
 
         run = Run(run_id="r1", task="t")
 
-        from prodagent.runtime.agent_loop import Round
+        from prodagent.runtime.recipes.agent_loop import Round
 
         step = object.__new__(Round)
         step._llm_config = LLMConfig(model="m")
@@ -202,7 +202,7 @@ class TestCostSkipping:
         from prodagent.kernel.run import Run
 
         run = Run(run_id="r1", task="t")
-        from prodagent.runtime.agent_loop import Round
+        from prodagent.runtime.recipes.agent_loop import Round
 
         step = object.__new__(Round)
         step._llm_config = LLMConfig(

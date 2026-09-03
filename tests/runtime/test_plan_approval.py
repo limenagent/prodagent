@@ -13,7 +13,7 @@ from prodagent.kernel.bus import BlockingResult, Gate
 from prodagent.kernel.scheduler import Scheduler
 from prodagent.kernel.types import LLMResponse, RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.planner import Planner
+from tests.runtime._preset import preset_plan
 
 _TERMINAL = (RunCompletedEvent, RunFailedEvent, RunSuspendedEvent)
 
@@ -69,7 +69,7 @@ def _executor_with_checker(checker, tmp_path):
     hooks = HookRegistry()
     hooks.register_checker(Gate.PLAN_APPROVAL, checker, priority=100)
     return Scheduler(
-        planner=Planner(_plan_llm(_basic_plan())),
+        initial_plan=preset_plan(_basic_plan()),
         tools=_noop_executor,
         system="sys",
         initial_messages=[{"role": "user", "content": "do"}],
@@ -141,7 +141,7 @@ async def test_plan_suspend_resume_via_pending_approval_id(tmp_path):
 
     hooks.register_checker(Gate.PLAN_APPROVAL, checker, priority=100)
     planner = Scheduler(
-        planner=Planner(_plan_llm(_basic_plan())),
+        initial_plan=preset_plan(_basic_plan()),
         tools=_noop_executor,
         system="sys",
         initial_messages=[{"role": "user", "content": "do"}],
@@ -173,7 +173,7 @@ async def test_plan_suspend_resume_via_pending_approval_id(tmp_path):
 async def test_no_hooks_no_plan_approval_gate(tmp_path):
     events, checkpoints = _stores(tmp_path)
     planner = Scheduler(
-        planner=Planner(_plan_llm(_basic_plan())),
+        initial_plan=preset_plan(_basic_plan()),
         tools=_noop_executor,
         system="sys",
         initial_messages=[{"role": "user", "content": "do"}],

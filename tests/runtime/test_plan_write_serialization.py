@@ -18,9 +18,9 @@ from prodagent.backends.file.event_log import FileEventLog
 from prodagent.kernel.scheduler import Scheduler
 from prodagent.kernel.types import LLMResponse, SideEffectLevel, ToolMeta
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.planner import Planner
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.dispatcher import ToolDispatcher
+from tests.runtime._preset import preset_plan
 
 _INTERVALS: dict[str, tuple[float, float]] = {}
 
@@ -76,15 +76,13 @@ async def test_write_steps_never_overlap_and_readonly_parallelizes(tmp_path):
 
     started = time.monotonic()
     executor = Scheduler(
-        planner=Planner(
-            _plan(
-                [
-                    {"id": "s1", "action": "w1", "params": {}, "depends_on": []},
-                    {"id": "s2", "action": "w2", "params": {}, "depends_on": []},
-                    {"id": "s3", "action": "r1", "params": {}, "depends_on": []},
-                    {"id": "s4", "action": "r2", "params": {}, "depends_on": []},
-                ]
-            )
+        initial_plan=preset_plan(
+            [
+                {"id": "s1", "action": "w1", "params": {}, "depends_on": []},
+                {"id": "s2", "action": "w2", "params": {}, "depends_on": []},
+                {"id": "s3", "action": "r1", "params": {}, "depends_on": []},
+                {"id": "s4", "action": "r2", "params": {}, "depends_on": []},
+            ]
         ),
         tools=dispatcher.dispatch,
         system="sys",

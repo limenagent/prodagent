@@ -8,7 +8,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 from prodagent.backends.redis.keys import namespaced_key
-from prodagent.ports.messaging import LockToken
+from prodagent.ports.persistence import LockToken
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis

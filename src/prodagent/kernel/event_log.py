@@ -1,11 +1,11 @@
-"""PlanEventLog — event sourcing + checkpoint persistence for PLAN_FIRST.
+"""PlanEventLog — event sourcing + checkpoint persistence for plan execution.
 
 Recovery here is snapshot-based with tail replay: the checkpoint stores a
 plan snapshot *and the event seq it was taken at* (``last_seq``); restore
 folds the snapshot first, then replays only the events after it. Snapshots
 truncate replay length; the event stream guarantees no increment is lost —
 the same trade a WAL-plus-checkpoint database makes. Every mutation of the
-plan (created / started / completed / failed / suspended / replanned) is
+plan (created / started / completed / failed / suspended / requeued) is
 one appended event, so any state is reproducible from the log alone.
 """
 
@@ -73,6 +73,17 @@ def apply_event(state: dict[str, Any], event: Event) -> None:
         case PlanEventType.NODE_SUSPENDED:
             if (s := steps.get(event.data.get("node_id", ""))) is not None:
                 s["status"] = "suspended"
+        case PlanEventType.NODE_REQUEUED:
+            # The cycle engine's requeue, replayed: back to never-run, the
+            # old output is stale the moment the node re-executes.
+            if (s := steps.get(event.data.get("node_id", ""))) is not None:
+                s["status"] = "pending"
+                s["output_ref"] = None
+        case PlanEventType.NODE_INSTANTIATED:
+            # A Send's template instance, replayed: the node the live run
+            # grew at runtime joins the fold's node set.
+            if (wire := event.data.get("node")) is not None:
+                steps[wire["node_id"]] = wire
         case PlanEventType.COMMAND_APPLIED:
             # Only updates fold — control-flow commands left with the
             # combinators; pre-combinator goto/send events replay as no-ops.
@@ -82,20 +93,13 @@ def apply_event(state: dict[str, Any], event: Event) -> None:
                 key = str(update.get("key", ""))
                 reducer = update.get("reducer")
                 if key in shared and reducer:
-                    from prodagent.kernel.command import REDUCERS
+                    from prodagent.kernel.command import REDUCERS, resolve_reducer_name
 
-                    fn = REDUCERS.get(str(reducer))
+                    fn = REDUCERS.get(resolve_reducer_name(str(reducer)))
                     if fn is not None:
                         shared[key] = fn(shared[key], update.get("value"))
                 else:
                     shared[key] = update.get("value")
-        case PlanEventType.PLAN_REPLANNED:
-            state["version"] = event.version
-            for ns in event.data.get("new_nodes", []):
-                replaces = ns.get("replaces_node_id")
-                if replaces and replaces in steps:
-                    steps[replaces]["status"] = "obsolete"
-                steps[ns["node_id"]] = ns
 
 
 class PlanEventLog:
@@ -238,6 +242,44 @@ class PlanEventLog:
             checkpoint_plan=plan,
         )
 
+    async def record_node_requeued(
+        self,
+        plan: Plan,
+        run: Run,
+        node_id: str,
+        *,
+        source: str,
+        via: str,
+    ) -> int:
+        """A completed node went back to PENDING — the cycle engine's one
+        implicit decision, evented so the fold replays the requeue exactly
+        where the live run made it (``via`` says which door: a back edge or
+        a goto command)."""
+        return await self._record(
+            run,
+            PlanEventType.NODE_REQUEUED,
+            plan.version,
+            node_id=node_id,
+            source=source,
+            via=via,
+        )
+
+    async def record_node_instantiated(
+        self,
+        plan: Plan,
+        run: Run,
+        wire: dict[str, Any],
+    ) -> int:
+        """A Send materialized a template instance (column 17): the new
+        node lands in the log so the fold (and a resume) rebuilds the exact
+        instance set the live run grew."""
+        return await self._record(
+            run,
+            PlanEventType.NODE_INSTANTIATED,
+            plan.version,
+            node=wire,
+        )
+
     async def record_command_applied(self, plan: Plan, run: Run, node_id: str, command: Any) -> int:
         """Dynamic control flow lands in the log like every other state
         change — the fold replays gotos, sprouts and merges."""
@@ -250,18 +292,19 @@ class PlanEventLog:
             checkpoint_plan=plan,
         )
 
-    async def record_replanned(
-        self,
-        plan: Plan,
-        run: Run,
-        new_nodes: list[Any],
+    async def record_command_denied(
+        self, plan: Plan, run: Run, *, command: str, reason: str
     ) -> int:
+        """A command was refused (column 11): the *attempt* is a fact too —
+        "tried to do X" is as traceable as "did X", so a denied intent is
+        never mistaken for a silent no-op. ``command`` names the intent
+        (``plan_approval``, ``tool_call``), ``reason`` the veto."""
         return await self._record(
             run,
-            PlanEventType.PLAN_REPLANNED,
+            PlanEventType.COMMAND_DENIED,
             plan.version,
-            new_nodes=[node_wire_dict(n, run.node_state(n.node_id)) for n in new_nodes],
-            checkpoint_plan=plan,
+            command=command,
+            reason=reason,
         )
 
     async def save_snapshot(self, run: Run, *, plan: Plan | None = None) -> None:

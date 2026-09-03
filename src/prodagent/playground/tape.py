@@ -27,16 +27,14 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi import APIRouter
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from prodagent.base.event_log import (
     BoundaryEventType,
     RunEventType,
     SpanEventType,
 )
-from prodagent.replay.cassette import CassetteMismatch, derive_cassette
-from prodagent.replay.engine import CassetteLLMClient, CassettePlayer, FrozenClock, replay_tools
 
 if TYPE_CHECKING:
     from prodagent.base.event_log import Event
@@ -176,106 +174,11 @@ def build_tape_router(state: Any, event_log: EventLog, blobs: BlobStore | None) 
 
         return StreamingResponse(channel(), media_type="text/event-stream")
 
-    @router.get("/{run_id}/cassette")
-    async def tape_cassette(run_id: str) -> PlainTextResponse:
-        cassette = await derive_cassette(event_log, run_id, blobs=blobs)
-        if not cassette.records:
-            raise HTTPException(status_code=404, detail=f"no boundary facts for run {run_id!r}")
-        return PlainTextResponse(cassette.to_jsonl(), media_type="text/plain")
-
-    @router.post("/{run_id}/replay")
-    async def tape_replay(run_id: str) -> JSONResponse:
-        """Re-enact the tape offline and return the verdict: the replayed
-        terminal state against the recorded one, and whether the tape was
-        consumed exactly (no record left unplayed, none re-asked)."""
-        from prodagent.runtime.agent_loop import agent_scheduler
-        from prodagent.tooling.dispatcher import ToolDispatcher
-
-        cassette = await derive_cassette(event_log, run_id, blobs=blobs)
-        if not cassette.records:
-            raise HTTPException(status_code=404, detail=f"no boundary facts for run {run_id!r}")
-
-        task = _task_from_tape(cassette)
-        player = CassettePlayer(cassette)
-        dispatcher = ToolDispatcher(replay_tools(cassette, player))
-        loop = agent_scheduler(CassetteLLMClient(player), dispatcher)
-
-        replay_run = None
-        replay_events: list[Any] = []
-        try:
-            with override_time(FrozenClock(cassette)):
-                async for event in loop.stream(task):
-                    replay_events.append(event)
-                    replay_run = getattr(event, "run", None) or replay_run
-        except CassetteMismatch as exc:
-            # Zero egress refusing an ask is a FINDING — the tape and the
-            # re-run disagree at the very first question — not a server
-            # error. Report it as the verdict it is.
-            return JSONResponse(
-                {
-                    "run_id": run_id,
-                    "equivalent": False,
-                    "refused": True,
-                    "divergences": [f"tape refused: {exc}"],
-                    "state": None,
-                    "final_output": None,
-                    "turns": 0,
-                    "tape_records": len(cassette.records),
-                }
-            )
-        if replay_run is None:
-            raise HTTPException(status_code=500, detail="replay produced no terminal run")
-
-        recorded = await _recorded_terminal(state, run_id)
-        divergences: list[str] = []
-        equivalent = True
-        if recorded is not None:
-            if str(replay_run.state) != recorded["state"]:
-                equivalent = False
-                divergences.append(
-                    f"state: replay {replay_run.state} vs recorded {recorded['state']}"
-                )
-            if (replay_run.final_output or "") != (recorded["final_output"] or ""):
-                equivalent = False
-                divergences.append(
-                    f"final_output: replay {replay_run.final_output!r} "
-                    f"vs recorded {recorded['final_output']!r}"
-                )
-        for kind in ("llm", "tool"):
-            if not player.exhausted(kind):
-                equivalent = False
-                divergences.append(f"tape not consumed exactly: {kind} records left unplayed")
-
-        return JSONResponse(
-            {
-                "run_id": run_id,
-                "equivalent": equivalent,
-                "divergences": divergences,
-                "state": str(replay_run.state),
-                "final_output": replay_run.final_output,
-                "turns": replay_run.turn_count,
-                "tape_records": len(cassette.records),
-            }
-        )
-
     return router
 
 
 def _sse(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, default=str, ensure_ascii=False)}\n\n"
-
-
-def _task_from_tape(cassette: Any) -> str:
-    """The original task, recovered from the tape: the first llm record's
-    first message is the user's ask — the tape carries its own prompt."""
-    for record in cassette.records:
-        if record.kind == "llm":
-            messages = record.request.get("messages") or []
-            if messages:
-                content = messages[0].get("content", "")
-                if isinstance(content, str) and content:
-                    return content
-    raise HTTPException(status_code=422, detail="tape carries no task to re-run")
 
 
 async def _recorded_terminal(state: Any, run_id: str) -> dict[str, Any] | None:

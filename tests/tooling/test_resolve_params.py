@@ -4,19 +4,19 @@ from dataclasses import replace
 
 import pytest
 
+from prodagent.kernel.bodies import ToolBody
 from prodagent.kernel.graph import Node, Plan
 from prodagent.kernel.node_state import NodeRuntimeState
 from prodagent.kernel.types import NodeStatus
-from prodagent.kernel.units import ToolUnit
 
 
 def _make_plan_with_completed_dep(
     output_ref: object, params: dict | None = None
 ) -> tuple[Plan, Node, dict[str, NodeRuntimeState]]:
-    step_1 = Node(node_id="step_1", body=ToolUnit("tool_a"), params={})
+    step_1 = Node(node_id="step_1", body=ToolBody("tool_a"), params={})
     step_2 = Node(
         node_id="step_2",
-        body=ToolUnit("tool_b"),
+        body=ToolBody("tool_b"),
         depends_on=["step_1"],
         params=params if params is not None else {"x": "{{step_1.output.val}}"},
     )
@@ -79,10 +79,10 @@ class TestResolveParams:
         assert "no_such_step" in str(exc_info.value)
 
     def test_references_uncompleted_step_raises(self):
-        step_1 = Node(node_id="step_1", body=ToolUnit("tool_a"), params={})
+        step_1 = Node(node_id="step_1", body=ToolBody("tool_a"), params={})
         step_2 = Node(
             node_id="step_2",
-            body=ToolUnit("tool_b"),
+            body=ToolBody("tool_b"),
             depends_on=["step_1"],
             params={"x": "{{step_1.output.val}}"},
         )

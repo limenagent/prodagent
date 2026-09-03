@@ -308,26 +308,6 @@ class ConsoleObserverHooks:
         for s in steps:
             self._print_step_detail(s)
 
-    def _plan_replanned(
-        self,
-        *,
-        plan_id: str = "",
-        version: int = 1,
-        failed_node: str = "",
-        new_nodes: list[dict[str, Any]] | None = None,
-        replan_count: int = 1,
-        **_: Any,
-    ) -> None:
-        new_nodes = new_nodes or []
-        ids_str = ", ".join(s.get("id", "?") for s in new_nodes)
-        print(
-            f"\n{self._label('REPLAN', _YELLOW)}"
-            f"#{replan_count} v{version}  failed={_c(repr(failed_node), _RED)}  "
-            f"new={_c(repr(ids_str), _BOLD)}"
-        )
-        for s in new_nodes:
-            self._print_step_detail(s)
-
     def _print_step_detail(self, step: dict[str, Any]) -> None:
         sid = step.get("id", "?")
         action = step.get("action", "?")
@@ -500,7 +480,6 @@ _HANDLERS: dict[HookEvent, str] = {
     HookEvent.APPROVAL_REQUEST: "_approval_request",
     HookEvent.TOOL_RESULT: "_tool_result",
     HookEvent.PLAN_READY: "_plan_ready",
-    HookEvent.PLAN_REPLANNED: "_plan_replanned",
     HookEvent.NODE_STARTED: "_step_started",
     HookEvent.NODE_COMPLETED: "_step_completed",
     HookEvent.NODE_FAILED: "_step_failed",

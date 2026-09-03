@@ -12,16 +12,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from prodagent.kernel.bodies import FnBody
 from prodagent.kernel.graph import Edge, Graph, Node, Plan, fresh_states, state_of
 from prodagent.kernel.types import NodeStatus
-from prodagent.kernel.units import FnUnit
 
 if TYPE_CHECKING:
     from prodagent.kernel.node_state import NodeRuntimeState
 
 
 def _fn(node_id: str, *deps: str) -> Node:
-    return Node(node_id=node_id, body=FnUnit(fn=node_id), depends_on=list(deps))
+    return Node(node_id=node_id, body=FnBody(fn=node_id), depends_on=list(deps))
 
 
 def _completed(states: dict[str, NodeRuntimeState], *node_ids: str) -> dict[str, NodeRuntimeState]:

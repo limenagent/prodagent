@@ -1,4 +1,4 @@
-"""PlanValidator — the five shape checks every graph passes before it runs.
+"""PlanValidator — the shape checks every graph passes before it runs.
 
 Compiler front-ends differ in trust, not in format (column 8): a
 hand-written Workflow is validated once at compile time; a model-drafted
@@ -10,23 +10,27 @@ Edges are the input currency (``validate_graph``); a bare node list
 (``validate_nodes``) reads each node's declared ``depends_on``, the form
 merge submits before the edges land. Conditional edges
 (:class:`~prodagent.kernel.graph.Edge` ``when``) count as edges for every
-structural check: a cycle is a cycle even if a predicate might waive it at
-runtime — shape is static, waiving is scheduling.
+structural check — shape is static, waiving is scheduling.
 
-The five checks:
-1. **Acyclic** — Kahn over the live set; cycle members are named so a
-   replan can target the loop.
-2. **References resolve** — every edge's endpoints exist; every ``{{ref}}``
+Cycles are legal (column 5/6: agents iterate; a DAG is the loop-free
+special case). The old acyclicity check is gone by design — what the gate
+still demands of a loop is that it *terminates*: reachable from a root
+(so the graph can start), and the engine's wave cap / Stalled /
+no-progress detectors as the runtime backstop. Termination itself is the
+blueprint's promise, not something a shape check can prove.
+
+The checks:
+1. **References resolve** — every edge's endpoints exist; every ``{{ref}}``
    template in params names a node in the graph (or ``task``) and uses the
    supported syntax.
-3. **Reachable** — from the roots (in-degree-zero nodes) every node is
+2. **Reachable** — from the roots (in-degree-zero nodes) every node is
    reachable; no islands. Multiple roots are legitimate (parallel entry
    points); the teaching phrase "single entry" lands as "the root set
    covers the graph".
-4. **Unit contracts** — the unit's own configuration is complete (a tool
+3. **NodeBody contracts** — the unit's own configuration is complete (a tool
    name, a prompt, an agent), and fn params fit the declared signature
    when one is available.
-5. **Size budget** — node count, fan-out and depth caps; a runaway model
+4. **Size budget** — node count, fan-out and depth caps; a runaway model
    that drafts a ten-thousand-node graph fails here, cheaply, before a
    single tool fires.
 """
@@ -128,13 +132,12 @@ class PlanValidator:
         found.extend(self._check_size(nodes, edges))
         found.extend(self._check_references(nodes, edges, by_id))
         found.extend(self._check_contracts(nodes))
-        # Shape checks build on each other: reachability needs resolvable
-        # references, and a cycle is the root cause of its own
-        # unreachability — report the cause, not the symptom.
+        # Reachability needs resolvable references — report the cause, not
+        # the symptom. Cycles no longer block it: a loop is legal as long
+        # as it hangs off a root (and the engine's guards backstop the
+        # ones that never terminate).
         if not any(i.check == "dangling_ref" for i in found):
-            found.extend(self._check_acyclic(nodes, edges))
-            if not any(i.check == "cycle" for i in found):
-                found.extend(self._check_reachable(nodes, edges))
+            found.extend(self._check_reachable(nodes, edges))
         return found
 
     # ── 5. size ─────────────────────────────────────────────────────────────
@@ -219,18 +222,18 @@ class PlanValidator:
     # ── 4. unit contracts ───────────────────────────────────────────────────
 
     def _check_contracts(self, nodes: Sequence[Node]) -> list[PlanIssue]:
-        from prodagent.kernel.units import FnUnit, LLMUnit, SubAgentUnit, ToolUnit
+        from prodagent.kernel.bodies import FnBody, LLMBody, SubPlanBody, ToolBody
 
         issues: list[PlanIssue] = []
         for n in nodes:
             body = n.body
-            if isinstance(body, ToolUnit) and not body.tool:
+            if isinstance(body, ToolBody) and not body.tool:
                 issues.append(PlanIssue("contract", n.node_id, "tool node has no tool name"))
-            elif isinstance(body, LLMUnit) and not body.prompt:
+            elif isinstance(body, LLMBody) and not body.prompt:
                 issues.append(PlanIssue("contract", n.node_id, "llm node has no prompt"))
-            elif isinstance(body, SubAgentUnit) and not body.agent:
+            elif isinstance(body, SubPlanBody) and not body.agent:
                 issues.append(PlanIssue("contract", n.node_id, "subagent node has no agent name"))
-            elif isinstance(body, FnUnit):
+            elif isinstance(body, FnBody):
                 if not body.fn:
                     issues.append(PlanIssue("contract", n.node_id, "fn node has no function name"))
                 elif sig := self._fn_sigs.get(body.fn):
@@ -252,41 +255,7 @@ class PlanValidator:
                         )
         return issues
 
-    # ── 1. acyclic ──────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _check_acyclic(nodes: Sequence[Node], edges: Sequence[Edge]) -> list[PlanIssue]:
-        in_degree = {n.node_id: 0 for n in nodes}
-        dependents: dict[str, list[str]] = {n.node_id: [] for n in nodes}
-        for e in edges:
-            if e.source in dependents and e.target in in_degree:
-                dependents[e.source].append(e.target)
-                in_degree[e.target] += 1
-
-        ready = deque(nid for nid, deg in in_degree.items() if deg == 0)
-        processed = 0
-        while ready:
-            nid = ready.popleft()
-            processed += 1
-            for child in dependents[nid]:
-                in_degree[child] -= 1
-                if in_degree[child] == 0:
-                    ready.append(child)
-
-        if processed == len(in_degree):
-            return []
-        # Nodes that never reached in-degree 0 are exactly the cycle's members.
-        cycle = sorted(nid for nid, deg in in_degree.items() if deg > 0)
-        return [
-            PlanIssue(
-                "cycle",
-                cycle[0] if len(cycle) == 1 else "<cycle>",
-                "Cycle detected in plan DAG. Participating nodes: "
-                f"{cycle} — break the loop by removing one edge",
-            )
-        ]
-
-    # ── 3. reachable ────────────────────────────────────────────────────────
+    # ── 2. reachable ────────────────────────────────────────────────────────
 
     @staticmethod
     def _check_reachable(nodes: Sequence[Node], edges: Sequence[Edge]) -> list[PlanIssue]:

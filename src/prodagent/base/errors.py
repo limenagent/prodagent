@@ -104,6 +104,21 @@ class InfiniteLoopDetected(AgentError):
     """Same tool-call fingerprint repeated beyond threshold."""
 
 
+class IllegalTransition(AgentError):
+    """A run-state transition outside the allowed table (column 8) — an
+    illegal lifecycle move at the write site, not a silent surprise later."""
+
+
+class Stalled(AgentError):
+    """The ready set went empty with unfinished nodes (column 16): a cycle
+    whose conditions can never be satisfied, a deadlock, or an exhausted
+    wave budget. The unfinished nodes are named — never a silent hang."""
+
+    def __init__(self, unfinished: list[str], reason: str = "ready set is empty") -> None:
+        self.unfinished = unfinished
+        super().__init__(f"stalled ({reason}): nodes {sorted(unfinished)} can never become ready")
+
+
 class ToolAbortError(AgentError):
     """Tool returned ABORT — the tool itself signalled failure."""
 

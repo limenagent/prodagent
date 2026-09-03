@@ -37,7 +37,15 @@ from compliance_audit.tools import (
     submit_to_regulator,
 )
 
-# ── 子 agent: audit_workflow (PLAN_FIRST, 无 hardcoded workflow) ──────────
+# ── 子 agent: audit_workflow (plan-and-resolve，内核原语拼装) ────────────
+
+_PLAN_PROMPT = (
+    "根据任务制定一份合规审计的目标清单（纯文本，逐条列出要做的事），"
+    "不输出 JSON、不画执行图：先抽取交易流水，再做可疑标注与实体关联，"
+    "最后提交 SAR 可疑活动报告（高危写操作，执行前有人工审批；若被拒绝，"
+    "改走 draft_sar_for_review 草稿复核路径）。"
+    "\n\n任务：{{task}}"
+)
 
 _WORKFLOW_SYSTEM = (
     "你是合规审计 agent。收到审计任务后，制定并执行审计计划：\n"
@@ -70,16 +78,40 @@ def build_audit_workflow_agent(
     llm: LLMClient | None = None,
     framework_config: FrameworkConfig | None = None,
 ) -> Agent:
-    """audit_workflow 子 agent —— PLAN_FIRST 模式，无 hardcoded workflow。
+    """audit_workflow 子 agent —— plan-and-resolve，全部用内核原语拼装。
 
-    LLM 在运行时动态生成 Plan DAG。``submit_to_regulator`` 为 HIGH 副作用，
-    执行前由框架 ApprovalHooks 弹窗审批。Reject 后自动触发增量重规划：不重试
-    submit，改调只读的 ``draft_sar_for_review`` 草拟 SAR 转人工复核（复用已完成
-    的分析步骤）。
+    专栏 24 讲的参考形状：模型的"计划"是**任务清单数据**，不是执行图。两个
+    节点一条边——``plan``（一次 LLM 调用，产出审计目标清单文本）→ ``work``
+    （循环体，goal 由上游输出注入 ``{{plan.output}}``，自己用同一套工具把清单
+    做完）。执行图本身是代码写死的；planner 从框架里删掉了，plan-first 只是
+    一种应用组合。
+
+    ``submit_to_regulator`` 为 HIGH 副作用，执行前由框架 ApprovalHooks 弹窗
+    审批；被 Reject 时拒绝结果回喂工人循环，改调只读的
+    ``draft_sar_for_review`` 草拟 SAR 转人工复核——恢复路径也在提示词里，
+    不在框架里。
     """
     from prodagent.base.config import production
+    from prodagent.kernel.bodies import LLMBody
+    from prodagent.kernel.graph import Node, compile_planned
+    from prodagent.runtime.recipes.loop_body import LoopBody
 
     fw = framework_config or production()
+    plan = compile_planned(
+        [
+            Node(
+                node_id="plan",
+                body=LLMBody(prompt=_PLAN_PROMPT, system=_WORKFLOW_SYSTEM),
+            ),
+            Node(
+                node_id="work",
+                body=LoopBody(),
+                params={"goal": "{{plan.output}}"},
+                depends_on=["plan"],
+                is_terminal=True,
+            ),
+        ]
+    )
     return Agent(
         "audit_workflow",
         system_prompt=_WORKFLOW_SYSTEM,
@@ -95,7 +127,7 @@ def build_audit_workflow_agent(
             name="audit_workflow",
             llm=llm,
             framework=fw,
-            max_replans=2,
+            initial_plan=plan,
         ),
     )
 

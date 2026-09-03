@@ -1,4 +1,4 @@
-"""UnitRegistry — names to Units, the kernel's resolution table.
+"""BodyRegistry — names to node bodies, the kernel's resolution table.
 
 Three consumers need "a name becomes a runnable unit" and they all need the
 SAME table, not three private maps: the planner (a drafted node names what
@@ -19,21 +19,21 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from prodagent.kernel.unit import GraphUnit, UnitMeta
+    from prodagent.kernel.body import BodyMeta, NodeBody
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["UnitRegistry"]
+__all__ = ["BodyRegistry"]
 
 
-class UnitRegistry:
-    """One process's name→Unit table, with optional per-unit metadata."""
+class BodyRegistry:
+    """One process's name→NodeBody table, with optional per-unit metadata."""
 
     def __init__(self) -> None:
-        self._units: dict[str, GraphUnit] = {}
-        self._meta: dict[str, UnitMeta] = {}
+        self._units: dict[str, NodeBody] = {}
+        self._meta: dict[str, BodyMeta] = {}
 
-    def register(self, name: str, unit: GraphUnit, meta: UnitMeta | None = None) -> None:
+    def register(self, name: str, unit: NodeBody, meta: BodyMeta | None = None) -> None:
         """Idempotent-by-replacement: re-registering a name wins (composition
         order is the policy — the last assembler to speak owns the name)."""
         if name in self._units and self._units[name] is not unit:
@@ -42,16 +42,16 @@ class UnitRegistry:
         if meta is not None:
             self._meta[name] = meta
 
-    def resolve(self, name: str) -> GraphUnit | None:
+    def resolve(self, name: str) -> NodeBody | None:
         return self._units.get(name)
 
-    def require(self, name: str) -> GraphUnit:
+    def require(self, name: str) -> NodeBody:
         unit = self._units.get(name)
         if unit is None:
             raise KeyError(f"unit {name!r} is not registered. Known units: {sorted(self._units)}")
         return unit
 
-    def meta_of(self, name: str) -> UnitMeta | None:
+    def meta_of(self, name: str) -> BodyMeta | None:
         return self._meta.get(name)
 
     def names(self) -> list[str]:

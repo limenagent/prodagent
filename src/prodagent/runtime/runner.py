@@ -1,8 +1,8 @@
 """RunLoop — the run driver: one agent hop at a time, chained across peers.
 
-Lives in runtime (it drives the kernel's executors); collaboration
-primitives and the messaging plane stay in coordination and reach the hop
-only through the ``tool_assemblers`` seam on ``RunContext``.
+Lives in runtime (it drives the kernel's executors); collaboration is the
+thin trio folded into compose and reaches the hop only through the
+``tool_assemblers`` seam on ``RunContext``.
 """
 
 from __future__ import annotations
@@ -25,13 +25,12 @@ from prodagent.kernel.run import (
 from prodagent.kernel.types import RunCompletedEvent, RunFailedEvent, RunSuspendedEvent
 from prodagent.ports.execution import InProcessChatRunner
 from prodagent.runtime.compose import (
+    SchedulerFactory,
     find_suspended_peer,
     hop_tool_assemblers,
     make_settler,
     peer_relay,
 )
-from prodagent.runtime.factory import SchedulerFactory
-from prodagent.runtime.parent_runtime import ParentRuntime
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -39,8 +38,9 @@ if TYPE_CHECKING:
 
     from pydantic import BaseModel
 
+    from prodagent.base.config import FrameworkConfig
     from prodagent.cognition.context.spill import ToolResultSpillStore
-    from prodagent.kernel.budget import BudgetLedger
+    from prodagent.kernel.budget import BudgetLedger, HardBudget
     from prodagent.kernel.bus import HookRegistry
     from prodagent.kernel.types import AgentEvent, MessageList
     from prodagent.ports import CheckpointStore, EventLog
@@ -182,15 +182,15 @@ class RunContext:
 class InProcessRunner:
     """One agent activation, executed right here.
 
-    Bound to the hop's wiring (a :class:`ParentRuntime`), a bare run forks
-    its target under that wiring — the fork is runtime vocabulary, the port
-    contract stays pure execution. Unbound (``runtime=None``) the target runs
+    Bound to the hop's wiring (a :class:`RunContext`), a bare run forks its
+    target under that wiring — the fork is runtime vocabulary, the port
+    contract stays pure execution. Unbound (``ctx=None``) the target runs
     as-is: the standalone default for callers outside a hop chain. Chat
     activations (``session_id`` set) never fork — a member speaks as itself.
     """
 
-    def __init__(self, runtime: ParentRuntime | None = None) -> None:
-        self._runtime = runtime
+    def __init__(self, ctx: RunContext | None = None) -> None:
+        self._ctx = ctx
 
     def activate(self, activation: AgentActivation) -> AsyncGenerator[AgentEvent, None]:
         if activation.session_id is not None:
@@ -198,14 +198,8 @@ class InProcessRunner:
             # default that owns that semantics — this used to be a copy of it.
             return InProcessChatRunner().activate(activation)
         agent = activation.agent
-        if self._runtime is not None:
-            runtime = replace(
-                self._runtime,
-                # Chain budget wins if declared; otherwise the child's own
-                # config supplies the ceiling (never both — no double cap).
-                budget=self._runtime.budget or agent.budget_config,
-            )
-            agent = agent.fork_as_spawn(runtime)
+        if self._ctx is not None:
+            agent = agent.fork_as_spawn(self._ctx)
         return drive_stream(
             agent,
             activation.task,
@@ -362,7 +356,7 @@ class RunLoop:
             try:
                 async with ctx:
                     if ctx.runner is None:
-                        ctx.runner = InProcessRunner(ParentRuntime.from_context(ctx))
+                        ctx.runner = InProcessRunner(ctx)
                     hooks, executor, spawn_acc = await self._factory.prepare(ctx)
                     try:
                         async for event in executor.stream(
@@ -478,7 +472,6 @@ class RunLoop:
             agent_name=self._root_agent.name,
             root_run_id=self._root_run_id,
             output_schema=self._output_schema,
-            output_contract=self._root_agent.config.output_contract,
         )
         await settler.settle(run, checkpoint, hooks)
 

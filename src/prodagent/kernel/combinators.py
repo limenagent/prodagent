@@ -1,7 +1,7 @@
-"""Combinators — structured composition, one Unit nesting another.
+"""Combinators — structured composition, one NodeBody nesting another.
 
 Sequential / Parallel / Route / Loop: the four shapes 90% of orchestration
-needs, all Units themselves, so they nest arbitrarily
+needs, all NodeBody implementations themselves, so they nest arbitrarily
 (``Sequential(Parallel(a, b), Loop(Route(...)))``) — the Composite the
 macro-node/micro-agent split never allowed.
 
@@ -33,7 +33,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from prodagent.kernel.unit import GraphUnit, Handoff, Outcome, UnitContext
+from prodagent.kernel.body import Handoff, NodeBody, NodeContext, Outcome
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -134,14 +134,14 @@ class Sequential:
     readonly = None  # the chain runs children one at a time anyway
     kind = "sequential"
 
-    def __init__(self, *units: GraphUnit) -> None:
-        self.units: tuple[GraphUnit, ...] = units
+    def __init__(self, *units: NodeBody) -> None:
+        self.units: tuple[NodeBody, ...] = units
 
     @property
     def target(self) -> str:
         return "sequential"
 
-    async def run(self, input: Any, ctx: UnitContext) -> Outcome:
+    async def run(self, input: Any, ctx: NodeContext) -> Outcome:
         value = input
         outcomes: list[Outcome] = []
         for unit in self.units:
@@ -183,15 +183,15 @@ class Parallel:
     readonly = None
     kind = "parallel"
 
-    def __init__(self, *units: GraphUnit, join: Join | None = None) -> None:
-        self.units: tuple[GraphUnit, ...] = units
+    def __init__(self, *units: NodeBody, join: Join | None = None) -> None:
+        self.units: tuple[NodeBody, ...] = units
         self.join: Join = join or AllOf()
 
     @property
     def target(self) -> str:
         return "parallel"
 
-    async def run(self, input: Any, ctx: UnitContext) -> Outcome:
+    async def run(self, input: Any, ctx: NodeContext) -> Outcome:
         tasks = [asyncio.ensure_future(unit.run(input, ctx)) for unit in self.units]
         # Keep task→slot adjacency so values report in declaration order.
         by_index = {id(t): i for i, t in enumerate(tasks)}
@@ -249,16 +249,16 @@ class Route:
     def __init__(
         self,
         selector: Callable[[Mapping[str, Any]], str],
-        targets: dict[str, GraphUnit],
+        targets: dict[str, NodeBody],
     ) -> None:
         self.selector = selector
-        self.targets: dict[str, GraphUnit] = dict(targets)
+        self.targets: dict[str, NodeBody] = dict(targets)
 
     @property
     def target(self) -> str:
         return "route"
 
-    async def run(self, input: Any, ctx: UnitContext) -> Outcome:
+    async def run(self, input: Any, ctx: NodeContext) -> Outcome:
         key = self.selector(ctx.shared)
         unit = self.targets.get(key)
         if unit is None:
@@ -290,15 +290,18 @@ class Route:
 class Loop:
     """Iterate one unit until ``until`` holds or the iteration cap dies.
     Each iteration's ``value`` feeds the next iteration's input —
-    refinement loops read naturally. NEVER compiles to a graph (ruling 2):
-    a back-edge would break the acyclicity law; the loop lives here."""
+    refinement loops read naturally. Two forms, one shape (ruling 2,
+    reversed — cycles are legal now): the interpreted form (``run``) keeps
+    the exact iteration cap; the compiled form (:meth:`graph`) is the body
+    plus a tail gate plus one back edge, active while ``until`` doesn't
+    hold, leaning on the engine's guards for the loop that never exits."""
 
     readonly = False
     kind = "loop"
 
     def __init__(
         self,
-        unit: GraphUnit,
+        unit: NodeBody,
         until: Callable[[Mapping[str, Any]], bool],
         *,
         max_iterations: int = 10,
@@ -311,7 +314,31 @@ class Loop:
     def target(self) -> str:
         return "loop"
 
-    async def run(self, input: Any, ctx: UnitContext) -> Outcome:
+    def graph(self) -> Graph:
+        """The compiled shape: body → tail gate, and a back edge tail → body
+        that stays active until ``until`` holds.
+
+        The gate exists because a self-edge cannot bootstrap (a node
+        waiting on itself never becomes ready): the tail runs after each
+        body pass, and its back edge is what requeues the body. When the
+        edge waives, the body stays COMPLETED and the loop ends. The
+        interpreted form's exact ``max_iterations`` has no compiled
+        counterpart — a cycle whose body never writes what ``until`` reads
+        is the no-progress detector's to kill, loudly."""
+        from prodagent.kernel.graph import Graph, Node, Origin
+
+        g = Graph(origin=Origin.DYNAMIC)
+        g.add_nodes(
+            [
+                Node(node_id="loop_body", body=self.unit, origin=Origin.DYNAMIC),
+                Node(node_id="loop_tail", body=_Gate("loop"), origin=Origin.DYNAMIC),
+            ]
+        )
+        g.edge("loop_body", "loop_tail")
+        g.edge("loop_tail", "loop_body", when=lambda shared: not self.until(shared))
+        return g
+
+    async def run(self, input: Any, ctx: NodeContext) -> Outcome:
         value = input
         outcomes: list[Outcome] = []
         for _ in range(self.max_iterations):
@@ -355,7 +382,7 @@ class _Gate:
     def target(self) -> str:
         return self.label
 
-    async def run(self, input: Any, ctx: UnitContext) -> Outcome:
+    async def run(self, input: Any, ctx: NodeContext) -> Outcome:
         return Outcome(value=None)
 
 

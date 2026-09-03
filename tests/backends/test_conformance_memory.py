@@ -7,7 +7,6 @@ from typing import Any
 from prodagent.backends.memory import (
     InMemoryApprovalStore,
     InMemoryCache,
-    InMemoryDeadLetterQueue,
     InMemoryEventLog,
     InMemoryGraphStore,
     InProcessLockStore,
@@ -19,9 +18,6 @@ from tests.backends.conformance import (
     run_approval_idempotent_create_conformance,
     run_cache_conformance,
     run_cache_key_isolation_conformance,
-    run_dead_letter_conformance,
-    run_dead_letter_escalation_conformance,
-    run_dead_letter_message_isolation_conformance,
     run_event_log_batch_conformance,
     run_event_log_batch_expected_seq_conformance,
     run_event_log_conformance,
@@ -54,10 +50,6 @@ def _mem_approval():
 
 def _mem_lock():
     return lambda: InProcessLockStore()
-
-
-def _mem_dead_letter():
-    return lambda: InMemoryDeadLetterQueue(max_retries=3)
 
 
 def _mem_graph():
@@ -111,21 +103,6 @@ async def test_memory_lock_release_idempotent_conformance():
 
 async def test_memory_lock_nonblocking_tryacquire_conformance():
     await run_lock_nonblocking_tryacquire_conformance(_mem_lock())
-
-
-# ── dead_letter ───────────────────────────────────────────────────────────────
-
-
-async def test_memory_dead_letter_conformance():
-    await run_dead_letter_conformance(_mem_dead_letter())
-
-
-async def test_memory_dead_letter_escalation_conformance():
-    await run_dead_letter_escalation_conformance(_mem_dead_letter())
-
-
-async def test_memory_dead_letter_message_isolation_conformance():
-    await run_dead_letter_message_isolation_conformance(_mem_dead_letter())
 
 
 # ── graph ─────────────────────────────────────────────────────────────────────

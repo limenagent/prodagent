@@ -15,6 +15,8 @@ from typing import Any
 
 import pytest
 
+from prodagent.kernel.bodies import NodeKind
+from prodagent.kernel.body import Handoff, NodeContext, Outcome
 from prodagent.kernel.combinators import (
     AnyOf,
     Custom,
@@ -24,8 +26,6 @@ from prodagent.kernel.combinators import (
     Route,
     Sequential,
 )
-from prodagent.kernel.unit import Handoff, Outcome, UnitContext
-from prodagent.kernel.units import NodeKind
 
 
 class _Const:
@@ -43,7 +43,7 @@ class _Const:
     def target(self) -> str:
         return f"const({self.value})"
 
-    async def run(self, input: Any, ctx: UnitContext) -> Outcome:
+    async def run(self, input: Any, ctx: NodeContext) -> Outcome:
         if self.handoff_to is not None:
             return Outcome(value=None, state_delta=self.delta, control=Handoff(self.handoff_to))
         return Outcome(value=self.value, state_delta=self.delta)
@@ -62,12 +62,12 @@ class _Add:
     def target(self) -> str:
         return f"add({self.n})"
 
-    async def run(self, input: Any, ctx: UnitContext) -> Outcome:
+    async def run(self, input: Any, ctx: NodeContext) -> Outcome:
         return Outcome(value=int(input) + self.n)
 
 
-def _ctx(shared: dict | None = None) -> UnitContext:
-    return UnitContext(run_id="r-comb", shared=shared or {})
+def _ctx(shared: dict | None = None) -> NodeContext:
+    return NodeContext(run_id="r-comb", shared=shared or {})
 
 
 class TestSequential:
@@ -236,18 +236,34 @@ class TestLoop:
         outcome = await loop.run(0, _ctx())
         assert isinstance(outcome.control, Handoff)
 
-    def test_loop_never_compiles(self):
-        assert not hasattr(Loop(_Const(1), until=lambda v: True), "graph")
+    def test_loop_compiles_to_a_back_edge(self):
+        """Ruling 2 reversed: cycles are legal, so Loop compiles — the body,
+        a tail gate (a self-edge cannot bootstrap), and the two-cycle that
+        keeps them churning. Every edge of a cycle is a back edge: the ring
+        stays alive exactly because each member requeues the next."""
+        loop = Loop(_Const(1), until=lambda v: True)
+        g = loop.graph()
+        ids = set(g.nodes)
+        assert ids == {"loop_body", "loop_tail"}
+        back = g.back_edges()
+        assert {(e.source, e.target) for e in back} == {
+            ("loop_body", "loop_tail"),
+            ("loop_tail", "loop_body"),
+        }
+        # the conditional edge is the exit: waived the moment until() holds
+        conditional = next(e for e in back if e.when is not None)
+        assert (conditional.source, conditional.target) == ("loop_tail", "loop_body")
+        assert not conditional.is_active({})
 
 
 class TestUnitConformance:
     def test_every_combinator_is_a_unit_structurally(self):
-        from prodagent.kernel.unit import Unit
+        from prodagent.kernel.body import NodeBody
 
-        assert isinstance(Sequential(_Const(1)), Unit)
-        assert isinstance(Parallel(_Const(1)), Unit)
-        assert isinstance(Route(lambda s: "a", {"a": _Const(1)}), Unit)
-        assert isinstance(Loop(_Const(1), until=lambda v: True), Unit)
+        assert isinstance(Sequential(_Const(1)), NodeBody)
+        assert isinstance(Parallel(_Const(1)), NodeBody)
+        assert isinstance(Route(lambda s: "a", {"a": _Const(1)}), NodeBody)
+        assert isinstance(Loop(_Const(1), until=lambda v: True), NodeBody)
 
     def test_kinds_are_not_node_kinds(self):
         # combinators are composition vocabulary, not the five node kinds

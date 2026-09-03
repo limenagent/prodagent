@@ -14,7 +14,6 @@ from prodagent.backends.factory import (
     resolve_approval,
     resolve_cache,
     resolve_checkpoint,
-    resolve_dead_letter,
     resolve_document,
     resolve_event_log,
     resolve_graph,
@@ -31,7 +30,6 @@ from prodagent.backends.file import (
 from prodagent.backends.memory import (
     InMemoryApprovalStore,
     InMemoryCache,
-    InMemoryDeadLetterQueue,
     InProcessLockStore,
 )
 from prodagent.base.config import BackendConfig, FrameworkConfig
@@ -39,7 +37,6 @@ from prodagent.ports import (
     ApprovalStore,
     CacheStore,
     CheckpointStore,
-    DeadLetterStore,
     DocumentStore,
     EventLog,
     LockStore,
@@ -64,11 +61,9 @@ def test_default_ephemeral_picks_memory():
     assert cfg.backend.cache == "memory"
     assert cfg.backend.lock == "memory"
     assert cfg.backend.approval == "memory"
-    assert cfg.backend.dead_letter == "memory"
     assert isinstance(resolve_cache(cfg), InMemoryCache)
     assert isinstance(resolve_approval(cfg), InMemoryApprovalStore)
     assert isinstance(resolve_lock(cfg), InProcessLockStore)
-    assert isinstance(resolve_dead_letter(cfg), InMemoryDeadLetterQueue)
 
 
 def test_default_graph_picks_file():
@@ -83,7 +78,6 @@ def test_resolvers_return_protocol_instances():
     assert isinstance(resolve_event_log(cfg), EventLog)
     assert isinstance(resolve_approval(cfg), ApprovalStore)
     assert isinstance(resolve_lock(cfg), LockStore)
-    assert isinstance(resolve_dead_letter(cfg), DeadLetterStore)
     assert isinstance(resolve_span_exporter(cfg), SpanExporter)
     assert isinstance(resolve_cache(cfg), CacheStore)
     assert isinstance(resolve_document(cfg), DocumentStore)
@@ -92,14 +86,6 @@ def test_resolvers_return_protocol_instances():
 def test_none_config_uses_default():
     assert isinstance(resolve_checkpoint(None), FileCheckpointStore)
     assert isinstance(resolve_cache(None), InMemoryCache)
-
-
-def test_dead_letter_inherits_max_retries_from_config():
-    cfg = FrameworkConfig.default()
-    cfg.orchestration.dead_letter_max_retries = 7
-    dlq = resolve_dead_letter(cfg)
-    assert isinstance(dlq, InMemoryDeadLetterQueue)
-    assert dlq._max_retries == 7
 
 
 def test_postgres_relational_resolvers_return_pg_classes():
@@ -140,25 +126,6 @@ def test_postgres_namespace_is_threaded_through():
     assert store._ns == "my-pg-ns"
 
 
-def test_redis_ephemeral_resolvers_return_redis_classes():
-    pytest.importorskip("redis")
-    from prodagent.backends.redis.cache import RedisCache
-    from prodagent.backends.redis.dead_letter import RedisDeadLetterQueue
-    from prodagent.backends.redis.lock import RedisLockStore
-
-    cfg = FrameworkConfig(
-        backend=BackendConfig(
-            cache="redis",
-            lock="redis",
-            dead_letter="redis",
-            redis_namespace="factory-test",
-        )
-    )
-    assert isinstance(resolve_cache(cfg), RedisCache)
-    assert isinstance(resolve_lock(cfg), RedisLockStore)
-    assert isinstance(resolve_dead_letter(cfg), RedisDeadLetterQueue)
-
-
 def test_redis_namespace_is_threaded_through():
     pytest.importorskip("redis")
     cfg = FrameworkConfig(backend=BackendConfig(cache="redis", redis_namespace="my-ns"))
@@ -194,7 +161,6 @@ def test_factory_module_exposes_all_resolvers():
         "resolve_cache",
         "resolve_approval",
         "resolve_lock",
-        "resolve_dead_letter",
         "resolve_span_exporter",
         "resolve_document",
         "resolve_graph",

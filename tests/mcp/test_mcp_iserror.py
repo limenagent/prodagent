@@ -6,8 +6,8 @@ from typing import Any
 import httpx
 import pytest
 
+from prodagent.kernel.body import coerce_result
 from prodagent.kernel.types import ErrorSeverity, ToolOutcome
-from prodagent.kernel.unit import coerce_result
 from prodagent.mcp.client import MCPClient
 from prodagent.mcp.config import MCPServerConfig
 

@@ -449,10 +449,10 @@ class RunRegistry:
         return summaries
 
     async def _resolve_suspended_peer(self, spec: ExampleSpec, root: Run) -> str | None:
-        from prodagent.coordination.peer import resolve_suspended_peer_run_id
+        from prodagent.playground.resume_peer import resolve_suspended_peer_run_id
 
         store = self.checkpoint_for(spec.name)
-        return await resolve_suspended_peer_run_id(store, root.pending_handoff)
+        return await resolve_suspended_peer_run_id(store, str(root.run_id))
 
     async def _find(self, run_id: str) -> tuple[ExampleSpec | None, Run | None]:
         async def probe(spec: ExampleSpec) -> tuple[ExampleSpec, Run | None]:

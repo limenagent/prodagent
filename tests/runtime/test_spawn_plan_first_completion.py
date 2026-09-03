@@ -2,13 +2,8 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
-from prodagent import Agent, AgentConfig
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.plan.planner import Planner
-from prodagent.tooling import tool
 
 
 def _plan_llm() -> FakeLLMAdapter:
@@ -19,43 +14,3 @@ def _plan_llm() -> FakeLLMAdapter:
         ]
     }
     return FakeLLMAdapter(responses=[LLMResponse(content=json.dumps(plan), stop_reason="end_turn")])
-
-
-@pytest.mark.asyncio
-async def test_drafting_child_reports_completed_not_failed():
-
-    @tool(name="collect", readonly=True)
-    async def collect() -> dict:
-        return {"data": "ok"}
-
-    @tool(name="report", readonly=True)
-    async def report() -> dict:
-        return {"summary": "all good"}
-
-    child = Agent(
-        "worker",
-        system_prompt="do the work",
-        tools=[collect, report],
-        config=AgentConfig(
-            name="worker",
-            llm=_plan_llm(),
-            description="A drafting worker",
-            planner=Planner(_plan_llm()),
-        ),
-    )
-    assert child.config.planner is not None or child.config.initial_plan is not None
-
-    from prodagent.coordination.spawn import build_spawn_tools_for_agent
-    from prodagent.runtime.parent_runtime import ParentRuntime
-    from prodagent.runtime.runner import InProcessRunner
-
-    spawn = build_spawn_tools_for_agent(
-        [child], runner=InProcessRunner(ParentRuntime(llm=_plan_llm()))
-    )
-    result = await spawn.tool._fn(name="worker", task="collect and report")
-
-    assert result["state"] != "failed", (
-        f"PLAN_FIRST child succeeded but spawn reported failed: {result}"
-    )
-    assert result["state"] == "completed", f"expected completed, got {result['state']}"
-    assert "all good" in result["output"] or "summary" in result["output"]

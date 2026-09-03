@@ -159,14 +159,17 @@ class LLMResponse:
 
 
 class NodeStatus(StrEnum):
-    # OBSOLETE is distinct from FAILED: replanning can invalidate a pending
-    # step through no fault of its own — it neither ran nor failed, so resume
+    # legacy wire value "obsolete" (the pre-rename word) reads as SKIPPED —
+    # coercion lives in from_state/status readers, not here
+    # SKIPPED is distinct from FAILED: a waived branch or a failure's
+    # quarantine invalidates a pending step through no fault of its own —
+    # it neither ran nor failed, so resume
     # logic must not treat it as either.
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
-    OBSOLETE = "obsolete"
+    SKIPPED = "skipped"
     SUSPENDED = "suspended"
 
 
@@ -293,6 +296,9 @@ class ToolResult(Generic[_T]):
     reason: str = ""
     tool: ToolName = ""
     approval_request_id: str = ""  # populated on SUSPENDED — correlates to submit_decision
+    interrupt_kind: str = (
+        ""  # populated on SUSPENDED — column 20's kind (need_input/approve/await_external)
+    )
     handoff: JsonDict | None = None  # populated on HANDOFF — {peer, task, input_refs}
 
     @classmethod
@@ -313,12 +319,14 @@ class ToolResult(Generic[_T]):
         reason: str = "",
         tool: ToolName = "",
         approval_request_id: str = "",
+        interrupt_kind: str = "",
     ) -> ToolResult[Any]:
         return cls(
             ToolOutcome.SUSPENDED,
             reason=reason,
             tool=tool,
             approval_request_id=approval_request_id,
+            interrupt_kind=interrupt_kind,
         )
 
     @classmethod

@@ -14,22 +14,20 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from prodagent.base.determinism import new_uuid4
-from prodagent.base.errors import LLMError, SuspendPendingApproval
+from prodagent.base.errors import SuspendPendingApproval
 from prodagent.kernel.bus import Gate, HookEvent
 from prodagent.kernel.bus import fire as _fire
-from prodagent.kernel.graph import Origin, Plan, compile_planned
-from prodagent.kernel.graph_validator import PlanValidationError
+from prodagent.kernel.graph import Origin, Plan
 from prodagent.kernel.run import Run
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
+    from prodagent.kernel.body import NodeBody
     from prodagent.kernel.bus import HookRegistry
     from prodagent.kernel.event_log import PlanEventLog
-    from prodagent.kernel.graph import Node, PlanDraft
-    from prodagent.kernel.scheduler import PlannerPort
+    from prodagent.kernel.graph import Node
     from prodagent.kernel.types import MessageList
-    from prodagent.kernel.unit import GraphUnit
     from prodagent.ports import CheckpointStore
 
 logger = logging.getLogger(__name__)
@@ -54,7 +52,7 @@ def _nodes_to_hook_dict(
     return [n.to_hook_dict(include_terminal=include_terminal) for n in nodes]
 
 
-def single_unit_plan(unit: GraphUnit, *, plan_id: str) -> Plan:
+def single_body_plan(unit: NodeBody, *, plan_id: str) -> Plan:
     """One unit, one terminal node, no edges — the agent-as-unit shape.
     There is no special name for this graph and no mode behind it: running
     an agent IS running a (very small) graph."""
@@ -71,27 +69,25 @@ class PlanBootstrap:
     def __init__(
         self,
         log: PlanEventLog | None,
-        planner: PlannerPort | None,
         *,
         system: str = "",
         initial_messages: MessageList | None = None,
         hooks: HookRegistry | None = None,
         agent_name: str = "",
         initial_plan: Plan | None = None,
-        initial_unit: GraphUnit | None = None,
+        initial_body: NodeBody | None = None,
         dispatcher: Any | None = None,
         check_budget: Callable[[Run], None],
         checkpoint_store: CheckpointStore | None = None,
         depth: int = 0,
     ) -> None:
         self._log = log
-        self._planner = planner
         self._system = system
         self._initial_messages = list(initial_messages) if initial_messages else None
         self._hooks = hooks
         self._agent_name = agent_name
         self._initial_plan = initial_plan
-        self._initial_unit = initial_unit
+        self._initial_body = initial_body
         self._dispatcher = dispatcher
         self._check_budget = check_budget
         self._checkpoint_store = checkpoint_store
@@ -110,9 +106,9 @@ class PlanBootstrap:
         every run the same way: with a (run, plan) pair in hand."""
         rid = run_id or new_uuid4()
 
-        if self._initial_unit is not None:
-            run = await self._resolve_unit_run(task, rid, parent_run_id=parent_run_id)
-            return run, single_unit_plan(self._initial_unit, plan_id=rid)
+        if self._initial_body is not None:
+            run = await self._resolve_body_run(task, rid, parent_run_id=parent_run_id)
+            return run, single_body_plan(self._initial_body, plan_id=rid)
 
         run = Run(run_id=rid, task=task, parent_run_id=parent_run_id, depth=self._depth)
         assert self._log is not None  # graph tracking always wires a PlanEventLog
@@ -159,58 +155,15 @@ class PlanBootstrap:
             self._check_budget(run)
             return run, plan
 
-        plan = await self._generate_plan(task, rid, run)
-        if plan is None:
-            if not run.last_error:
-                logger.warning("[Scheduler] Failed to parse plan JSON — no nodes to execute")
-                run.fail("Failed to parse plan JSON — no nodes to execute")
-        else:
-            self._check_budget(run)
-        return run, plan
-
-    async def _generate_plan(self, task: str, rid: str, run: Run) -> Plan | None:
-        """Ask the injected planner for a DAG draft, validate it, and — when
-        the validator rejects it — feed the issues back for one repair round
-        (errors are feedback, not exceptions). The raw model text is kept on
-        the transcript: the draft is auditable evidence of what the plan was
-        derived from, not just the parsed result."""
-        assert self._planner is not None and self._log is not None  # graph tracking wires both
-        try:
-            draft = await self._planner.generate(task, self._system, list(run.messages), run)
-            if draft.nodes:
-                draft = await self._validated(draft, task, run)
-        except LLMError as exc:
-            logger.error("[Scheduler] planning LLM call failed: %s", exc)
-            run.fail(exc)
-            return None
-        if not draft.nodes:
-            return None
-        plan = compile_planned(draft.nodes).derive(plan_id=rid, task_input=task)
-        run.messages.append({"role": "assistant", "content": draft.raw_text})
-        await self._log.record_plan_created(plan, run)
-        await _fire(
-            self._hooks,
-            HookEvent.PLAN_READY,
-            plan_id=plan.plan_id,
-            version=plan.version,
-            agent=self._agent_name,
-            nodes=_nodes_to_hook_dict(plan.nodes.values()),
-            run_id=run.run_id,
+        # No drafting source: the framework does not ask a model for an
+        # execution graph (column 24 — a model's plan is task-list DATA; the
+        # graph is code). A graph arrives as a preset plan; everything else
+        # runs as a single body.
+        raise ValueError(
+            "no plan source: preset a Plan (Agent(workflow=...), "
+            "compile_planned(...)) or run a body (initial_body) — "
+            "the framework no longer drafts graphs from tasks"
         )
-        return plan
-
-    async def _validated(self, draft: PlanDraft, task: str, run: Run) -> PlanDraft:
-        """Every model draft revalidates; a rejected draft gets exactly one
-        repair round with the issues quoted back, then the verdict stands."""
-        try:
-            compile_planned(draft.nodes)
-            return draft
-        except PlanValidationError as exc:
-            logger.warning("[Scheduler] planner draft rejected:\n%s", exc)
-            assert self._planner is not None
-            repaired = await self._planner.repair(draft, str(exc), task, self._system, run)
-            compile_planned(repaired.nodes)  # second verdict is final
-            return repaired
 
     async def gate(self, plan: Plan, run: Run) -> Plan | None:
         """The plan-level HITL approval gate — "may this plan run at all?"
@@ -244,6 +197,12 @@ class PlanBootstrap:
             )
             return None
         if veto.blocked:
+            await self._log.record_command_denied(
+                plan,
+                run,
+                command="plan_approval",
+                reason=veto.reason or "plan rejected by HITL reviewer",
+            )
             run.fail(veto.reason or "plan rejected by HITL reviewer")
             run.pending_approval_id = None
             logger.info("[Plan] plan=%s REJECTED by HITL — run fails", plan.plan_id)
@@ -251,7 +210,7 @@ class PlanBootstrap:
         run.pending_approval_id = None
         return plan
 
-    async def _resolve_unit_run(
+    async def _resolve_body_run(
         self,
         task: str,
         run_id: str,
@@ -275,7 +234,7 @@ class PlanBootstrap:
             if existing is not None:
                 if existing.state is not RunState.SUSPENDED:
                     _prune_unresolved_tool_uses(existing)
-                existing.revive()
+                existing.resume()
                 logger.info(
                     "[Scheduler] resuming from checkpoint: %d messages, turn=%d",
                     len(existing.messages),

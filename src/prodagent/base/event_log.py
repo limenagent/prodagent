@@ -25,8 +25,10 @@ class PlanEventType(StrEnum):
     NODE_COMPLETED = "NodeCompleted"
     NODE_FAILED = "NodeFailed"
     NODE_SUSPENDED = "NodeSuspended"
+    NODE_REQUEUED = "NodeRequeued"
+    NODE_INSTANTIATED = "NodeInstantiated"
     COMMAND_APPLIED = "CommandApplied"
-    PLAN_REPLANNED = "PlanReplanned"
+    COMMAND_DENIED = "CommandDenied"
 
 
 class RunEventType(StrEnum):

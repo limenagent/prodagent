@@ -1,11 +1,10 @@
 """Framework-level ports — durable contracts for swappable backends.
 
 Every Protocol the framework exposes lives here, grouped into family
-modules (execution / messaging / persistence / observability — the book's
+modules (execution / persistence / observability — the book's
 ch1 §1.3.2 five families, plus the single-socket files llm / tool /
 budget_ledger and the agent_events wire model). Implementations live under
-``prodagent.backends`` — except the message plane's in-process Transport
-(implementation beside the plane in ``prodagent.coordination.messaging``)
+``prodagent.backends``
 and the kernel's in-process BudgetLedger (``prodagent.kernel.budget``);
 both satisfy their port structurally, like every backend.
 """
@@ -36,7 +35,7 @@ from prodagent.ports.execution import (
     RunnerPort,
 )
 from prodagent.ports.llm import LLMClient
-from prodagent.ports.messaging import DeadLetterStore, LockStore, LockToken, Transport
+from prodagent.ports.persistence import LockStore, LockToken
 from prodagent.ports.observability import (
     ApprovalStore,
     CacheStore,
@@ -60,7 +59,6 @@ __all__ = [
     "BudgetLedgerPort",
     "CacheStore",
     "CheckpointStore",
-    "DeadLetterStore",
     "DocumentStore",
     "IdPort",
     "RandomPort",
@@ -87,5 +85,4 @@ __all__ = [
     "SpendView",
     "SpanExporter",
     "Tool",
-    "Transport",
 ]

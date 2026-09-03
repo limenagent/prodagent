@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generic
+from typing import TYPE_CHECKING, Any, ClassVar, Generic
 
 from typing_extensions import TypeVar
 
 from prodagent.base.codec import dump, load
 from prodagent.base.determinism import now_monotonic, now_wall
-from prodagent.base.errors import ClassifiedError, ErrorLayer, classify_error
+from prodagent.base.errors import ClassifiedError, ErrorLayer, IllegalTransition, classify_error
+from prodagent.kernel.interrupt import Interrupt, InterruptKind
 from prodagent.kernel.node_state import NodeRuntimeState
 from prodagent.kernel.types import (
     LLMResponse,
@@ -225,7 +226,7 @@ class SchedulerCursor:
 class Run(Generic[_RunT]):
     """Central mutable state object for one execution of one unit.
 
-    Not agent-specific: any Unit a scheduler drives (the five built-ins, an
+    Not agent-specific: any NodeBody a scheduler drives (the five built-ins, an
     Agent, a subgraph) runs as a Run. ``unit_ref`` names what executes —
     the registry name (an agent's name, a workflow id) where one exists,
     "" for the legacy task-only shape; it rides the checkpoint so a resumed
@@ -265,6 +266,10 @@ class Run(Generic[_RunT]):
     idempotency_seq: int = 0
     pending_tool_call: ToolCall | None = None
     pending_approval_id: str | None = None
+    pending_interrupt: dict[str, Any] | None = None
+    """Wire form of the park's :class:`~prodagent.kernel.interrupt.Interrupt`
+    (kind + payload). Checkpoints written before the field existed load
+    ``None`` and read back as the historical kind (approve)."""
     pending_handoff: PendingHandoff | None = None
     last_error: str | None = None
     error: ClassifiedError | None = None
@@ -338,14 +343,53 @@ class Run(Generic[_RunT]):
     # ── Terminal transitions — the single throat ────────────────────────────
     # State flips used to live in ~16 scattered assignments; the pairings
     # (FAILED ↔ last_error, COMPLETED ↔ final_output, RUNNING ↔ no stale
-    # crash scene) held only by convention at every site. They hold here now.
+    # crash scene) held only by convention at every site. They hold here now,
+    # behind the explicit allowed-transition table (column 8): a door is
+    # legality + pairing + flip in one move, and anything outside the table
+    # is an illegal transition, loudly, at the write site.
+
+    _ALLOWED: ClassVar[dict[RunState, frozenset[RunState]]] = {
+        RunState.RUNNING: frozenset(
+            {RunState.RUNNING, RunState.COMPLETED, RunState.FAILED, RunState.SUSPENDED}
+        ),
+        # RUNNING→RUNNING: crash recovery resumes a mid-flight run — the
+        # unknown partial state is redone, and the door clears the crash
+        # scene as part of the pairing.
+        RunState.SUSPENDED: frozenset({RunState.RUNNING, RunState.COMPLETED}),
+        # SUSPENDED→RUNNING is the interrupt's way back; SUSPENDED→COMPLETED
+        # is the handoff door — a transfer outranks a parked decision and
+        # finishes the run it was suspending.
+        RunState.COMPLETED: frozenset({RunState.RUNNING, RunState.FAILED}),
+        # COMPLETED→RUNNING: a session's next turn re-drives its run (this
+        # framework reuses the run id across a conversation — the strict
+        # "terminal is history" reading arrives with per-turn run ids).
+        # COMPLETED→FAILED: the late governance veto — an output contract
+        # checked at settle fails a "done" run rather than let an
+        # unacceptable artifact stand as a success.
+        RunState.FAILED: frozenset({RunState.RUNNING}),
+        # FAILED→RUNNING: crash recovery's redo (column 19's at-least-once) —
+        # a crashed attempt's checkpoint resumes and redoes the unknown tail.
+        # What stays illegal everywhere: ending *from* suspended into failed,
+        # and failed into completed — a dead end never turns into success.
+    }
+
+    def _transition(self, target: RunState) -> None:
+        if target is self.state:
+            return  # idempotent re-settle: not a transition, a no-op
+        if target not in Run._ALLOWED[self.state]:
+            raise IllegalTransition(
+                f"run {self.run_id!r}: {self.state.value} → {target.value} is not a "
+                "legal transition (terminal states only leave as history; a "
+                "suspended run resumes to RUNNING before it can end)"
+            )
+        self.state = target
 
     def complete(self, final_output: str | None = None, *, backfill: bool = False) -> None:
         """Transition to COMPLETED. A falsy *final_output* keeps whatever is
         already set; ``backfill=True`` takes the last non-empty assistant
         content instead — a run cut off by max_tokens still deserves an
         answer to show."""
-        self.state = RunState.COMPLETED
+        self._transition(RunState.COMPLETED)
         if final_output:
             self.final_output = final_output
         if not self.final_output and backfill:
@@ -359,7 +403,7 @@ class Run(Generic[_RunT]):
         """Transition to FAILED — the run's crash scene (last_error, and a
         classified error for exceptions) is part of the pairing, not an
         optional extra the caller might forget."""
-        self.state = RunState.FAILED
+        self._transition(RunState.FAILED)
         self.last_error = str(reason)
         if isinstance(reason, BaseException):
             self.error = classify_error(reason, layer=ErrorLayer.RUNTIME)
@@ -369,14 +413,14 @@ class Run(Generic[_RunT]):
         relay). Softer pairing than the others: the plan-approval path
         suspends without a parked call, so the invariant is "awaiting",
         not "has a resume_point"."""
-        self.state = RunState.SUSPENDED
+        self._transition(RunState.SUSPENDED)
         if reason:
             self.last_error = reason
 
-    def revive(self) -> None:
-        """Back to RUNNING (checkpoint resume) — a revived run must not
+    def resume(self) -> None:
+        """Back to RUNNING (checkpoint resume) — a resumed run must not
         inherit the previous attempt's crash scene."""
-        self.state = RunState.RUNNING
+        self._transition(RunState.RUNNING)
         self.last_error = None
         self.error = None
 
@@ -395,18 +439,54 @@ class Run(Generic[_RunT]):
             return AwaitingApproval(self.pending_tool_call, self.pending_approval_id)
         return None
 
-    def park_for_approval(self, call: ToolCall, request_id: str | None) -> bool:
-        """Park awaiting a HITL decision on ``call``. Refuses — ``False``,
-        nothing changes — when the run is already parked (a pending handoff
-        outranks an approval; a second suspension never moves the first
-        parked call). Callers keep their own bookkeeping (history pruning,
-        plan events) outside this method.
+    def interrupt(self) -> Interrupt | None:
+        """What the park is waiting on, in column 20's vocabulary.
+
+        A handoff is a transfer, not an interrupt (control leaves for
+        good) — this view speaks only for the approval-shaped park. Old
+        checkpoints (no ``pending_interrupt`` wire) read back as the
+        historical kind: approve."""
+        if self.pending_handoff is not None or self.pending_tool_call is None:
+            return None
+        if self.pending_interrupt is not None:
+            return Interrupt.from_dict(self.pending_interrupt)
+        return Interrupt(
+            kind=InterruptKind.APPROVE,
+            request_id=self.pending_approval_id or "",
+            payload={},
+        )
+
+    def park_for_approval(
+        self,
+        call: ToolCall,
+        request_id: str | None,
+        *,
+        interrupt: Interrupt | None = None,
+    ) -> bool:
+        """Park awaiting the world on ``call`` (column 20's letting-go).
+
+        The default park is an approval; pass ``interrupt`` to park another
+        kind of wait (need_input / await_external) — the mechanism is one,
+        the kind is payload. Refuses — ``False``, nothing changes — when
+        the run is already parked (a pending handoff outranks an approval;
+        a second suspension never moves the first parked call). Callers
+        keep their own bookkeeping (history pruning, plan events) outside
+        this method.
         """
         if self.pending_handoff is not None or self.state is RunState.SUSPENDED:
             return False
         self.suspend()
         self.pending_tool_call = call
         self.pending_approval_id = request_id
+        self.pending_interrupt = (
+            interrupt.to_dict()
+            if interrupt is not None
+            else {
+                "kind": InterruptKind.APPROVE.value,
+                "request_id": request_id or "",
+                "payload": {},
+            }
+        )
         return True
 
     def park_handoff(self, handoff: PendingHandoff) -> bool:
@@ -420,12 +500,14 @@ class Run(Generic[_RunT]):
 
     def clear_approval_park(self) -> AwaitingApproval | None:
         """Consume the approval park — the resume path retries the returned
-        call once the decision is in. Handoff parks are consumed by the relay."""
+        call once the decision is in (the frozen action, verbatim). Handoff
+        parks are consumed by the relay."""
         if self.pending_tool_call is None:
             return None
         park = AwaitingApproval(self.pending_tool_call, self.pending_approval_id)
         self.pending_tool_call = None
         self.pending_approval_id = None
+        self.pending_interrupt = None
         return park
 
     def increment_retry(self, tool_name: str) -> int:
@@ -517,6 +599,7 @@ class Run(Generic[_RunT]):
                 self.pending_tool_call.to_dict() if self.pending_tool_call else None
             ),
             "pending_approval_id": self.pending_approval_id,
+            "pending_interrupt": dict(self.pending_interrupt) if self.pending_interrupt else None,
             "pending_handoff": self.pending_handoff.to_dict() if self.pending_handoff else None,
             "last_error": self.last_error,
             "error": self.error.to_dict() if self.error is not None else None,
@@ -558,6 +641,9 @@ class Run(Generic[_RunT]):
                 _toolcall_from_dict(d["pending_tool_call"]) if d.get("pending_tool_call") else None
             ),
             pending_approval_id=d.get("pending_approval_id"),
+            pending_interrupt=(
+                dict(d["pending_interrupt"]) if d.get("pending_interrupt") else None
+            ),
             pending_handoff=PendingHandoff.from_dict(d.get("pending_handoff")),
             last_error=d.get("last_error"),
             error=(

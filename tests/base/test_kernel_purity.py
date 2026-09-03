@@ -63,7 +63,38 @@ def test_kernel_does_not_import_plan() -> None:
     (it orchestrates hooks, models and tools), so the kernel stays pure —
     the reading unit below the blueprint, never above it."""
     loaded = _loaded_by(
-        "import prodagent.runtime.agent_loop, prodagent.runtime.agent_loop, prodagent.kernel.units"
+        "import prodagent.runtime.recipes.agent_loop, prodagent.runtime.recipes.agent_loop, prodagent.kernel.bodies"
     )
     leaked = [m for m in loaded if m.startswith("prodagent.plan")]
     assert not leaked, f"kernel pulled the plan layer into its import chain: {leaked}"
+
+
+def test_kernel_has_no_loop_or_engine_vocabulary() -> None:
+    """Column 3/23's law, as a gate: the kernel knows bodies, not agents —
+    no autonomous kind, no engine slot, no loop machinery. The loop lives
+    in runtime/recipes and reaches execution through the generic wiring
+    bag (a mapping the kernel carries but never reads)."""
+    import pathlib
+    import re
+
+    kernel_dir = pathlib.Path("src/prodagent/kernel")
+    banned = re.compile(r"autonom", re.IGNORECASE)
+    for path in kernel_dir.glob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        if path.name == "bodies.py":
+            # the wire-kind refusal names exactly what it refuses — allowed
+            continue
+        hits = [ln for ln in text.splitlines() if banned.search(ln)]
+        assert not hits, f"{path.name} still speaks autonomy: {hits[:3]}"
+
+    from prodagent.kernel.bodies import NodeKind
+    from prodagent.kernel.body import NodeContext
+
+    assert not hasattr(NodeKind, "AUTONOMOUS"), "the autonomous kind left the kernel"
+    assert not hasattr(NodeContext, "engine"), "the engine slot left the NodeContext"
+    assert "wiring" in NodeContext.__dataclass_fields__, (
+        "the generic service bag is how recipe bodies receive collaborators"
+    )
+    assert pathlib.Path("src/prodagent/runtime/recipes/loop_body.py").exists(), (
+        "the loop body lives in the recipes layer now"
+    )

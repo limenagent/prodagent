@@ -14,10 +14,10 @@ from typing import TYPE_CHECKING
 import pytest
 
 from prodagent import SideEffectLevel, ToolMeta
+from prodagent.kernel.bodies import ToolBody
 from prodagent.kernel.graph import Node, Plan
 from prodagent.kernel.node_runner import NodeRunner
 from prodagent.kernel.run import Run
-from prodagent.kernel.units import ToolUnit
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -55,7 +55,7 @@ def _plan_with_node(action: str = "refund_order", params: dict | None = None) ->
     plan = Plan(plan_id="p-idem")
     node = Node(
         node_id="s1",
-        body=ToolUnit(action),
+        body=ToolBody(action),
         params={"order_id": "A1"} if params is None else params,
     )
     plan.add_nodes([node])

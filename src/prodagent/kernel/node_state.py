@@ -6,7 +6,7 @@ executing it, the same line Plan/Run itself splits along: one blueprint,
 many executions, each carrying its own state.
 
 Transitions go through one entry per target state (mark_running /
-mark_completed / mark_failed / mark_obsolete / suspend / reset_to_pending);
+mark_completed / mark_failed / mark_skipped / suspend / reset_to_pending);
 bare field writes are a review comment, not a pattern. The allowed-transition
 table is the whole lifecycle — anything outside it raises, so an illegal
 state is a loud error at the write site, never a silent surprise three
@@ -26,28 +26,27 @@ class NodeStateError(RuntimeError):
     """An illegal node-state transition — the source status can't go there."""
 
 
-# The allowed-transition table: OBSOLETE is reachable from almost anywhere
+# The allowed-transition table: SKIPPED is reachable from almost anywhere
 # (replans and downstream-quarantine scrap nodes through no fault of their
-# own), COMPLETED only ever leaves via OBSOLETE (a replaced completed node
-# keeps its side effects but stops mattering), and OBSOLETE is terminal.
+# own), and SKIPPED is terminal.
 _ALLOWED: dict[NodeStatus, frozenset[NodeStatus]] = {
-    NodeStatus.PENDING: frozenset({NodeStatus.RUNNING, NodeStatus.OBSOLETE}),
+    NodeStatus.PENDING: frozenset({NodeStatus.RUNNING, NodeStatus.SKIPPED}),
     NodeStatus.RUNNING: frozenset(
         {
             NodeStatus.COMPLETED,
             NodeStatus.FAILED,
             NodeStatus.SUSPENDED,
-            NodeStatus.OBSOLETE,
+            NodeStatus.SKIPPED,
             NodeStatus.PENDING,  # crash reset: mid-flight state is unknown, redo
         }
     ),
-    NodeStatus.SUSPENDED: frozenset({NodeStatus.RUNNING, NodeStatus.PENDING, NodeStatus.OBSOLETE}),
-    NodeStatus.COMPLETED: frozenset({NodeStatus.OBSOLETE, NodeStatus.PENDING}),
+    NodeStatus.SUSPENDED: frozenset({NodeStatus.RUNNING, NodeStatus.PENDING, NodeStatus.SKIPPED}),
+    NodeStatus.COMPLETED: frozenset({NodeStatus.SKIPPED, NodeStatus.PENDING}),
     # PENDING-from-COMPLETED has exactly one door: the graph asking
     # for a redo. Side effects already fired stay fired — the redo is the
     # graph's decision, taken with that knowledge, not a stale resume.
-    NodeStatus.FAILED: frozenset({NodeStatus.OBSOLETE}),
-    NodeStatus.OBSOLETE: frozenset(),
+    NodeStatus.FAILED: frozenset({NodeStatus.SKIPPED}),
+    NodeStatus.SKIPPED: frozenset(),
 }
 
 
@@ -89,9 +88,10 @@ class NodeRuntimeState:
         self._transition(NodeStatus.FAILED)
         self.error = str(error)
 
-    def mark_obsolete(self) -> None:
-        """Scrapped by a replan or downstream quarantine — neither ran nor failed."""
-        self._transition(NodeStatus.OBSOLETE)
+    def mark_skipped(self) -> None:
+        """Scrapped by a waived branch or downstream quarantine — neither ran
+        nor failed."""
+        self._transition(NodeStatus.SKIPPED)
 
     def suspend(self) -> None:
         """Paused awaiting the world (HITL decision); resume retries this node."""

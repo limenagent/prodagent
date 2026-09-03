@@ -17,7 +17,6 @@ from prodagent.ports import (
     ApprovalStore,
     CacheStore,
     CheckpointStore,
-    DeadLetterStore,
     DocumentStore,
     EventLog,
     ExperienceStore,
@@ -60,13 +59,6 @@ def in_process_lock_store() -> LockStore:
     return InProcessLockStore()
 
 
-def in_memory_dead_letter_queue() -> DeadLetterStore:
-    """In-memory default dead-letter mailbox for local development."""
-
-    from prodagent.backends.memory.dead_letter import InMemoryDeadLetterQueue
-
-    return InMemoryDeadLetterQueue()
-
 
 def in_memory_session_store() -> SessionStore:
     """In-process session store — the bare profile's default (no disk)."""
@@ -100,14 +92,12 @@ __all__ = [
     "resolve_cache",
     "resolve_approval",
     "resolve_lock",
-    "resolve_dead_letter",
     "resolve_span_exporter",
     "resolve_document",
     "resolve_graph",
     "resolve_experience",
     "resolve_aux_llm",
     "in_process_lock_store",
-    "in_memory_dead_letter_queue",
     "in_memory_session_store",
     "in_memory_checkpoint_store",
     "in_memory_event_log",
@@ -205,18 +195,7 @@ _BACKENDS: dict[str, dict[str, Spec]] = {
             {"namespace": _b("redis_namespace")},
         ),
     },
-    "dead_letter": {
-        "memory": (
-            "prodagent.backends.memory.dead_letter:InMemoryDeadLetterQueue",
-            [],
-            {"max_retries": _o("dead_letter_max_retries")},
-        ),
-        "redis": (
-            "prodagent.backends.redis.dead_letter:RedisDeadLetterQueue",
-            [_r("redis_sync_client")],
-            {"namespace": _b("redis_namespace"), "max_retries": _o("dead_letter_max_retries")},
-        ),
-    },
+
     "graph": {
         "file": ("prodagent.backends.file.graph:FileGraphStore", [_o("runs_dir")], {}),
         "neo4j": (
@@ -305,12 +284,6 @@ def resolve_lock(framework_config: FrameworkConfig | None = None) -> LockStore:
     """Lock store per ``fw.backend.lock`` (memory default)."""
     return cast("LockStore", _resolve("lock", framework_config, expect=LockStore))
 
-
-def resolve_dead_letter(framework_config: FrameworkConfig | None = None) -> DeadLetterStore:
-    """Dead-letter store per ``fw.backend.dead_letter`` (memory default)."""
-    return cast(
-        "DeadLetterStore", _resolve("dead_letter", framework_config, expect=DeadLetterStore)
-    )
 
 
 def resolve_graph(framework_config: FrameworkConfig | None = None) -> GraphStore:

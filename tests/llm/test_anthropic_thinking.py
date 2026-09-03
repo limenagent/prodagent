@@ -21,7 +21,7 @@ from prodagent.kernel.run import Run
 from prodagent.kernel.types import LLMResponse, ToolCall
 from prodagent.llm import LLMConfig
 from prodagent.llm.anthropic_adapter import AnthropicAdapter
-from prodagent.runtime.agent_loop import Round
+from prodagent.runtime.recipes.agent_loop import Round
 
 
 @pytest.fixture

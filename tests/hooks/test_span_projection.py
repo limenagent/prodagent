@@ -28,7 +28,7 @@ from prodagent.hooks.audit import AuditLogger, rebuild_spans
 from prodagent.kernel.bus import HookRegistry
 from prodagent.kernel.types import SideEffectLevel, ToolMeta
 from prodagent.llm.fake import script
-from prodagent.runtime.agent_loop import agent_scheduler
+from prodagent.runtime.recipes.agent_loop import agent_scheduler
 from prodagent.tooling.base import FunctionTool
 from prodagent.tooling.dispatcher import ToolDispatcher
 

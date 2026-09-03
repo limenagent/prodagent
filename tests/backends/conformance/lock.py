@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import Callable
 from typing import TypeAlias
 
-from prodagent.ports.messaging import LockStore
+from prodagent.ports.persistence import LockStore
 
 Factory: TypeAlias = Callable[[], LockStore]
 

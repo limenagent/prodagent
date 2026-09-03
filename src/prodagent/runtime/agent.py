@@ -28,7 +28,6 @@ from prodagent.kernel.types import (
 from prodagent.ports.execution import AgentSpec
 from prodagent.ports.llm import LLMClient
 from prodagent.runtime.config import AgentConfig
-from prodagent.runtime.parent_runtime import ParentRuntime
 from prodagent.runtime.runner import drive_stream
 from prodagent.tooling.merge import merge_tools_by_name
 
@@ -41,8 +40,8 @@ if TYPE_CHECKING:
     from prodagent.kernel.budget import HardBudget
     from prodagent.kernel.run import Run
     from prodagent.kernel.types import AgentEvent
+    from prodagent.kernel.workflow import Workflow
     from prodagent.mcp.config import MCPServerConfig
-    from prodagent.plan.workflow import Workflow
     from prodagent.ports import CheckpointStore, EventLog, SessionStore, Tool
     from prodagent.runtime.runner import RunContext
     from prodagent.skills.registry import SkillRegistry
@@ -126,7 +125,6 @@ class Agent:
         tools: Sequence[Tool] | None = None,
         budget: HardBudget | None = None,
         workflow: Workflow | None = None,
-        allow_replan: bool = True,
         config: AgentConfig | None = None,
     ) -> None:
         if config is not None:
@@ -153,7 +151,7 @@ class Agent:
                 "instead: OpenAIAdapter(..., default_config=your_llm_config)."
             )
         self.config: AgentConfig = cfg
-        self._bind_invariants(workflow=workflow, allow_replan=allow_replan)
+        self._bind_invariants(workflow=workflow)
 
     @classmethod
     def _from_config(cls, config: AgentConfig) -> Agent:
@@ -164,7 +162,7 @@ class Agent:
         self._bind_invariants()
         return self
 
-    def _bind_invariants(self, workflow: Workflow | None = None, allow_replan: bool = True) -> None:
+    def _bind_invariants(self, workflow: Workflow | None = None) -> None:
         """Constructor invariants, shared by both construction paths."""
         if CHILD_SEPARATOR in self.config.name:
             raise ValueError(
@@ -179,14 +177,12 @@ class Agent:
 
         # Resolve workflow eagerly
         if workflow is not None:
-            from prodagent.plan.workflow import Workflow as _Workflow
+            from prodagent.kernel.workflow import Workflow as _Workflow
 
             if not isinstance(workflow, _Workflow):
                 raise TypeError(f"workflow= expects a Workflow, got {type(workflow).__name__}")
             self.config.initial_plan = workflow.compile()
             self.config.node_fns = workflow.fns
-            if not allow_replan:
-                self.config.max_replans = 0
 
     # -- Execution --------------------------------------------------------
 
@@ -347,7 +343,7 @@ class Agent:
         # A chat turn runs the agent itself as the unit — unless the agent
         # carries a preset graph (a bound Workflow), in which case the turn
         # runs that graph. Composition decides, not a mode enum.
-        single_unit = as_unit or (self.config.initial_plan is None and self.config.planner is None)
+        single_unit = as_unit or self.config.initial_plan is None
         store = self._ensure_session_store_resolved()
         session = await store.load(session_id)
         if session is None:
@@ -532,7 +528,6 @@ class Agent:
             constraints=list(self.config.constraints),
             budget=self.config.budget,
             tools_schema=[t.schema for t in self.config.tools],
-            max_replans=self.config.max_replans,
             child_agents=[a.spec() for a in self.config.agents],
             peers=[a.spec() for a in self.config.peers],
         )
@@ -556,28 +551,32 @@ class Agent:
         forked._hooks_wired = self._hooks_wired
         return forked
 
-    def _runtime_overrides(self, runtime: ParentRuntime) -> dict[str, Any]:
-        """The field-replacement set a fork takes from the parent's wiring —
-        exactly the ParentRuntime subset (budget, stores, llm, hooks), never
-        the parent's per-hop state. A config-time planner follows the llm:
-        spec-built children capture a placeholder (often ``None``) llm at
-        construction — the fork rebinds the planner to the wiring's live
-        client, or the child would draft against a dead reference."""
-        overrides: dict[str, Any] = {
-            "llm": runtime.llm,
-            "hooks": runtime.hooks,
-            "framework": runtime.framework_config,
-            "constraints": list(runtime.constraints),
-            "budget": runtime.budget,
-            "checkpoint": runtime.checkpoint,
-            "event_log": runtime.event_log,
-            "spawn_accumulator": runtime.accumulator,
+    def _runtime_overrides(self, ctx: Any) -> dict[str, Any]:
+        """The field-replacement set a fork takes from the hop's wiring —
+        the resolved subset (budget, stores, llm, hooks), never the parent's
+        per-hop state. ``ctx`` is the hop's RunContext (or a plain parent
+        Agent for the peer path)."""
+        if hasattr(ctx, "agent"):
+            return {
+                "llm": ctx.llm,
+                "hooks": ctx.agent.hooks,
+                "framework": ctx.agent.framework_config,
+                "constraints": list(ctx.agent.constraints),
+                "budget": ctx.agent.budget_config,
+                "checkpoint": ctx.checkpoint,
+                "event_log": ctx.event_log,
+                "spawn_accumulator": self.config.spawn_accumulator or SpawnAccumulator(),
+            }
+        return {
+            "llm": ctx.config.llm,
+            "hooks": ctx.hooks,
+            "framework": ctx.framework_config,
+            "constraints": list(ctx.constraints),
+            "budget": self.budget_config,
+            "checkpoint": ctx.config.checkpoint,
+            "event_log": ctx.config.event_log,
+            "spawn_accumulator": self.config.spawn_accumulator or SpawnAccumulator(),
         }
-        if self.config.planner is not None and runtime.llm is not None:
-            from prodagent.plan.planner import Planner
-
-            overrides["planner"] = Planner(runtime.llm, tool_schemas=[], hooks=runtime.hooks)
-        return overrides
 
     def fork_as_peer(
         self,
@@ -590,19 +589,13 @@ class Agent:
         """Fork this agent as the next link of a peer chain: the fork runs
         under the *parent's* wiring (hooks, extensions, stores) but keeps
         its own peers — the chain can continue past it."""
-        runtime = ParentRuntime(
-            llm=self.config.llm,
-            hooks=parent.hooks,
-            framework_config=parent.framework_config,
-            constraints=parent.constraints,
-            budget=self.budget_config,
-            checkpoint=checkpoint if checkpoint is not None else parent.config.checkpoint,
-            event_log=event_log if event_log is not None else parent.config.event_log,
-            accumulator=self.config.spawn_accumulator or SpawnAccumulator(),
-        )
-        # A peer runs under the *parent's* wiring, keeping its own peers.
+        overrides = self._runtime_overrides(parent)
+        if checkpoint is not None:
+            overrides["checkpoint"] = checkpoint
+        if event_log is not None:
+            overrides["event_log"] = event_log
         forked = self._fork(
-            **self._runtime_overrides(runtime),
+            **overrides,
             extensions=list(parent.config.extensions),
             injectors=list(parent.config.injectors),
             checkers=list(parent.config.checkers),
@@ -613,11 +606,11 @@ class Agent:
         forked._hooks_wired = parent._hooks_wired
         return forked
 
-    def fork_as_spawn(self, runtime: ParentRuntime) -> Agent:
+    def fork_as_spawn(self, ctx: Any) -> Agent:
         """Fork as a spawned child: takes the parent's wiring wholesale —
         a child has no peers of its own to preserve."""
         return self._fork(
-            **self._runtime_overrides(runtime),
+            **self._runtime_overrides(ctx),
             extensions=list(self.config.extensions),
             injectors=list(self.config.injectors),
             checkers=list(self.config.checkers),

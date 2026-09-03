@@ -12,7 +12,7 @@ from prodagent.kernel.bus import HookEvent, HookRegistry
 from prodagent.kernel.types import LLMResponse
 from prodagent.llm.fake import FakeLLMAdapter
 from prodagent.llm.recording import RecordingLLMClient
-from prodagent.runtime.agent_loop import agent_scheduler
+from prodagent.runtime.recipes.agent_loop import agent_scheduler
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 

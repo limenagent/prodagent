@@ -7,7 +7,7 @@ from prodagent.backends.file.checkpoint import FileCheckpointStore
 from prodagent.kernel.run import Run
 from prodagent.kernel.types import LLMResponse, RunCompletedEvent, ToolCall
 from prodagent.llm.fake import FakeLLMAdapter
-from prodagent.runtime.agent_loop import agent_scheduler
+from prodagent.runtime.recipes.agent_loop import agent_scheduler
 from prodagent.tooling import tool
 from prodagent.tooling.dispatcher import ToolDispatcher
 

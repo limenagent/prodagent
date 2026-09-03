@@ -29,9 +29,20 @@ from prodagent.base.errors import (
     ToolAbortError,
     ToolBlockedError,
 )
+from prodagent.kernel.bodies import ToolBody
+from prodagent.kernel.body import (
+    Handoff,
+    LLMInvoker,
+    NodeContext,
+    Outcome,
+    SubagentInvoker,
+    ToolExecutor,
+    coerce_result,
+)
 from prodagent.kernel.bus import HookEvent
 from prodagent.kernel.bus import fire as _fire
 from prodagent.kernel.command import Command, command_from_wire
+from prodagent.kernel.interrupt import Interrupt, InterruptKind
 from prodagent.kernel.run import PendingHandoff, Run
 from prodagent.kernel.types import (
     Message,
@@ -41,22 +52,12 @@ from prodagent.kernel.types import (
     ToolOutcome,
     ToolResult,
 )
-from prodagent.kernel.unit import (
-    AutonomyEngine,
-    Handoff,
-    LLMInvoker,
-    Outcome,
-    SubagentInvoker,
-    ToolExecutor,
-    UnitContext,
-    coerce_result,
-)
-from prodagent.kernel.units import AutonomousUnit, ToolUnit
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Mapping
 
     from prodagent.kernel.bus import HookRegistry
+    from prodagent.kernel.channels import WaveWrites
     from prodagent.kernel.event_log import PlanEventLog
     from prodagent.kernel.graph import Node, Plan
     from prodagent.kernel.node_state import NodeRuntimeState
@@ -171,6 +172,22 @@ def _name_of(target: Any) -> str:
     return str(name)
 
 
+def _interrupt_of(result: ToolResult) -> Interrupt:
+    """Column 20's vocabulary from a suspended ToolResult: an explicit kind
+    wins; an approval id means approve; anything else let go of the process
+    awaiting the world (await_external). The reason rides the payload."""
+    kind = (
+        InterruptKind(result.interrupt_kind)
+        if result.interrupt_kind
+        else (InterruptKind.APPROVE if result.approval_request_id else InterruptKind.AWAIT_EXTERNAL)
+    )
+    return Interrupt(
+        kind=kind,
+        request_id=result.approval_request_id,
+        payload={"reason": result.reason, "tool": str(result.tool)},
+    )
+
+
 class NodeRunner:
     def __init__(
         self,
@@ -182,8 +199,9 @@ class NodeRunner:
         tools: ToolExecutor | None = None,
         llm: LLMInvoker | None = None,
         subagent: SubagentInvoker | None = None,
-        engine: AutonomyEngine | None = None,
+        wiring: Mapping[str, Any] | None = None,
         fns: Mapping[str, Callable[..., Any]] | None = None,
+        wave_writes: WaveWrites | None = None,
     ) -> None:
         self._log = log
         self._hooks = hooks
@@ -192,16 +210,17 @@ class NodeRunner:
         self._tools = tools
         self._llm = llm
         self._subagent = subagent
-        self._engine = engine
+        self._wiring = dict(wiring) if wiring else {}
+        self._wave_writes = wave_writes
         self._fns = dict(fns) if fns else {}
         self._commit_lock = asyncio.Lock()
 
     def _make_ctx(
         self, node: Node, run: Run, emit: Callable[[AgentEvent], None] | None = None
-    ) -> UnitContext:
+    ) -> NodeContext:
         """Per-execution wiring: the collaborator slots this runner was
         composed with, bound to this node's identity and this run."""
-        return UnitContext(
+        return NodeContext(
             run_id=run.run_id,
             node_id=node.node_id,
             run=run,
@@ -209,7 +228,7 @@ class NodeRunner:
             tools=self._tools,
             llm=self._llm,
             subagent=self._subagent,
-            engine=self._engine,
+            wiring=self._wiring,
             fns=self._fns,
             emit=emit,
         )
@@ -235,7 +254,7 @@ class NodeRunner:
         outcome: list[NodeOutcome],
     ) -> AsyncGenerator[AgentEvent, None]:
         """Execute one node and classify its outcome, forwarding the unit's
-        live stream events (a AutonomousUnit's Turns) as they happen.
+        live stream events (a run-driving body's rounds) as they happen.
 
         Never raises node failures (they return as :class:`NodeFailed` data);
         cancellation and *run-death* exceptions (budget exhausted, dead-loop)
@@ -248,12 +267,12 @@ class NodeRunner:
             params=plan.resolve_params(node, run.node_states, run.shared),
             call_id=_call_id(node.node_id, run.run_id),
         )
-        # Idempotency keys are a governed-tool concern: only a ToolUnit has
+        # Idempotency keys are a governed-tool concern: only a ToolBody has
         # registry metadata to demand them (a fn/llm name colliding with a
         # tool name must not borrow its contract).
         meta = (
             self._dispatcher.meta_for(call.name)
-            if isinstance(node.body, ToolUnit) and self._dispatcher is not None
+            if isinstance(node.body, ToolBody) and self._dispatcher is not None
             else None
         )
         if meta is not None and meta.enforced_idempotent:
@@ -288,11 +307,15 @@ class NodeRunner:
                     yield event
             unit_outcome = outcome_box[0]
             # The Outcome is the contract; the node-level algebra (commands,
-            # ToolResult coercion) consumes its value. The state delta merges
-            # under the same rule as an Update without a declared reducer:
-            # first write lands, a second writer on one key must say how.
+            # ToolResult coercion) consumes its value. A declared channel
+            # buffers to the wave barrier (column 7's fold discipline); an
+            # undeclared key takes the legacy immediate path, where a second
+            # writer without a reducer is the conflict it always was.
             raw = unit_outcome.value
             for key, value in unit_outcome.state_delta.items():
+                if self._wave_writes is not None and self._wave_writes.is_declared(key):
+                    self._wave_writes.buffer(key, value, node.node_id)
+                    continue
                 if key in run.shared:
                     raise ValueError(
                         f"node {node.node_id!r}: state_delta key {key!r} already "
@@ -336,9 +359,9 @@ class NodeRunner:
             # detection end the *run*, not the node — the scheduler settles.
             raise
         except Exception as exc:
-            if isinstance(node.body, AutonomousUnit):
-                # An autonomous loop's crash is the run's crash: settle-and-raise,
-                # never a replan candidate.
+            if getattr(node.body, "drives_run", False):
+                # A run-driving body's crash is the run's crash:
+                # settle-and-raise, never a replan candidate.
                 raise
             outcome.append(NodeFailed(node=node, error=exc, call=call))
             return
@@ -443,11 +466,11 @@ class NodeRunner:
                     state.status.value,
                 )
                 return None
-            if isinstance(node.body, AutonomousUnit):
-                # The engine already wrote the run's transcript; the node
-                # commits the run's final output unwrapped and no fragment.
+            if getattr(node.body, "drives_run", False):
+                # A run-driving body already wrote the run's transcript; the
+                # node commits the run's final output unwrapped and no fragment.
                 state.mark_completed(result.value)
-                logger.info("[Plan] node=%s autonomous → COMPLETED", node.node_id)
+                logger.info("[Plan] node=%s run-driver → COMPLETED", node.node_id)
                 if self._log is not None:
                     await self._log.record_node_completed(plan, run, node.node_id, result.value)
                 await _fire(
@@ -556,10 +579,12 @@ class NodeRunner:
         async with self._commit_lock:
             # A handoff wins over a suspension; and only the first suspension
             # parks its pending call, so a resumed run retries the right tool.
-            # A run already parked elsewhere (an autonomous loop's dispatcher did it)
+            # A run already parked elsewhere (a run-driver's dispatcher did it)
             # skips the park but still flips this node — resume must requeue it.
             if run.state is not RunState.SUSPENDED and not run.park_for_approval(
-                call, result.approval_request_id or None
+                call,
+                result.approval_request_id or None,
+                interrupt=_interrupt_of(result),
             ):
                 return
             run.node_state(node.node_id).suspend()
