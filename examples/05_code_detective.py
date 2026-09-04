@@ -12,13 +12,12 @@ import asyncio
 import os
 
 import src.runtime as runtime_pkg
-
 from src import Agent
 from src.kernel import ToolCall
 from src.runtime.llm import ScriptedLlm, env_llm
-from src.runtime.tools import ToolRegistry
 from src.runtime.mcp import InProcessMCPServer, load_mcp_tools
 from src.runtime.skills import SkillRegistry
+from src.runtime.tools import ToolRegistry
 
 
 async def main():

@@ -10,11 +10,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from src.kernel.channels import Channel
-from src.kernel.types import NodeStatus
 
 # 条件边谓词：只看当前共享状态，决定这条边是否“通”。
 EdgePredicate = Callable[[dict[str, Any]], bool]
@@ -45,7 +45,7 @@ class RetryPolicy:
 
     def delay_for(self, failed_attempt: int) -> float:
         # failed_attempt 从 0 起：第一次失败后等 base_delay，第二次等 base_delay*factor。
-        return self.base_delay * (self.factor ** failed_attempt)
+        return self.base_delay * (self.factor**failed_attempt)
 
 
 @dataclass(frozen=True)
@@ -80,7 +80,7 @@ class Plan:
     _outgoing: dict[str, list[Edge]] = field(default_factory=dict, init=False)
 
     # —— 构建期：链式声明，构建完会做一次校验 ——
-    def add(self, *nodes: Node) -> "Plan":
+    def add(self, *nodes: Node) -> Plan:
         for n in nodes:
             if n.id in self._nodes:
                 raise ValueError(f"节点 id 重复：{n.id}")
@@ -89,13 +89,13 @@ class Plan:
             self._outgoing.setdefault(n.id, [])
         return self
 
-    def edge(self, source: str, target: str, when: EdgePredicate | None = None) -> "Plan":
+    def edge(self, source: str, target: str, when: EdgePredicate | None = None) -> Plan:
         e = Edge(source, target, when)
         self._outgoing.setdefault(source, []).append(e)
         self._incoming.setdefault(target, []).append(e)
         return self
 
-    def validate(self) -> "Plan":
+    def validate(self) -> Plan:
         """编译期体检：悬空边、未知入口在这里就报错，而不是跑到一半才炸。"""
         known = set(self._nodes)
         for src, outs in self._outgoing.items():
@@ -170,7 +170,7 @@ class Plan:
         for key in all_keys:
             if not run.is_pending(key):
                 continue
-            if run.is_instance(key):           # 动态实例：Send 直接激活，pending 即可跑
+            if run.is_instance(key):  # 动态实例：Send 直接激活，pending 即可跑
                 ready.append(key)
                 continue
             preds = self._incoming.get(key, ())
@@ -186,13 +186,10 @@ class Plan:
             live, has_open_pred = False, False
             for e in preds:
                 if not self._predecessor_terminal(run, e.source):
-                    has_open_pred = True       # 前驱还没跑完，再等一波
+                    has_open_pred = True  # 前驱还没跑完，再等一波
                     continue
                 if self._predecessor_done(run, e.source) and self._edge_live(e, run.shared):
-                    if self._nodes[key].join == "any":
-                        live = True
-                    else:
-                        live = True            # all 语义：下面已确认没有 open 前驱
+                    live = True  # any：任一活边即就绪；all：此刻已无未完成前驱
             if has_open_pred:
                 continue
             if live:
@@ -219,7 +216,8 @@ class Plan:
                 all_terminal = all(self._predecessor_terminal(run, e.source) for e in preds)
                 any_live = any(
                     self._predecessor_done(run, e.source) and self._edge_live(e, run.shared)
-                    for e in preds)
+                    for e in preds
+                )
                 if all_terminal and not any_live:
                     run.mark_skipped(key)
                     changed = True

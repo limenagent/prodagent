@@ -8,11 +8,11 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from src.kernel.channels import Channel
-from src.kernel.types import NodeStatus, RunState, _ALLOWED_TRANSITIONS
+from src.kernel.types import _ALLOWED_TRANSITIONS, NodeStatus, RunState
 
 
 def _new_id(prefix: str = "run") -> str:
@@ -51,18 +51,24 @@ class NodeRuntimeState:
 class Interrupt:
     """一张“挂起凭证”：在哪个节点、因为什么、要问外界什么（第 20 课）。"""
 
-    kind: str                       # approval / input / external
+    kind: str  # approval / input / external
     payload: Any = None
     question: str = ""
-    node_id: str = ""               # 由 Run 在 park 时补上
+    node_id: str = ""  # 由 Run 在 park 时补上
 
 
 class Run:
     """一次 Plan 的执行实例。同一个 Plan 可以同时有很多个互不干扰的 Run。"""
 
-    def __init__(self, plan: Any, run_id: str | None = None, *,
-                 parent_id: str | None = None, depth: int = 0,
-                 task: str = ""):
+    def __init__(
+        self,
+        plan: Any,
+        run_id: str | None = None,
+        *,
+        parent_id: str | None = None,
+        depth: int = 0,
+        task: str = "",
+    ):
         self.plan = plan
         self.run_id = run_id or _new_id()
         self.parent_id = parent_id
@@ -89,7 +95,7 @@ class Run:
 
     # —— 对外便捷构造 ——
     @classmethod
-    def start(cls, plan: Any, **kw: Any) -> "Run":
+    def start(cls, plan: Any, **kw: Any) -> Run:
         plan.validate()
         return cls(plan, **kw)
 
@@ -146,7 +152,10 @@ class Run:
     def is_terminal(self, key: str) -> bool:
         st = self.node_states.get(key)
         return st is not None and st.status in (
-            NodeStatus.COMPLETED, NodeStatus.SKIPPED, NodeStatus.FAILED)
+            NodeStatus.COMPLETED,
+            NodeStatus.SKIPPED,
+            NodeStatus.FAILED,
+        )
 
     # —— 节点状态变更 ——
     def mark_running(self, key: str) -> None:
@@ -163,7 +172,7 @@ class Run:
 
     def reset_pending(self, key: str) -> None:
         self.node_states.setdefault(key, NodeRuntimeState()).reset_pending()
-        self.activated.add(key)                  # 记录“被命令激活”，供就绪判定放行
+        self.activated.add(key)  # 记录“被命令激活”，供就绪判定放行
 
     # —— 动态实例（Send 扇出）——
     def add_instance(self, template: str, payload: Any, key: str | None = None) -> str:
@@ -192,7 +201,7 @@ class Run:
         wave_delta: dict[str, Any] = {}
         for w in writes:
             channel = channels[w.key]
-            base = wave_delta[w.key] if w.key in wave_delta else channel.empty
+            base = wave_delta.get(w.key, channel.empty)
             wave_delta[w.key] = channel.fold(base, w.value)
         for key, delta in wave_delta.items():
             channel = channels[key]
@@ -208,8 +217,10 @@ class Run:
             "task": self.task,
             "state": str(self.state),
             "shared": self.shared,
-            "node_states": {k: {"status": str(v.status), "output": v.output,
-                                "attempts": v.attempts} for k, v in self.node_states.items()},
+            "node_states": {
+                k: {"status": str(v.status), "output": v.output, "attempts": v.attempts}
+                for k, v in self.node_states.items()
+            },
             "instances": self.instances,
             "instance_inputs": self.instance_inputs,
             "instance_seq": self._instance_seq,
@@ -220,9 +231,14 @@ class Run:
         }
 
     @classmethod
-    def restore(cls, plan: Any, snap: dict[str, Any]) -> "Run":
-        run = cls(plan, run_id=snap["run_id"], parent_id=snap.get("parent_id"),
-                  depth=snap.get("depth", 0), task=snap.get("task", ""))
+    def restore(cls, plan: Any, snap: dict[str, Any]) -> Run:
+        run = cls(
+            plan,
+            run_id=snap["run_id"],
+            parent_id=snap.get("parent_id"),
+            depth=snap.get("depth", 0),
+            task=snap.get("task", ""),
+        )
         run.shared = snap["shared"]
         run.node_states = {
             k: NodeRuntimeState(NodeStatus(v["status"]), v.get("output"), v.get("attempts", 0))
@@ -238,6 +254,7 @@ class Run:
         run.state = RunState(snap["state"])
         if snap.get("interrupt"):
             d = snap["interrupt"]
-            run.interrupt = Interrupt(d["kind"], d.get("payload"),
-                                      d.get("question", ""), d.get("node_id", ""))
+            run.interrupt = Interrupt(
+                d["kind"], d.get("payload"), d.get("question", ""), d.get("node_id", "")
+            )
         return run

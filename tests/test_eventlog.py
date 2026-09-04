@@ -14,8 +14,10 @@ from src.kernel import (
 
 async def test_state_equals_fold_of_event_stream():
     p = Plan(channels={"log": append(), "n": add(0)})
-    p.add(Node("a", FnBody(lambda x, ctx: Outcome.ok(None, log=["a"], n=1))),
-          Node("b", FnBody(lambda x, ctx: Outcome.ok(None, log=["b"], n=2)), terminal=True))
+    p.add(
+        Node("a", FnBody(lambda x, ctx: Outcome.ok(None, log=["a"], n=1))),
+        Node("b", FnBody(lambda x, ctx: Outcome.ok(None, log=["b"], n=2)), terminal=True),
+    )
     p.edge("a", "b")
     sch = Scheduler()
     run = await sch.run(p)
@@ -35,7 +37,8 @@ async def test_snapshot_roundtrip():
     run = await Scheduler().run(p)
     snap = run.snapshot()
     import json
-    blob = json.dumps(snap, ensure_ascii=False)      # 快照必须可 JSON 序列化
+
+    blob = json.dumps(snap, ensure_ascii=False)  # 快照必须可 JSON 序列化
     restored = type(run).restore(p, json.loads(blob))
     assert restored.state == run.state
     assert restored.shared == run.shared

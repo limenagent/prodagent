@@ -28,8 +28,7 @@ def test_kernel_has_no_third_party_imports():
     for path in KERNEL_DIR.glob("*.py"):
         if path.name == "__init__.py":
             continue
-        third_party = {r for r in imported_roots(path)
-                       if r not in STDLIB and r != "src"}
+        third_party = {r for r in imported_roots(path) if r not in STDLIB and r != "src"}
         if third_party:
             offenders[path.name] = sorted(third_party)
     assert not offenders, f"kernel 出现第三方依赖：{offenders}"

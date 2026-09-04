@@ -1,7 +1,5 @@
 """总线三协议：旁观不影响主流程、裁决 fail-closed、收集汇总。"""
 
-import pytest
-
 from src.kernel import Bus
 
 
@@ -14,7 +12,7 @@ async def test_fire_observer_error_is_swallowed():
     seen = []
     bus.on("e", boom)
     bus.on("e", lambda **kw: seen.append(kw))
-    await bus.fire("e", x=1)            # 不应抛出
+    await bus.fire("e", x=1)  # 不应抛出
     assert seen == [{"x": 1}]
 
 
@@ -34,7 +32,7 @@ async def test_check_fail_closed_when_checker_raises():
 
     bus.checker("gate", broken)
     verdict = await bus.check("gate")
-    assert not verdict.allowed          # 出错也不放行
+    assert not verdict.allowed  # 出错也不放行
 
 
 async def test_collect_skips_none():

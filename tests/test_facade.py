@@ -15,11 +15,18 @@ async def test_agent_plain_answer_without_tools():
 async def test_agent_multi_turn_tools():
     async def search(query, ctx):
         return f"结果:{query}"
-    agent = Agent("searcher", model=ScriptedLlm([
-        ToolCall("search", {"query": "a"}),
-        ToolCall("search", {"query": "b"}),
-        "综合 a、b 的结论",
-    ]), tools=[search])
+
+    agent = Agent(
+        "searcher",
+        model=ScriptedLlm(
+            [
+                ToolCall("search", {"query": "a"}),
+                ToolCall("search", {"query": "b"}),
+                "综合 a、b 的结论",
+            ]
+        ),
+        tools=[search],
+    )
     result = await agent.run("查两个")
     assert result.output == "综合 a、b 的结论"
     assert result.metrics["tool_calls"] == 2
@@ -29,11 +36,17 @@ async def test_teammates_run_with_their_own_models():
     # 主管派活给两个队友；每个队友用自己的模型，不会消耗主管的脚本。
     researcher = Agent("researcher", model=ScriptedLlm(["资料 X"]))
     writer = Agent("writer", model=ScriptedLlm(["成稿 Y"]))
-    boss = Agent("boss", model=ScriptedLlm([
-        ToolCall("researcher", {"task": "去查"}),
-        ToolCall("writer", {"task": "去写"}),
-        "汇总完成",
-    ]), teammates=[researcher, writer])
+    boss = Agent(
+        "boss",
+        model=ScriptedLlm(
+            [
+                ToolCall("researcher", {"task": "去查"}),
+                ToolCall("writer", {"task": "去写"}),
+                "汇总完成",
+            ]
+        ),
+        teammates=[researcher, writer],
+    )
     result = await boss.run("做个课题")
     assert result.output == "汇总完成"
     assert result.metrics["tool_calls"] == 2
@@ -46,7 +59,7 @@ async def test_workflow_static_graph_and_auto_state():
     wf.add("c", lambda x, ctx: ctx.shared["v"], terminal=True)
     wf.edge("a", "b").edge("b", "c").entry("a")
     result = await wf.run()
-    assert result.output == 11          # 未声明的 v 自动补了 last 通道
+    assert result.output == 11  # 未声明的 v 自动补了 last 通道
 
 
 async def test_workflow_branch():
@@ -67,8 +80,10 @@ async def test_workflow_dynamic_fan_out():
 
     async def dispatch(x, ctx):
         return fork("worker", [{"i": 1}, {"i": 2}, {"i": 3}])
+
     async def worker(item, ctx):
         return {"logs": [item["i"] * 10]}
+
     async def merge(x, ctx):
         return sorted(ctx.shared["logs"])
 
@@ -84,7 +99,7 @@ async def test_workflow_dynamic_fan_out():
 async def test_workflow_agent_as_node():
     worker = Agent("worker", model=ScriptedLlm(["子 Agent 结果"]))
     wf = Workflow()
-    wf.add("call_agent", worker, terminal=True)   # 节点直接放 Agent，自包含跑
+    wf.add("call_agent", worker, terminal=True)  # 节点直接放 Agent，自包含跑
     wf.entry("call_agent")
     assert (await wf.run("任务")).output == "子 Agent 结果"
 
@@ -96,6 +111,7 @@ async def test_workflow_wait_human_and_resume():
         if ctx.resume_value is None:
             return wait_human("确认执行吗？", {"amount": 100})
         return f"按你的选择执行：{ctx.resume_value}"
+
     wf.add("approve", approve, terminal=True)
     wf.entry("approve")
 
@@ -126,4 +142,4 @@ async def test_workflow_handoff_by_name_needs_registration():
     wf.entry("relay")
     wf.handoff_to(repairer)
     result = await wf.run("故障")
-    assert result.output == "按名字接力成功"       # 接力者用自己的模型，结果直接收尾
+    assert result.output == "按名字接力成功"  # 接力者用自己的模型，结果直接收尾

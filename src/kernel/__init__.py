@@ -21,9 +21,9 @@ from src.kernel.channels import (
 )
 from src.kernel.command import Command, Goto, Handoff, Send
 from src.kernel.eventlog import (
+    CheckpointStore,
     Event,
     EventLog,
-    CheckpointStore,
     InMemoryEventLog,
     InMemoryStore,
     apply_event,
@@ -41,21 +41,56 @@ from src.kernel.types import (
 )
 
 __all__ = [
-    # 图与状态
-    "Plan", "Node", "Edge", "Channel", "WaveWrites", "AmbiguousWrite", "RetryPolicy",
-    "last", "append", "add", "merge",
-    # body
-    "NodeBody", "FnBody", "ToolBody", "LLMBody", "SubPlanBody", "Outcome", "NodeContext",
-    # 命令
-    "Command", "Goto", "Send", "Handoff",
-    # 运行
-    "Run", "RunState", "NodeStatus", "NodeRuntimeState", "Interrupt",
-    # 事件 / 存储
-    "Event", "EventLog", "CheckpointStore", "InMemoryEventLog", "InMemoryStore",
-    "apply_event", "fold_events",
+    "AmbiguousWrite",
+    "BlockingResult",
     # 总线 / 端口类型
-    "Bus", "Subscription", "BlockingResult", "ToolCall", "ToolResult",
-    "LlmReply", "LlmPort", "ToolPort", "SubagentPort",
+    "Bus",
+    "Channel",
+    "CheckpointStore",
+    # 命令
+    "Command",
+    "Edge",
+    # 事件 / 存储
+    "Event",
+    "EventLog",
+    "FnBody",
+    "Goto",
+    "Handoff",
+    "InMemoryEventLog",
+    "InMemoryStore",
+    "InProcessActivator",
+    "Interrupt",
+    "LLMBody",
+    "LlmPort",
+    "LlmReply",
+    "Node",
+    # body
+    "NodeBody",
+    "NodeContext",
+    "NodeRuntimeState",
+    "NodeStatus",
+    "Outcome",
+    # 图与状态
+    "Plan",
+    "RetryPolicy",
+    # 运行
+    "Run",
+    "RunState",
     # 引擎
-    "Scheduler", "InProcessActivator",
+    "Scheduler",
+    "Send",
+    "SubPlanBody",
+    "SubagentPort",
+    "Subscription",
+    "ToolBody",
+    "ToolCall",
+    "ToolPort",
+    "ToolResult",
+    "WaveWrites",
+    "add",
+    "append",
+    "apply_event",
+    "fold_events",
+    "last",
+    "merge",
 ]

@@ -2,8 +2,6 @@
 
 import asyncio
 
-import pytest
-
 from src import Workflow
 from src.kernel import RetryPolicy
 
@@ -18,8 +16,7 @@ async def test_retry_until_success():
         return f"第{calls['n']}次成功"
 
     wf = Workflow()
-    wf.add("n", flaky, terminal=True,
-           retry=RetryPolicy(max_attempts=3, base_delay=0))
+    wf.add("n", flaky, terminal=True, retry=RetryPolicy(max_attempts=3, base_delay=0))
     wf.entry("n")
     r = await wf.run("")
     assert r.status == "completed"
@@ -35,12 +32,11 @@ async def test_retry_exhausted_fails_run():
         raise RuntimeError("一直坏")
 
     wf = Workflow()
-    wf.add("n", always_fail, terminal=True,
-           retry=RetryPolicy(max_attempts=2, base_delay=0))
+    wf.add("n", always_fail, terminal=True, retry=RetryPolicy(max_attempts=2, base_delay=0))
     wf.entry("n")
     r = await wf.run("")
     assert r.status == "failed"
-    assert calls["n"] == 2                       # 首次 + 一次重试，然后放弃
+    assert calls["n"] == 2  # 首次 + 一次重试，然后放弃
 
 
 async def test_timeout_counts_as_one_attempt():
@@ -52,15 +48,14 @@ async def test_timeout_counts_as_one_attempt():
         return "不该返回"
 
     wf = Workflow()
-    wf.add("n", slow, terminal=True, timeout=0.05,
-           retry=RetryPolicy(max_attempts=2, base_delay=0))
+    wf.add("n", slow, terminal=True, timeout=0.05, retry=RetryPolicy(max_attempts=2, base_delay=0))
     wf.entry("n")
     loop = asyncio.get_event_loop()
     t0 = loop.time()
     r = await wf.run("")
     assert r.status == "failed"
-    assert calls["n"] == 2                       # 每次超时都算一次失败并重试
-    assert loop.time() - t0 < 0.25               # 两次 0.05 超时，远短于 0.3
+    assert calls["n"] == 2  # 每次超时都算一次失败并重试
+    assert loop.time() - t0 < 0.25  # 两次 0.05 超时，远短于 0.3
 
 
 async def test_cancellation_is_never_retried():
@@ -71,9 +66,8 @@ async def test_cancellation_is_never_retried():
         raise asyncio.CancelledError()
 
     wf = Workflow()
-    wf.add("n", cancelled, terminal=True,
-           retry=RetryPolicy(max_attempts=3, base_delay=0))
+    wf.add("n", cancelled, terminal=True, retry=RetryPolicy(max_attempts=3, base_delay=0))
     wf.entry("n")
     r = await wf.run("")
     assert r.status == "failed"
-    assert calls["n"] == 1                       # 外部取消必须原样传播，不重试
+    assert calls["n"] == 1  # 外部取消必须原样传播，不重试

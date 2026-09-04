@@ -14,18 +14,18 @@ from enum import StrEnum
 class NodeStatus(StrEnum):
     """图里一个节点（的一次执行实例）所处的状态。"""
 
-    PENDING = "pending"        # 还没轮到它
-    RUNNING = "running"        # 这一波正在跑
-    COMPLETED = "completed"    # 成功完成，输出已落袋
-    SKIPPED = "skipped"        # 条件边全部不满足，结构性跳过
-    FAILED = "failed"          # 执行失败
+    PENDING = "pending"  # 还没轮到它
+    RUNNING = "running"  # 这一波正在跑
+    COMPLETED = "completed"  # 成功完成，输出已落袋
+    SKIPPED = "skipped"  # 条件边全部不满足，结构性跳过
+    FAILED = "failed"  # 执行失败
 
 
 class RunState(StrEnum):
     """一次 Run 的一生只有四个状态（对应第 08 课的状态机）。"""
 
     RUNNING = "running"
-    SUSPENDED = "suspended"    # 主动放手、落盘等人/等外部
+    SUSPENDED = "suspended"  # 主动放手、落盘等人/等外部
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -63,9 +63,9 @@ class ToolResult:
     call_id: str = ""
 
     @classmethod
-    def success(cls, output: object = None, call_id: str = "") -> "ToolResult":
+    def success(cls, output: object = None, call_id: str = "") -> ToolResult:
         return cls(True, output=output, call_id=call_id)
 
     @classmethod
-    def failure(cls, error: str, call_id: str = "") -> "ToolResult":
+    def failure(cls, error: str, call_id: str = "") -> ToolResult:
         return cls(False, error=error, call_id=call_id)

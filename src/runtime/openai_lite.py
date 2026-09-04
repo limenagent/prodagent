@@ -30,7 +30,7 @@ def _wire(messages: list) -> list[dict]:
     运行时消息里存的是内核 ToolCall 对象（直接 json 会炸），
     这里拼成 tool_calls 数组，并让后续 tool 消息用 tool_call_id 对上号。
     """
-    out, ids = [], {}                                  # name -> 上一轮分配的 call_id
+    out, ids = [], {}  # name -> 上一轮分配的 call_id
     for i, m in enumerate(messages):
         role = m.get("role")
         if role == "assistant" and m.get("tool_calls"):
@@ -38,17 +38,32 @@ def _wire(messages: list) -> list[dict]:
             for j, tc in enumerate(m["tool_calls"]):
                 cid = getattr(tc, "call_id", "") or f"call_{i}_{j}"
                 ids[tc.name] = cid
-                calls.append({"id": cid, "type": "function",
-                              "function": {"name": tc.name,
-                                           "arguments": json.dumps(
-                                               tc.arguments, ensure_ascii=False)}})
-            out.append({"role": "assistant",
-                        "content": m.get("text") or "",   # 严格网关拒绝 null，空串通吃
-                        "tool_calls": calls})
+                calls.append(
+                    {
+                        "id": cid,
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": json.dumps(tc.arguments, ensure_ascii=False),
+                        },
+                    }
+                )
+            out.append(
+                {
+                    "role": "assistant",
+                    "content": m.get("text") or "",  # 严格网关拒绝 null，空串通吃
+                    "tool_calls": calls,
+                }
+            )
         elif role == "tool":
             name = m.get("name", "")
-            out.append({"role": "tool", "tool_call_id": ids.pop(name, f"call_{name}"),
-                        "content": str(m.get("content", ""))})
+            out.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": ids.pop(name, f"call_{name}"),
+                    "content": str(m.get("content", "")),
+                }
+            )
         elif role == "assistant":
             out.append({"role": "assistant", "content": m.get("text", "") or ""})
         else:
@@ -59,12 +74,20 @@ def _wire(messages: list) -> list[dict]:
 class OpenAICompatibleLlm:
     """实现内核 LlmPort：chat(messages, tools, system, on_delta) -> LlmReply。"""
 
-    def __init__(self, *, model: str | None = None, base_url: str | None = None,
-                 api_key: str | None = None, temperature: float = 0.0, timeout: float = 60.0,
-                 max_tokens: int | None = None):
+    def __init__(
+        self,
+        *,
+        model: str | None = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        temperature: float = 0.0,
+        timeout: float = 60.0,
+        max_tokens: int | None = None,
+    ):
         self.api_key = api_key or os.getenv("OPENAI_API_KEY", "")
-        self.base_url = (base_url or os.getenv("OPENAI_BASE_URL")
-                         or "https://api.openai.com/v1").rstrip("/")
+        self.base_url = (
+            base_url or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+        ).rstrip("/")
         self.model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         self.temperature = temperature
         self.timeout = timeout
@@ -75,9 +98,13 @@ class OpenAICompatibleLlm:
     # —— 请求构造与发送（两条路径共用）——
     def _payload(self, messages, tools, system) -> dict:
         msgs = ([{"role": "system", "content": system}] if system else []) + _wire(messages)
-        payload = {"model": self.model, "messages": msgs, "temperature": self.temperature,
-                   "max_tokens": self.max_tokens}
-        if tools:                                       # 注册表给的就是 OpenAI 格式
+        payload = {
+            "model": self.model,
+            "messages": msgs,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+        }
+        if tools:  # 注册表给的就是 OpenAI 格式
             payload["tools"] = tools
         return payload
 
@@ -85,18 +112,22 @@ class OpenAICompatibleLlm:
         """发请求、返回响应对象；服务端错误读出正文，便于排查。"""
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(
-            f"{self.base_url}/chat/completions", data=data, method="POST",
-            headers={"Content-Type": "application/json",
-                     "Accept": "text/event-stream, application/json",
-                     "Authorization": f"Bearer {self.api_key}"})
+            f"{self.base_url}/chat/completions",
+            data=data,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "text/event-stream, application/json",
+                "Authorization": f"Bearer {self.api_key}",
+            },
+        )
         try:
             return urllib.request.urlopen(req, timeout=self.timeout)
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "ignore")
             raise RuntimeError(f"模型接口返回 {exc.code}：{detail[:300]}") from None
 
-    async def chat(self, messages, *, tools=None, system=None,
-                   on_delta=None) -> LlmReply:
+    async def chat(self, messages, *, tools=None, system=None, on_delta=None) -> LlmReply:
         payload = self._payload(messages, tools, system)
         if on_delta is None:
             # 不需要吐字：阻塞请求丢到线程里，一次拿全。
@@ -113,7 +144,7 @@ class OpenAICompatibleLlm:
         # 连接与每次读行都是阻塞的，各丢进线程，读完一行回到循环上回调 on_delta。
         resp = await asyncio.to_thread(self._open, payload)
         text, reasoning, calls, usage, saw_sse = "", "", {}, {}, False
-        raws: list[bytes] = []                     # 诊断用：留几行原始 SSE
+        raws: list[bytes] = []  # 诊断用：留几行原始 SSE
         try:
             while True:
                 line = await asyncio.to_thread(resp.readline)
@@ -124,12 +155,11 @@ class OpenAICompatibleLlm:
                     if line.startswith(b"{"):
                         # 网关没按 SSE 回（忽略 stream 或直接回了 JSON）：整段按普通响应解析。
                         rest = await asyncio.to_thread(resp.read)
-                        reply = self._reply_from(
-                            json.loads((line + rest).decode("utf-8")), {})
+                        reply = self._reply_from(json.loads((line + rest).decode("utf-8")), {})
                         if reply.text:
                             await on_delta(reply.text)
                         return reply
-                    continue                    # 空行/SSE 注释行
+                    continue  # 空行/SSE 注释行
                 saw_sse = True
                 piece = line[5:].strip()
                 if piece == b"[DONE]":
@@ -139,19 +169,18 @@ class OpenAICompatibleLlm:
                 chunk = json.loads(piece)
                 usage = chunk.get("usage") or usage
                 if not chunk.get("choices"):
-                    if chunk.get("error"):        # 200 但内嵌错误：别当“无内容”糊弄过去
+                    if chunk.get("error"):  # 200 但内嵌错误：别当“无内容”糊弄过去
                         raise RuntimeError(f"模型接口流式返回错误：{str(chunk['error'])[:300]}")
                     continue
                 delta = chunk["choices"][0].get("delta") or {}
-                if delta.get("reasoning_content"):    # 推理模型的思考通道（GLM/DeepSeek 等）
+                if delta.get("reasoning_content"):  # 推理模型的思考通道（GLM/DeepSeek 等）
                     reasoning += delta["reasoning_content"]
                     await on_delta(delta["reasoning_content"], "reasoning")
                 if delta.get("content"):
                     text += delta["content"]
                     await on_delta(delta["content"])
-                for tc in delta.get("tool_calls") or []:   # 分片到达，按 index 拼装
-                    slot = calls.setdefault(tc.get("index", 0),
-                                            {"id": "", "name": "", "args": ""})
+                for tc in delta.get("tool_calls") or []:  # 分片到达，按 index 拼装
+                    slot = calls.setdefault(tc.get("index", 0), {"id": "", "name": "", "args": ""})
                     slot["id"] = slot["id"] or tc.get("id", "")
                     fn = tc.get("function") or {}
                     slot["name"] += fn.get("name") or ""
@@ -167,8 +196,9 @@ class OpenAICompatibleLlm:
                 # 真的什么都没有：大声失败并带回现场，别静默给出空回答。
                 sample = b" | ".join(raws)[:300]
                 raise RuntimeError(f"模型流式响应无正文，原始片段：{sample!r}")
-        return self._reply_from({"choices": [{"message": {"content": text}}], "usage": usage},
-                                calls)
+        return self._reply_from(
+            {"choices": [{"message": {"content": text}}], "usage": usage}, calls
+        )
 
     @staticmethod
     def _reply_from(raw: dict, calls: dict[int, dict]) -> LlmReply:
@@ -181,7 +211,7 @@ class OpenAICompatibleLlm:
             except json.JSONDecodeError:
                 args = {}
             tool_calls.append(ToolCall(fn.get("name", ""), args, tc.get("id", "")))
-        for i in sorted(calls):                        # 流式路径：用拼装结果补进来
+        for i in sorted(calls):  # 流式路径：用拼装结果补进来
             slot = calls[i]
             try:
                 args = json.loads(slot["args"] or "{}")

@@ -30,8 +30,14 @@ class LlmPort(Protocol):
     最终仍返回完整 LlmReply；不需要流式的调用方不传即可。
     """
 
-    async def chat(self, messages: list[dict], *, tools: list[dict] | None = None,
-                   system: str | None = None, on_delta: Any = None) -> LlmReply: ...
+    async def chat(
+        self,
+        messages: list[dict],
+        *,
+        tools: list[dict] | None = None,
+        system: str | None = None,
+        on_delta: Any = None,
+    ) -> LlmReply: ...
 
 
 @runtime_checkable
@@ -49,5 +55,6 @@ class ToolPort(Protocol):
 class SubagentPort(Protocol):
     """子 Agent 激活端口：用同一个内核递归跑一个子 Run（call 语义，要返回）。"""
 
-    async def activate(self, spec: Any, task: str, parent_run: Any,
-                       payload: Any = None) -> dict: ...
+    async def activate(
+        self, spec: Any, task: str, parent_run: Any, payload: Any = None
+    ) -> dict: ...

@@ -26,7 +26,9 @@ class MemoryRecord:
 
 
 class Memory(Protocol):
-    async def remember(self, content: str, *, tags: list[str] | None = ..., importance: float = ...) -> None: ...
+    async def remember(
+        self, content: str, *, tags: list[str] | None = ..., importance: float = ...
+    ) -> None: ...
     async def recall(self, query: str, *, k: int = ...) -> str: ...
 
 
@@ -40,8 +42,9 @@ class InMemoryMemory:
         self._records: list[MemoryRecord] = []
         self._seq = 0
 
-    async def remember(self, content: str, *, tags: list[str] | None = None,
-                       importance: float = 1.0) -> MemoryRecord:
+    async def remember(
+        self, content: str, *, tags: list[str] | None = None, importance: float = 1.0
+    ) -> MemoryRecord:
         self._seq += 1
         record = MemoryRecord(content, list(tags or []), importance, f"m{self._seq}")
         self._records.append(record)

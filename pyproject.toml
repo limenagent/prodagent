@@ -6,7 +6,26 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.8"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "N", "C4"]
+ignore = [
+  "E501",      # 中文注释/文案的行长交给内容本身，不机械折行
+  "BLE001",    # 引擎/工具层把异常当数据反馈（失败也是产出）是本框架的立场
+  "RUF001",    # 全角标点是本项目正字法，不是“易混淆字符”
+  "RUF002",
+  "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"examples/*" = ["N999"]        # 示例按 01_ 前缀排序展示，命名有意为之
+"**/__init__.py" = ["F401"]    # __init__ 里 import 即再出口，不需要逐个引用
+"src/playground/server.py" = ["RUF006"]  # 会话驱动任务有意 fire-and-forget，状态在 _SESSIONS
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

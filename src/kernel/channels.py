@@ -13,8 +13,9 @@ reducer 必须是纯函数——这也是状态能靠事件重放出来的前提
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 Reducer = Callable[[Any, Any], Any]
 
@@ -83,7 +84,7 @@ def merge(init: Any = None) -> Channel:
     return Channel(dict(init or {}), _merge, allow_multi=True, empty={})
 
 
-class AmbiguousWrite(RuntimeError):
+class AmbiguousWrite(RuntimeError):  # noqa: N818 —— 名字直指语义，教学优先于命名惯例
     """同一波内，多个节点并发写了一个 last 通道——结果不确定，必须显式处理。"""
 
 

@@ -19,12 +19,12 @@ dict=写共享状态；要控制流程就用本模块的 go / fork / hand_off / 
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from src.kernel import (
     Bus,
-    FnBody,
     InMemoryEventLog,
     InMemoryStore,
     Node,
@@ -39,8 +39,8 @@ from src.kernel import (
 from src.kernel.body import NodeBody, coerce_outcome
 from src.runtime.agent import Agent, _AgentHandoff
 
-
 # —— 节点里用来表达控制流的便捷函数（不必 import 内核的 Outcome/Command）——
+
 
 def go(target: str, value: Any = None, **state_delta) -> Outcome:
     """跳到/回到某个节点（回边、循环靠它）。"""
@@ -70,7 +70,7 @@ def hand_off(agent: Any, task: str) -> Outcome:
     """
     name = agent.name if hasattr(agent, "name") else str(agent)
     outcome = Outcome.handoff(name, task)
-    if hasattr(agent, "plan"):                        # 传的是 Agent 对象：记下绑定
+    if hasattr(agent, "plan"):  # 传的是 Agent 对象：记下绑定
         outcome = dataclasses.replace(outcome, bindings={name: agent})
     return outcome
 
@@ -83,7 +83,7 @@ def wait_human(question: str = "", payload: Any = None, *, kind: str = "approval
 class _FacadeBody:
     """包一层用户函数：把宽松返回值规整成 Outcome，并给新状态键自动补通道。"""
 
-    def __init__(self, fn: Callable, workflow: "Workflow", plan_ref: list):
+    def __init__(self, fn: Callable, workflow: Workflow, plan_ref: list):
         self.fn = fn
         self.workflow = workflow
         self.plan_ref = plan_ref
@@ -94,10 +94,10 @@ class _FacadeBody:
             result = await result
         outcome = coerce_outcome(result)
         plan = self.plan_ref[0]
-        for k in outcome.state_delta:                   # 未声明的键自动补 last 通道
+        for k in outcome.state_delta:  # 未声明的键自动补 last 通道
             if k not in plan.channels:
                 plan.channels[k] = last(None)
-        if outcome.bindings:                            # hand_off(Agent) 用即绑定
+        if outcome.bindings:  # hand_off(Agent) 用即绑定
             self.workflow._runtime_targets.update(outcome.bindings)
         return outcome
 
@@ -112,18 +112,32 @@ class WorkflowResult:
     run: Any = None
 
     @classmethod
-    def _from(cls, run: Run) -> "WorkflowResult":
-        return cls(output=run.final_output, state=dict(run.shared), run_id=run.run_id,
-                   status=str(run.state), metrics=dict(run.metrics), run=run)
+    def _from(cls, run: Run) -> WorkflowResult:
+        return cls(
+            output=run.final_output,
+            state=dict(run.shared),
+            run_id=run.run_id,
+            status=str(run.state),
+            metrics=dict(run.metrics),
+            run=run,
+        )
 
     def __str__(self) -> str:
         return str(self.output)
 
 
 class Workflow:
-    def __init__(self, *, model: Any = None, tools: Any = None, bus: Bus | None = None,
-                 store: Any = None, eventlog: Any = None,
-                 max_waves: int = 64, concurrency: int = 8):
+    def __init__(
+        self,
+        *,
+        model: Any = None,
+        tools: Any = None,
+        bus: Bus | None = None,
+        store: Any = None,
+        eventlog: Any = None,
+        max_waves: int = 64,
+        concurrency: int = 8,
+    ):
         self._model = model
         self._tools = tools
         self.bus = bus or Bus()
@@ -136,45 +150,60 @@ class Workflow:
         self._edges: list[tuple[str, str, Any]] = []
         self._entry: list[str] = []
         self._channels: dict[str, Any] = {}
-        self._known_agents: dict[str, Any] = {}       # 作为节点加入的 Agent
-        self._runtime_targets: dict[str, Any] = {}    # hand_off(Agent) 运行时用即绑定
-        self._extra_handoffs: dict[str, Any] = {}     # handoff_to 显式登记（传名字时才需要）
+        self._known_agents: dict[str, Any] = {}  # 作为节点加入的 Agent
+        self._runtime_targets: dict[str, Any] = {}  # hand_off(Agent) 运行时用即绑定
+        self._extra_handoffs: dict[str, Any] = {}  # handoff_to 显式登记（传名字时才需要）
 
     # —— 声明 ——
-    def channel(self, name: str, reducer: Any) -> "Workflow":
+    def channel(self, name: str, reducer: Any) -> Workflow:
         """显式声明状态通道及其合并规则（如 append/add/merge）。"""
         self._channels[name] = reducer
         return self
 
-    def add_node(self, name: str, body: Any, *, join: str = "all",
-                 terminal: bool = False, template: bool = False,
-                 timeout: float | None = None, retry: Any = None) -> "Workflow":
-        self._nodes[name] = (body, {
-            "join": join, "terminal": terminal, "template": template,
-            "timeout": timeout, "retry": retry})
-        if isinstance(body, Agent):                 # 记下它，交接时按名激活其自身运行时
+    def add_node(
+        self,
+        name: str,
+        body: Any,
+        *,
+        join: str = "all",
+        terminal: bool = False,
+        template: bool = False,
+        timeout: float | None = None,
+        retry: Any = None,
+    ) -> Workflow:
+        self._nodes[name] = (
+            body,
+            {
+                "join": join,
+                "terminal": terminal,
+                "template": template,
+                "timeout": timeout,
+                "retry": retry,
+            },
+        )
+        if isinstance(body, Agent):  # 记下它，交接时按名激活其自身运行时
             self._known_agents[body.name] = body
         return self
 
     # 简短别名，链式更顺。
-    def add(self, name: str, body: Any, **opts) -> "Workflow":
+    def add(self, name: str, body: Any, **opts) -> Workflow:
         return self.add_node(name, body, **opts)
 
-    def edge(self, src: str, dst: str, *, when: Callable | None = None) -> "Workflow":
+    def edge(self, src: str, dst: str, *, when: Callable | None = None) -> Workflow:
         self._edges.append((src, dst, when))
         return self
 
-    def branch(self, src: str, routes: dict[str, str], *, decide: Callable) -> "Workflow":
+    def branch(self, src: str, routes: dict[str, str], *, decide: Callable) -> Workflow:
         """条件分支：decide(state) 返回 routes 的某个键，据此选边。"""
         for key, dst in routes.items():
             self._edges.append((src, dst, lambda s, k=key: decide(s) == k))
         return self
 
-    def entry(self, *names: str) -> "Workflow":
+    def entry(self, *names: str) -> Workflow:
         self._entry = list(names)
         return self
 
-    def handoff_to(self, agent: Any) -> "Workflow":
+    def handoff_to(self, agent: Any) -> Workflow:
         """显式登记一个可接力的 Agent。
 
         通常不需要：直接在节点里 hand_off(agent_obj, task) 会用即绑定。只有当你
@@ -185,13 +214,13 @@ class Workflow:
 
     # —— 编译 ——
     def _as_body(self, body: Any, plan_ref: list) -> NodeBody:
-        if isinstance(body, Agent):                    # Agent 自包含跑自己的模型
+        if isinstance(body, Agent):  # Agent 自包含跑自己的模型
             return _FacadeBody(body.as_task(), self, plan_ref)
-        if isinstance(body, Plan):                     # 裸 Plan 才用同一调度器递归
+        if isinstance(body, Plan):  # 裸 Plan 才用同一调度器递归
             return SubPlanBody(body)
-        if callable(body):                             # 普通函数 -> 宽松包装
+        if callable(body):  # 普通函数 -> 宽松包装
             return _FacadeBody(body, self, plan_ref)
-        return body                                    # 已经是内核 body，原样使用
+        return body  # 已经是内核 body，原样使用
 
     def _compile(self) -> Plan:
         plan = Plan(channels=dict(self._channels))
@@ -208,21 +237,27 @@ class Workflow:
         # handoff 目标来自三处：作为节点加入的 Agent、hand_off(对象) 的用即绑定、
         # handoff_to 的显式登记。接力时一律用目标 Agent 自己的运行时。
         # 用 getter 而非快照：hand_off(对象) 的用即绑定在节点执行时才产生。
-        on_handoff = _AgentHandoff(lambda: {**self._known_agents,
-                                            **self._runtime_targets,
-                                            **self._extra_handoffs})
+        on_handoff = _AgentHandoff(
+            lambda: {**self._known_agents, **self._runtime_targets, **self._extra_handoffs}
+        )
         return Scheduler(
-            llm=self._model, tools=self._tools, bus=self.bus,
-            store=self.store, eventlog=self.eventlog, on_handoff=on_handoff,
-            max_waves=self.max_waves, concurrency=self.concurrency)
+            llm=self._model,
+            tools=self._tools,
+            bus=self.bus,
+            store=self.store,
+            eventlog=self.eventlog,
+            on_handoff=on_handoff,
+            max_waves=self.max_waves,
+            concurrency=self.concurrency,
+        )
 
     # —— 运行 ——
     async def run(self, input: Any = None) -> WorkflowResult:
-        self._runtime_targets.clear()                  # 每次运行重新收集用即绑定
+        self._runtime_targets.clear()  # 每次运行重新收集用即绑定
         plan = self._compile()
         task = ""
         run = Run.start(plan, task=task)
-        if isinstance(input, dict):                   # dict 作为初始共享状态
+        if isinstance(input, dict):  # dict 作为初始共享状态
             for k, v in input.items():
                 plan.channels.setdefault(k, last(None))
                 run.shared[k] = v

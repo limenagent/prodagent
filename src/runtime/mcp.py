@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from src.runtime.tools import ToolRegistry, ToolSpec
 
@@ -34,10 +35,12 @@ class InProcessMCPServer:
         self.server_name = server_name
         self._tools: dict[str, McpToolInfo] = {}
 
-    def define(self, name: str, handler: Callable, *, description: str = "",
-               parameters: dict | None = None) -> "InProcessMCPServer":
-        self._tools[name] = McpToolInfo(name, description,
-                                        parameters or {"type": "object", "properties": {}}, handler)
+    def define(
+        self, name: str, handler: Callable, *, description: str = "", parameters: dict | None = None
+    ) -> InProcessMCPServer:
+        self._tools[name] = McpToolInfo(
+            name, description, parameters or {"type": "object", "properties": {}}, handler
+        )
         return self
 
     async def list_tools(self) -> list[McpToolInfo]:
@@ -60,11 +63,18 @@ async def load_mcp_tools(registry: ToolRegistry, server: Any, *, prefix: str = "
         def make_caller(tool_name: str):
             async def caller(arguments: dict, ctx: Any = None):
                 return await server.call_tool(tool_name, arguments)
+
             return caller
 
-        registry.add(ToolSpec(name=full_name, description=info.description,
-                              func=make_caller(info.name), parameters=info.parameters,
-                              side_effect="read"))
+        registry.add(
+            ToolSpec(
+                name=full_name,
+                description=info.description,
+                func=make_caller(info.name),
+                parameters=info.parameters,
+                side_effect="read",
+            )
+        )
         names.append(full_name)
     return names
 
@@ -83,7 +93,8 @@ class StdioMCPClient:
 
     async def __aenter__(self):
         self._proc = await asyncio.create_subprocess_exec(
-            *self.command, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE)
+            *self.command, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE
+        )
         await self._rpc("initialize", {"protocolVersion": "2024-11-05"})
         return self
 
@@ -108,8 +119,14 @@ class StdioMCPClient:
         result = await self._rpc("tools/list", {})
         out = []
         for t in result.get("tools", []):
-            out.append(McpToolInfo(t["name"], t.get("description", ""),
-                                   t.get("inputSchema", {"type": "object", "properties": {}}), None))
+            out.append(
+                McpToolInfo(
+                    t["name"],
+                    t.get("description", ""),
+                    t.get("inputSchema", {"type": "object", "properties": {}}),
+                    None,
+                )
+            )
         return out
 
     async def call_tool(self, name: str, arguments: dict) -> Any:

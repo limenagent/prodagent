@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 Handler = Callable[..., Any]
 
@@ -34,12 +35,12 @@ class Subscription:
     """一个有界事件订阅：await get() 或 async for 取事件。"""
 
     def __init__(self, kinds: tuple[str, ...], maxsize: int, on_full: str):
-        self.kinds = kinds                       # 空元组表示订阅全部
+        self.kinds = kinds  # 空元组表示订阅全部
         self.on_full = on_full
         self.queue: asyncio.Queue = asyncio.Queue(maxsize=maxsize)
-        self.dropped = 0                        # drop 策略下累计丢弃的帧数
+        self.dropped = 0  # drop 策略下累计丢弃的帧数
         self._closed = False
-        self._on_close = None                   # 由 Bus 注入：关闭时把自己从总线摘除
+        self._on_close = None  # 由 Bus 注入：关闭时把自己从总线摘除
 
     def _wants(self, event: str) -> bool:
         return not self.kinds or event in self.kinds
@@ -49,19 +50,19 @@ class Subscription:
             return
         item = {"event": event, **data}
         if self.on_full == "block":
-            await self.queue.put(item)          # 满了就在这里等，反压生产端
+            await self.queue.put(item)  # 满了就在这里等，反压生产端
             return
         try:
             self.queue.put_nowait(item)
         except asyncio.QueueFull:
-            self.dropped += 1                   # drop：不阻塞，记一笔账
+            self.dropped += 1  # drop：不阻塞，记一笔账
 
     async def get(self) -> dict:
         return await self.queue.get()
 
     def close(self) -> None:
         self._closed = True
-        if self._on_close is not None:          # 顺手从总线注销，避免订阅只增不减
+        if self._on_close is not None:  # 顺手从总线注销，避免订阅只增不减
             self._on_close()
             self._on_close = None
 
@@ -70,7 +71,7 @@ class Subscription:
             raise StopAsyncIteration
         return await self.queue.get()
 
-    def __aiter__(self) -> "Subscription":
+    def __aiter__(self) -> Subscription:
         return self
 
 
@@ -97,8 +98,9 @@ class Bus:
             raise ValueError("on_full 只能是 'block' 或 'drop'")
         sub = Subscription(kinds, maxsize, on_full)
         self._subscriptions.append(sub)
-        sub._on_close = lambda: self._subscriptions.remove(sub) \
-            if sub in self._subscriptions else None
+        sub._on_close = lambda: (
+            self._subscriptions.remove(sub) if sub in self._subscriptions else None
+        )
         return sub
 
     @staticmethod
@@ -113,23 +115,27 @@ class Bus:
         """旁观：通知所有回调与队列订阅；回调出错不影响主流程。"""
         handlers = self._observers.get(event, ())
         results = await asyncio.gather(
-            *[self._run(h, **data) for h in handlers], return_exceptions=True)
+            *[self._run(h, **data) for h in handlers], return_exceptions=True
+        )
         for r in results:
             if isinstance(r, Exception):
                 print(f"[bus] observer error ignored: {r!r}")
         # 背压投递：block 订阅会在此处被 await，从而把压力传回事件生产端。
         await asyncio.gather(
-            *[sub._deliver(event, data) for sub in self._subscriptions if sub._wants(event)])
+            *[sub._deliver(event, data) for sub in self._subscriptions if sub._wants(event)]
+        )
 
     async def check(self, gate: str, **data: Any) -> BlockingResult:
         """裁决：顺序询问，任一否决或抛错都阻断（fail-closed）。"""
         for h in self._checkers.get(gate, ()):
             try:
                 verdict = await self._run(h, **data)
-            except Exception as exc:             # 裁决器自身故障 → 不放行
+            except Exception as exc:  # 裁决器自身故障 → 不放行
                 return BlockingResult(False, f"checker error: {exc}")
             if verdict is False or (isinstance(verdict, BlockingResult) and not verdict.allowed):
-                reason = verdict.reason if isinstance(verdict, BlockingResult) else f"被 {gate} 否决"
+                reason = (
+                    verdict.reason if isinstance(verdict, BlockingResult) else f"被 {gate} 否决"
+                )
                 return BlockingResult(False, reason)
         return BlockingResult(True)
 

@@ -30,15 +30,14 @@ RUN_FAILED = "run_failed"
 
 @dataclass(frozen=True)
 class Event:
-    seq: int                 # 在同一个 run 内单调递增
+    seq: int  # 在同一个 run 内单调递增
     run_id: str
     kind: str
     data: dict[str, Any] = field(default_factory=dict)
-    parent_id: str | None = None    # 子 Run 事件借此挂到父 Run，重建 Run 树
+    parent_id: str | None = None  # 子 Run 事件借此挂到父 Run，重建 Run 树
 
 
-def apply_event(shared: dict[str, Any], event: Event,
-                channels: dict[str, Channel]) -> None:
+def apply_event(shared: dict[str, Any], event: Event, channels: dict[str, Channel]) -> None:
     """把单个事件折叠进 shared（原地）。纯函数：同样的事件流必得同样状态。"""
     if event.kind != STATE_DELTA:
         return
@@ -47,8 +46,9 @@ def apply_event(shared: dict[str, Any], event: Event,
         shared[key] = channel.fold(shared.get(key), value)
 
 
-def fold_events(events: list[Event], channels: dict[str, Channel],
-                initial: dict[str, Any]) -> dict[str, Any]:
+def fold_events(
+    events: list[Event], channels: dict[str, Channel], initial: dict[str, Any]
+) -> dict[str, Any]:
     """从初始状态重放一整段事件流（测试与时间旅行用）。"""
     shared = dict(initial)
     for ev in events:
@@ -63,7 +63,9 @@ class EventLog(Protocol):
 
 
 class CheckpointStore(Protocol):
-    async def save(self, run_id: str, snapshot: dict, *, expected_version: int | None = None) -> int: ...
+    async def save(
+        self, run_id: str, snapshot: dict, *, expected_version: int | None = None
+    ) -> int: ...
     async def load(self, run_id: str) -> dict | None: ...
 
 
@@ -92,8 +94,9 @@ class InMemoryStore:
         self._snapshots: dict[str, dict] = {}
         self._version: dict[str, int] = {}
 
-    async def save(self, run_id: str, snapshot: dict, *,
-                   expected_version: int | None = None) -> int:
+    async def save(
+        self, run_id: str, snapshot: dict, *, expected_version: int | None = None
+    ) -> int:
         # 乐观并发：带了期望版本就必须对得上，防止两个执行互相覆盖。
         if expected_version is not None and self._version.get(run_id, 0) != expected_version:
             raise RuntimeError(f"检查点版本冲突：期望 {expected_version}")

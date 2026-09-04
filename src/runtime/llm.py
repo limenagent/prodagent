@@ -27,8 +27,7 @@ class ScriptedLlm:
         self.system_reply = system_reply
         self.messages_seen: list[list[dict]] = []
 
-    async def chat(self, messages, *, tools=None, system=None,
-                   on_delta=None) -> LlmReply:
+    async def chat(self, messages, *, tools=None, system=None, on_delta=None) -> LlmReply:
         self.messages_seen.append(list(messages))
         if not self.script:
             reply = LlmReply(text=self.system_reply or "(脚本已耗尽)")
@@ -42,7 +41,7 @@ class ScriptedLlm:
                 reply = LlmReply(tool_calls=item, tokens=6)
             else:
                 reply = LlmReply(text=str(item), tokens=6)
-        if on_delta and reply.text:                   # 离线也走一次吐字，UI 行为一致
+        if on_delta and reply.text:  # 离线也走一次吐字，UI 行为一致
             await on_delta(reply.text)
         return reply
 

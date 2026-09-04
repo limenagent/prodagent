@@ -1,14 +1,10 @@
 """五级压缩、技能目录加载、长期记忆召回的测试。"""
 
-import asyncio
-
-import pytest
-
 from src import Agent
 from src.kernel import LlmReply, ToolCall
-from src.runtime.context import TieredCompactionContext, CompressionLevel
-from src.runtime.skills import SkillRegistry
+from src.runtime.context import CompressionLevel, TieredCompactionContext
 from src.runtime.memory import InMemoryMemory
+from src.runtime.skills import SkillRegistry
 
 
 class FixedSummarizer:
@@ -40,17 +36,17 @@ async def test_tiered_no_compression_when_fits():
 async def test_tiered_tool_compress_spends_no_llm():
     summ = FixedSummarizer()
     ctx = TieredCompactionContext(summ, capacity=8)
-    msgs = _chat(5)                       # 11 条，ratio≈1.4 → 工具压缩级
+    msgs = _chat(5)  # 11 条，ratio≈1.4 → 工具压缩级
     out = await ctx.assemble(msgs)
     assert ctx.last_level == CompressionLevel.TOOL_COMPRESS
-    assert summ.calls == 0                # 机械级不花模型钱
+    assert summ.calls == 0  # 机械级不花模型钱
     assert len(out) <= 8
 
 
 async def test_tiered_history_summary_spends_one_llm():
     summ = FixedSummarizer()
     ctx = TieredCompactionContext(summ, capacity=8)
-    out = await ctx.assemble(_chat(9))    # 19 条，ratio≈2.4 → 历史摘要级
+    out = await ctx.assemble(_chat(9))  # 19 条，ratio≈2.4 → 历史摘要级
     assert ctx.last_level == CompressionLevel.HISTORY_SUMMARY
     assert summ.calls == 1
     assert any("历史摘要" in str(m.get("content", "")) for m in out)
@@ -60,7 +56,7 @@ async def test_tiered_history_summary_spends_one_llm():
 async def test_tiered_emergency_keeps_only_tail():
     summ = FixedSummarizer()
     ctx = TieredCompactionContext(summ, capacity=8)
-    out = await ctx.assemble(_chat(20))   # 41 条，ratio≈5 → 紧急级
+    out = await ctx.assemble(_chat(20))  # 41 条，ratio≈5 → 紧急级
     assert ctx.last_level == CompressionLevel.EMERGENCY
     assert len(out) <= 8
 
@@ -70,8 +66,7 @@ async def test_tiered_never_orphans_tool_result():
     ctx = TieredCompactionContext(summ, capacity=6)
     msgs = [{"role": "user", "content": "任务"}]
     for i in range(6):
-        msgs.append({"role": "assistant", "content": "",
-                     "tool_calls": [ToolCall("t", {"i": i})]})
+        msgs.append({"role": "assistant", "content": "", "tool_calls": [ToolCall("t", {"i": i})]})
         msgs.append({"role": "tool", "name": "t", "content": f"结果{i}" * 40})
     out = await ctx.assemble(msgs)
     # 任何保留下来的 tool 结果，前面都必须能找到携带 tool_calls 的 assistant。
@@ -85,7 +80,8 @@ def test_skill_load_from_dir(tmp_path):
     skill_dir.mkdir()
     (skill_dir / "SKILL.md").write_text(
         "---\nname: 演示技能\ndescription: 用来测试加载\n---\n第一步这样\n第二步那样\n",
-        encoding="utf-8")
+        encoding="utf-8",
+    )
     reg = SkillRegistry()
     loaded = reg.load_dir(str(tmp_path))
     assert len(loaded) == 1

@@ -13,7 +13,6 @@ from src import Agent, Workflow, go, wait_human
 from src.kernel import ToolCall
 from src.runtime.llm import ScriptedLlm, env_llm
 
-
 # 假装的订单库，真实项目里这里会去查数据库/下游服务。
 _ORDERS = {
     "O-1234": {"status": "已超时3天未发货", "amount": 88},
@@ -37,10 +36,12 @@ async def _deny(suggestion, ctx):
 
 def _default_model():
     # 离线脚本：先查单，再给建议——和真实模型的两轮行为一致。
-    return ScriptedLlm([
-        ToolCall("query_order", {"order_id": "O-1234"}),
-        "订单 O-1234 已超时 3 天未发货，按政策建议退款 88 元。",
-    ])
+    return ScriptedLlm(
+        [
+            ToolCall("query_order", {"order_id": "O-1234"}),
+            "订单 O-1234 已超时 3 天未发货，按政策建议退款 88 元。",
+        ]
+    )
 
 
 def build_demo(model=None) -> Workflow:
@@ -50,8 +51,10 @@ def build_demo(model=None) -> Workflow:
         name="support",
         model=model,
         instruction="你是售后客服。先用 query_order 查订单，再判断是否应退款，"
-                    "用一句话给出建议和金额，不要自行决定退款。",
-        tools=[query_order], bus=wf.bus)              # 子 Agent 事件汇入同一总线
+        "用一句话给出建议和金额，不要自行决定退款。",
+        tools=[query_order],
+        bus=wf.bus,
+    )  # 子 Agent 事件汇入同一总线
 
     async def approve(suggestion, ctx):
         if ctx.resume_value is None:

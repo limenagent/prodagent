@@ -12,7 +12,8 @@ worker 是模板节点，可以是普通函数，也可以是一个会用工具�
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from src.kernel import (
     FnBody,
@@ -41,8 +42,7 @@ def parse_numbered_list(text: str) -> list[dict]:
     return steps
 
 
-def build_plan_execute(*, make_steps: MakeSteps, worker: Any,
-                       synth: Any = None) -> Plan:
+def build_plan_execute(*, make_steps: MakeSteps, worker: Any, synth: Any = None) -> Plan:
     """worker / synth 都是满足 NodeBody 的执行体（通常直接用 FnBody 包一层）。"""
 
     async def planner(task, ctx):
@@ -58,9 +58,11 @@ def build_plan_execute(*, make_steps: MakeSteps, worker: Any,
         return Outcome.ok(inputs)
 
     plan = Plan(channels={"steps": last([])})
-    plan.add(Node("planner", FnBody(planner)),
-             Node("worker", worker, template=True),
-             Node("synth", synth or FnBody(default_synth), terminal=True))
+    plan.add(
+        Node("planner", FnBody(planner)),
+        Node("worker", worker, template=True),
+        Node("synth", synth or FnBody(default_synth), terminal=True),
+    )
     plan.edge("worker", "synth")
     plan.entry = ("planner",)
     return plan
@@ -72,6 +74,7 @@ def start_plan_run(plan: Plan, task: str) -> Run:
 
 async def _maybe_await(value):
     import inspect
+
     if inspect.isawaitable(value):
         return await value
     return value

@@ -41,28 +41,28 @@ class Outcome:
 
     # —— 便捷构造，读起来像在“陈述意图” ——
     @classmethod
-    def ok(cls, value: Any = None, **delta: Any) -> "Outcome":
+    def ok(cls, value: Any = None, **delta: Any) -> Outcome:
         return cls(value=value, state_delta=dict(delta))
 
     @classmethod
-    def goto(cls, target: str, value: Any = None, **delta: Any) -> "Outcome":
+    def goto(cls, target: str, value: Any = None, **delta: Any) -> Outcome:
         return cls(value=value, state_delta=dict(delta), control=Goto(target))
 
     @classmethod
-    def send(cls, template: str, payload: Any, key: str | None = None) -> "Outcome":
+    def send(cls, template: str, payload: Any, key: str | None = None) -> Outcome:
         return cls(control=Send(template, payload, key))
 
     @classmethod
-    def fan_out(cls, *sends: Send, **delta: Any) -> "Outcome":
+    def fan_out(cls, *sends: Send, **delta: Any) -> Outcome:
         """一次动态扇出到多个实例；**delta 可同时写共享状态（如步骤清单）。"""
         return cls(state_delta=dict(delta), control=list(sends))
 
     @classmethod
-    def handoff(cls, agent: str, task: str) -> "Outcome":
+    def handoff(cls, agent: str, task: str) -> Outcome:
         return cls(control=Handoff(agent, task))
 
     @classmethod
-    def park(cls, kind: str, payload: Any = None, question: str = "") -> "Outcome":
+    def park(cls, kind: str, payload: Any = None, question: str = "") -> Outcome:
         return cls(suspend=Interrupt(kind, payload, question))
 
 
@@ -81,7 +81,7 @@ def coerce_outcome(raw: Any) -> Outcome:
 
 @runtime_checkable
 class NodeBody(Protocol):
-    async def run(self, input: Any, ctx: "NodeContext") -> Outcome: ...
+    async def run(self, input: Any, ctx: NodeContext) -> Outcome: ...
 
 
 class NodeContext:
@@ -92,9 +92,17 @@ class NodeContext:
     塞进 context——这条界限让检查点保持干净（第 04、12 课）。
     """
 
-    def __init__(self, run: Any, node_id: str, *, llm: Any = None,
-                 tools: Any = None, subagent: Any = None, bus: Any = None,
-                 resume_value: Any = None):
+    def __init__(
+        self,
+        run: Any,
+        node_id: str,
+        *,
+        llm: Any = None,
+        tools: Any = None,
+        subagent: Any = None,
+        bus: Any = None,
+        resume_value: Any = None,
+    ):
         self.run = run
         self.node_id = node_id
         self._llm = llm
@@ -121,8 +129,14 @@ class NodeContext:
         reply = await self.llm_chat([{"role": "user", "content": prompt}], system=system)
         return reply.text
 
-    async def llm_chat(self, messages: list[dict], *, tools: list[dict] | None = None,
-                       system: str | None = None, on_delta: Any = None):
+    async def llm_chat(
+        self,
+        messages: list[dict],
+        *,
+        tools: list[dict] | None = None,
+        system: str | None = None,
+        on_delta: Any = None,
+    ):
         """走模型端口发起一次对话调用，并统一记账（返回归一 LlmReply）。
 
         on_delta 透传给实现方做流式“吐字”；记账与归一化仍在这里统一。
@@ -139,6 +153,7 @@ class NodeContext:
         if self._tools is None:
             raise RuntimeError("没有注入 ToolPort，无法执行工具")
         from src.kernel.types import ToolCall
+
         self.run.metrics["tool_calls"] += 1
         # 稳定幂等键：同一节点的同一次尝试重试时不变（第 19 课）。
         attempt = self.run.state_of(self.node_id).attempts
@@ -153,6 +168,7 @@ class NodeContext:
 
 
 # ════════════ 四种内置 body ════════════
+
 
 class FnBody:
     """L0：一个 Python 函数（普通或 async）。

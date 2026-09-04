@@ -41,10 +41,12 @@ def _serialize(item: dict) -> dict:
     evt = item.get("evt")
     if evt is None:
         # 总线直达的高频事件（如 llm_delta 吐字）没有 Event 对象，字段就在原地。
-        return {"seq": 0, "kind": item.get("event"),
-                "data": {k: v for k, v in item.items() if k != "event"}}
-    return {"seq": evt.seq, "kind": evt.kind, "data": evt.data or {},
-            "parent": evt.parent_id}
+        return {
+            "seq": 0,
+            "kind": item.get("event"),
+            "data": {k: v for k, v in item.items() if k != "event"},
+        }
+    return {"seq": evt.seq, "kind": evt.kind, "data": evt.data or {}, "parent": evt.parent_id}
 
 
 async def _pump(sess: dict):
@@ -72,7 +74,7 @@ async def _drive(sess: dict, user_input: str, resume_value=None):
         sess["output"] = result.output
         if sess.get("chat"):
             sess["history"] = list(getattr(result, "messages", []) or [])
-    except Exception as exc:                    # 页面上直接看到失败原因
+    except Exception as exc:  # 页面上直接看到失败原因
         sess["status"] = "failed"
         sess["error"] = repr(exc)
     finally:
@@ -92,9 +94,18 @@ async def _start(scenario_key: str, user_input: str) -> str:
     runnable = await scenario["build"]() if scenario["is_async"] else scenario["build"]()
     sid = uuid.uuid4().hex[:12]
     # 返回的是 Agent 就支持多轮对话（继续发消息续聊）；Workflow 保持一次性运行。
-    sess = {"runnable": runnable, "events": [], "status": "created",
-            "result": None, "run_id": None, "output": None, "error": None, "sub": None,
-            "chat": isinstance(runnable, Agent), "history": None}
+    sess = {
+        "runnable": runnable,
+        "events": [],
+        "status": "created",
+        "result": None,
+        "run_id": None,
+        "output": None,
+        "error": None,
+        "sub": None,
+        "chat": isinstance(runnable, Agent),
+        "history": None,
+    }
     _SESSIONS[sid] = sess
     asyncio.create_task(_drive(sess, user_input))
     return sid
@@ -119,24 +130,32 @@ async def _resume(sid: str, approved: bool):
 
 async def _events(sid: str, since: int):
     sess = _SESSIONS[sid]
-    await asyncio.sleep(0)                       # 让 drive/pump 有机会推进
+    await asyncio.sleep(0)  # 让 drive/pump 有机会推进
     question = ""
     for ev in reversed(sess["events"]):
         if ev["kind"] == "interrupted":
             question = ev["data"].get("question", "")
             break
-    return {"events": sess["events"][since:], "status": sess["status"],
-            "question": question, "output": sess["output"], "error": sess["error"],
-            "chat": sess.get("chat", False)}
+    return {
+        "events": sess["events"][since:],
+        "status": sess["status"],
+        "question": question,
+        "output": sess["output"],
+        "error": sess["error"],
+        "chat": sess.get("chat", False),
+    }
 
 
 class _Handler(BaseHTTPRequestHandler):
-    def log_message(self, *args):                # 安静一点
+    def log_message(self, *args):  # 安静一点
         pass
 
     def _send(self, obj, ctype="application/json; charset=utf-8", code=200):
-        body = obj if isinstance(obj, bytes) else json.dumps(obj, ensure_ascii=False,
-                                                             default=str).encode("utf-8")
+        body = (
+            obj
+            if isinstance(obj, bytes)
+            else json.dumps(obj, ensure_ascii=False, default=str).encode("utf-8")
+        )
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -148,11 +167,20 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/":
             return self._send(PAGE.encode("utf-8"), "text/html; charset=utf-8")
         if path == "/api/scenarios":
-            return self._send([{"key": s["key"], "title": s["title"],
-                                "desc": s["desc"], "default": s["default"]}
-                               for s in SCENARIOS])
+            return self._send(
+                [
+                    {
+                        "key": s["key"],
+                        "title": s["title"],
+                        "desc": s["desc"],
+                        "default": s["default"],
+                    }
+                    for s in SCENARIOS
+                ]
+            )
         if path == "/api/events":
             from urllib.parse import parse_qs
+
             q = parse_qs(self.path.split("?", 1)[1])
             sid = q.get("sid", [""])[0]
             since = int(q.get("since", ["0"])[0])
@@ -186,7 +214,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 def serve(host: str = "127.0.0.1", port: int = 8000):
     threading.Thread(target=_start_background_loop, daemon=True).start()
-    while _LOOP is None:                         # 等后台 loop 就绪
+    while _LOOP is None:  # 等后台 loop 就绪
         pass
     httpd = ThreadingHTTPServer((host, port), _Handler)
     url = f"http://{host}:{port}"

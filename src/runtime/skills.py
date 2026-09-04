@@ -19,7 +19,7 @@ class Skill:
     name: str
     description: str
     instructions: str = ""
-    tools: list[str] = field(default_factory=list)   # 该技能涉及的工具名
+    tools: list[str] = field(default_factory=list)  # 该技能涉及的工具名
 
 
 def _tokens(text: str) -> set[str]:
@@ -30,7 +30,7 @@ class SkillRegistry:
     def __init__(self):
         self._skills: dict[str, Skill] = {}
 
-    def register(self, skill: Skill) -> "SkillRegistry":
+    def register(self, skill: Skill) -> SkillRegistry:
         self._skills[skill.name] = skill
         return self
 
@@ -51,7 +51,9 @@ class SkillRegistry:
         """把技能指引拼进系统提示。"""
         if not skill:
             return system
-        return (system + "\n\n" if system else "") + f"使用技能「{skill.name}」：\n{skill.instructions}"
+        return (
+            system + "\n\n" if system else ""
+        ) + f"使用技能「{skill.name}」：\n{skill.instructions}"
 
     # —— 从目录加载：每个子目录一份 SKILL.md，就是一个可渐进披露的技能 ——
     @staticmethod
@@ -70,14 +72,17 @@ class SkillRegistry:
                     if ":" in line:
                         k, v = line.split(":", 1)
                         meta[k.strip()] = v.strip()
-                instructions_text = "\n".join(lines[end + 1:]).strip()
-        return Skill(name=meta.get("name", "未命名"),
-                     description=meta.get("description", ""),
-                     instructions=instructions_text)
+                instructions_text = "\n".join(lines[end + 1 :]).strip()
+        return Skill(
+            name=meta.get("name", "未命名"),
+            description=meta.get("description", ""),
+            instructions=instructions_text,
+        )
 
     def load_dir(self, root: str) -> list[Skill]:
         """加载 root 下每个含 SKILL.md 的子目录；root 自身若是单个技能也支持。"""
         import os
+
         loaded: list[Skill] = []
         direct = os.path.join(root, "SKILL.md")
         candidates = []

@@ -31,7 +31,6 @@ from src.kernel.eventlog import (
     NODE_RETRY,
     NODE_STARTED,
     RESUMED,
-    RUN_COMPLETED,
     RUN_FAILED,
     RUN_STARTED,
     STATE_DELTA,
@@ -50,13 +49,11 @@ class InProcessActivator:
     “在哪执行”是端口后面的事（第 32 课的位置透明）。
     """
 
-    def __init__(self, scheduler: "Scheduler"):
+    def __init__(self, scheduler: Scheduler):
         self.scheduler = scheduler
 
-    async def activate(self, spec: Any, task: str, parent_run: Run,
-                       payload: Any = None) -> dict:
-        child = Run.start(spec, parent_id=parent_run.run_id,
-                          depth=parent_run.depth + 1, task=task)
+    async def activate(self, spec: Any, task: str, parent_run: Run, payload: Any = None) -> dict:
+        child = Run.start(spec, parent_id=parent_run.run_id, depth=parent_run.depth + 1, task=task)
         await self.scheduler.drive(spec, child)
         return {
             "run_id": child.run_id,
@@ -67,18 +64,27 @@ class InProcessActivator:
 
 
 class Scheduler:
-    def __init__(self, *, llm: Any = None, tools: Any = None, bus: Bus | None = None,
-                 eventlog: Any = None, store: Any = None, on_handoff: Any = None,
-                 max_waves: int = 64, concurrency: int = 8):
+    def __init__(
+        self,
+        *,
+        llm: Any = None,
+        tools: Any = None,
+        bus: Bus | None = None,
+        eventlog: Any = None,
+        store: Any = None,
+        on_handoff: Any = None,
+        max_waves: int = 64,
+        concurrency: int = 8,
+    ):
         self.llm = llm
         self.tools = tools
         self.bus = bus or Bus()
         self.eventlog = eventlog or InMemoryEventLog()
         self.store = store or InMemoryStore()
-        self.on_handoff = on_handoff          # transfer 语义是应用层配方，可注入
+        self.on_handoff = on_handoff  # transfer 语义是应用层配方，可注入
         self.max_waves = max_waves
         self._sem = asyncio.Semaphore(concurrency)
-        self._seq: dict[str, int] = {}        # 每个 run 独立递增的事件序号
+        self._seq: dict[str, int] = {}  # 每个 run 独立递增的事件序号
         self.subagent = InProcessActivator(self)
 
     # —— 对外主入口 ——
@@ -123,8 +129,7 @@ class Scheduler:
                 break
 
             # 2) 波次并发：节点之间不共享可变状态，只各自产出 Outcome。
-            results = await asyncio.gather(
-                *[self._run_node(plan, run, key) for key in ready])
+            results = await asyncio.gather(*[self._run_node(plan, run, key) for key in ready])
 
             # 3) 屏障：统一处理结果。任一节点失败，默认 fail-fast 让整 Run 停下。
             parked: tuple[str, Any] | None = None
@@ -168,24 +173,34 @@ class Scheduler:
             await self._checkpoint(run)
 
     # —— 单个节点的执行 ——
-    async def _run_node(self, plan: Any, run: Run, key: str) -> tuple[str, Outcome | None, BaseException | None]:
+    async def _run_node(
+        self, plan: Any, run: Run, key: str
+    ) -> tuple[str, Outcome | None, BaseException | None]:
         template = run.template_of(key)
         node = plan.get(template)
         run.mark_running(key)
         await self._emit(run, NODE_STARTED, {"node": key})
         ctx = NodeContext(
-            run, key, llm=self.llm, tools=self.tools,
-            subagent=self.subagent, bus=self.bus, resume_value=run.resume_value)
+            run,
+            key,
+            llm=self.llm,
+            tools=self.tools,
+            subagent=self.subagent,
+            bus=self.bus,
+            resume_value=run.resume_value,
+        )
         try:
-            async with self._sem:                          # 全局并发上限
+            async with self._sem:  # 全局并发上限
                 outcome = await self._run_body(
-                    node, self._node_input(plan, run, key), ctx, run, key)
+                    node, self._node_input(plan, run, key), ctx, run, key
+                )
             return key, outcome, None
-        except BaseException as exc:                       # 交回屏障统一处置
+        except BaseException as exc:  # 交回屏障统一处置
             return key, None, exc
 
-    async def _run_body(self, node: Any, value: Any, ctx: NodeContext,
-                        run: Run, key: str) -> Outcome:
+    async def _run_body(
+        self, node: Any, value: Any, ctx: NodeContext, run: Run, key: str
+    ) -> Outcome:
         """执行一个节点的 body，套上“超时 + 重试退避”这层步骤级弹性。
 
         机制是固定的：超时算一次失败、失败按策略决定是否再来一次；策略本身
@@ -201,17 +216,22 @@ class Scheduler:
                     return await asyncio.wait_for(node.body.run(value, ctx), node.timeout)
                 return await node.body.run(value, ctx)
             except asyncio.CancelledError:
-                raise                                   # 被外部取消：立即停，不重试
+                raise  # 被外部取消：立即停，不重试
             except BaseException as exc:
                 last_exc = exc
-                can_retry = (policy is not None and attempt + 1 < attempts
-                             and isinstance(exc, policy.retry_on))
+                can_retry = (
+                    policy is not None
+                    and attempt + 1 < attempts
+                    and isinstance(exc, policy.retry_on)
+                )
                 if not can_retry:
                     raise
                 backoff = policy.delay_for(attempt)
-                await self._emit(run, NODE_RETRY, {
-                    "node": key, "attempt": attempt + 1,
-                    "error": repr(exc), "backoff": backoff})
+                await self._emit(
+                    run,
+                    NODE_RETRY,
+                    {"node": key, "attempt": attempt + 1, "error": repr(exc), "backoff": backoff},
+                )
                 await asyncio.sleep(backoff)
         assert last_exc is not None
         raise last_exc
@@ -226,9 +246,12 @@ class Scheduler:
         for e in preds:
             src = e.source
             node = plan.get(src)
-            if node.template:                               # 模板前驱：聚合其所有实例输出
-                vals = [run.state_of(k).output for k in run.instances.get(src, ())
-                        if run.is_completed(k)]
+            if node.template:  # 模板前驱：聚合其所有实例输出
+                vals = [
+                    run.state_of(k).output
+                    for k in run.instances.get(src, ())
+                    if run.is_completed(k)
+                ]
                 if vals:
                     upstream[src] = vals
             elif run.is_completed(src) and plan._edge_live(e, run.shared):
@@ -245,7 +268,7 @@ class Scheduler:
             commands = control if isinstance(control, list) else [control]
             for cmd in commands:
                 if isinstance(cmd, Goto):
-                    run.reset_pending(cmd.target)              # 回边/跳转：目标重新就绪
+                    run.reset_pending(cmd.target)  # 回边/跳转：目标重新就绪
                 elif isinstance(cmd, Send):
                     run.add_instance(cmd.template, cmd.payload, cmd.key)
                 elif isinstance(cmd, Handoff):
@@ -253,7 +276,8 @@ class Scheduler:
                     if self.on_handoff is None:
                         raise RuntimeError(
                             "收到 Handoff 但未装配 on_handoff；委派请用 SubPlanBody(call)，"
-                            "交接(transfer)需在应用层提供处理器。")
+                            "交接(transfer)需在应用层提供处理器。"
+                        )
                     await self.on_handoff(cmd, run, self)
                 else:
                     raise TypeError(f"未知控制命令：{cmd!r}")
@@ -263,9 +287,12 @@ class Scheduler:
         if plan.is_done(run):
             run.complete(self._final_output(plan, run))
         else:
-            pending = [k for k, s in run.node_states.items()
-                       if s.status == NodeStatus.PENDING
-                       and not (k in plan.nodes and plan.nodes[k].template)]
+            pending = [
+                k
+                for k, s in run.node_states.items()
+                if s.status == NodeStatus.PENDING
+                and not (k in plan.nodes and plan.nodes[k].template)
+            ]
             run.fail(f"图停滞：没有就绪节点但仍有未完成节点 {pending}（多半是边没连对）")
 
     def _final_output(self, plan: Any, run: Run) -> Any:

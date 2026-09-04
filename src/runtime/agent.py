@@ -55,7 +55,7 @@ class AgentResult:
     run: Any = None
 
     @classmethod
-    def _from(cls, run: Any) -> "AgentResult":
+    def _from(cls, run: Any) -> AgentResult:
         return cls(
             output=run.final_output,
             messages=list(run.shared.get("messages", [])),
@@ -85,11 +85,13 @@ class _AgentHandoff:
     async def __call__(self, cmd: Any, run: Any, scheduler: Any) -> None:
         target = self._resolve(cmd.agent)
         if target is None:
-            raise RuntimeError(f"未知的交接目标：{cmd.agent}（hand_off 传对象会用即绑定；"
-                               "传名字需先用 wf.handoff_to 登记）")
+            raise RuntimeError(
+                f"未知的交接目标：{cmd.agent}（hand_off 传对象会用即绑定；"
+                "传名字需先用 wf.handoff_to 登记）"
+            )
         self.chain.append({"from_run": run.run_id, "to": cmd.agent, "task": cmd.task})
-        output = await target._run_standalone(cmd.task)     # 接力者用自己的模型
-        run.complete(output)                               # 不回退给上一个 Agent
+        output = await target._run_standalone(cmd.task)  # 接力者用自己的模型
+        run.complete(output)  # 不回退给上一个 Agent
 
 
 class Agent:
@@ -101,7 +103,7 @@ class Agent:
         instruction: str = "",
         description: str = "",
         tools: list | None = None,
-        teammates: list["Agent"] | None = None,
+        teammates: list[Agent] | None = None,
         context: Any = None,
         memory: Any = None,
         registry: ToolRegistry | None = None,
@@ -122,29 +124,41 @@ class Agent:
         self.eventlog = eventlog or InMemoryEventLog()
 
         # 可传入已建好的注册表（例如已挂 MCP 工具）；否则自建一个。
-        self._registry = registry or ToolRegistry(bus=self.bus, write_needs_approval=write_needs_approval)
+        self._registry = registry or ToolRegistry(
+            bus=self.bus, write_needs_approval=write_needs_approval
+        )
         for tool in tools or []:
-            self._registry.add(tool) if isinstance(tool, ToolSpec) else self._registry.function(tool)
+            self._registry.add(tool) if isinstance(tool, ToolSpec) else self._registry.function(
+                tool
+            )
 
         # call：每个队友就是一个“委派工具”，调用时用队友自己的运行时跑，结果交回。
         # 至于“交出去不回头”的 transfer/handoff，属于图编排，用 Workflow.hand_off 表达。
         self.teammates = list(teammates or [])
         for mate in self.teammates:
-            self._registry.add(ToolSpec(
-                name=mate.name, description=mate.description,
-                func=self._make_delegate(mate), parameters=_TASK_PARAM, side_effect="read"))
+            self._registry.add(
+                ToolSpec(
+                    name=mate.name,
+                    description=mate.description,
+                    func=self._make_delegate(mate),
+                    parameters=_TASK_PARAM,
+                    side_effect="read",
+                )
+            )
 
         self._plan = build_react_plan(
-            self._registry, system=instruction, context=context, memory=memory)
+            self._registry, system=instruction, context=context, memory=memory
+        )
 
     @staticmethod
-    def _make_delegate(mate: "Agent"):
+    def _make_delegate(mate: Agent):
         async def delegate(task: str, ctx: Any = None):
             return await mate._run_standalone(task)
+
         return delegate
 
     # —— 对内：作为子图/队友/节点时，交出自己编译好的 Plan 与自包含任务 ——
-    def add_tool(self, fn: Any, *, side_effect: str = "read", **kw) -> "Agent":
+    def add_tool(self, fn: Any, *, side_effect: str = "read", **kw) -> Agent:
         """运行前再补一个工具；side_effect="write" 时执行前会过审批门。"""
         if isinstance(fn, ToolSpec):
             self._registry.add(fn)
@@ -158,14 +172,20 @@ class Agent:
 
     def as_task(self):
         """给 Workflow 当节点用：返回一个“跑这个 Agent”的函数体。"""
+
         async def _task(input: Any, ctx: Any = None):
             return await self._run_standalone(str(input or ""))
+
         return _task
 
     def _scheduler(self) -> Scheduler:
         return Scheduler(
-            llm=self.model, tools=self._registry, bus=self.bus,
-            store=self.store, eventlog=self.eventlog)
+            llm=self.model,
+            tools=self._registry,
+            bus=self.bus,
+            store=self.store,
+            eventlog=self.eventlog,
+        )
 
     async def _execute(self, task: str, history: list | None = None) -> Any:
         scheduler = self._scheduler()

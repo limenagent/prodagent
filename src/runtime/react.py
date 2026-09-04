@@ -33,34 +33,42 @@ def _last_user_text(messages: list[dict]) -> str:
     return ""
 
 
-def build_react_plan(tools: Any, *, system: str = "", context: Any = None,
-                     memory: Any = None) -> Plan:
+def build_react_plan(
+    tools: Any, *, system: str = "", context: Any = None, memory: Any = None
+) -> Plan:
     """tools 是满足 ToolPort 的工具注册表（见 runtime.tools.ToolRegistry）。"""
 
     async def think(_input, ctx):
         messages = list(ctx.shared["messages"])
-        if context is not None:                       # 策略：上下文窗口管理/压缩
+        if context is not None:  # 策略：上下文窗口管理/压缩
             messages = await context.assemble(messages)
         sys_text = system
-        if memory is not None:                        # 策略：长期记忆检索后注入
+        if memory is not None:  # 策略：长期记忆检索后注入
             recalled = await memory.recall(_last_user_text(messages))
             if recalled:
                 sys_text = (system + "\n\n" if system else "") + "相关记忆：\n" + recalled
 
-        async def _delta(piece, kind="content"):      # 模型吐字：实时投到总线（不入事件日志）
+        async def _delta(piece, kind="content"):  # 模型吐字：实时投到总线（不入事件日志）
             await ctx.emit("llm_delta", text=piece, kind=kind)
 
-        reply = await ctx.llm_chat(messages, tools=tools.schemas(),
-                                   system=sys_text or None, on_delta=_delta)
+        reply = await ctx.llm_chat(
+            messages, tools=tools.schemas(), system=sys_text or None, on_delta=_delta
+        )
         if reply.tool_calls:
             # 要调工具：用 Goto 显式让 tools 重新就绪（多轮调用时它会被反复重入）。
             return Outcome(
-                state_delta={"messages": [{"role": "assistant", "tool_calls": reply.tool_calls}],
-                             "pending": list(reply.tool_calls)},
-                control=Goto("tools"))
-        return Outcome(state_delta={
-            "messages": [{"role": "assistant", "text": reply.text}],
-            "answer": reply.text})
+                state_delta={
+                    "messages": [{"role": "assistant", "tool_calls": reply.tool_calls}],
+                    "pending": list(reply.tool_calls),
+                },
+                control=Goto("tools"),
+            )
+        return Outcome(
+            state_delta={
+                "messages": [{"role": "assistant", "text": reply.text}],
+                "answer": reply.text,
+            }
+        )
 
     async def run_tools(_input, ctx):
         outputs = []
@@ -72,9 +80,11 @@ def build_react_plan(tools: Any, *, system: str = "", context: Any = None,
         return Outcome.goto("think", messages=outputs, pending=[])
 
     plan = Plan(channels={"messages": append(), "pending": last(None), "answer": last(None)})
-    plan.add(Node("think", FnBody(think)),
-             Node("tools", FnBody(run_tools)),
-             Node("final", FnBody(lambda x, ctx: Outcome.ok(ctx.shared["answer"])), terminal=True))
+    plan.add(
+        Node("think", FnBody(think)),
+        Node("tools", FnBody(run_tools)),
+        Node("final", FnBody(lambda x, ctx: Outcome.ok(ctx.shared["answer"])), terminal=True),
+    )
     # think⇄tools 构成环：
     # - think→tools 是条件边（pending 非空才走），保证“直接出答案”时不会误激活工具；
     # - 多轮调用时 tools 已完成，靠 think 返回的 Goto("tools") 把它重新置为就绪；
@@ -93,6 +103,9 @@ def start_react_run(plan: Plan, task: str, history: list | None = None) -> Run:
     不传就是全新对话——会话状态由调用方持有，Agent 自身保持无状态。
     """
     run = Run.start(plan, task=task)
-    run.shared["messages"] = (list(history) + [{"role": "user", "content": task}]) \
-        if history else [{"role": "user", "content": task}]
+    run.shared["messages"] = (
+        [*history, {"role": "user", "content": task}]
+        if history
+        else [{"role": "user", "content": task}]
+    )
     return run

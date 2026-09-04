@@ -13,11 +13,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from itertools import pairwise
 from typing import Any
 
 from src.kernel import (
     Node,
-    Outcome,
     Plan,
     Run,
     SubPlanBody,
@@ -45,42 +45,52 @@ def build_pipeline(stages: list[tuple[str, Any]]) -> Plan:
         is_last = i == len(stages) - 1
         plan.add(Node(name, _as_body(spec), terminal=is_last))
         names.append(name)
-    for a, b in zip(names, names[1:]):
+    for a, b in pairwise(names):
         plan.edge(a, b)
     plan.entry = (names[0],)
     return plan
 
 
 # —— 主管-工人：子 Agent 即工具（call 语义）——
-def register_agent_tool(registry: ToolRegistry, name: str, child_plan: Plan,
-                        description: str) -> None:
+def register_agent_tool(
+    registry: ToolRegistry, name: str, child_plan: Plan, description: str
+) -> None:
     """把一个子 Agent 注册成主管可调用的“委派工具”。"""
 
     async def delegate(task: str, ctx: Any):
-        result = await ctx.spawn(child_plan, task)     # 递归起子 Run，call 语义要返回
+        result = await ctx.spawn(child_plan, task)  # 递归起子 Run，call 语义要返回
         return result["output"]
 
-    registry.add(ToolSpec(
-        name=name,
-        description=description,
-        func=delegate,
-        parameters={"type": "object",
-                    "properties": {"task": {"type": "string", "description": "交给该子 Agent 的任务"}},
-                    "required": ["task"]},
-        side_effect="read",
-    ))
+    registry.add(
+        ToolSpec(
+            name=name,
+            description=description,
+            func=delegate,
+            parameters={
+                "type": "object",
+                "properties": {"task": {"type": "string", "description": "交给该子 Agent 的任务"}},
+                "required": ["task"],
+            },
+            side_effect="read",
+        )
+    )
 
 
-def build_supervisor(workers: dict[str, tuple[Plan, str]], *, system: str = "",
-                     context: Any = None, memory: Any = None,
-                     registry: ToolRegistry | None = None) -> Plan:
+def build_supervisor(
+    workers: dict[str, tuple[Plan, str]],
+    *,
+    system: str = "",
+    context: Any = None,
+    memory: Any = None,
+    registry: ToolRegistry | None = None,
+) -> Plan:
     """workers: {工具名: (子 Plan, 给主管看的能力说明)}。主管就是一个 ReAct。"""
     registry = registry or ToolRegistry()
     for name, (child_plan, desc) in workers.items():
         register_agent_tool(registry, name, child_plan, desc)
     return build_react_plan(
-        registry, system=system or DEFAULT_SUPERVISOR_SYSTEM,
-        context=context, memory=memory)
+        registry, system=system or DEFAULT_SUPERVISOR_SYSTEM, context=context, memory=memory
+    )
 
 
 async def run_supervisor(plan: Plan, task: str, scheduler: Any) -> Run:

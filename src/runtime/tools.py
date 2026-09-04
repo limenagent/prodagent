@@ -12,13 +12,20 @@ schema，以及背后真正执行的函数。无论它来自本地 Python 函数
 from __future__ import annotations
 
 import inspect
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from src.kernel import ToolCall, ToolResult
 
-_PY_TO_JSON = {str: "string", int: "integer", float: "number",
-               bool: "boolean", list: "array", dict: "object"}
+_PY_TO_JSON = {
+    str: "string",
+    int: "integer",
+    float: "number",
+    bool: "boolean",
+    list: "array",
+    dict: "object",
+}
 
 
 def infer_schema(fn: Callable) -> dict:
@@ -55,14 +62,20 @@ class ToolRegistry:
         self.write_needs_approval = write_needs_approval
 
     # —— 注册 ——
-    def add(self, spec: ToolSpec) -> "ToolRegistry":
+    def add(self, spec: ToolSpec) -> ToolRegistry:
         if spec.name in self._tools:
             raise ValueError(f"工具重名：{spec.name}")
         self._tools[spec.name] = spec
         return self
 
-    def function(self, fn: Callable, *, name: str | None = None,
-                 description: str = "", side_effect: str = "read") -> "ToolRegistry":
+    def function(
+        self,
+        fn: Callable,
+        *,
+        name: str | None = None,
+        description: str = "",
+        side_effect: str = "read",
+    ) -> ToolRegistry:
         """把一个普通 Python 函数注册成工具，schema 自动从签名推断。"""
         doc = (inspect.getdoc(fn) or "").strip()
         desc = description or (doc.splitlines()[0] if doc else "")
@@ -84,8 +97,14 @@ class ToolRegistry:
     def schemas(self) -> list[dict]:
         """给模型看的 function-calling 工具清单。"""
         return [
-            {"type": "function",
-             "function": {"name": s.name, "description": s.description, "parameters": s.parameters}}
+            {
+                "type": "function",
+                "function": {
+                    "name": s.name,
+                    "description": s.description,
+                    "parameters": s.parameters,
+                },
+            }
             for s in self._tools.values()
         ]
 

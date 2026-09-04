@@ -1,7 +1,7 @@
 """用内核原语拼出 ReAct：内核没有任何模式枚举，think⇄tools 只是图。"""
 
-from src.kernel import Run, RunState, Scheduler
 from examples.react_demo import FakeLlm, FakeTools, build_react_plan
+from src.kernel import Run, RunState, Scheduler
 
 
 async def test_react_is_assembled_from_primitives():

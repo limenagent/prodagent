@@ -13,12 +13,12 @@
 import asyncio
 
 from src.kernel import (
+    FnBody,
     Goto,
     LlmReply,
     Node,
     Outcome,
     Plan,
-    FnBody,
     Scheduler,
     ToolCall,
     ToolResult,

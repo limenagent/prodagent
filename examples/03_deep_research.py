@@ -11,8 +11,8 @@ import asyncio
 
 from src import Agent
 from src.kernel import LlmReply, ToolCall
+from src.runtime.context import CompressionLevel, TieredCompactionContext
 from src.runtime.llm import ScriptedLlm, env_llm
-from src.runtime.context import TieredCompactionContext, CompressionLevel
 
 
 class ConstSummarizer:
