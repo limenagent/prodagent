@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from prodagent import RunState
 from prodagent.base.errors import ClassifiedError, ErrorReason
+from prodagent.kernel.interrupt import Interrupt, InterruptKind
 from prodagent.kernel.run import Run
 from prodagent.kernel.types import ToolCall
 
@@ -23,7 +24,12 @@ def _rich_run() -> Run:
     run.retry_counter = {"refund": 2}
     run.fingerprints = ["fp1", "fp2", "fp3"]
     run.idempotency_seq = 7
-    run.pending_tool_call = ToolCall(name="refund", params={"order": 42}, call_id="c1")
+    run.interrupt = Interrupt(
+        InterruptKind.APPROVE,
+        "req-77",
+        {"call": ToolCall(name="refund", params={"order": 42}, call_id="c1").to_dict()},
+        "node:refund",
+    )
     run.last_error = "403 Forbidden"
     run.error = ClassifiedError(reason=ErrorReason.AUTH_FORBIDDEN, retryable=False, status_code=403)
     run.set_cursor("plan", {"state": {"nodes": {}, "version": 3}, "last_seq": 7})
@@ -55,12 +61,17 @@ def test_full_round_trip_preserves_every_field():
     assert restored.cursor("plan") == {"state": {"nodes": {}, "version": 3}, "last_seq": 7}
 
 
-def test_pending_tool_call_survives():
+def test_interrupt_park_survives_with_staged_call():
     restored = Run.from_dict(_rich_run().to_dict())
-    assert restored.pending_tool_call is not None
-    assert restored.pending_tool_call.name == "refund"
-    assert restored.pending_tool_call.params == {"order": 42}
-    assert restored.pending_tool_call.call_id == "c1"
+    iv = restored.interrupt
+    assert iv is not None and iv.kind is InterruptKind.APPROVE
+    assert iv.request_id == "req-77"
+    assert iv.node_id == "node:refund"
+    staged = iv.staged_call()
+    assert staged is not None
+    assert staged.name == "refund"
+    assert staged.params == {"order": 42}
+    assert staged.call_id == "c1"
 
 
 def test_tool_history_rehydrates_to_toolcalls():
@@ -75,7 +86,7 @@ def test_clean_run_has_no_crash_scene():
     restored = Run.from_dict(run.to_dict())
     assert restored.last_error is None
     assert restored.error is None
-    assert restored.pending_tool_call is None
+    assert restored.interrupt is None
     assert restored.fingerprints == []
     assert restored.idempotency_seq == 0
 

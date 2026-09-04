@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from prodagent.kernel.budget import HardBudget, SpawnAccumulator
     from prodagent.kernel.bus import Gate, HookEvent, HookRegistry, InjectionPoint
     from prodagent.kernel.graph import Plan
-    from prodagent.kernel.registry import BodyRegistry
     from prodagent.llm import LLMClient
     from prodagent.mcp.config import MCPServerConfig
     from prodagent.ports import CheckpointStore, EventLog, SessionStore, Tool
@@ -47,9 +46,6 @@ class AgentConfig:
     spill_store: ToolResultSpillStore | None = None
     spawn_accumulator: SpawnAccumulator | None = None
     initial_plan: Plan | None = None
-    registry: BodyRegistry | None = None
-    """Named bodies checkpoints resolve ``unit_ref`` through, and the
-    spawn roster addresses children by — one roster per agent."""
     node_fns: dict[str, Callable[..., Any]] | None = None
     """Plain functions fn nodes invoke, by name — populated when a Workflow
     is bound (its declaration), consumed by the composition root's
@@ -65,3 +61,9 @@ class AgentConfig:
     checkers: list[tuple[Gate, Callable[..., Any]]] = field(default_factory=list)
     event_handlers: list[tuple[HookEvent, Callable[..., Any]]] = field(default_factory=list)
     extensions: list[object] = field(default_factory=list)
+
+
+DEFAULT_TIMEOUT_S = 600.0
+"""A hop's wall-clock clamp — the spawn tool's deadline and a child's
+``activate_child`` ceiling agree on this one number (the tool must outlive
+the child it spawns, so both read the same constant)."""

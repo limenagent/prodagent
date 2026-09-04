@@ -146,3 +146,116 @@ class TestRunUnitRefAndCursor:
         assert cursor.state == {"version": 2, "nodes": {}}
         # the wire shape is the historical dict — old checkpoints load unchanged
         assert run.cursor("plan") == {"state": {"version": 2, "nodes": {}}, "last_seq": 7}
+
+
+class _LoopBodyStandIn:
+    """Duck-typed LoopBody — kernel tests never import the recipes layer,
+    and the binder reads only ``kind`` off the body."""
+
+    kind = "loop"
+    target = "loop"
+
+
+class TestMarkerTail:
+    """The marker stream's one tail — plan events and the loop recipe's
+    round/terminal markers interleave on ``<run_id>``, so the plan cursor
+    and the loop's box must hold ONE number."""
+
+    def test_advance_moves_both_boxes_in_lockstep(self):
+        from prodagent.kernel.run import MARKER_TAIL_CURSOR, Run
+
+        run = Run(run_id="r1", task="t")
+        assert run.marker_tail() == 0
+
+        run.advance_marker_tail(4)
+
+        assert run.marker_tail() == 4
+        assert run.cursor(MARKER_TAIL_CURSOR) == 4
+        assert run.plan_cursor().last_seq == 4, "the plan box moves with it"
+
+    def test_max_reads_through_a_half_advanced_box(self):
+        from prodagent.kernel.run import MARKER_TAIL_CURSOR, Run
+
+        run = Run(run_id="r1", task="t")
+        run.set_cursor(MARKER_TAIL_CURSOR, 3)  # legacy checkpoint: loop box only
+        assert run.marker_tail() == 3
+
+
+class TestRestoreBindsComposedBodies:
+    """Resume of a preset graph whose work node is a loop — the 2026-09-04
+    aiops incident: the binder returned the unit shape's body (None in the
+    graph shape) and ``body_from_wire`` refused kind ``loop``, so the second
+    spawn died in 20ms. The body's home is the process-local blueprint."""
+
+    def _preset(self) -> Plan:
+        from prodagent.kernel.bodies import LLMBody
+
+        plan = Plan(plan_id="blueprint")
+        plan.add_nodes(
+            [
+                Node(node_id="plan", body=LLMBody(prompt="make steps")),
+                Node(
+                    node_id="work", body=_LoopBodyStandIn(), is_terminal=True, depends_on=["plan"]
+                ),
+            ]
+        )
+        return plan
+
+    def _incident_state(self) -> dict:
+        """The wire exactly as the crashed run left it: plan COMPLETED,
+        work PENDING with kind/action ``loop``."""
+        return {
+            "version": 1,
+            "nodes": {
+                "plan": {
+                    "node_id": "plan",
+                    "kind": "llm",
+                    "action": "llm",
+                    "origin": "static",
+                    "prompt": "make steps",
+                    "params": {},
+                    "depends_on": [],
+                    "is_terminal": False,
+                    "status": "completed",
+                    "output_ref": {"result": "steps"},
+                },
+                "work": {
+                    "node_id": "work",
+                    "kind": "loop",
+                    "action": "loop",
+                    "origin": "static",
+                    "params": {"goal": "{{plan.output}}"},
+                    "depends_on": ["plan"],
+                    "is_terminal": True,
+                    "status": "pending",
+                    "output_ref": None,
+                },
+            },
+        }
+
+    def test_binder_takes_the_work_node_body_from_the_preset(self):
+        from prodagent.kernel.scheduler import Scheduler
+
+        preset = self._preset()
+        scheduler = Scheduler(initial_plan=preset)
+
+        body = scheduler._restore_binder({"node_id": "work", "kind": "loop", "action": "loop"})
+
+        assert body is preset.get_node("work").body
+
+    def test_incident_checkpoint_restores_without_the_wire_refusal(self):
+        from prodagent.kernel.scheduler import Scheduler
+
+        preset = self._preset()
+        scheduler = Scheduler(initial_plan=preset)
+
+        plan, states = Plan.from_state(
+            self._incident_state(),
+            plan_id="89515c25933a:1::audit_workflow",
+            body_binder=scheduler._restore_binder,
+        )
+
+        assert plan.get_node("work").body is preset.get_node("work").body
+        assert state_of(states, "plan").status is NodeStatus.COMPLETED
+        assert state_of(states, "work").status is NodeStatus.PENDING
+        assert plan.get_node("work").params == {"goal": "{{plan.output}}"}

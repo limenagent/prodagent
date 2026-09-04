@@ -16,18 +16,10 @@ def test_console_renders_failure_events(capsys) -> None:
         cost_usd=0.01,
     )
     obs.on_event(event_name=HookEvent.CHECKPOINT_FAILED.value, run_id="root", turns=3)
-    obs.on_event(
-        event_name=HookEvent.PEER_HANDOFF.value,
-        from_agent="alpha",
-        to="beta",
-        task="continue",
-        depth=1,
-    )
     obs.on_event(event_name=HookEvent.LOOP_END.value, run_id="root", error="bad turn")
     out = capsys.readouterr().out
     assert "FAILED" in out and "budget exhausted" in out
     assert "save failed" in out
-    assert "alpha → beta" in out
     assert "ended with error" in out
 
 

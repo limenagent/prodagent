@@ -18,7 +18,9 @@ from prodagent.base.errors import SuspendPendingApproval
 from prodagent.kernel.bus import Gate, HookEvent
 from prodagent.kernel.bus import fire as _fire
 from prodagent.kernel.graph import Origin, Plan
+from prodagent.kernel.interrupt import Interrupt, InterruptKind
 from prodagent.kernel.run import Run
+from prodagent.kernel.types import RunState
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -41,9 +43,10 @@ def _prune_unresolved_tool_uses(run: Run) -> None:
     if not msgs:
         return
     last = msgs[-1]
-    if last.get("role") == "assistant" and run.pending_tool_call is not None:
-        msgs.pop()
-    run.pending_tool_call = None
+    if last.get("role") == "assistant" and run.interrupt is not None:
+        if run.interrupt.staged_call() is not None:
+            msgs.pop()
+        run.interrupt = None
 
 
 def _nodes_to_hook_dict(
@@ -79,6 +82,8 @@ class PlanBootstrap:
         dispatcher: Any | None = None,
         check_budget: Callable[[Run], None],
         checkpoint_store: CheckpointStore | None = None,
+        restore_binder: Callable[[dict[str, Any]], NodeBody | None] | None = None,
+        track_events: bool = True,
         depth: int = 0,
     ) -> None:
         self._log = log
@@ -91,6 +96,8 @@ class PlanBootstrap:
         self._dispatcher = dispatcher
         self._check_budget = check_budget
         self._checkpoint_store = checkpoint_store
+        self._restore_binder = restore_binder
+        self._track_events = track_events
         self._depth = depth
 
     async def prepare(
@@ -99,37 +106,41 @@ class PlanBootstrap:
         """Resolve the initial (run, plan) pair — new or resumed, caller never
         cares which.
 
-        Sources in priority order: a single unit wrapped as a one-node graph
-        (the agent-as-unit shape, with its own resume path), a resumable
-        event-log state (crash recovery), a preset Workflow plan, and the
-        injected planner. Keeping the choice here means the executor starts
-        every run the same way: with a (run, plan) pair in hand."""
+        Two branches, by construction source, never by resume mechanism: a
+        fresh run gets its plan from its shape (a body wraps as a one-node
+        graph; a preset Workflow plan derives; no source at all is a
+        composition bug), and EVERY resume goes through the one restore
+        throat — :meth:`_restore` — no matter which shape grew the plan.
+        That symmetry is the point: a plan grown past its root (a handoff's
+        peer node) must come back whole, never rebuilt root-only."""
         rid = run_id or new_uuid4()
+        # The scheduler always wires a PlanEventLog (one tracking pair for
+        # every shape) — prepare and the restore throat rely on it.
+        assert self._log is not None
 
         if self._initial_body is not None:
             run = await self._resolve_body_run(task, rid, parent_run_id=parent_run_id)
+            # A chat turn never resumes (the seeding decided this turn's
+            # content); every other body-shape run restores through the
+            # shared throat like a graph run. The prune reads the STORED
+            # state — resume() has already flipped the live run to RUNNING,
+            # so only a checkpoint that was NOT parked may drop its
+            # dangling tool round; a parked run's interrupt is the retry
+            # contract and must survive restore untouched.
+            if self._initial_messages is None and await self._log.has_resumable_state(rid):
+                stored = await self._checkpoint_store.load(rid) if self._checkpoint_store else None
+                was_suspended = stored is not None and stored.state is RunState.SUSPENDED
+                restored = await self._restore(rid, task, run)
+                if not was_suspended:
+                    _prune_unresolved_tool_uses(run)
+                return run, restored
             return run, single_body_plan(self._initial_body, plan_id=rid)
 
         run = Run(run_id=rid, task=task, parent_run_id=parent_run_id, depth=self._depth)
-        assert self._log is not None  # graph tracking always wires a PlanEventLog
         run.messages = list(self._initial_messages or [{"role": "user", "content": ""}])
 
         if await self._log.has_resumable_state(rid):
-            state = await self._log.restore_plan(run)
-            plan_a, node_states = Plan.from_state(state, plan_id=rid)
-            plan_a.task_input = task
-            run.node_states = node_states
-            if run.pending_approval_id is not None:
-                if self._dispatcher is not None:
-                    self._dispatcher.set_pending_approval_id(run.pending_approval_id)
-                run.requeue_suspended_nodes()
-            logger.info(
-                "[Plan] resuming run=%s — %d node(s), v%d",
-                rid,
-                len(plan_a.nodes),
-                plan_a.version,
-            )
-            return run, plan_a
+            return run, await self._restore(rid, task, run)
 
         await self._log.rebaseline_checkpoint(run)
 
@@ -160,9 +171,8 @@ class PlanBootstrap:
         # graph is code). A graph arrives as a preset plan; everything else
         # runs as a single body.
         raise ValueError(
-            "no plan source: preset a Plan (Agent(workflow=...), "
-            "compile_planned(...)) or run a body (initial_body) — "
-            "the framework no longer drafts graphs from tasks"
+            "no plan source: preset a Plan (AgentConfig(initial_plan=Plan(nodes=[...]))) "
+            "or run a body (initial_body) — the framework does not draft graphs"
         )
 
     async def gate(self, plan: Plan, run: Run) -> Plan | None:
@@ -187,8 +197,14 @@ class PlanBootstrap:
                 pending_approval_id=run.pending_approval_id,
             )
         except SuspendPendingApproval as exc:
-            run.suspend(f"plan suspended pending approval: {exc}")
-            run.pending_approval_id = exc.request_id
+            run.park(
+                Interrupt(
+                    kind=InterruptKind.APPROVE,
+                    request_id=exc.request_id,
+                    node_id="plan",
+                    payload={"reason": f"plan suspended pending approval: {exc}"},
+                )
+            )
             await self._log.save_snapshot(run, plan=plan)
             logger.info(
                 "[Plan] plan=%s SUSPENDED for HITL review (request_id=%s)",
@@ -197,17 +213,42 @@ class PlanBootstrap:
             )
             return None
         if veto.blocked:
-            await self._log.record_command_denied(
-                plan,
-                run,
-                command="plan_approval",
-                reason=veto.reason or "plan rejected by HITL reviewer",
-            )
+            if self._track_events:
+                await self._log.record_command_denied(
+                    plan,
+                    run,
+                    command="plan_approval",
+                    reason=veto.reason or "plan rejected by HITL reviewer",
+                )
             run.fail(veto.reason or "plan rejected by HITL reviewer")
-            run.pending_approval_id = None
+            run.interrupt = None
             logger.info("[Plan] plan=%s REJECTED by HITL — run fails", plan.plan_id)
             return None
-        run.pending_approval_id = None
+        run.interrupt = None
+        return plan
+
+    async def _restore(self, rid: str, task: str, run: Run) -> Plan:
+        """The ONE resume throat — restore has no shape branch.
+
+        Folds the plan back from its log, re-declares composed bodies by
+        name through the binder (a peer node comes back as the peer; the
+        root, COMPLETED, is never re-executed), and wires the approval gate
+        to the request the run parked on. A parked node is mid-flight state:
+        the RUNNING→PENDING reset in ``Plan.from_state`` redoes it, and the
+        loop retries the interrupt's staged call verbatim."""
+        assert self._log is not None  # the scheduler always wires the pair
+        state = await self._log.restore_plan(run)
+        plan, node_states = Plan.from_state(state, plan_id=rid, body_binder=self._restore_binder)
+        plan.task_input = task
+        run.node_states = node_states
+        if run.pending_approval_id is not None and self._dispatcher is not None:
+            self._dispatcher.set_pending_approval_id(run.pending_approval_id)
+        logger.info(
+            "[Plan] resuming run=%s — %d node(s), v%d",
+            rid,
+            len(plan.nodes),
+            plan.version,
+        )
         return plan
 
     async def _resolve_body_run(
@@ -217,11 +258,13 @@ class PlanBootstrap:
         *,
         parent_run_id: str | None = None,
     ) -> Run:
-        """Where a single-unit run comes from: seeded messages (a chat turn)
-        → checkpoint resume (dangling tool rounds pruned, crash scene
-        cleared) → fresh. Order matters — a chat turn never accidentally
-        resumes a checkpoint."""
-        from prodagent.kernel.types import Message, RunState
+        """Which RUN a single-unit drive continues: seeded messages (a chat
+        turn — it never resumes a checkpoint) → the stored checkpoint
+        (resume() clears the suspension; the PLAN it resumes onto is the
+        shared throat's decision, not this method's) → fresh. Dangling tool
+        rounds are pruned by the caller AFTER restore, so the pruning can't
+        be undone by the restore's field copies."""
+        from prodagent.kernel.types import Message
 
         if self._initial_messages is not None:
             run = Run(run_id=run_id, task=task, parent_run_id=parent_run_id, depth=self._depth)
@@ -232,8 +275,6 @@ class PlanBootstrap:
         if self._checkpoint_store is not None and run_id:
             existing = await self._checkpoint_store.load(run_id)
             if existing is not None:
-                if existing.state is not RunState.SUSPENDED:
-                    _prune_unresolved_tool_uses(existing)
                 existing.resume()
                 logger.info(
                     "[Scheduler] resuming from checkpoint: %d messages, turn=%d",

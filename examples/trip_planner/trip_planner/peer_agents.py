@@ -1,10 +1,10 @@
-"""Trip Planner 子 Agent —— 3 个 peer 各管一摊。
+"""Trip Planner 子 Agent —— 3 个专家各管一摊。
 
-  - itinerary_peer: 排 7 天行程(住哪 + 每天去哪 + 天气适应)
-  - restaurant_peer: 订餐厅(按用户偏好 cuisine)
-  - transport_peer: 订交通(航班 + 城际火车)
+  - itinerary: 排 7 天行程(住哪 + 每天去哪 + 天气适应)
+  - restaurant: 订餐厅(按用户偏好 cuisine)
+  - transport: 订交通(航班 + 城际火车)
 
-三个都是 ReAct —— 由父 workflow 在 s2/s3/s4 并行 spawn。
+三个都是 ReAct —— 由主 agent 在第一个 turn 并行 spawn_agent 委派。
 """
 
 from __future__ import annotations

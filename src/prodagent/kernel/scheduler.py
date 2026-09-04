@@ -10,9 +10,9 @@ implemented once and shared by every shape.
 
 Wave discipline: readonly bodies run concurrently (bounded), write bodies
 one at a time — two HIGH side-effect calls must never race just because
-the DAG unblocked them together. A suspension or handoff stops the wave:
-the run is already waiting on a human or a peer, firing more side effects
-would be wrong. Failures don't stop the wave — a failed write lets its siblings run —
+the DAG unblocked them together. A suspension stops the wave: the run is
+already waiting on a human, firing more side effects would be wrong.
+Failures don't stop the wave — a failed write lets its siblings run —
 but the run ends failed once the wave classifies.
 
 Run-death exceptions (budget exhausted, dead-loop detection) are not node
@@ -35,17 +35,17 @@ from prodagent.base.errors import BudgetExceeded, InfiniteLoopDetected, Stalled
 from prodagent.base.event_log import RunEventType
 from prodagent.base.run_context import run_scope
 from prodagent.base.time_recorder import RecordingTimePort
+from prodagent.kernel.bare import BareCheckpointStore, BareEventLog
 from prodagent.kernel.bootstrap import PlanBootstrap
 from prodagent.kernel.budget import check_spawn_budget
 from prodagent.kernel.bus import HookEvent, save_and_fire_checkpoint
 from prodagent.kernel.bus import fire as _fire
 from prodagent.kernel.channels import AmbiguousWrite, WaveWrites, apply_channel_inits
-from prodagent.kernel.command import REDUCERS, WAIT, Command, Goto, Send, Update
+from prodagent.kernel.command import REDUCERS, WAIT, Command, Goto, Handoff, Send, Update
 from prodagent.kernel.event_log import PlanEventLog
 from prodagent.kernel.finalize import finalize_run, terminal_event
 from prodagent.kernel.node_runner import (
     NodeFailed,
-    NodeHandoff,
     NodeOutcome,
     NodeRunner,
     NodeSuccess,
@@ -81,101 +81,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_MAX_ITERS_PER_NODE = 3  # legacy formula kept for reference; waves cap is max_waves
-_MAX_ITERS_SLOP = 5
 _MAX_NO_PROGRESS_WAVES = 4
 """The no-progress threshold: this many executed waves with zero
 shared-state change is a cycle whose body never writes what its exit
 condition reads."""
 
+_MAX_PLAN_NODES = 1024
+"""The ceiling on a runtime-grown plan (Send instances, Handoff peers).
+The STATIC size budget lives in graph_validator (checked at compile);
+growth gets a wider but finite ceiling, checked at every instantiation —
+a fan-out or a hand-off loop beyond this is a blueprint bug wearing a
+work costume, stopped loudly instead of spinning to the wave cap."""
+
 __all__ = ["Scheduler"]
-
-
-class _BareEventLog:
-    """The kernel's own in-process event log — the graph executor's bare-profile
-    default (state dies with the process; durability arrives by injecting
-    a real backend). Same contract as the durable in-memory pair:
-    per-stream monotonic seq, optimistic tail check, BASE capabilities
-    only (``subscribe`` replays what exists and stops — nothing wakes on
-    append in the bare profile)."""
-
-    def __init__(self) -> None:
-        self._streams: dict[str, list[Any]] = {}
-
-    async def append(self, event: Any, expected_seq: int | None = None) -> int:
-        return (await self.append_events([event], expected_seq))[0]
-
-    async def append_events(self, events: list[Any], expected_seq: int | None = None) -> list[int]:
-        return await self._append_batch(list(events), expected_seq)
-
-    async def _append_batch(self, events: list[Any], expected_seq: int | None) -> list[int]:
-        if not events:
-            return []
-        stream_id = events[0].stream_id
-        stream = self._streams.setdefault(stream_id, [])
-        if expected_seq is not None and len(stream) != expected_seq:
-            from prodagent.base.errors import VersionConflict
-
-            raise VersionConflict(
-                f"expected tail seq {expected_seq} for stream {stream_id}, "
-                f"found {len(stream)} — concurrent writer won"
-            )
-        # Seq convention: the tail check counts events (0 = empty), and an
-        # appended event's seq is its 1-based position — tail and count agree.
-        seqs = []
-        for event in events:
-            stream.append(event)
-            with contextlib.suppress(AttributeError):  # frozen event: seq kept by position
-                event.seq = len(stream)
-            seqs.append(len(stream))
-        return seqs
-
-    async def get_events(self, stream_id: str) -> list[Any]:
-        return list(self._streams.get(stream_id, ()))
-
-    async def get_after(self, stream_id: str, *, since_seq: int) -> list[Any]:
-        out = []
-        for i, e in enumerate(self._streams.get(stream_id, ())):
-            seq = getattr(e, "seq", i + 1)
-            if seq > since_seq:
-                out.append(e)
-        return out
-
-    async def subscribe(self, stream_id: str) -> Any:
-        for event in list(self._streams.get(stream_id, ())):
-            yield event
-
-
-class _BareCheckpointStore:
-    """The kernel's own in-process checkpoint store — bare-profile default.
-    One snapshot per run (latest wins), optimistic version check preserved:
-    the discipline is the same, only the durability is missing."""
-
-    def __init__(self) -> None:
-        self._runs: dict[str, Any] = {}
-        self._versions: dict[str, int] = {}
-
-    async def save(self, run: Any, expected_version: int | None = None) -> None:
-        from prodagent.base.errors import VersionConflict
-
-        stored = self._versions.get(run.run_id, 0)
-        if expected_version is not None and stored != expected_version:
-            raise VersionConflict(
-                f"checkpoint version mismatch for run={run.run_id}: "
-                f"expected {expected_version}, stored {stored}"
-            )
-        self._runs[run.run_id] = run
-        self._versions[run.run_id] = stored + 1
-        run.checkpoint_version = stored + 1
-
-    async def load(self, run_id: str, version: int | None = None) -> Any | None:
-        run = self._runs.get(run_id)
-        if run is not None and version is not None and self._versions.get(run_id) != version:
-            return None  # bare keeps only the latest — an old version is absent
-        return run
-
-    async def list_run_ids(self) -> list[str]:
-        return list(self._runs)
 
 
 @dataclass(slots=True)
@@ -183,7 +101,6 @@ class _BatchResult:
     successes: list[NodeSuccess] = field(default_factory=list)
     failures: list[NodeFailed] = field(default_factory=list)
     suspended: NodeSuspended | None = None
-    handoff: NodeHandoff | None = None
 
 
 class Scheduler:
@@ -213,6 +130,7 @@ class Scheduler:
         wave_timeout: float | None = None,
         wiring: Mapping[str, Any] | None = None,
         terminal_marker: Callable[[Run, Any], Any] | None = None,
+        resolve_peer: Callable[[str], NodeBody] | None = None,
     ) -> None:
         self._system = system
         self._budget = budget
@@ -223,26 +141,34 @@ class Scheduler:
         self._wave_timeout = wave_timeout
         self._single_unit = initial_body
         self._instance_seq = 0
+        self._resolve_peer = resolve_peer
+        self._initial_plan = initial_plan
+        """The preset blueprint this scheduler was built with — process-local
+        by construction, which is exactly what makes it the restore path's
+        body source for the plan's own composed nodes (see _restore_binder)."""
+        # Event density: the agent-as-unit shape does NOT publish node events
+        # to the tape — its plan truth is the park/settle snapshot riding the
+        # checkpoint, and publishing would fight the loop's marker chain for
+        # the same stream tail. Graph plans track every event as before.
+        # Resume stays shape-blind either way: _restore folds whatever the
+        # log has onto the cursor snapshot.
+        self._plan_events = initial_body is None
 
-        log: PlanEventLog | None = None
-        if initial_body is None:
-            # Graph tracking: a preset, drafted, or resumed plan always tracks
-            # DAG state in these two stores — bare profile still needs a
-            # working pair. The kernel implements its own in-process pair (the
-            # same port-implementation precedent as the BudgetLedger): durable
-            # backends arrive by injection.
-            # The bare pair structurally satisfies each port; the cast keeps
-            # the protocol check at the boundary instead of on every member.
-            resolved_log = cast("EventLog", event_log if event_log is not None else _BareEventLog())
-            resolved_store = cast(
-                "CheckpointStore",
-                checkpoint_store if checkpoint_store is not None else _BareCheckpointStore(),
-            )
-            log = PlanEventLog(event_log=resolved_log, checkpoint_store=resolved_store, hooks=hooks)
-        self._event_log: EventLog | None = resolved_log if log is not None else event_log
-        self._checkpoint_store: CheckpointStore | None = (
-            resolved_store if log is not None else checkpoint_store
+        # One tracking pair for EVERY shape — the agent-as-unit graph tracks
+        # plan state like any other, because resume has ONE throat: a plan
+        # grown by a handoff's peer node must be restorable no matter which
+        # shape grew it. Durability stays opt-in at the STORE level: bare
+        # in-process impls are the fallback when nothing is injected (the
+        # same port-implementation precedent as the BudgetLedger; the cast
+        # keeps the protocol check at the boundary).
+        resolved_log = cast("EventLog", event_log if event_log is not None else BareEventLog())
+        resolved_store = cast(
+            "CheckpointStore",
+            checkpoint_store if checkpoint_store is not None else BareCheckpointStore(),
         )
+        log = PlanEventLog(event_log=resolved_log, checkpoint_store=resolved_store, hooks=hooks)
+        self._event_log: EventLog | None = resolved_log
+        self._checkpoint_store: CheckpointStore | None = resolved_store
         self._log = log
         # The composition root's per-execution service bag and terminal
         # marker: generic seams the kernel carries without reading. The
@@ -270,6 +196,7 @@ class Scheduler:
             subagent=subagent,
             wiring=self._wiring,
             wave_writes=self._wave_writes,
+            track_events=self._plan_events,
         )
         self._bootstrap = PlanBootstrap(
             self._log,
@@ -281,11 +208,39 @@ class Scheduler:
             initial_body=initial_body,
             dispatcher=dispatcher,
             check_budget=self._check_budget,
-            checkpoint_store=checkpoint_store if initial_body is not None else None,
+            checkpoint_store=resolved_store,
+            restore_binder=self._restore_binder,
             depth=depth,
         )
         limit = getattr(getattr(framework_config, "loop", None), "readonly_concurrency", None)
         self._readonly_gate = asyncio.Semaphore(limit) if limit else None
+
+    def _restore_binder(self, nd: dict[str, Any]) -> NodeBody | None:
+        """Re-declare composed bodies at restore: the loop is process-local
+        (never rebuilt from wire), so kind ``loop`` nodes rebind here from
+        one of the three places a loop body legitimately lives (ruling 3:
+        identity rides the wire, the body comes from configuration):
+
+        - the unit shape — this scheduler's own body, for action
+          ``""``/``"loop"``;
+        - the preset blueprint — a static node of ``initial_plan`` re-taken
+          by node_id (the plan-and-work shape: the work node's body exists
+          only in this process's blueprint, and returning None would send
+          ``body_from_wire`` a kind it must refuse);
+        - the peer roster — any other action is a peer NAME resolved
+          through the same resolver the handoff instantiated it from."""
+        if str(nd.get("kind") or "") != "loop":
+            return None
+        action = str(nd.get("action") or "")
+        if self._single_unit is not None and action in ("", "loop"):
+            return self._single_unit
+        if self._initial_plan is not None:
+            preset = self._initial_plan.get_node(str(nd.get("node_id") or ""))
+            if preset is not None and getattr(preset.body, "kind", None) == "loop":
+                return preset.body
+        if self._resolve_peer is None:
+            return None
+        return self._resolve_peer(action)
 
     def _check_budget(self, run: Run) -> None:
         check_spawn_budget(run, self._budget, self._budget_ledger)
@@ -422,6 +377,15 @@ class Scheduler:
             async for event in self._dispatch_wave(ready, plan, run, wave_outcomes):
                 yield event
             outcomes = wave_outcomes[0] if wave_outcomes else []
+            if ready and not outcomes:
+                # A wave whose every ready node went un-dispatched is a
+                # permanent condition — nothing external arrives between
+                # waves, so the next wave would repeat it identically until
+                # the cap. Name the blocker and stall now.
+                raise Stalled(
+                    [n.node_id for n in ready],
+                    reason=f"run state is {run.state.value}, not running",
+                )
             batch = self._classify_outcomes(outcomes)
 
             for event in self._emit_node_events(batch, run):
@@ -445,9 +409,11 @@ class Scheduler:
             # Dynamic fan-out (column 17): Sends grow the plan by instances
             # that join the next wave root-ready.
             await self._apply_sends(commands, plan, run)
+            # Control transfer (peer semantics): a Handoff grows the plan by
+            # the peer's node — the chain continues in-graph, under this
+            # run's own cursor.
+            await self._apply_handoffs(commands, plan, run)
 
-            if batch.handoff is not None:
-                return
             if batch.suspended is not None:
                 return
             # Post-wave budget check — but a run that just reached a terminal
@@ -535,7 +501,7 @@ class Scheduler:
 
         for target, source, via in requeues:
             run.node_state(target).reset_to_pending()
-            if self._log is not None:
+            if self._log is not None and self._plan_events:
                 await self._log.record_node_requeued(plan, run, target, source=source, via=via)
             logger.info("[Plan] node=%s requeued via %s from %s", target, via, source)
 
@@ -568,6 +534,7 @@ class Scheduler:
                 )
             self._instance_seq += 1
             instance_id = f"{command.template}#{self._instance_seq}"
+            self._check_growth(plan, node)
             instance = GraphNode(
                 node_id=instance_id,
                 body=template.body,
@@ -576,7 +543,7 @@ class Scheduler:
             )
             plan.add_nodes([instance])
             run.node_states.setdefault(instance_id, NodeRuntimeState(instance_id))
-            if self._log is not None:
+            if self._log is not None and self._plan_events:
                 await self._log.record_node_instantiated(
                     plan, run, node_wire_dict(instance, run.node_states[instance_id])
                 )
@@ -585,6 +552,71 @@ class Scheduler:
                 instance_id,
                 command.template,
                 node.node_id,
+            )
+
+    async def _apply_handoffs(
+        self,
+        commands: list[tuple[Node, Command]],
+        plan: Plan,
+        run: Run,
+    ) -> None:
+        """Materialize Handoff commands (peer semantics): the named peer
+        joins THIS plan as a fresh terminal node — Send-style instantiation —
+        and is root-ready for the next wave, so the chain continues in-graph
+        under this run's own cursor. The peer resolves by NAME through the
+        composition root's ``resolve_peer`` (names, never live objects); an
+        unknown name is a composition bug, loudly. A hand-off chain longer
+        than the wave cap is the cap's to kill, loudly — there is no
+        separate chain TTL."""
+        from prodagent.kernel.graph import Node as GraphNode
+        from prodagent.kernel.graph import Origin, node_wire_dict
+        from prodagent.kernel.node_state import NodeRuntimeState
+
+        for node, command in commands:
+            if not isinstance(command, Handoff):
+                continue
+            if self._resolve_peer is None:
+                raise ValueError(
+                    f"handoff from {node.node_id!r}: no peer resolver wired — "
+                    "the composition root must provide resolve_peer naming "
+                    "the peers a chain may transfer to"
+                )
+            body = self._resolve_peer(command.peer)
+            if body is None:
+                raise ValueError(
+                    f"handoff from {node.node_id!r}: peer {command.peer!r} is "
+                    "not on this agent's roster (check the spelling, or "
+                    "declare it as a peer)"
+                )
+            self._instance_seq += 1
+            instance_id = f"peer:{command.peer}#{self._instance_seq}"
+            self._check_growth(plan, node)
+            instance = GraphNode(
+                node_id=instance_id,
+                body=body,
+                params={"task": command.task},
+                is_terminal=True,
+                origin=Origin.DYNAMIC,
+            )
+            plan.add_nodes([instance])
+            run.node_states.setdefault(instance_id, NodeRuntimeState(instance_id))
+            if self._log is not None and self._plan_events:
+                await self._log.record_node_instantiated(
+                    plan, run, node_wire_dict(instance, run.node_states[instance_id])
+                )
+            logger.info(
+                "[Plan] instantiated %s from peer %r (handed off by %s)",
+                instance_id,
+                command.peer,
+                node.node_id,
+            )
+
+    def _check_growth(self, plan: Plan, node: Node) -> None:
+        """The dynamic-growth budget: instantiation refuses past the ceiling."""
+        if len(plan.nodes) >= _MAX_PLAN_NODES:
+            raise ValueError(
+                f"plan grew past {_MAX_PLAN_NODES} nodes (node {node.node_id!r} "
+                "instantiated another) — a fan-out or hand-off loop, not work"
             )
 
     async def _dispatch_wave(
@@ -642,7 +674,7 @@ class Scheduler:
                     by_node[node.node_id] = r
 
         for node in writes:
-            if run.state is not RunState.RUNNING or run.pending_handoff is not None:
+            if run.state is not RunState.RUNNING:
                 break
             outcome: list[NodeOutcome] = []
             try:
@@ -709,7 +741,7 @@ class Scheduler:
                     "[Plan] update %s: %s = %r", node.node_id, command.key, run.shared[command.key]
                 )
 
-            if self._log is not None:
+            if self._log is not None and self._plan_events:
                 await self._log.record_command_applied(plan, run, node.node_id, command)
 
         return events
@@ -762,8 +794,8 @@ class Scheduler:
     @staticmethod
     def _classify_outcomes(outcomes: list[NodeOutcome]) -> _BatchResult:
         """Fold a wave into one summary. Successes and failures accumulate;
-        suspend/handoff keep only the first — the wave stops at either, so
-        a second one cannot logically exist."""
+        a suspension keeps only the first — the wave stops at one, so a
+        second cannot logically exist."""
 
         batch = _BatchResult()
         for oc in outcomes:
@@ -774,8 +806,6 @@ class Scheduler:
                     batch.failures.append(oc)
                 case NodeSuspended() if batch.suspended is None:
                     batch.suspended = oc
-                case NodeHandoff() if batch.handoff is None:
-                    batch.handoff = oc
         return batch
 
     @staticmethod
@@ -790,7 +820,7 @@ class Scheduler:
                 result=run.node_state(succ.node.node_id).output_ref,
                 run_id=run.run_id,
             )
-        if batch.handoff is not None or batch.suspended is not None:
+        if batch.suspended is not None:
             return
         for fail in batch.failures:
             yield NodeFailedEvent(

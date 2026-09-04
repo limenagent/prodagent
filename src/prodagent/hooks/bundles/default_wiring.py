@@ -68,12 +68,7 @@ class ApprovalDefaultBundle:
         agent.config.approval = approval_hooks.approval_gate
 
 
-class LearningDefaultBundle:
-    """Closed-loop skill synthesis — needs fw + a SkillRegistry."""
-
-    def attach(self, agent: Agent, fw: FrameworkConfig | None, registry: HookRegistry) -> None:
-        if fw is None or agent.config.skills is None:
-            return
-        from prodagent.hooks.bundles.learning import LearningHooks
-
-        LearningHooks(registry=agent.config.skills, framework_config=fw).attach(registry)
+# No LearningDefaultBundle — by ruling (2026-09-04), skill generation is
+# banned by default: ``skills=`` means the agent LOADS runbooks, and a
+# registry must never gain a synthesizer as a side effect of being configured.
+# The closed learning loop is opt-in: ``extensions=[LearningHooks(...)]``.

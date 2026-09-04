@@ -16,7 +16,7 @@ import asyncio
 from prodagent.kernel.bodies import FnBody
 from prodagent.kernel.channels import merge
 from prodagent.kernel.command import WAIT, Goto, Send, Update
-from prodagent.kernel.graph import Node, Plan, compile_planned
+from prodagent.kernel.graph import Node, Plan
 from prodagent.kernel.scheduler import Scheduler
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -38,8 +38,8 @@ async def _drive(scheduler: Scheduler):
 
 
 def _fanout_plan() -> Plan:
-    return compile_planned(
-        [
+    return Plan(
+        nodes=[
             Node(node_id="fanout", body=FnBody(fn="fanout")),
             Node(node_id="fetch", body=FnBody(fn="fetch"), is_template=True),
             Node(
@@ -101,8 +101,8 @@ async def test_send_instances_are_evented_so_the_fold_rebuilds_them():
 
 
 async def test_send_to_an_unknown_template_is_a_loud_error():
-    plan = compile_planned(
-        [
+    plan = Plan(
+        nodes=[
             Node(node_id="entry", body=FnBody(fn="entry"), is_terminal=True),
         ]
     )
@@ -116,8 +116,8 @@ async def test_send_to_an_unknown_template_is_a_loud_error():
 async def test_sibling_failure_is_data_the_wave_finishes():
     """A readonly sibling's crash is a node failure, not a wave panic: the
     brothers run to completion and the failure classifies normally."""
-    plan = compile_planned(
-        [
+    plan = Plan(
+        nodes=[
             Node(node_id="boom", body=FnBody(fn="boom")),
             Node(node_id="calm", body=FnBody(fn="calm")),
         ]
@@ -142,8 +142,8 @@ async def test_sibling_failure_is_data_the_wave_finishes():
 async def test_wave_timeout_cancels_the_straggler():
     from prodagent.kernel.types import RunFailedEvent
 
-    plan = compile_planned(
-        [
+    plan = Plan(
+        nodes=[
             Node(node_id="slow", body=FnBody(fn="slow"), is_terminal=True),
         ]
     )

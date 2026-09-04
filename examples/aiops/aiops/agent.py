@@ -31,6 +31,11 @@ incident，再安全地修复。
 
 ## 规则
 - 任何修复前，必须先 open_incident
+- 验证修复只有一轮：修复执行后，get_pod_status + check_slo 各调用一次，\
+读数与之前相同或有任何未恢复迹象（Pending/OOMKilled/ready 不足/SLO 仍 \
+BURNING）＝修复未生效，同一个 turn 内 update_incident 记录证据后 \
+page_oncall 并结束。本环境没有「等待」，重复检查读不到新数据；升级要趁 \
+turn 预算还在，不要拖到最后一轮
 
 ## 工作流
 1. 把调查 fan-out 给三个只读专家子 agent —— 在同一个 turn 内发出全部\

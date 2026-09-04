@@ -6,11 +6,13 @@ executing it, the same line Plan/Run itself splits along: one blueprint,
 many executions, each carrying its own state.
 
 Transitions go through one entry per target state (mark_running /
-mark_completed / mark_failed / mark_skipped / suspend / reset_to_pending);
+mark_completed / mark_failed / mark_skipped / reset_to_pending);
 bare field writes are a review comment, not a pattern. The allowed-transition
 table is the whole lifecycle — anything outside it raises, so an illegal
 state is a loud error at the write site, never a silent surprise three
-waves later.
+waves later. There is deliberately no SUSPENDED: waiting for the world is
+the run's fact (:class:`Run.interrupt`), and a parked node stays RUNNING
+until its redo.
 """
 
 from __future__ import annotations
@@ -35,12 +37,10 @@ _ALLOWED: dict[NodeStatus, frozenset[NodeStatus]] = {
         {
             NodeStatus.COMPLETED,
             NodeStatus.FAILED,
-            NodeStatus.SUSPENDED,
             NodeStatus.SKIPPED,
-            NodeStatus.PENDING,  # crash reset: mid-flight state is unknown, redo
+            NodeStatus.PENDING,  # crash/park reset: mid-flight state is unknown, redo
         }
     ),
-    NodeStatus.SUSPENDED: frozenset({NodeStatus.RUNNING, NodeStatus.PENDING, NodeStatus.SKIPPED}),
     NodeStatus.COMPLETED: frozenset({NodeStatus.SKIPPED, NodeStatus.PENDING}),
     # PENDING-from-COMPLETED has exactly one door: the graph asking
     # for a redo. Side effects already fired stay fired — the redo is the
@@ -93,15 +93,11 @@ class NodeRuntimeState:
         nor failed."""
         self._transition(NodeStatus.SKIPPED)
 
-    def suspend(self) -> None:
-        """Paused awaiting the world (HITL decision); resume retries this node."""
-        self._transition(NodeStatus.SUSPENDED)
-
     def reset_to_pending(self) -> None:
-        """Back to never-run — crash recovery (mid-flight state is
-        unknowable), requeue-after-suspension, and a graph-level redo
-        all land here. Attempts and the crash scene clear; a redo starts
-        its own attempt history."""
+        """Back to never-run — crash recovery and a parked run's resume both
+        land here (mid-flight state is unknowable; the redo re-executes the
+        node, and an approval's staged call retries verbatim). Attempts and
+        the crash scene clear; a redo starts its own attempt history."""
         self._transition(NodeStatus.PENDING)
         self.output_ref = None
         self.error = None

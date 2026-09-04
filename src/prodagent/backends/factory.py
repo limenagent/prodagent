@@ -216,9 +216,13 @@ def _resolve(port: str, framework_config: FrameworkConfig | None, *, expect: typ
     """One resolver for every port: read the configured kind, look up its
     spec row, import the class (function-body import — optional deps), build
     with config-sourced args, and structurally verify the result actually
-    satisfies the port before handing it back."""
+    satisfies the port before handing it back. An UNSET kind resolves to
+    ``None`` — a profile that did not ask for a durable backend gets none;
+    an unknown kind is still a loud error."""
     fw = _fw(framework_config)
     kind = getattr(fw.backend, port)
+    if not kind:
+        return None
     spec = _BACKENDS.get(port, {}).get(kind)
     if spec is None:
         raise NotImplementedError(f"{port} backend {kind!r} not implemented yet")
@@ -243,19 +247,46 @@ def _resolve(port: str, framework_config: FrameworkConfig | None, *, expect: typ
     return result
 
 
-def resolve_checkpoint(framework_config: FrameworkConfig | None = None) -> CheckpointStore:
-    """Checkpoint store per ``fw.backend.checkpoint`` (file default)."""
-    return cast("CheckpointStore", _resolve("checkpoint", framework_config, expect=CheckpointStore))
+def resolve_checkpoint(
+    framework_config: FrameworkConfig | None = None,
+    explicit: CheckpointStore | None = None,
+) -> CheckpointStore | None:
+    """Checkpoint store: an explicitly configured one wins; else, in
+    production, per ``fw.backend.checkpoint`` (file default). Bare: ``None``
+    — durability is opt-in via an explicit service, never a silent default."""
+    if explicit is not None:
+        return explicit
+    if _fw(framework_config).profile != "production":
+        return None
+    return cast(
+        "CheckpointStore | None", _resolve("checkpoint", framework_config, expect=CheckpointStore)
+    )
 
 
-def resolve_session_store(framework_config: FrameworkConfig | None = None) -> SessionStore:
-    """Session store per ``fw.backend.session`` (file default)."""
-    return cast("SessionStore", _resolve("session", framework_config, expect=SessionStore))
+def resolve_session_store(
+    framework_config: FrameworkConfig | None = None,
+    explicit: SessionStore | None = None,
+) -> SessionStore | None:
+    """Session store: explicit wins; else, in production, per
+    ``fw.backend.session``. Bare: ``None`` — durability is opt-in."""
+    if explicit is not None:
+        return explicit
+    if _fw(framework_config).profile != "production":
+        return None
+    return cast("SessionStore | None", _resolve("session", framework_config, expect=SessionStore))
 
 
-def resolve_event_log(framework_config: FrameworkConfig | None = None) -> EventLog:
-    """Event log per ``fw.backend.event_log`` (file default)."""
-    return cast("EventLog", _resolve("event_log", framework_config, expect=EventLog))
+def resolve_event_log(
+    framework_config: FrameworkConfig | None = None,
+    explicit: EventLog | None = None,
+) -> EventLog | None:
+    """Event log: explicit wins; else, in production, per
+    ``fw.backend.event_log``. Bare: ``None`` — durability is opt-in."""
+    if explicit is not None:
+        return explicit
+    if _fw(framework_config).profile != "production":
+        return None
+    return cast("EventLog | None", _resolve("event_log", framework_config, expect=EventLog))
 
 
 def resolve_span_exporter(framework_config: FrameworkConfig | None = None) -> SpanExporter:
@@ -312,3 +343,36 @@ def resolve_llm(
     from prodagent.llm.factory import create_llm_client
 
     return create_llm_client(config)
+
+
+# --- run-scoped wrappers — the profile's service decisions, one home ---
+
+
+def resolve_blob_store(
+    fw: FrameworkConfig,
+    explicit: Any,
+    *,
+    event_log: EventLog | None,
+) -> Any:
+    """Spill target for oversized boundary facts. Production with an event
+    log: the file blob store (big bodies belong on disk). Bare or log-less:
+    ``None`` — facts stay inline (bare records nothing anyway)."""
+    del explicit  # a spill target is not user-configured today — profile-decided
+    if fw.profile != "production" or event_log is None:
+        return None
+    from prodagent.backends.file.blob import FileBlobStore
+
+    return FileBlobStore(fw.blobs_dir)
+
+
+def wrap_llm(llm: LLMClient, fw: FrameworkConfig) -> LLMClient:
+    """production(): wrap in the response cache. Bare: return as-is — a
+    prompt cache is an optimization with observability side effects, not
+    part of the loop."""
+    if fw.profile != "production":
+        return llm
+    from prodagent.llm.cache import CachingLLM, CachingLLMClient
+
+    if isinstance(llm, CachingLLM):
+        return llm
+    return CachingLLMClient(llm, framework_config=fw)

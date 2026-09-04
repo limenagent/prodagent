@@ -10,11 +10,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 from prodagent.base.config import FrameworkConfig
 from prodagent.base.errors import (
-    PlanAlreadyCompletedError,
-    RunIdCollisionError,
     UnknownApprovalError,
 )
-from prodagent.base.session import ConversationSession
 from prodagent.kernel.budget import SpawnAccumulator
 from prodagent.kernel.bus import Gate, HookEvent, HookRegistry, InjectionPoint
 from prodagent.kernel.run import CHILD_SEPARATOR, collect_final_run
@@ -22,7 +19,6 @@ from prodagent.kernel.types import (
     MessageList,
     RunCompletedEvent,
     RunFailedEvent,
-    RunState,
     RunSuspendedEvent,
 )
 from prodagent.ports.execution import AgentSpec
@@ -36,11 +32,9 @@ if TYPE_CHECKING:
 
     from prodagent.cognition.context.manager import ContextManager
     from prodagent.cognition.memory import MemoryProvider
-    from prodagent.hooks.approval import ApprovalProvider
     from prodagent.kernel.budget import HardBudget
     from prodagent.kernel.run import Run
     from prodagent.kernel.types import AgentEvent
-    from prodagent.kernel.workflow import Workflow
     from prodagent.mcp.config import MCPServerConfig
     from prodagent.ports import CheckpointStore, EventLog, SessionStore, Tool
     from prodagent.runtime.runner import RunContext
@@ -67,55 +61,7 @@ _CONFIG_FIELD_NAMES = frozenset(f.name for f in dataclasses.fields(AgentConfig))
 
 
 class Agent:
-    """Declarative agent — hot params for the common path, AgentConfig for the rest.
-
-    The constructor surface is deliberately two-tier: the handful of
-    parameters almost every agent sets (``system_prompt`` / ``tools`` /
-    ``mode`` / ``budget`` / ``workflow``) stay keyword-friendly, while
-    everything else — LLM client, topology, storage, hooks, extensions —
-    is a field on :class:`AgentConfig` (``runtime/config.py``). Hot params
-    override the matching config fields when both are given.
-
-    Construction sequence — "where do tools/hooks come from" spans three
-    files and two distinct times (constructor time vs. per-hop time); this
-    is the map so no one has to reconstruct it by stepping through a
-    debugger:
-
-    1. **``Agent.__init__`` (eager, once)** — merges hot params into
-       ``AgentConfig``, then ``_bind_invariants`` resolves ``workflow=`` if
-       given: it binds the workflow to an LLM, compiles it into
-       ``config.initial_plan``, and appends ``workflow.tools`` to
-       ``config.tools``. Everything else on ``AgentConfig`` stays exactly
-       as passed — no other resolution happens here.
-    2. **``Agent.attach_default_hooks`` (lazy, idempotent, first call wins)**
-       — called by both probes (``_find_approval_gate``, ``memory_manager``)
-       and the real run path. If ``config.hooks`` is already set, wires it;
-       otherwise builds a fresh ``HookRegistry``, attaches
-       ``default_hook_bundles(framework_config)`` (``hooks/bundles/base.py``),
-       then calls ``_wire_hooks`` to register accumulated injectors /
-       checkers / event handlers / extensions from ``AgentConfig``.
-       ``_hooks_wired`` guards against double-registration on repeated calls
-       (see ``tests/runtime/test_spawn_hitl_shared_registry.py`` for why
-       that guard exists).
-    3. **``SchedulerFactory.prepare`` (``runtime/factory.py``, once per
-       hop)** — the actual tool assembly happens here, not in ``Agent``:
-       calls ``agent.attach_default_hooks()`` first, then
-       ``agent.resolve_tools()`` (inline tools + ``tool_registry``),
-       merges in MCP tools, a spill-reader tool if paging is active, and
-       whatever ``ctx.tool_assemblers`` contribute (spawn/peer/handoff
-       tools — the factory itself stays blind to which collaboration
-       capabilities exist, per ``compose.py``'s ``hop_tool_assemblers``
-       seam). It then builds the system prompt (``build_system_prompt``),
-       optionally a ``ContextManager`` (``build_context_manager``), and
-       finally the one ``Scheduler`` (mode picks the plan source, never the
-       engine — there is only one engine).
-
-    fork/spawn/peer derivation (``_fork``, ``fork_as_spawn``,
-    ``fork_as_peer``) always happens *before* step 3 for the child — a
-    forked ``Agent`` re-enters this same sequence from step 2 onward on its
-    own hop, it does not inherit an already-wired ``HookRegistry`` unless
-    the fork explicitly overrides ``hooks=`` (see ``_runtime_overrides``).
-    """
+    """Declarative agent — hot params for the common path, AgentConfig for the rest."""
 
     def __init__(
         self,
@@ -124,7 +70,6 @@ class Agent:
         system_prompt: str | None = None,
         tools: Sequence[Tool] | None = None,
         budget: HardBudget | None = None,
-        workflow: Workflow | None = None,
         config: AgentConfig | None = None,
     ) -> None:
         if config is not None:
@@ -151,7 +96,7 @@ class Agent:
                 "instead: OpenAIAdapter(..., default_config=your_llm_config)."
             )
         self.config: AgentConfig = cfg
-        self._bind_invariants(workflow=workflow)
+        self._bind_invariants()
 
     @classmethod
     def _from_config(cls, config: AgentConfig) -> Agent:
@@ -162,7 +107,7 @@ class Agent:
         self._bind_invariants()
         return self
 
-    def _bind_invariants(self, workflow: Workflow | None = None) -> None:
+    def _bind_invariants(self) -> None:
         """Constructor invariants, shared by both construction paths."""
         if CHILD_SEPARATOR in self.config.name:
             raise ValueError(
@@ -174,15 +119,6 @@ class Agent:
         self._session_store: SessionStore | None = None
         self._plan_event_log: EventLog | None = None
         self._plan_checkpoint_store: CheckpointStore | None = None
-
-        # Resolve workflow eagerly
-        if workflow is not None:
-            from prodagent.kernel.workflow import Workflow as _Workflow
-
-            if not isinstance(workflow, _Workflow):
-                raise TypeError(f"workflow= expects a Workflow, got {type(workflow).__name__}")
-            self.config.initial_plan = workflow.compile()
-            self.config.node_fns = workflow.fns
 
     # -- Execution --------------------------------------------------------
 
@@ -202,14 +138,16 @@ class Agent:
         if resume and not session_id:
             raise ValueError("resume=True requires an explicit session_id")
 
+        from prodagent.runtime.runner import begin_chat_turn, load_suspended_turn, tape_prefixed
+
         sid = session_id or str(uuid.uuid4())
         store = self._ensure_session_store_resolved()
         if resume:
-            session, run_id, single_unit = await self._load_suspended_turn(sid, store)
+            session, run_id, single_unit = await load_suspended_turn(self, sid, store)
             messages: MessageList | None = None
         else:
-            session, run_id, single_unit, messages = await self._begin_chat_turn(
-                message, sid, as_unit=as_unit
+            session, run_id, single_unit, messages = await begin_chat_turn(
+                self, message, sid, as_unit=as_unit
             )
 
         # A consumer that abandons this stream mid-run leaves the turn RUNNING
@@ -221,7 +159,7 @@ class Agent:
         async for event in drive_stream(
             self,
             message,
-            run_id=self._tape_prefixed(run_id),
+            run_id=tape_prefixed(run_id),
             single_unit=single_unit,
             initial_messages=messages,
         ):
@@ -270,8 +208,9 @@ class Agent:
         session (``resume=True``) — no in-process waiter is woken, which is
         what lets the deciding human be on another machine."""
         from prodagent.hooks.approval import ApprovalDecision
+        from prodagent.runtime.runner import find_approval_gate
 
-        gate = self._find_approval_gate()
+        gate = find_approval_gate(self)
         if gate is None:
             raise UnknownApprovalError(
                 "no ApprovalGate is wired to this agent — cannot submit approval",
@@ -279,104 +218,20 @@ class Agent:
             )
         await gate.submit_decision(request_id, ApprovalDecision(decision), approver_id=approver_id)
 
-    def _find_approval_gate(self) -> ApprovalProvider | None:
-        """Locate the approval provider in wiring order: the bus's typed
-        slot first, then an explicitly configured one."""
-        from prodagent.hooks.approval import ApprovalProvider
-
-        # Idempotent wire-first: what a probe sees is what a run would use.
-        self.attach_default_hooks()
-        hooks = self.config.hooks
-        if hooks is not None:
-            gate = hooks.require(ApprovalProvider)
-            if gate is not None:
-                return cast("ApprovalProvider", gate)
-        if isinstance(self.config.approval, ApprovalProvider):
-            return self.config.approval
-        return None
-
-    async def _load_suspended_turn(
-        self,
-        session_id: str,
-        store: SessionStore,
-    ) -> tuple[ConversationSession, str, bool]:
-        session = await store.load(session_id)
-        if session is None:
-            raise PlanAlreadyCompletedError(f"<unknown:{session_id}>")
-        # SUSPENDED is the graceful resumable state. RUNNING is tolerated for
-        # hard crashes (kill -9 leaves no chance to suspend); a graceful
-        # stream close suspends the turn instead (see chat_stream).
-        if session.last_turn is None or session.last_turn.state not in (
-            RunState.SUSPENDED,
-            RunState.RUNNING,
-        ):
-            raise PlanAlreadyCompletedError(
-                session.last_turn.run_id if session.last_turn else f"<{session_id}>"
-            )
-        return session, session.last_turn.run_id, session.last_turn.single_unit
-
-    @staticmethod
-    def _tape_prefixed(run_id: str) -> str:
-        """Tape attribution for member turns: inside a multi-agent root
-        scope, the session's turn id gains the ``<root>::`` prefix — the
-        convention spawned children already follow, so one catalog entry
-        holds the whole multi-agent run. Deterministic on resume (the same prefix
-        derives from the same session id)."""
-        from prodagent.base.run_context import current_tape_root
-
-        root = current_tape_root()
-        if root and not run_id.startswith(f"{root}::"):
-            return f"{root}::{run_id}"
-        return run_id
-
-    async def _begin_chat_turn(
-        self,
-        message: str,
-        session_id: str,
-        *,
-        as_unit: bool = False,
-    ) -> tuple[ConversationSession, str, bool, MessageList]:
-        """Open a fresh turn: allocate the run id (a SUSPENDED predecessor
-        is resumed instead — see ``start_turn``), guard against an orphan
-        checkpoint stealing the id, and persist the session before any work
-        starts, so a crash mid-turn finds a resumable record."""
-        # A chat turn runs the agent itself as the unit — unless the agent
-        # carries a preset graph (a bound Workflow), in which case the turn
-        # runs that graph. Composition decides, not a mode enum.
-        single_unit = as_unit or self.config.initial_plan is None
-        store = self._ensure_session_store_resolved()
-        session = await store.load(session_id)
-        if session is None:
-            session = ConversationSession(session_id=session_id, agent_id=self.config.name)
-        if (
-            self.config.initial_plan is not None
-            and not single_unit
-            and session.last_turn is not None
-            and session.last_turn.state is not RunState.SUSPENDED
-        ):
-            raise PlanAlreadyCompletedError(session.last_turn.run_id)
-        alloc = session.start_turn(message, single_unit=single_unit)
-
-        if alloc.is_new:
-            checkpoint = self._ensure_checkpoint_resolved()
-            if checkpoint is not None:
-                orphan = await checkpoint.load(alloc.run_id)
-                if orphan is not None:
-                    raise RunIdCollisionError(alloc.run_id)
-            await store.save(session, expected_version=session.version)
-
-        return session, alloc.run_id, alloc.single_unit, alloc.messages
-
     def _ensure_checkpoint_resolved(self) -> CheckpointStore | None:
-        from prodagent.runtime.compose import resolve_checkpoint
+        from prodagent.backends.factory import resolve_checkpoint
 
         self.config.checkpoint = resolve_checkpoint(self.framework_config, self.config.checkpoint)
         return self.config.checkpoint
 
     def _ensure_session_store_resolved(self) -> SessionStore:
-        from prodagent.runtime.compose import resolve_session_store
+        from prodagent.backends.factory import in_memory_session_store, resolve_session_store
 
         self._session_store = resolve_session_store(self.framework_config, self._session_store)
+        if self._session_store is None:
+            # A session cannot function without a store: bare gets the
+            # in-process one (state dies with the process — the bare contract).
+            self._session_store = in_memory_session_store()
         return self._session_store
 
     def ensure_plan_event_log_fallback(self) -> EventLog:
@@ -577,46 +432,6 @@ class Agent:
             "event_log": ctx.config.event_log,
             "spawn_accumulator": self.config.spawn_accumulator or SpawnAccumulator(),
         }
-
-    def fork_as_peer(
-        self,
-        parent: Agent,
-        parent_run_id: str | None,
-        *,
-        checkpoint: CheckpointStore | None = None,
-        event_log: EventLog | None = None,
-    ) -> Agent:
-        """Fork this agent as the next link of a peer chain: the fork runs
-        under the *parent's* wiring (hooks, extensions, stores) but keeps
-        its own peers — the chain can continue past it."""
-        overrides = self._runtime_overrides(parent)
-        if checkpoint is not None:
-            overrides["checkpoint"] = checkpoint
-        if event_log is not None:
-            overrides["event_log"] = event_log
-        forked = self._fork(
-            **overrides,
-            extensions=list(parent.config.extensions),
-            injectors=list(parent.config.injectors),
-            checkers=list(parent.config.checkers),
-            event_handlers=list(parent.config.event_handlers),
-            mcp=list(parent.config.mcp),
-            peers=list(self.config.peers),
-        )
-        forked._hooks_wired = parent._hooks_wired
-        return forked
-
-    def fork_as_spawn(self, ctx: Any) -> Agent:
-        """Fork as a spawned child: takes the parent's wiring wholesale —
-        a child has no peers of its own to preserve."""
-        return self._fork(
-            **self._runtime_overrides(ctx),
-            extensions=list(self.config.extensions),
-            injectors=list(self.config.injectors),
-            checkers=list(self.config.checkers),
-            event_handlers=list(self.config.event_handlers),
-            mcp=list(self.config.mcp),
-        )
 
     # -- Properties -------------------------------------------------------
 

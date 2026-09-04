@@ -432,12 +432,6 @@ class Graph:
                 return False
         return True
 
-    def validate(self, fn_sigs: Mapping[str, Any] | None = None) -> None:
-        """The five-check gate over this graph — see ``graph_validator``."""
-        from prodagent.kernel.graph_validator import default_validator
-
-        default_validator().validate_graph(self, fn_sigs=fn_sigs)
-
 
 class Plan(Graph):
     """A versioned blueprint a run executes — Graph topology plus lineage.
@@ -454,7 +448,13 @@ class Plan(Graph):
     blueprint answers "what would be ready if execution were here", the run
     answers where execution actually is."""
 
-    def __init__(self, plan_id: str | None = None, *, origin: Origin = Origin.STATIC) -> None:
+    def __init__(
+        self,
+        plan_id: str | None = None,
+        *,
+        origin: Origin = Origin.STATIC,
+        nodes: Sequence[Node] | None = None,
+    ) -> None:
         super().__init__(origin=origin)
         self.plan_id = plan_id or new_uuid4()
         self.version: int = 1
@@ -462,6 +462,8 @@ class Plan(Graph):
         self.channels: dict[str, Channel] = {}
         """State's merge rules, declared on the blueprint (column 7): the
         *rules* live here, the folded values live in ``run.shared``."""
+        if nodes:
+            self.add_nodes(list(nodes))
 
     def declare_channels(self, channels: Mapping[str, Any]) -> None:
         """Adopt named state lanes — the Plan's third component. Accepts
@@ -537,10 +539,22 @@ class Plan(Graph):
 
     @classmethod
     def from_state(
-        cls, state: dict[str, Any], *, plan_id: str
+        cls,
+        state: dict[str, Any],
+        *,
+        plan_id: str,
+        body_binder: Callable[[dict[str, Any]], NodeBody | None] | None = None,
     ) -> tuple[Plan, dict[str, NodeRuntimeState]]:
         """Checkpoint-restore path: the resume half of crash recovery.
         Returns the blueprint and the per-node states it resumes with.
+
+        ``body_binder`` is the one hook for composed bodies: the loop (and
+        any other process-local body) is re-declared by the caller from the
+        wire's kind + action — a NAME — instead of being rebuilt here;
+        ``None`` falls through to the kernel built-ins. This is how a
+        resumed run re-binds its bodies without the kernel importing the
+        recipes layer (the same "identity rides the wire, the body comes
+        from configuration" ruling as handoff instantiation).
 
         The RUNNING→PENDING reset below is the DAG-level resume rule: a node
         found mid-flight at crash time has unknown partial state, so it is
@@ -552,11 +566,14 @@ class Plan(Graph):
             plan.declare_channels(state["channels"])
         node_states: dict[str, NodeRuntimeState] = {}
         for nid, nd in state.get("nodes", {}).items():
-            from prodagent.kernel.bodies import body_from_wire
+            body = body_binder(nd) if body_binder is not None else None
+            if body is None:
+                from prodagent.kernel.bodies import body_from_wire
 
+                body = body_from_wire(nd.get("kind", ""), nd.get("action", ""), nd)
             plan._nodes[nid] = Node(
                 node_id=nid,
-                body=body_from_wire(nd.get("kind", ""), nd.get("action", ""), nd),
+                body=body,
                 params=nd.get("params", {}),
                 depends_on=nd.get("depends_on", []),
                 is_terminal=nd.get("is_terminal", False),
@@ -575,7 +592,10 @@ class Plan(Graph):
                 completed_at=nd.get("completed_at", 0.0),
             )
             if st.status is NodeStatus.RUNNING:
-                # Crashed mid-flight: output/error are stale partial state.
+                # Crashed or parked mid-flight: output/error are stale
+                # partial state — the redo re-executes the node, and an
+                # approval's staged call (on the run's interrupt) retries
+                # verbatim.
                 st.status = NodeStatus.PENDING
                 st.output_ref = None
                 st.error = None
@@ -716,19 +736,6 @@ def _origin_of(value: object) -> Origin:
         return Origin.STATIC
 
 
-def compile_planned(nodes: list[Node]) -> Plan:
-    """A node list → validate → Plan: the generic birth line every code
-    front-end shares (Workflow compile, tests, embedders). Validation runs
-    here so no plan enters execution ungated — whoever wrote the nodes,
-    the shape checks are the same."""
-    from prodagent.kernel.graph_validator import PlanValidator
-
-    PlanValidator().validate_nodes(nodes)
-    plan = Plan(origin=Origin.STATIC)
-    plan.add_nodes(list(nodes))
-    return plan
-
-
 __all__ = [
     "Origin",
     "Edge",
@@ -738,5 +745,4 @@ __all__ = [
     "fresh_states",
     "state_of",
     "node_wire_dict",
-    "compile_planned",
 ]

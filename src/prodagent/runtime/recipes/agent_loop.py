@@ -4,10 +4,10 @@ A Round is the atom of agency: one model call plus at most one tool
 batch. AgentLoop is the policy for iterating Rounds — when to stop, what
 to resume, how to settle: drive one run think→decide→execute, Round
 after Round, until a terminal flag lands on the run (COMPLETED /
-SUSPENDED / pending_handoff). Everything *around* the loop — where the
-run came from, run scoping, settling, terminal stream events — lives in
-the kernel's Scheduler; a loop never emits a run-terminal event, it just
-stops.
+SUSPENDED), a handoff tool transfers control, or a goal finishes.
+Everything *around* the loop — where the run came from, run scoping,
+settling, terminal stream events — lives in the kernel's Scheduler; a
+loop never emits a run-terminal event, it just stops.
 
 The kernel sees none of this machinery: the loop body lives in the recipes
 layer (``runtime/recipes/loop_body``) and drives whatever implements the
@@ -45,6 +45,7 @@ from prodagent.kernel.types import (
     ThinkTokenEvent,
     ToolOutcome,
     ToolResult,
+    ToolResultEvent,
 )
 
 if TYPE_CHECKING:
@@ -63,9 +64,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 __all__ = ["AgentLoop", "Round", "ContextAssembler", "ToolRunner", "ProgressGuard"]
-
-_TERMINAL_CURSOR = "terminal"
-"""The marker-stream tail: run-terminal markers chain on this cursor."""
 
 
 # ════════════ the atom ════════════
@@ -343,6 +341,10 @@ class AgentLoop:
         self._dispatcher = dispatcher
         self._budget_ledger = budget_ledger
         self._last_answer: str = ""
+        self._handoff: ToolResult | None = None
+        """A handoff tool result seen this drive — the loop's stop flag and
+        what ``outcome_of`` folds into the node outcome (nothing parks on
+        the run; control transfer is a command the scheduler applies)."""
         cfg = loop_config or LoopConfig()
         self.progress = ProgressMonitor(
             stall_threshold=cfg.stall_threshold,
@@ -395,13 +397,15 @@ class AgentLoop:
             from prodagent.kernel.types import Message
 
             run.messages.append(Message(role="user", content=goal))
-        park = run.clear_approval_park()
-        if park is not None:
+        iv = run.take_interrupt()
+        if iv is not None:
             # Resuming a SUSPENDED run: retry the exact call awaiting approval
             # instead of asking the LLM again.
-            self._dispatcher.set_pending_approval_id(park.request_id)
-            async for batch_evt in self._dispatcher.run_batch(run, [park.call]):
-                yield batch_evt
+            staged = iv.staged_call()
+            self._dispatcher.set_pending_approval_id(iv.request_id or None)
+            if staged is not None:
+                async for batch_evt in self._dispatcher.run_batch(run, [staged]):
+                    yield batch_evt
 
             await self._record_round(run)
 
@@ -410,15 +414,25 @@ class AgentLoop:
             if run.state is RunState.SUSPENDED:
                 return
 
+        self._handoff = None
         while True:
             async for event in self._round.run(
                 run, system=self._system, tools=self._tools_schema or None
             ):
+                if (
+                    isinstance(event, ToolResultEvent)
+                    and isinstance(result := event.result, ToolResult)
+                    and result.outcome is ToolOutcome.HANDOFF
+                ):
+                    # Control leaves this agent: stop driving — the node's
+                    # outcome folds this into a Handoff command for the
+                    # scheduler to apply.
+                    self._handoff = result
                 yield event
 
             await self._record_round(run)
 
-            if run.pending_handoff is not None:
+            if self._handoff is not None:
                 return
             if run.state is RunState.SUSPENDED:
                 return
@@ -441,9 +455,11 @@ class AgentLoop:
         """The run's terminal flag, as a node outcome — how a finished
         LoopBody reports into the node lifecycle (success / suspended /
         handoff)."""
-        if run.pending_handoff is not None:
-            h = run.pending_handoff
-            return ToolResult.for_handoff(peer=h.peer_name, task=h.task, tool="loop")
+        if self._handoff is not None:
+            h = self._handoff.handoff or {}
+            return ToolResult.for_handoff(
+                peer=str(h.get("peer", "")), task=str(h.get("task", "")), tool="loop"
+            )
         if run.state is RunState.SUSPENDED:
             return ToolResult.suspended(
                 reason="awaiting approval",
@@ -477,9 +493,13 @@ class AgentLoop:
             await clock.flush(self._event_log)
         seq = await self._event_log.append(
             Event.make(RunEventType.ROUND_COMPLETED, stream_id=run.run_id, version=0),
-            expected_seq=run.cursor(_TERMINAL_CURSOR, 0),
+            expected_seq=run.marker_tail(),
         )
-        run.set_cursor(_TERMINAL_CURSOR, seq)
+        # The marker stream is shared with the plan executor's events (a
+        # graph's work node rounds interleave with node markers), so the
+        # tail advances both boxes — the next plan event expects what this
+        # append left, and vice versa.
+        run.advance_marker_tail(seq)
         from prodagent.kernel.bus import save_and_fire_checkpoint
 
         await save_and_fire_checkpoint(self._checkpoint_store, run, self._hooks)
@@ -494,9 +514,9 @@ class AgentLoop:
             await clock.flush(self._event_log)
         seq = await self._event_log.append(
             Event.make(event_type, stream_id=run.run_id, version=0),
-            expected_seq=run.cursor(_TERMINAL_CURSOR, 0),
+            expected_seq=run.marker_tail(),
         )
-        run.set_cursor(_TERMINAL_CURSOR, seq)
+        run.advance_marker_tail(seq)
 
 
 async def _fire(bus: HookRegistry | None, event: HookEvent, **payload: Any) -> None:

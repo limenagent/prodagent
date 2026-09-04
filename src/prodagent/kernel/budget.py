@@ -1,10 +1,10 @@
 """Budget — the ceiling (HardBudget), the stateless check, and the shared Ledger.
 
 One ceiling vocabulary everywhere: a lone agent checks its own spend with
-:func:`check_budget`; concurrent spenders (spawn children, peer chains,
-stages) share one :class:`BudgetLedger` by reference and reserve/commit
-against it. The fold side of the same arithmetic — :class:`SpawnAccumulator`
-and the hop-share recovery at handoff (:func:`hop_own_share`) — lives here
+:func:`check_budget`; concurrent spenders (spawn children, stages) share
+one :class:`BudgetLedger` by reference and reserve/commit against it. The
+fold side of the same arithmetic — :class:`SpawnAccumulator`, the metrics
+sink that lands child spend on the parent's persisted run — lives here
 too: enforcement and reporting are one settlement concept.
 """
 
@@ -19,11 +19,8 @@ from prodagent.base.determinism import now_monotonic
 from prodagent.base.errors import BudgetExceeded
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
     from prodagent.kernel.run import Run
     from prodagent.kernel.types import ToolCall
-    from prodagent.ports.budget_ledger import BudgetLedgerPort
 
 logger = logging.getLogger(__name__)
 
@@ -403,60 +400,6 @@ def spent_to_dict(spend: _Spend, *, elapsed: float) -> dict[str, float | int]:
     }
 
 
-async def run_enveloped(
-    ledger: BudgetLedgerPort | None,
-    *,
-    member: str,
-    act: Callable[[], Awaitable[tuple[int, int, float] | None]],
-) -> tuple[int, int, float] | None:
-    """Reserve one turn → run ``act`` → commit the actuals — the one
-    settlement envelope every per-unit spender shares.
-
-    ``ledger`` is the port type (:class:`prodagent.ports.budget_ledger.BudgetLedgerPort`):
-    the kernel's in-process ``BudgetLedger`` satisfies it structurally today;
-    a distributed runtime swaps the implementation without touching this
-    policy.
-
-    ``act`` returns ``(turns, tokens, cost_usd)`` — the actuals to commit —
-    or ``None`` ("the unit ran but produced nothing measurable"), which still
-    commits the reserved turn slot at zero: a turn was consumed whether or not
-    anything came of it. If ``act`` *raises*, the reservation is still
-    **committed** (actuals unknown → zeros) rather than released: a crashed
-    attempt consumed a real turn slot, and releasing would let a crash-looping
-    member spend forever while the turns axis shows zero. The exception
-    propagates to the caller, which decides how to isolate the member.
-
-    A member that can't reserve (over cap) never acts — ``None`` comes back
-    with no budget movement, and callers translate that into their own
-    "exhausted" outcome. ``ledger=None`` runs ``act`` bare (no budget wiring)
-    and returns its actuals unchanged.
-
-    This is the single home for the reserve/commit invariants; spawn (and any
-    future enveloped caller) delegates here so the policy cannot drift.
-    """
-    if ledger is None:
-        return await act()
-    try:
-        await ledger.reserve(member=member, turns=1)
-    except BudgetExceeded:
-        return None
-    try:
-        actuals = await act()
-    except asyncio.CancelledError:
-        raise
-    except Exception:
-        # The attempt crashed mid-turn — the turn slot is gone even though
-        # tokens/cost are unknowable. Commit it; releasing here would make
-        # crash-looping members invisible to the turns axis.
-        await ledger.commit(member=member, turns=1, tokens=0, cost_usd=0.0, reserved_turns=1)
-        raise
-    turns, tokens, cost_usd = actuals if actuals is not None else (1, 0, 0.0)
-    await ledger.commit(
-        member=member, turns=turns, tokens=tokens, cost_usd=cost_usd, reserved_turns=1
-    )
-    return actuals
-
-
 class SpendSnapshot(Protocol):
     """Structural: anything carrying live spend totals (SpawnAccumulator)."""
 
@@ -558,24 +501,3 @@ class SpawnAccumulator:
             self.turns,
             len(self.tool_history),
         )
-
-
-def hop_own_share(run: Run, acc: SpawnAccumulator | None) -> tuple[int, int, float]:
-    """(turns, tokens, cost_usd) the hop itself spent, children excluded.
-
-    By relay time ``RunLoop._finalize_run`` has already folded the
-    accumulator's child totals into ``run.metrics`` (via
-    :meth:`SpawnAccumulator.fold_into`), so the run's totals are
-    *hop + children*. Children committed their own spend to the ledger live
-    when they finished; committing the post-fold numbers at handoff would
-    count them twice. This subtraction — the only place that knows the fold
-    happened — recovers the hop's own share for the settle-at-boundary commit.
-    """
-    child_turns = acc.turns if acc is not None else 0
-    child_tokens = acc.input_tokens + acc.output_tokens if acc is not None else 0
-    child_cost = acc.cost_usd if acc is not None else 0.0
-    return (
-        max(0, run.turn_count - child_turns),
-        max(0, run.input_tokens + run.output_tokens - child_tokens),
-        max(0.0, run.cost_usd - child_cost),
-    )

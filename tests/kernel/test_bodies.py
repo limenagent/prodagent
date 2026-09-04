@@ -64,7 +64,6 @@ class TestDispatch:
         assert isinstance(outcome.value, ToolResult)
         assert outcome.value.outcome is ToolOutcome.OK
         assert seen[0].params == {"q": "x"}
-        assert isinstance(outcome.control, type(outcome.control))  # plain Return
 
     async def test_fn_unit_invokes_sync_and_async_functions(self):
         async def double(x: int) -> int:

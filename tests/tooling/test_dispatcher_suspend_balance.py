@@ -81,8 +81,9 @@ async def test_mid_batch_suspension_balances_transcript_and_skips_siblings():
     # history records what actually ran; the suspended call is replayed later.
     assert EXECUTED == ["tool_0"]
     assert [c.call_id for c in run.tool_history] == []
-    assert run.pending_tool_call is not None
-    assert run.pending_tool_call.call_id == "c0"
+    assert run.interrupt is not None
+    assert run.interrupt.staged_call() is not None
+    assert run.interrupt.staged_call().call_id == "c0"
 
     # Every tool_use in the assistant batch now has a paired tool_result:
     # c0's placeholder is absent (replayed on resume), c1 got a skip marker.
@@ -109,8 +110,10 @@ async def test_mid_batch_handoff_balances_transcript():
     async for _ in dispatcher.run_batch(run, batch):
         pass
 
-    assert run.pending_handoff is not None
-    assert run.pending_handoff.peer_name == "reviewer"
-    # Handoff call answered by the handoff path; sibling skip-marked.
-    assert _tool_result_ids(run) == {"c1"}
+    # Nothing parks: control transfer is a command the scheduler applies.
+    # The handoff call is answered inline (no dangling tool_use); the
+    # sibling is skip-marked.
+    assert _tool_result_ids(run) == {"c0", "c1"}
+    answered = next(m for m in run.messages if m.get("tool_call_id") == "c0")
+    assert "reviewer" in str(answered["content"])
     assert [c.call_id for c in run.tool_history] == []

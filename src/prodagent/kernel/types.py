@@ -170,7 +170,9 @@ class NodeStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     SKIPPED = "skipped"
-    SUSPENDED = "suspended"
+    # No SUSPENDED, by design: "waiting for the world" is the RUN's fact
+    # (Run.interrupt + RunState.SUSPENDED), never a node's — a parked node
+    # is merely unfinished (RUNNING), and resume redoes it.
 
 
 class SideEffectLevel(StrEnum):

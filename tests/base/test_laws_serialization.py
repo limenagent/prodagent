@@ -11,7 +11,7 @@ as dicts but breaks as JSON (NaN, exotic keys) would corrupt checkpoints.
 
 These classes were chosen because they are the persisted vocabulary:
 ``Run`` (checkpoint), ``LLMResponse`` (response cache), and the codec's
-plain mirrors (``ToolCall`` / ``RunMetrics`` / ``PendingHandoff`` /
+plain mirrors (``ToolCall`` / ``RunMetrics`` /
 ``ClassifiedError`` / ``TurnRecord`` / ``StoredMemory``).
 """
 
@@ -28,7 +28,8 @@ from prodagent.base.codec import dump
 from prodagent.base.errors import ClassifiedError, ErrorReason
 from prodagent.base.session import TurnRecord
 from prodagent.cognition.memory.storage import StoredMemory
-from prodagent.kernel.run import PendingHandoff, Run, RunMetrics
+from prodagent.kernel.interrupt import Interrupt, InterruptKind
+from prodagent.kernel.run import Run, RunMetrics
 from prodagent.kernel.types import LLMResponse, RunState, StopReason, ToolCall
 from prodagent.ports.persistence import MemoryType
 
@@ -85,16 +86,6 @@ _metrics = st.builds(
     cost_usd=st.floats(min_value=0, allow_nan=False, allow_infinity=False, width=64),
 )
 
-_handoffs = st.builds(
-    PendingHandoff,
-    peer_name=st.text(max_size=12),
-    task=st.text(max_size=24),
-    input_refs=st.dictionaries(st.text(max_size=8), st.text(max_size=12), max_size=3),
-    prior_output=st.text(max_size=24),
-    peer_run_id=st.none() | st.text(max_size=16),
-    message_id=st.text(max_size=16),
-)
-
 _agent_runs = st.builds(
     Run,
     run_id=st.text(min_size=1, max_size=16),
@@ -110,16 +101,20 @@ _agent_runs = st.builds(
     retry_counter=st.dictionaries(st.text(max_size=8), st.integers(0, 9), max_size=3),
     fingerprints=st.lists(st.text(max_size=12, alphabet=st.characters(codec="ascii")), max_size=5),
     idempotency_seq=st.integers(min_value=0, max_value=10**6),
-    pending_tool_call=st.none() | _one_tool_call,
-    pending_approval_id=st.none() | st.text(max_size=12),
-    pending_handoff=st.none() | _handoffs,
+    interrupt=st.none()
+    | st.builds(
+        Interrupt,
+        kind=st.sampled_from(list(InterruptKind)),
+        request_id=st.text(max_size=12),
+        payload=st.dictionaries(st.text(max_size=8), json_values, max_size=3),
+        node_id=st.text(max_size=16),
+    ),
     last_error=st.none() | st.text(max_size=24),
     error=st.none() | _classified,
     cursors=st.dictionaries(st.text(max_size=8), json_values, max_size=2),
     checkpoint_version=st.integers(min_value=0, max_value=10**4),
     checkpoint_failed=st.booleans(),
     final_output=st.none() | st.text(max_size=24),
-    is_peer_continuation=st.booleans(),
 )
 
 _llm_responses = st.builds(
@@ -183,12 +178,6 @@ def test_tool_call_roundtrip_law(call: ToolCall) -> None:
 @given(_metrics)
 def test_run_metrics_roundtrip_law(metrics: RunMetrics) -> None:
     _assert_roundtrip(metrics, RunMetrics.from_dict)
-
-
-@_settings
-@given(_handoffs)
-def test_pending_handoff_roundtrip_law(handoff: PendingHandoff) -> None:
-    _assert_roundtrip(handoff, PendingHandoff.from_dict)
 
 
 @_settings

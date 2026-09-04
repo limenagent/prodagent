@@ -88,12 +88,12 @@ def build_audit_workflow_agent(
     """
     from prodagent.base.config import production
     from prodagent.kernel.bodies import LLMBody
-    from prodagent.kernel.graph import Node, compile_planned
+    from prodagent.kernel.graph import Node, Plan
     from prodagent.runtime.recipes.loop_body import LoopBody
 
     fw = framework_config or production()
-    plan = compile_planned(
-        [
+    plan = Plan(
+        nodes=[
             Node(
                 node_id="plan",
                 body=LLMBody(prompt=_PLAN_PROMPT, system=_WORKFLOW_SYSTEM),

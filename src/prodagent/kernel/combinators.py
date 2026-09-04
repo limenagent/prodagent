@@ -22,9 +22,11 @@ Two execution forms, by ruling 2 of REFACTOR-PLAN:
   winner-cancels-loser joins (AnyOf / NOf) keep their cancel semantics in
   the interpreted form only.
 
-Control is honest about handoffs: a child that hands off abandons the
-combinator — the remaining children never run, and the Handoff is the
-combinator's own control (ruling 4's bubble, one level up).
+Control is honest about commands: a child whose value IS a command (an
+``Update``, a ``Goto``, a ``Handoff``) abandons the combinator — the
+remaining children never run, and the command becomes the combinator's own
+value, one level up. Same rule the node driver applies to a single body's
+outcome; composition just honors it early.
 """
 
 from __future__ import annotations
@@ -33,7 +35,8 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from prodagent.kernel.body import Handoff, NodeBody, NodeContext, Outcome
+from prodagent.kernel.body import NodeBody, NodeContext, Outcome
+from prodagent.kernel.command import Command
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -109,18 +112,19 @@ def _merge_deltas(outcomes: Sequence[Outcome]) -> dict[str, Any]:
     return delta
 
 
-def _handoff_of(outcomes: Sequence[Outcome]) -> Handoff | None:
-    """The first handoff among outcomes — control transfer outranks
-    collection: once any child takes over, nobody collects anything."""
+def _command_of(outcomes: Sequence[Outcome]) -> Command | None:
+    """The first command-valued outcome — a command outranks collection:
+    once any child redirects the run (an Update, a requeue, a handoff),
+    nobody collects plain values anymore."""
     for oc in outcomes:
-        if isinstance(oc.control, Handoff):
-            return oc.control
+        if isinstance(oc.value, Command):
+            return oc.value
     return None
 
 
-def _collect(outcomes: Sequence[Outcome], control: Handoff | None = None) -> Outcome:
-    if control is not None:
-        return Outcome(value=None, state_delta=_merge_deltas(outcomes), control=control)
+def _collect(outcomes: Sequence[Outcome], command: Command | None = None) -> Outcome:
+    if command is not None:
+        return Outcome(value=command, state_delta=_merge_deltas(outcomes))
     return Outcome(value=[oc.value for oc in outcomes], state_delta=_merge_deltas(outcomes))
 
 
@@ -147,14 +151,10 @@ class Sequential:
         for unit in self.units:
             outcome = await unit.run(value, ctx)
             outcomes.append(outcome)
-            if isinstance(outcome.control, Handoff):
-                # value is what the sequence had amassed BEFORE the taker
-                # ran — the taker produced nothing for this caller.
-                return Outcome(
-                    value=value,
-                    state_delta=_merge_deltas(outcomes),
-                    control=outcome.control,
-                )
+            if isinstance(outcome.value, Command):
+                # A command IS the outcome (an Update, a requeue, a
+                # handoff): the sequence ends here, the command bubbles up.
+                return Outcome(value=outcome.value, state_delta=_merge_deltas(outcomes))
             value = outcome.value
         return Outcome(value=value, state_delta=_merge_deltas(outcomes))
 
@@ -203,8 +203,8 @@ class Parallel:
                 for task in done:
                     landed[by_index[id(task)]] = task.result()
                 ordered = [landed[i] for i in sorted(landed)]
-                if (handoff := _handoff_of(ordered)) is not None:
-                    return _collect(ordered, control=handoff)
+                if (command := _command_of(ordered)) is not None:
+                    return _collect(ordered, command=command)
                 if self.join.satisfied([o.value for o in ordered], len(self.units)):
                     break
         finally:
@@ -213,8 +213,8 @@ class Parallel:
             if pending:
                 await asyncio.gather(*pending, return_exceptions=True)
         ordered = [landed[i] for i in sorted(landed)]
-        if (handoff := _handoff_of(ordered)) is not None:
-            return _collect(ordered, control=handoff)
+        if (command := _command_of(ordered)) is not None:
+            return _collect(ordered, command=command)
         return _collect(ordered)
 
     def graph(self) -> Graph:
@@ -344,12 +344,10 @@ class Loop:
         for _ in range(self.max_iterations):
             outcome = await self.unit.run(value, ctx)
             outcomes.append(outcome)
-            if isinstance(outcome.control, Handoff):
-                return Outcome(
-                    value=value,
-                    state_delta=_merge_deltas(outcomes),
-                    control=outcome.control,
-                )
+            if isinstance(outcome.value, Command):
+                # A command IS the outcome: the loop ends here, the command
+                # (a handoff, a requeue) bubbles up.
+                return Outcome(value=outcome.value, state_delta=_merge_deltas(outcomes))
             value = outcome.value
             # until sees the shared state (the blackboard) plus every delta
             # so far — a fresh key can end the loop the round it was written.

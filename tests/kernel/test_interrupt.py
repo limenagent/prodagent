@@ -1,12 +1,13 @@
 """Interrupt — the park's vocabulary and the door table (column 20/8).
 
-The laws under test: a park stores three things (state, the frozen action,
-the Interrupt); the kind is payload, not mechanism (need_input / approve /
-await_external ride the same door); the wire round-trips the kind so a
-resumed process knows what it was waiting for; old checkpoints read back
-as the historical kind; and the four doors enforce the allowed-transition
-table — the nonsensical endings (dead end into success, suspended straight
-into failed) are illegal at the write site.
+The laws under test: a park is ONE durable fact (kind, request id, parked
+node, staged action in the payload — never a family of fields); the kind is
+payload, not mechanism (need_input / approve / await_external ride the same
+door); the wire round-trips the kind so a resumed process knows what it was
+waiting for; the historical three-field checkpoint wire upgrades on read;
+and the four doors enforce the allowed-transition table — the nonsensical
+endings (dead end into success, suspended straight into failed) are illegal
+at the write site.
 """
 
 from __future__ import annotations
@@ -15,16 +16,25 @@ import pytest
 
 from prodagent.base.errors import IllegalTransition
 from prodagent.kernel.bodies import FnBody
-from prodagent.kernel.graph import Node, compile_planned
-from prodagent.kernel.interrupt import Interrupt, InterruptKind, PendingAction
+from prodagent.kernel.graph import Node, Plan
+from prodagent.kernel.interrupt import Interrupt, InterruptKind
 from prodagent.kernel.run import Run
 from prodagent.kernel.scheduler import Scheduler
-from prodagent.kernel.types import RunState, ToolCall
+from prodagent.kernel.types import RunState, ToolCall, ToolOutcome, ToolResult
 from prodagent.tooling.dispatcher import ToolDispatcher
 
 
 def _call(name: str = "do_thing") -> ToolCall:
     return ToolCall(name=name, params={"x": 1})
+
+
+def _suspended_result(request_id: str = "req-9") -> ToolResult:
+    return ToolResult(
+        ToolOutcome.SUSPENDED,
+        value="",
+        tool="do_thing",
+        approval_request_id=request_id,
+    )
 
 
 # ── the vocabulary ────────────────────────────────────────────────────────────
@@ -34,74 +44,57 @@ def test_three_trigger_kinds_one_mechanism():
     assert [k.value for k in InterruptKind] == ["need_input", "approve", "await_external"]
 
 
-def test_interrupt_wire_roundtrip_carries_kind_and_payload():
-    it = Interrupt(InterruptKind.AWAIT_EXTERNAL, "req-1", {"event": "callback"})
+def test_interrupt_wire_roundtrip_carries_kind_payload_and_node():
+    it = Interrupt(InterruptKind.AWAIT_EXTERNAL, "req-1", {"event": "callback"}, "node:entry")
     assert Interrupt.from_dict(it.to_dict()) == it
-
-
-def test_pending_action_pairs_the_frozen_call_with_its_interrupt():
-    action = PendingAction(_call(), Interrupt(InterruptKind.APPROVE, "req-2"))
-    assert action.action.name == "do_thing"
-    assert action.interrupt.kind is InterruptKind.APPROVE
 
 
 # ── the park and its views ────────────────────────────────────────────────────
 
 
-def _parked_run(**kwargs) -> Run:
+def _parked_run(iv: Interrupt | None = None) -> Run:
     run = Run(run_id="r", task="t")
-    assert run.park_for_approval(_call(), "req-9", **kwargs)
+    assert run.park(iv or Interrupt.from_result(_suspended_result(), _call()))
     return run
 
 
-def test_default_park_reads_back_as_approve():
+def test_approval_park_carries_the_staged_call_and_the_request():
     run = _parked_run()
-    it = run.interrupt()
-    assert it is not None and it.kind is InterruptKind.APPROVE
-    assert it.request_id == "req-9"
+    iv = run.interrupt
+    assert iv is not None and iv.kind is InterruptKind.APPROVE
+    assert iv.request_id == "req-9"
+    assert run.pending_approval_id == "req-9"
+    staged = iv.staged_call()
+    assert staged is not None and staged.name == "do_thing"
 
 
 def test_another_kind_of_wait_is_just_payload():
-    run = _parked_run(
-        interrupt=Interrupt(InterruptKind.NEED_INPUT, "req-3", {"question": "which account?"})
-    )
-    it = run.interrupt()
-    assert it is not None and it.kind is InterruptKind.NEED_INPUT
-    assert it.payload["question"] == "which account?"
+    run = _parked_run(Interrupt(InterruptKind.NEED_INPUT, "req-3", {"question": "which account?"}))
+    iv = run.interrupt
+    assert iv is not None and iv.kind is InterruptKind.NEED_INPUT
+    assert iv.payload["question"] == "which account?"
 
 
-def test_old_checkpoints_read_back_as_the_historical_kind():
+def test_taking_the_interrupt_consumes_the_whole_park():
+    run = _parked_run(Interrupt(InterruptKind.AWAIT_EXTERNAL, "req-4", {"event": "webhook"}))
+    iv = run.take_interrupt()
+    assert iv is not None and iv.request_id == "req-4"
+    assert run.interrupt is None
+    assert run.pending_approval_id is None
+
+
+def test_a_second_suspension_never_moves_the_first_park():
     run = _parked_run()
-    run.pending_interrupt = None  # strip the wire field a legacy dict lacks
-    it = run.interrupt()
-    assert it is not None and it.kind is InterruptKind.APPROVE
-
-
-def test_a_handoff_park_is_a_transfer_not_an_interrupt():
-    run = _parked_run()
-    assert run.interrupt() is not None
-    run.pending_tool_call = None
-    assert run.interrupt() is None
-
-
-def test_clearing_the_park_clears_the_interrupt():
-    run = _parked_run(
-        interrupt=Interrupt(InterruptKind.AWAIT_EXTERNAL, "req-4", {"event": "webhook"})
-    )
-    park = run.clear_approval_park()
-    assert park is not None and park.request_id == "req-9"
-    assert run.interrupt() is None
-    assert run.pending_interrupt is None
+    assert run.park(Interrupt(InterruptKind.NEED_INPUT, "req-2", {})) is False
+    assert run.interrupt is not None and run.interrupt.request_id == "req-9"
 
 
 def test_park_wire_roundtrip_keeps_the_kind():
-    from prodagent.kernel.run import Run as RunCls
-
-    run = _parked_run(interrupt=Interrupt(InterruptKind.NEED_INPUT, "req-5", {"q": "how many?"}))
-    restored = RunCls.from_dict(run.to_dict())
-    it = restored.interrupt()
-    assert it is not None and it.kind is InterruptKind.NEED_INPUT
-    assert it.payload == {"q": "how many?"}
+    run = _parked_run(Interrupt(InterruptKind.NEED_INPUT, "req-5", {"q": "how many?"}))
+    restored = Run.from_dict(run.to_dict())
+    iv = restored.interrupt
+    assert iv is not None and iv.kind is InterruptKind.NEED_INPUT
+    assert iv.payload == {"q": "how many?"}
 
 
 # ── the door table ───────────────────────────────────────────────────────────
@@ -121,13 +114,11 @@ def test_suspended_cannot_fail_directly():
         run.fail("changed my mind")
 
 
-def test_suspended_ends_by_handoff_door():
-    from prodagent.kernel.run import PendingHandoff
-
+def test_suspension_clears_by_resume_not_by_transfer():
     run = Run(run_id="r4", task="t")
     run.suspend("waiting on approval")
-    assert run.park_handoff(PendingHandoff(peer_name="peer", task="carry on"))
-    assert run.state is RunState.COMPLETED
+    run.resume()
+    assert run.state is RunState.RUNNING
 
 
 def test_terminal_re_settle_is_idempotent_not_a_transition():
@@ -148,8 +139,8 @@ def test_late_governance_veto_fails_a_completed_run():
 
 
 async def test_await_external_park_through_the_engine():
-    plan = compile_planned(
-        [
+    plan = Plan(
+        nodes=[
             Node(node_id="entry", body=FnBody(fn="entry"), is_terminal=True),
         ]
     )
@@ -168,11 +159,11 @@ async def test_await_external_park_through_the_engine():
     )
     async for event in scheduler.stream("task"):
         terminal = event
-    # the run parked, the frozen action carries the external wait
+    # the run parked, the interrupt names the wait and the parked node
     assert terminal.run.state.value == "suspended"
-    park = terminal.run.resume_point()
-    assert park is not None and park.call.name == "entry"
-    it = terminal.run.interrupt()
-    assert it is not None
-    assert it.kind is InterruptKind.AWAIT_EXTERNAL
-    assert it.payload["reason"] == "waiting on the payment webhook"
+    iv = terminal.run.interrupt
+    assert iv is not None
+    assert iv.kind is InterruptKind.AWAIT_EXTERNAL
+    assert iv.payload["reason"] == "waiting on the payment webhook"
+    assert iv.node_id == "entry"
+    assert iv.staged_call() is not None and iv.staged_call().name == "entry"

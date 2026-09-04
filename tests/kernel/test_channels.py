@@ -25,7 +25,7 @@ from prodagent.kernel.channels import (
     last,
 )
 from prodagent.kernel.command import Update
-from prodagent.kernel.graph import Node, Plan, compile_planned
+from prodagent.kernel.graph import Node, Plan
 from prodagent.kernel.scheduler import Scheduler
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -117,8 +117,8 @@ def test_wave_writes_allow_many_writers_on_order_independent_rules():
 
 
 def _one_wave_plan() -> Plan:
-    return compile_planned(
-        [
+    return Plan(
+        nodes=[
             Node(node_id="only", body=FnBody(fn="only"), is_terminal=True),
         ]
     )
@@ -162,8 +162,8 @@ async def _drive(scheduler: Scheduler):
 
 def _fan_plan() -> Plan:
     """Two independent writers (one wave) then a reader (next wave)."""
-    return compile_planned(
-        [
+    return Plan(
+        nodes=[
             Node(node_id="w1", body=FnBody(fn="w1")),
             Node(node_id="w2", body=FnBody(fn="w2")),
             Node(
@@ -216,8 +216,8 @@ async def test_same_wave_reader_sees_the_wave_start_snapshot():
     """w2 runs in w1's wave and reads the channel: it must see the wave-start
     value (the init), never w1's not-yet-folded write."""
 
-    plan = compile_planned(
-        [
+    plan = Plan(
+        nodes=[
             Node(node_id="w1", body=FnBody(fn="w1")),
             Node(
                 node_id="w2",
@@ -260,8 +260,8 @@ async def test_two_same_wave_writers_on_a_last_channel_fail_closed():
 
 
 async def test_single_writer_on_a_last_channel_lands():
-    plan = compile_planned(
-        [
+    plan = Plan(
+        nodes=[
             Node(node_id="w1", body=FnBody(fn="w1")),
             Node(
                 node_id="sink",

@@ -276,9 +276,6 @@ class HookEvent(StrEnum):
     NODE_FAILED = "node.failed"
 
     SKILL_LOAD = "skill.load"
-    AGENT_SPAWN = "agent.spawn"
-    AGENT_RESULT = "agent.result"
-    PEER_HANDOFF = "peer.handoff"
 
     LEARNING_SYNTHESIZE = "learning.synthesize"
 

@@ -19,12 +19,12 @@ Two vocabularies live beside the interface:
   context (that split is what keeps checkpoints clean — the context is never
   serialized, so it may hold engines and dispatchers).
 
-Control is explicit and binary: :class:`Return` (call-return — the caller
-keeps control; this is spawn's semantics) or :class:`Handoff` (control
-really transfers and does not come back; this is peer's semantics). A
-delegate that wants the caller to resume says ``Return``; one that wants to
-take over the rest of the run says ``Handoff``. There is no third meaning
-hiding in a return code.
+Control flow is commands, and commands only: a body that wants to merge
+state returns an ``Update`` in its value, one that wants a requeue returns
+a ``Goto``, one that transfers control to a peer returns a
+:class:`~prodagent.kernel.command.Handoff`. There is no second control
+vocabulary beside the commands and no third meaning hiding in a return
+code.
 
 Declarative-and-serializable discipline carries over unchanged from the
 declaration layer: a *declaration* (names and prompts, the wire form) plus a
@@ -36,7 +36,7 @@ is name-plus-extras, resolved against the registry at bind time.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from prodagent.base.errors import NON_RETRYABLE_REASONS, ErrorReason
 from prodagent.kernel.types import (
@@ -84,7 +84,7 @@ class LLMInvoker(Protocol):
 
 class SubagentInvoker(Protocol):
     """One child-agent activation, as seen from the kernel: name and task in,
-    a :class:`~prodagent.runtime.compose.ChildResult`-shaped dict out.
+    a :class:`~prodagent.runtime.delegate.ChildResult`-shaped dict out.
     Parentage, depth, the chained ledger and the location the child runs at
     are all the composition root's business — this is the activation port
     (column 26) in its narrowest kernel-facing form."""
@@ -126,62 +126,19 @@ class NodeBody(Protocol):
 # ════════════ the outcome ════════════
 
 
-@dataclass(frozen=True, slots=True)
-class Return:
-    """Call-return: control comes back to the caller (spawn's semantics).
-
-    The bare marker — there is nothing to configure about giving control
-    back."""
-
-
-@dataclass(frozen=True, slots=True)
-class Handoff:
-    """Control transfers to ``target`` and does not come back (peer's
-    semantics): the sender's execution ends here, the target carries the
-    chain.
-
-    ``target`` is a live NodeBody reference inside one process. Crossing a
-    run or process boundary lowers this to the serializable activation
-    descriptor (target becomes a registry *name*) — the handoff vocabulary
-    is kernel-level, the wire form is port-level, and the two never mix.
-    ``carry`` says how much state travels: the full run state, or a
-    filtered projection."""
-
-    target: NodeBody
-    carry: Literal["full", "filtered"] = "full"
-
-
-Control = Return | Handoff
-"""The explicit either/or a run's finish commits to. No default hiding."""
-
-
-HANDOFF_ESCAPED = "__handoff_escaped__"
-"""Sentinel ``Outcome.value`` for a caller abandoned mid-call by a handoff.
-
-When a handoff bubbles up through an as_tool boundary, the abandoned
-caller's own run cannot continue far enough to produce a meaningful value;
-its Outcome carries this sentinel so drivers can tell "finished with this"
-apart from "control left through me" (ruling 4 of REFACTOR-PLAN.md)."""
-
-
 @dataclass(slots=True)
 class Outcome:
     """What one body's run produces.
 
-    ``value`` is the result the caller asked for. ``state_delta`` merges
-    into the run's shared state under the declared reducer rules (a key
-    written twice must say how — same discipline as ``Update``).
-    ``control`` is the explicit return/handoff choice; ``Return`` is the
-    default because delegation is the common case and taking over must be
-    announced."""
+    ``value`` is the result the caller asked for — and when it IS a
+    command (``Update``/``Goto``/``Send``/``Handoff``), the command is
+    the outcome: the driver extracts it and the data value is empty.
+    ``state_delta`` merges into the run's shared state under the declared
+    reducer rules (a key written twice must say how — same discipline as
+    ``Update``)."""
 
     value: Any = None
     state_delta: dict[str, Any] = field(default_factory=dict)
-    control: Control = field(default_factory=Return)
-
-    def escaped(self) -> bool:
-        """Did a handoff unwind through this outcome's producer?"""
-        return bool(self.value == HANDOFF_ESCAPED)
 
 
 # ════════════ raw→Outcome coercion ════════════
@@ -317,38 +274,11 @@ class NodeContext:
             self.emit(event)
 
 
-# ════════════ the registry metadata ════════════
-
-
-@dataclass(frozen=True, slots=True)
-class BodyMeta:
-    """Registry metadata for a body — how it is named and what it costs.
-
-    ``is_agentic`` is the heavy/light flag the scheduler uses for budget
-    and parallelism decisions: True means this body may burn model budget
-    (an agent, a loop body). Unknown bodies default to True — treat
-    unlabelled as expensive; the cheap case announces itself.
-
-    ``readonly`` is the wave-discipline flag: True runs concurrently in a
-    wave, False serializes with other writers, None defers to the tool
-    registry's metadata (the tool-body case) and defaults to serial."""
-
-    name: str
-    description: str = ""
-    is_agentic: bool = True
-    readonly: bool | None = None
-
-
 __all__ = [
     "NodeBody",
     "Outcome",
-    "Return",
-    "Handoff",
-    "Control",
-    "HANDOFF_ESCAPED",
     "NodeContext",
     "StreamingBody",
-    "BodyMeta",
     "ToolExecutor",
     "LLMInvoker",
     "SubagentInvoker",

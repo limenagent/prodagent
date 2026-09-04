@@ -14,7 +14,7 @@ import json
 from typing import Any
 
 from prodagent.kernel.bodies import ToolBody
-from prodagent.kernel.graph import Node, Plan, compile_planned
+from prodagent.kernel.graph import Node, Plan
 
 
 def preset_plan(steps: str | dict[str, Any]) -> Plan:
@@ -23,8 +23,8 @@ def preset_plan(steps: str | dict[str, Any]) -> Plan:
     if isinstance(steps, str):
         steps = json.loads(steps)
     raw = steps.get("steps", steps) if isinstance(steps, dict) else steps
-    return compile_planned(
-        [
+    return Plan(
+        nodes=[
             Node(
                 node_id=str(s["id"]),
                 body=ToolBody(tool=str(s["action"])),

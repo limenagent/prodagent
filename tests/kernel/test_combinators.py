@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 
 from prodagent.kernel.bodies import NodeKind
-from prodagent.kernel.body import Handoff, NodeContext, Outcome
+from prodagent.kernel.body import NodeContext, Outcome
 from prodagent.kernel.combinators import (
     AnyOf,
     Custom,
@@ -26,6 +26,7 @@ from prodagent.kernel.combinators import (
     Route,
     Sequential,
 )
+from prodagent.kernel.command import Handoff
 
 
 class _Const:
@@ -45,7 +46,9 @@ class _Const:
 
     async def run(self, input: Any, ctx: NodeContext) -> Outcome:
         if self.handoff_to is not None:
-            return Outcome(value=None, state_delta=self.delta, control=Handoff(self.handoff_to))
+            # The command convention: a Handoff command returned AS the value
+            # is the outcome (there is no separate control field).
+            return Outcome(value=Handoff(peer=self.handoff_to), state_delta=self.delta)
         return Outcome(value=self.value, state_delta=self.delta)
 
 
@@ -82,8 +85,8 @@ class TestSequential:
         tail = _Const("never")
         seq = Sequential(_Const("first"), _Const("x", handoff_to=_Const("peer")), tail)
         outcome = await seq.run(None, _ctx())
-        assert isinstance(outcome.control, Handoff)
-        assert outcome.value == "first", "the value amassed before the taker ran survives"
+        assert isinstance(outcome.value, Handoff)
+        assert outcome.state_delta == {}, "no tail ran to fold anything in"
 
     async def test_state_deltas_fold_one_level_up(self):
         seq = Sequential(_Const(1, delta={"a": 1}), _Const(2, delta={"b": 2}))
@@ -157,7 +160,7 @@ class TestParallel:
         outcome = await Parallel(_Const("a"), _Const("x", handoff_to=_Const("peer"))).run(
             None, _ctx()
         )
-        assert isinstance(outcome.control, Handoff)
+        assert isinstance(outcome.value, Handoff)
 
     def test_compiled_form_is_a_barrier(self):
         g = Parallel(_Add(1), _Add(2)).graph()
@@ -234,7 +237,7 @@ class TestLoop:
     async def test_handoff_escapes_the_loop(self):
         loop = Loop(_Const("x", handoff_to=_Const("peer")), until=lambda view: True)
         outcome = await loop.run(0, _ctx())
-        assert isinstance(outcome.control, Handoff)
+        assert isinstance(outcome.value, Handoff)
 
     def test_loop_compiles_to_a_back_edge(self):
         """Ruling 2 reversed: cycles are legal, so Loop compiles — the body,

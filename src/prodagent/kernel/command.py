@@ -13,6 +13,11 @@ Two live commands:
   next wave. Structure still comes from the graph (back edges carry the
   loops you can draw statically); goto is for the directions only the
   running data — or the model — can pick.
+- **Handoff(peer, task)** — transfer control to a peer agent (peer
+  semantics): the peer joins the current plan as a fresh node (the
+  scheduler instantiates it, Send-style) and carries the chain from the
+  next wave. The sender completes; the run never ends mid-chain — the
+  plan cursor is the only resume point.
 
 Because commands are frozen, serializable data, every application lands
 in the event log, replays in the fold, and audits — dynamic control
@@ -29,6 +34,7 @@ __all__ = [
     "Update",
     "Goto",
     "Send",
+    "Handoff",
     "WAIT",
     "REDUCERS",
     "resolve_reducer_name",
@@ -133,6 +139,22 @@ WAIT = "__wait__"
 
 
 @dataclass(frozen=True)
+class Handoff(Command):
+    """Transfer control to a peer agent (peer semantics): the peer joins
+    the current plan as a fresh, terminal node and carries the chain from
+    the next wave. The sender completes normally; the run keeps going —
+    one run walks the whole chain, and the plan cursor is the only resume
+    point. The peer is resolved by NAME at apply time (names, never live
+    objects — the composition root's resolver turns it into a body)."""
+
+    peer: str
+    task: str = ""
+
+    def to_wire(self) -> dict[str, Any]:
+        return {"handoff": {"peer": self.peer, "task": self.task}}
+
+
+@dataclass(frozen=True)
 class Send(Command):
     """Instantiate one copy of a template node (column 17's dynamic
     fan-out): the count is runtime data, so the sender returns one Send per
@@ -171,4 +193,9 @@ def command_from_wire(d: dict[str, Any]) -> Command | None:
             return Goto(target=str(target))
     if (send := d.get("send")) is not None and isinstance(send, dict) and send.get("template"):
         return Send(template=str(send["template"]), payload=dict(send.get("payload") or {}))
+    # Only the dict form is a Handoff command — the bool form (`{"handoff":
+    # True, ...}`) is the tool-result marker and must fall through to the
+    # tool-result coercion, not become a command.
+    if isinstance((hf := d.get("handoff")), dict) and hf.get("peer"):
+        return Handoff(peer=str(hf["peer"]), task=str(hf.get("task", "")))
     return None

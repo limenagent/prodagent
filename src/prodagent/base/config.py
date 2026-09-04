@@ -2,7 +2,7 @@
 
 One object so "what this agent runs on" can be read, diffed, and swapped as
 a value. ``profile`` is the key every default-resolution site consults —
-and only ``runtime/compose.py`` reads it, so bare vs production can never
+and only ``backends/factory.py`` reads it, so bare vs production can never
 silently disagree (see docs/topics/foundation.md).
 """
 
@@ -128,7 +128,7 @@ def production(framework_config: FrameworkConfig | None = None) -> FrameworkConf
     the HITL approval gate for HIGH side-effect tools, the LLM response
     cache, and context compression + tool-result spill — everything the bare
     kernel leaves out, restored in one call. The consumer side — exactly
-    what these flags attach — is the manifest in ``runtime/compose.py``.
+    what these flags attach — is the manifest in ``hooks/bundles/base.py``.
     """
     fw = framework_config or FrameworkConfig.from_env()
     fw.profile = "production"  # the key every default-resolution site reads

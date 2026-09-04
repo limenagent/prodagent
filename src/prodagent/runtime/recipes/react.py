@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from prodagent.kernel.body import NodeContext, Outcome
 from prodagent.kernel.channels import append, last
-from prodagent.kernel.graph import Node, Plan, compile_planned
+from prodagent.kernel.graph import Node, Plan
 
 if TYPE_CHECKING:
     from prodagent.kernel.types import ToolCall
@@ -122,8 +122,8 @@ def build_react_plan(*, system: str = "", tools: tuple[Any, ...] = ()) -> Plan:
     conditional edge (no pending calls ⇒ the tools edge waives ⇒ the loop
     ends). ``messages`` is the append channel; ``pending_tool_calls`` is the
     last-writer control the conditional edge reads."""
-    plan = compile_planned(
-        [
+    plan = Plan(
+        nodes=[
             Node(node_id="think", body=ThinkBody(system=system, tools=tools), is_terminal=True),
             Node(node_id="tools", body=ToolsBody()),
         ]

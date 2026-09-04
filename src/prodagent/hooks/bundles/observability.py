@@ -56,7 +56,6 @@ class SpanObserverHooks:
             HookEvent.LOOP_END: self.on_loop_end,
             HookEvent.TOOL_CALL: self.on_tool_call,
             HookEvent.TOOL_RESULT: self.on_tool_result,
-            HookEvent.AGENT_SPAWN: self.on_agent_spawn,
             HookEvent.SESSION_END: self.on_session_end,
         }
 
@@ -130,14 +129,6 @@ class SpanObserverHooks:
             name,
             span.latency_ms,
         )
-
-    async def on_agent_spawn(
-        self, *, name: str = "", task: str = "", run_id: str = "", **_: Any
-    ) -> None:
-        span = self._audit.span(
-            run_id, f"spawn:{name}", {"task": task[:120]}, trace_id=self._run_traces.get(run_id)
-        )
-        await self._audit.record(span)
 
     async def on_instant(self, *, event_name: str = "", run_id: str = "", **data: Any) -> None:
         if not run_id:

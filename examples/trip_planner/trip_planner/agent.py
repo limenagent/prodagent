@@ -44,20 +44,28 @@ from trip_planner.peer_agents import (
     restaurant_peer_agent,
     transport_peer_agent,
 )
-from trip_planner.workflow import build_trip_workflow
 
 _BASE = Path(__file__).parent
 SKILLS_DIR = _BASE / "skills"
 
 _SYSTEM_PROMPT = """\
-你是旅行规划编排 agent。Workflow 已经把 DAG 写死:
-  parse_prefs → [itinerary ‖ restaurant ‖ transport] → merge_budget → weather_adjust → final
+你是旅行规划编排 agent。用户给一段自由文本需求,你产出完整行程。
 
-你不需要生成 plan —— workflow 编译成 Plan,直接执行。s1/s5/s6/s7 是真 LLM
-节点,s2/s3/s4 委派给 3 个 peer 子 agent(并行 spawn)。
+流程(ReAct):
+1. 第一轮: 从需求里解析结构化偏好(duration/budget/cities/interests/origin),
+   写进 task,并在同一个 turn 内发出全部三个 spawn_agent 调用
+   (不要等一个再调下一个):
+   spawn_agent(name='itinerary', task=<偏好+排行程+选酒店要求>)
+   spawn_agent(name='restaurant', task=<偏好+按城市订餐要求>)
+   spawn_agent(name='transport', task=<往返航班+城际火车要求>)
+2. 三个 spawn_agent 的工具结果就是三份 JSON 报告,直接读。
+3. 合并与收尾由你自己完成(不再委派):
+   - 预算检查: 住宿+餐厅+交通 vs 用户预算,超支要给调整建议;
+   - 天气: 雨天活动替换成室内;
+   - 最终报告: 每天 城市/酒店/餐厅/活动/交通 + 总花费 vs 预算。
 
-预置记忆里有用户偏好(拉面/漫画/酒店靠近车站),recall 会注入到 peer 的
-task 里,让 restaurant peer 知道订拉面店。
+预置记忆里有用户偏好(拉面/漫画/酒店靠近车站),recall 会注入到子 agent 的
+task 里,让 restaurant 子 agent 知道订拉面店。
 """
 
 
@@ -86,7 +94,6 @@ def build_trip_planner_agent(
     itinerary = itinerary_peer_agent()
     restaurant = restaurant_peer_agent()
     transport = transport_peer_agent()
-    wf = build_trip_workflow(itinerary, restaurant, transport)
 
     llm: RoutingFakeLLM | None = build_fake_llm() if use_fake_llm() else None
 
@@ -94,7 +101,6 @@ def build_trip_planner_agent(
         "trip_planner",
         system_prompt=_SYSTEM_PROMPT,
         tools=[],
-        workflow=wf,
         budget=HardBudget(max_turns=25, max_cost_usd=1.5, max_seconds=900.0),
         config=AgentConfig(
             name="trip_planner",

@@ -29,7 +29,7 @@ Kernel (mechanism):
   Event Log  the truth; State = fold(events)
 ```
 
-The kernel knows no vendor and no "mode". ReAct, plan-first, multi-agent — all are **recipes composed from kernel primitives** at the application layer. `runtime/recipes/` (`LoopBody`, `react`) are the reference implementations.
+The kernel knows no vendor and no "mode". ReAct, plan-first, multi-agent — all are **recipes composed from kernel primitives** at the application layer. `runtime/recipes/` (`LoopBody`, `react`) are the reference implementations. The framework never drafts an execution graph from a task: an Agent is ReAct by default (agent-as-unit); plan-and-resolve is composed by you, at the application layer, from kernel primitives (see `compliance_audit`).
 
 ---
 
@@ -133,7 +133,7 @@ Seven runnable examples under `examples/`:
 - `greeter` — minimal skeleton
 - `trader` / `deep_research` / `code_detective` — ReAct loops
 - `compliance_audit` — **plan-and-resolve from kernel primitives** + HITL approval
-- `trip_planner` — Workflow graph + delegation + memory
+- `trip_planner` — ReAct orchestration + parallel spawn delegation + memory
 - `aiops` — tool-level approval + orchestration
 
 ---

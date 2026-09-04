@@ -18,7 +18,29 @@ class HookBundle(Protocol):
 
 
 def default_hook_bundles(fw: FrameworkConfig | None = None) -> list[HookBundle]:
-    """Delegate — the manifest itself lives in the assembly root."""
-    from prodagent.runtime.compose import default_bundles
+    """The profile's bundle manifest — what ``attach_default_hooks`` wires.
 
-    return default_bundles(fw)
+    The bare profile stays silent: console is opt-in via env/flag — no
+    observer, no span export, no approval gate. The production profile
+    restores the full stack. (Bundle selection by profile is decided HERE,
+    once — feature wiring never branches on profile.)
+
+    Learning is NOT in the manifest, by ruling (2026-09-04): a configured
+    ``skills=`` registry means the agent LOADS runbooks via ``get_skill`` —
+    it must never WRITE skills as a silent side effect. The closed learning
+    loop is opt-in: ``extensions=[LearningHooks(...)]``."""
+    from prodagent.hooks.bundles.default_wiring import (
+        ApprovalDefaultBundle,
+        CacheMonitorDefaultBundle,
+        ConsoleDefaultBundle,
+        SpanDefaultBundle,
+    )
+
+    if fw is None or fw.profile == "bare":
+        return [ConsoleDefaultBundle()]
+    return [
+        ConsoleDefaultBundle(),
+        CacheMonitorDefaultBundle(),
+        SpanDefaultBundle(),
+        ApprovalDefaultBundle(),
+    ]

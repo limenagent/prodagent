@@ -8,12 +8,9 @@ the process; cross-restart durability is the production profile's
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
 
 from prodagent.base.errors import VersionConflict
-
-if TYPE_CHECKING:
-    from prodagent.kernel.run import Run
+from prodagent.kernel.run import Run
 
 __all__ = ["InMemoryCheckpointStore"]
 
@@ -43,12 +40,27 @@ class InMemoryCheckpointStore:
                     f"expected {expected_version}, stored {stored_version}."
                 )
             run.checkpoint_version = stored_version + 1
-            self._runs[run.run_id] = run
+            # Snapshot semantics, same as the file backend: what is stored is
+            # the run AS SAVED, never a live reference — a caller mutating the
+            # run afterwards (resume() flipping a suspension, a retry clearing
+            # a park) must not rewrite history it already persisted.
+            self._runs[run.run_id] = Run.from_dict(run.to_dict())
             self._versions[run.run_id] = run.checkpoint_version
 
     async def load(self, run_id: str, version: int | None = None) -> Run | None:
         async with self._lock:
-            return self._runs.get(run_id)
+            stored = self._runs.get(run_id)
+            if stored is None:
+                return None
+            # A load is a read: hand out a copy (the file backend's
+            # deserialization guarantees the same), so the caller's in-place
+            # mutations — resume() flipping a suspension, a retry clearing a
+            # park — cannot alias the store. The store's version rides back
+            # on the run, exactly as FileCheckpointStore.load does, so the
+            # next save's optimistic check starts from the truth.
+            loaded = Run.from_dict(stored.to_dict())
+            loaded.checkpoint_version = self._versions.get(run_id, 0)
+            return loaded
 
     async def list_run_ids(self) -> list[str]:
         async with self._lock:

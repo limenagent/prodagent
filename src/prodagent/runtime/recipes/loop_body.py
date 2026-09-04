@@ -56,18 +56,36 @@ class LoopDriver(Protocol):
 class LoopBody:
     """L3 — a think-act loop as one node's body: rounds of model calls and
     tool batches until the model says done. The loop lives *inside* the
-    body; from the scheduler's view this is still just one node."""
+    body; from the scheduler's view this is still just one node.
+
+    ``peer`` names whose loop this body drives: "" is the agent this
+    scheduler was built for; a name asks the wiring bag's ``PeerEngines``
+    factory for that peer's driver (built on first handoff) — the
+    graph-native handoff runs a peer hop as a node of THIS run, not as a
+    second run."""
 
     kind = "loop"
     goal: str = ""
+    peer: str = ""
     readonly = False
     drives_run = True
 
     @property
     def target(self) -> str:
-        return "loop"
+        return self.peer or "loop"
 
-    def _driver(self, ctx: NodeContext) -> LoopDriver:
+    async def _driver(self, ctx: NodeContext) -> LoopDriver:
+        if self.peer:
+            from prodagent.runtime.delegate import PEER_ENGINES_KEY
+
+            engines = ctx.wiring.get(PEER_ENGINES_KEY)
+            if engines is None:
+                raise RuntimeError(
+                    f"peer loop node {self.peer!r}: no peer-engine factory on "
+                    "this context's wiring — the composition root must "
+                    f"register it under {PEER_ENGINES_KEY!r}."
+                )
+            return await engines.driver_for(self.peer)  # type: ignore[no-any-return]
         driver = ctx.wiring.get(LOOP_DRIVER_KEY)
         if driver is None:
             raise RuntimeError(
@@ -78,14 +96,15 @@ class LoopBody:
             )
         return driver  # type: ignore[no-any-return]
 
-    def run_stream(
+    async def run_stream(
         self, input: ToolCall, ctx: NodeContext, box: list[Outcome]
     ) -> AsyncGenerator[AgentEvent, None]:
         """The loop's native form: rounds as they happen, one Outcome boxed."""
-        driver = self._driver(ctx)
+        driver = await self._driver(ctx)
         if ctx.run is None:
             raise RuntimeError("loop node: no live run on this context to drive.")
-        return self._drive(driver, ctx, input, box)
+        async for event in self._drive(driver, ctx, input, box):
+            yield event
 
     async def _drive(
         self, driver: LoopDriver, ctx: NodeContext, input: ToolCall, box: list[Outcome]
@@ -102,7 +121,11 @@ class LoopBody:
                 yield event
             box.append(Outcome(value=driver.outcome_of(ctx.run, goal_scope=True)))
             return
-        async for event in driver.drive(ctx.run):
+        # A handoff's task seeds the transcript (idempotently, via the
+        # driver's goal seeding) and the peer's finish settles the RUN —
+        # the chain's last link carries the ending.
+        task = str(input.params.get("task") or "")
+        async for event in driver.drive(ctx.run, goal=task or None, settle_run=True):
             yield event
         box.append(Outcome(value=driver.outcome_of(ctx.run)))
 

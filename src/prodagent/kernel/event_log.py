@@ -23,7 +23,7 @@ from prodagent.base.event_log import (
 )
 from prodagent.kernel.bus import save_and_fire_checkpoint
 from prodagent.kernel.graph import node_wire_dict
-from prodagent.kernel.run import SchedulerCursor
+from prodagent.kernel.run import MARKER_TAIL_CURSOR, SchedulerCursor
 
 if TYPE_CHECKING:
     from prodagent.kernel.bus import HookRegistry
@@ -70,9 +70,6 @@ def apply_event(state: dict[str, Any], event: Event) -> None:
             if (s := steps.get(event.data.get("node_id", ""))) is not None:
                 s["status"] = "failed"
                 s["error"] = event.data.get("error")
-        case PlanEventType.NODE_SUSPENDED:
-            if (s := steps.get(event.data.get("node_id", ""))) is not None:
-                s["status"] = "suspended"
         case PlanEventType.NODE_REQUEUED:
             # The cycle engine's requeue, replayed: back to never-run, the
             # old output is stale the moment the node re-executes.
@@ -165,6 +162,19 @@ class PlanEventLog:
             ),
             empty_state=lambda: {"nodes": {}, "version": 0},
         )
+        events = await self._events.get_events(run.run_id)
+        real_tail = events[-1].seq if events else 0
+        if last_seq > real_tail:
+            # The log is BEHIND the snapshot (a non-durable tracking log, a
+            # truncated one): the snapshot is the truth, and the next
+            # append's tail-check starts from what the store actually has —
+            # a resumed run must not expect seqs that were never kept.
+            last_seq = real_tail
+        stored_marker_tail = int(run.cursor(MARKER_TAIL_CURSOR, 0) or 0)
+        if stored_marker_tail > real_tail:
+            # Same clamp for the loop recipe's marker box — the two boxes
+            # hold one tail, so neither may expect a seq the store lost.
+            run.set_cursor(MARKER_TAIL_CURSOR, real_tail)
         run.checkpoint_version = max(run.checkpoint_version, ckpt_version)
         _set_plan(run, state=_plan_state(run), last_seq=max(_plan_last_seq(run), last_seq))
         stored = await self._checkpoints.load(run.run_id)
@@ -177,8 +187,9 @@ class PlanEventLog:
         run.retry_counter = dict(stored.retry_counter)
         run.fingerprints = list(stored.fingerprints)
         run.idempotency_seq = stored.idempotency_seq
-        if stored.pending_approval_id:
-            run.pending_approval_id = stored.pending_approval_id
+        # The park fact rides the stored run — one fact, restored whole
+        # (staged call, request id, parked node), never re-derived.
+        run.interrupt = stored.interrupt
         return state
 
     async def record_plan_created(self, plan: Plan, run: Run) -> int:
@@ -226,20 +237,6 @@ class PlanEventLog:
             plan.version,
             node_id=node_id,
             error=error,
-        )
-
-    async def record_node_suspended(
-        self,
-        plan: Plan,
-        run: Run,
-        node_id: str,
-    ) -> int:
-        return await self._record(
-            run,
-            PlanEventType.NODE_SUSPENDED,
-            plan.version,
-            node_id=node_id,
-            checkpoint_plan=plan,
         )
 
     async def record_node_requeued(
@@ -308,7 +305,10 @@ class PlanEventLog:
         )
 
     async def save_snapshot(self, run: Run, *, plan: Plan | None = None) -> None:
-        """No node event to record, but ``pending_approval_id`` must survive a resume (HITL-suspended plan)."""
+        """No node event to record, but the run's park fact (``interrupt``)
+        must survive a resume — and a mid-graph park takes the fresh plan
+        snapshot with it, so the resumed process re-enters the parked node
+        with everything it knew."""
         async with self._lock:
             if plan is not None:
                 _set_plan(run, state=plan.to_state(run.node_states), last_seq=_plan_last_seq(run))
@@ -332,9 +332,12 @@ class PlanEventLog:
             seq = await append_expected(
                 self._events,
                 Event.make(event_type, stream_id=run.run_id, version=version, **data),
-                tail_seq=_plan_last_seq(run),
+                tail_seq=run.marker_tail(),
             )
-            _set_plan(run, state=_plan_state(run), last_seq=seq)
+            # The tail is shared property: advancing it moves the loop
+            # recipe's marker box too, so the next round marker expects
+            # what this append actually left on the stream.
+            run.advance_marker_tail(seq)
             if checkpoint_plan is not None:
                 _set_plan(
                     run,

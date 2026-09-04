@@ -93,7 +93,7 @@ class CachingLLMClient:
         self._framework_config = framework_config
 
     def _resolve_store(self) -> Any:
-        """Late-resolve the store on first use — lets compose wrap the LLM
+        """Late-resolve the store on first use — lets the driver wrap the LLM
         before backends exist, without paying factory work when every call
         misses anyway."""
         if self._store is None:
@@ -145,7 +145,7 @@ class CachingLLMClient:
         return response
 
     def unwrap(self) -> LLMClient:
-        """Peel the wrapper — compose uses this to avoid double-wrapping."""
+        """Peel the wrapper — the driver uses this to avoid double-wrapping."""
         return self._inner
 
 

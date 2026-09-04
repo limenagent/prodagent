@@ -39,30 +39,27 @@ def terminal_event(run: Run) -> AgentEvent:
 
 def finalize_run(run: Run, plan: Plan | None) -> None:
     """Settle the run's final output. Priority: the plan's designated
-    terminal node (``is_terminal=True``) speaks for the plan; without one,
+    terminal node (``is_terminal=True``) speaks for the plan — when several
+    have completed (a handoff chain grew later terminals), the LATEST one
+    speaks: the chain's last link carries the ending. Without a terminal,
     the last node to complete does — in a DAG, output flows downhill, so
-    the sink is the answer. A pending handoff keeps the handoff message:
-    the peer continues the story, this run's output is not the ending."""
+    the sink is the answer."""
     if run.state is RunState.RUNNING:
         run.complete()
-    if run.pending_handoff is not None:
-        return
     if plan is None:
         return
 
     states = run.node_states
-    terminal = next(
-        (
-            states[n.node_id].output_ref
-            for n in plan.nodes.values()
-            if n.is_terminal
-            and n.node_id in states
-            and states[n.node_id].status is NodeStatus.COMPLETED
-        ),
-        None,
-    )
-    if terminal is not None:
-        run.final_output = format_node_output(terminal)
+    terminals = [
+        n
+        for n in plan.nodes.values()
+        if n.is_terminal
+        and n.node_id in states
+        and states[n.node_id].status is NodeStatus.COMPLETED
+    ]
+    if terminals:
+        latest = max(terminals, key=lambda n: states[n.node_id].completed_at)
+        run.final_output = format_node_output(states[latest.node_id].output_ref)
         return
 
     sink = select_terminal_node(plan, run)

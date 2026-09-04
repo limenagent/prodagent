@@ -1,11 +1,10 @@
 """Execution and scheduling vocabulary — who runs next, and where.
 
-Contents: ``HandoffActivation`` describes the next hop of a peer chain (pure
-data the relay returns, the driver interprets); ``Executor`` is the one
-engine's contract (the Scheduler implements it); ``AgentSpec`` is the
-serializable projection of an agent. The old ``AgentActivation``/``RunnerPort``
-execution-location port left with the message plane — in-process activation
-is just fork + drive, no port needed.
+Contents: ``Executor`` is the one engine's contract (the Scheduler
+implements it); ``AgentSpec`` is the serializable projection of an agent.
+The ``HandoffActivation`` relay descriptor left with the relay — a handoff
+is a command the scheduler applies to the plan, so there is no next-hop
+descriptor to pass across a port.
 """
 
 from __future__ import annotations
@@ -20,24 +19,6 @@ if TYPE_CHECKING:
     from prodagent.base.types import JsonDict
     from prodagent.kernel.budget import HardBudget
     from prodagent.kernel.types import AgentEvent
-
-# ════════════ from runner.py ════════════
-
-
-@dataclass(frozen=True)
-class HandoffActivation:
-    """The next hop of a peer chain, as pure data — wire-ready by construction.
-
-    A relay decides *whether* and *where* the chain continues; interpreting
-    this descriptor (peer lookup, fork, hop context) is the chain driver's
-    job, so coordination never constructs runtime objects."""
-
-    peer_name: str
-    task: str
-    run_id: str
-    parent_run_id: str | None = None
-    depth: int = 0
-
 
 # ════════════ from leaf_executor.py ════════════
 

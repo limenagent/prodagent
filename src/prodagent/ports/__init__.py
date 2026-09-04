@@ -26,7 +26,7 @@ from prodagent.ports.agent_events import (
     event_to_wire,
 )
 from prodagent.ports.budget_ledger import BudgetLedgerPort, SpendView
-from prodagent.ports.execution import AgentSpec, Executor, HandoffActivation
+from prodagent.ports.execution import AgentSpec, Executor
 from prodagent.ports.llm import LLMClient
 from prodagent.ports.observability import (
     ApprovalStore,
@@ -67,7 +67,6 @@ __all__ = [
     "RunSuspendedEvent",
     "event_from_wire",
     "event_to_wire",
-    "HandoffActivation",
     "Executor",
     "LLMClient",
     "LockStore",

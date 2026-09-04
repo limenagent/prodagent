@@ -1,18 +1,17 @@
 """Trip Planner FakeLLM 脚本 —— 路由机制用框架的 ``RoutingFakeLLM``。
 
-父 agent + 3 个 peer 共享 LLM,但每个需要不同的响应。RoutingFakeLLM 嗅探
+主 agent + 3 个子 agent 共享 LLM,但每个需要不同的响应。RoutingFakeLLM 嗅探
 system prompt 里的 ``# {name} Agent``,分发到该 agent 的 per-call 队列。
 
-每个 peer 2 turn(工具调用 → JSON 总结),父 agent 在 workflow 模式下不调 LLM
-生成 plan(workflow 编译成 Plan),所以 LLM 调用全部来自 ``wf.llm_step`` 和
-peer agent 的 ReAct 循环。
+主 agent 是单 ReAct,2 turn:第一轮同 turn 发出三个 spawn_agent 委派,第二轮
+读回三份 JSON 报告后自己合成最终行程(预算检查 + 天气调整 + 报告)。
+每个子 agent 2 turn(工具调用 → JSON 总结)。
 
-各步 LLM 调用来源:
-  - s1/s5/s6/s7: workflow ``wf.llm_step`` —— system 是 ``_PARSE_SYSTEM`` /
-    ``_MERGE_SYSTEM`` / ``_WEATHER_SYSTEM`` / ``_FINAL_SYSTEM``,不在 routing
-    范围内,走 default 队列(按调用顺序取)。
-  - s2/s3/s4: peer agent 的 ReAct —— system 是 ``# itinerary Agent`` /
-    ``# restaurant Agent`` / ``# transport Agent``,走各自队列。
+LLM 调用来源:
+  - trip_planner: ReAct 主循环 —— system 是 ``# trip_planner Agent``,走
+    ``trip_planner`` 队列。
+  - itinerary / restaurant / transport: 各自的 ReAct —— system 是
+    ``# {name} Agent``,走各自队列。
 """
 
 from __future__ import annotations
@@ -59,24 +58,33 @@ _TRANSPORT_JSON = (
 )
 
 
-# ── 父 agent(workflow llm_step)的 4 个响应:s1 parse / s5 merge / s6 weather / s7 final ──
+# ── 主 agent(trip_planner)的 2 个响应:同 turn spawn×3 → 合成最终行程 ──
 
-_PARSE_JSON = (
-    '{"duration_days":7,"budget":15000,"cities":["tokyo","osaka","kyoto"],'
-    '"interests":["ramen","manga"],"origin":"PVG"}'
-)
 
-_MERGE_JSON = (
-    '{"over_budget":false,"total_cost":144500,"budget":150000,'
-    '"suggestion":"预算充裕 —— 酒店占 108000,餐厅 27000,交通 9500。可加一次温泉体验。"}'
-)
+def _spawn_trip_calls() -> list[ToolCall]:
+    """第一轮:三个子 agent 委派,同一个 turn 内全部发出。"""
+    prefs = (
+        "duration_days=7, budget=15000, cities=[tokyo, osaka, kyoto], "
+        "interests=[ramen, manga], origin=PVG"
+    )
+    return [
+        ToolCall(
+            name="spawn_agent",
+            params={"name": "itinerary", "task": f"按偏好排 7 天行程并选酒店: {prefs}"},
+            call_id="sp1",
+        ),
+        ToolCall(
+            name="spawn_agent",
+            params={"name": "restaurant", "task": f"按偏好为每天订餐厅(ramen 优先): {prefs}"},
+            call_id="sp2",
+        ),
+        ToolCall(
+            name="spawn_agent",
+            params={"name": "transport", "task": f"往返航班 + 城际火车: {prefs}"},
+            call_id="sp3",
+        ),
+    ]
 
-_WEATHER_JSON = (
-    '{"adjusted":true,"changes":['
-    '{"day":2,"city":"tokyo","from":"明治神宫(室外)","to":"teamLab Borderless(室内)"},'
-    '{"day":6,"city":"osaka","from":"环球影城(室外)","to":"海游馆(室内)"}'
-    '],"final_itinerary":"调整后:Day2 室内,Day6 室内"}'
-)
 
 _FINAL_MARKDOWN = (
     "# 日本 7 天行程\n\n"
@@ -100,17 +108,19 @@ _FINAL_MARKDOWN = (
 def build_fake_llm() -> RoutingFakeLLM:
     """构建带 per-agent 脚本的 routing FakeLLM。
 
-    父 agent(workflow llm_step)按调用顺序取 4 个响应:parse → merge → weather → final。
-    3 个 peer 各 2 turn:工具调用 → JSON 总结。
+    主 agent 2 turn:spawn×3 → 合成最终行程。3 个子 agent 各 2 turn:
+    工具调用 → JSON 总结。
     """
     llm = RoutingFakeLLM()
 
-    # ── 父 agent —— workflow llm_step 的 4 次调用 ──
-    llm.set_default([
-        LLMResponse(content=_PARSE_JSON, stop_reason="end_turn"),    # s1 parse
-        LLMResponse(content=_MERGE_JSON, stop_reason="end_turn"),    # s5 merge
-        LLMResponse(content=_WEATHER_JSON, stop_reason="end_turn"),  # s6 weather
-        LLMResponse(content=_FINAL_MARKDOWN, stop_reason="end_turn"),  # s7 final
+    # ── 主 agent —— ReAct 的 2 轮 ──
+    llm.add("trip_planner", [
+        LLMResponse(
+            content="解析完成,并行委派三个子 agent。",
+            tool_calls=_spawn_trip_calls(),
+            stop_reason="tool_use",
+        ),
+        LLMResponse(content=_FINAL_MARKDOWN, stop_reason="end_turn"),
     ])
 
     # ── itinerary peer —— 2 turn ──

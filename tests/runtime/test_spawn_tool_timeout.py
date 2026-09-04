@@ -12,8 +12,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from prodagent import Agent
-from prodagent.runtime.compose import DEFAULT_TIMEOUT_S, assemble_peer_tools, assemble_spawn_tools
-from prodagent.runtime.config import AgentConfig
+from prodagent.runtime.config import DEFAULT_TIMEOUT_S, AgentConfig
+from prodagent.runtime.tools import assemble_peer_tools, assemble_spawn_tools
 
 
 def _parent_with_child() -> Agent:

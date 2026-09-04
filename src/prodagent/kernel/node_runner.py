@@ -4,8 +4,8 @@ A node is to PLAN_FIRST what a tool round is to REACTIVE, and it funnels
 into the same throat: the identical dispatcher pipeline (approval gate,
 hooks, breaker, spill truncation), so policy behaves the same in both
 execution modes. What is plan-specific is the outcome algebra — a tool
-result maps onto one of four node outcomes (success / failed / suspended /
-handoff) — and the parking rules for the last two live behind one lock so
+result maps onto one of three node outcomes (success / failed / suspended)
+— and the parking rule for the last one lives behind one lock so
 concurrently-gathered nodes can't double-park a run.
 
 Progress writes go through :class:`NodeRuntimeState`'s single-entry
@@ -18,10 +18,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from prodagent.base.determinism import new_uuid4
 from prodagent.base.errors import (
     BudgetExceeded,
     InfiniteLoopDetected,
@@ -31,7 +30,6 @@ from prodagent.base.errors import (
 )
 from prodagent.kernel.bodies import ToolBody
 from prodagent.kernel.body import (
-    Handoff,
     LLMInvoker,
     NodeContext,
     Outcome,
@@ -41,9 +39,8 @@ from prodagent.kernel.body import (
 )
 from prodagent.kernel.bus import HookEvent
 from prodagent.kernel.bus import fire as _fire
-from prodagent.kernel.command import Command, command_from_wire
-from prodagent.kernel.interrupt import Interrupt, InterruptKind
-from prodagent.kernel.run import PendingHandoff, Run
+from prodagent.kernel.command import Command, Handoff, command_from_wire
+from prodagent.kernel.interrupt import Interrupt
 from prodagent.kernel.types import (
     Message,
     NodeStatus,
@@ -61,6 +58,7 @@ if TYPE_CHECKING:
     from prodagent.kernel.event_log import PlanEventLog
     from prodagent.kernel.graph import Node, Plan
     from prodagent.kernel.node_state import NodeRuntimeState
+    from prodagent.kernel.run import Run
     from prodagent.kernel.types import AgentEvent
     from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -71,7 +69,6 @@ __all__ = [
     "NodeSuccess",
     "NodeFailed",
     "NodeSuspended",
-    "NodeHandoff",
     "NodeOutcome",
 ]
 
@@ -151,41 +148,7 @@ class NodeSuspended:
     call: ToolCall
 
 
-@dataclass(frozen=True, slots=True)
-class NodeHandoff:
-    node: Node
-    handoff: PendingHandoff
-    call: ToolCall
-
-
-NodeOutcome = NodeSuccess | NodeFailed | NodeSuspended | NodeHandoff
-
-
-def _name_of(target: Any) -> str:
-    """The wire name of a live Handoff target (roster name or unit target)."""
-    name = getattr(target, "name", None) or getattr(target, "target", "")
-    if not name:
-        raise ValueError(
-            "Handoff target carries no name — hand off by name (a registry key) "
-            "or give the unit a name; a nameless unit cannot cross the boundary"
-        )
-    return str(name)
-
-
-def _interrupt_of(result: ToolResult) -> Interrupt:
-    """Column 20's vocabulary from a suspended ToolResult: an explicit kind
-    wins; an approval id means approve; anything else let go of the process
-    awaiting the world (await_external). The reason rides the payload."""
-    kind = (
-        InterruptKind(result.interrupt_kind)
-        if result.interrupt_kind
-        else (InterruptKind.APPROVE if result.approval_request_id else InterruptKind.AWAIT_EXTERNAL)
-    )
-    return Interrupt(
-        kind=kind,
-        request_id=result.approval_request_id,
-        payload={"reason": result.reason, "tool": str(result.tool)},
-    )
+NodeOutcome = NodeSuccess | NodeFailed | NodeSuspended
 
 
 class NodeRunner:
@@ -202,8 +165,10 @@ class NodeRunner:
         wiring: Mapping[str, Any] | None = None,
         fns: Mapping[str, Callable[..., Any]] | None = None,
         wave_writes: WaveWrites | None = None,
+        track_events: bool = True,
     ) -> None:
         self._log = log
+        self._track_events = track_events
         self._hooks = hooks
         self._agent_name = agent_name
         self._dispatcher = dispatcher
@@ -258,9 +223,9 @@ class NodeRunner:
 
         Never raises node failures (they return as :class:`NodeFailed` data);
         cancellation and *run-death* exceptions (budget exhausted, dead-loop)
-        escape — those end the run, not the node. SUSPENDED/HANDOFF park the
-        run before returning, which is what makes resume exact: the parked
-        call is retried, not re-planned."""
+        escape — those end the run, not the node. A SUSPENDED result parks
+        the run before returning, which is what makes resume exact: the
+        parked call is retried, not re-planned."""
         state = await self._start(node, plan, run)
         call = ToolCall(
             name=node.action,
@@ -279,17 +244,6 @@ class NodeRunner:
             call.params.setdefault(
                 "idempotency_key", f"{run.run_id}:{node.node_id}:a{state.attempts}"
             )
-        if run.pending_handoff is not None:
-            # A sibling in this batch already handed control away — this node
-            # never fires, so report a no-op success with nothing to commit.
-            outcome.append(
-                NodeSuccess(
-                    node=node,
-                    result=ToolResult(ToolOutcome.OK, tool=node.action),
-                    call=call,
-                )
-            )
-            return
         buffered: list[AgentEvent] = []
         ctx = self._make_ctx(node, run, buffered.append)
         streaming = getattr(node.body, "run_stream", None)
@@ -323,16 +277,6 @@ class NodeRunner:
                         "key must say how"
                     )
                 run.shared[key] = value
-            if isinstance(unit_outcome.control, Handoff):
-                # The kernel word for control transfer: park the run exactly
-                # like the tool-path HANDOFF does (run completes, the relay
-                # lowers to a HandoffActivation) — one mechanism, two doors.
-                target = unit_outcome.control.target
-                peer_name = target if isinstance(target, str) else _name_of(target)
-                await self._park_control_handoff(node, peer_name, unit_outcome, call, plan, run)
-                assert run.pending_handoff is not None
-                outcome.append(NodeHandoff(node=node, handoff=run.pending_handoff, call=call))
-                return
         except SuspendPendingApproval as exc:
             await self._park_suspended(
                 node,
@@ -371,10 +315,14 @@ class NodeRunner:
         result = coerce_result(None if commands else raw, tool=node.action)
 
         if result.outcome is ToolOutcome.HANDOFF:
-            await self._park_handoff(node, result, call, plan, run)
-            assert run.pending_handoff is not None  # parked above (or by a concurrent node)
-            outcome.append(NodeHandoff(node=node, handoff=run.pending_handoff, call=call))
-            return
+            # Control transfer lowers to a Handoff command: the scheduler
+            # instantiates the peer as the chain's next node, and THIS node
+            # completes normally with the handoff fact as its output.
+            h = result.handoff or {}
+            commands = (
+                *commands,
+                Handoff(peer=str(h.get("peer", "")), task=str(h.get("task", ""))),
+            )
 
         if result.outcome is ToolOutcome.SUSPENDED:
             # Park before returning: resume retries this exact call.
@@ -433,7 +381,7 @@ class NodeRunner:
         to PENDING (redo), never silently skipping it."""
         state = run.node_state(node.node_id)
         state.mark_running()
-        if self._log is not None:
+        if self._log is not None and self._track_events:
             await self._log.record_node_started(plan, run, node.node_id)
         await _fire(
             self._hooks,
@@ -455,8 +403,6 @@ class NodeRunner:
     ) -> Message | None:
         """Mark a node COMPLETED and return its transcript fragment."""
         async with self._commit_lock:
-            if run.pending_handoff is not None:
-                return None
             state = run.node_state(node.node_id)
             if state.status is not NodeStatus.RUNNING:
                 logger.info(
@@ -471,7 +417,7 @@ class NodeRunner:
                 # node commits the run's final output unwrapped and no fragment.
                 state.mark_completed(result.value)
                 logger.info("[Plan] node=%s run-driver → COMPLETED", node.node_id)
-                if self._log is not None:
+                if self._log is not None and self._track_events:
                     await self._log.record_node_completed(plan, run, node.node_id, result.value)
                 await _fire(
                     self._hooks,
@@ -485,7 +431,7 @@ class NodeRunner:
             wire = result.to_wire()
             state.mark_completed(wire)
             logger.info("[Plan] node=%s action=%s → COMPLETED", node.node_id, node.action)
-            if self._log is not None:
+            if self._log is not None and self._track_events:
                 await self._log.record_node_completed(plan, run, node.node_id, wire)
             await _fire(
                 self._hooks,
@@ -505,69 +451,6 @@ class NodeRunner:
                 "content": _to_message_content(wire),
             }
 
-    async def _park_handoff(
-        self,
-        node: Node,
-        result: ToolResult,
-        call: ToolCall,
-        plan: Plan,
-        run: Run,
-    ) -> None:
-        async with self._commit_lock:
-            if run.pending_handoff is None:
-                h = result.handoff or {}
-                peer = h.get("peer", "")
-                # First handoff wins across concurrently gathered nodes — the
-                # park method owns that invariant (and finishes the run).
-                if not run.park_handoff(
-                    PendingHandoff(
-                        peer_name=peer,
-                        task=h.get("task", ""),
-                        input_refs=dict(h.get("input_refs") or {}),
-                        message_id=new_uuid4(),
-                    )
-                ):
-                    return
-            state = run.node_state(node.node_id)
-            state.mark_completed(result.to_wire())
-            if self._log is not None:
-                await self._log.record_node_completed(plan, run, node.node_id, state.output_ref)
-            peer_name = run.pending_handoff.peer_name if run.pending_handoff else "?"
-            logger.info("[Plan] run handed off to peer=%s (node=%s)", peer_name, node.node_id)
-
-    async def _park_control_handoff(
-        self,
-        node: Node,
-        peer_name: str,
-        unit_outcome: Outcome,
-        call: ToolCall,
-        plan: Plan,
-        run: Run,
-    ) -> None:
-        """Park a run on an ``Outcome.control=Handoff`` — the kernel word,
-        same discipline as the tool path: first handoff wins, the node
-        completes, the relay takes over from here."""
-        async with self._commit_lock:
-            if run.pending_handoff is not None:
-                return  # a concurrent node already handed control away
-            task_value = unit_outcome.value
-            task = task_value if isinstance(task_value, str) else str(task_value or "")
-            run.park_handoff(
-                PendingHandoff(
-                    peer_name=peer_name,
-                    task=task,
-                    input_refs={},
-                    message_id=new_uuid4(),
-                )
-            )
-            state = run.node_state(node.node_id)
-            state.mark_completed({"state": "completed", "output": task})
-            if self._log is not None:
-                await self._log.record_node_completed(plan, run, node.node_id, state.output_ref)
-            logger.info(
-                "[Plan] run handed off (Outcome.control) to=%s (node=%s)", peer_name, node.node_id
-            )
-
     async def _park_suspended(
         self,
         node: Node,
@@ -577,21 +460,26 @@ class NodeRunner:
         run: Run,
     ) -> None:
         async with self._commit_lock:
-            # A handoff wins over a suspension; and only the first suspension
-            # parks its pending call, so a resumed run retries the right tool.
-            # A run already parked elsewhere (a run-driver's dispatcher did it)
-            # skips the park but still flips this node — resume must requeue it.
-            if run.state is not RunState.SUSPENDED and not run.park_for_approval(
-                call,
-                result.approval_request_id or None,
-                interrupt=_interrupt_of(result),
+            # Only the first suspension
+            # parks; a run already parked elsewhere (a run-driver's dispatcher
+            # did it) keeps that park — this layer refines it with the node
+            # identity the dispatcher could not know. The NODE keeps no
+            # suspended status: it stays RUNNING (mid-flight), which resume
+            # reads as "unknown partial state, redo" — the redo retries the
+            # staged call verbatim.
+            if run.state is not RunState.SUSPENDED and not run.park(
+                Interrupt.from_result(result, call)
             ):
                 return
-            run.node_state(node.node_id).suspend()
+            if run.interrupt is not None and not run.interrupt.node_id:
+                run.interrupt = replace(run.interrupt, node_id=node.node_id)
             if self._log is not None:
-                await self._log.record_node_suspended(plan, run, node.node_id)
+                # Park persists: a fresh plan snapshot under the interrupt —
+                # the resumed process redoes this node and retries the
+                # staged call.
+                await self._log.save_snapshot(run, plan=plan)
             logger.info(
-                "[Plan] run suspended pending approval: %s (node=%s, request_id=%s)",
+                "[Plan] run interrupted at %s (node=%s, request_id=%s)",
                 node.action,
                 node.node_id,
                 result.approval_request_id or "(none)",

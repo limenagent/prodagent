@@ -44,8 +44,18 @@ from prodagent.ports import (
 )
 
 
+def _production() -> FrameworkConfig:
+    fw = FrameworkConfig.default()
+    fw.profile = "production"
+    return fw
+
+
 def test_default_relational_picks_file():
-    cfg = FrameworkConfig.default()
+    """Production resolves durable state to the file backend; BARE leaves it
+    None — durability is opt-in via an explicit service, never a silent
+    default (the incident law: a backend you did not ask for must not
+    appear)."""
+    cfg = _production()
     assert cfg.backend.document == "file"
     assert cfg.backend.checkpoint == "file"
     assert cfg.backend.event_log == "file"
@@ -54,6 +64,11 @@ def test_default_relational_picks_file():
     assert isinstance(resolve_event_log(cfg), FileEventLog)
     assert isinstance(resolve_span_exporter(cfg), FileSpanExporter)
     assert isinstance(resolve_document(cfg), FileDocumentStore)
+    bare = FrameworkConfig.default()
+    assert resolve_checkpoint(bare) is None
+    assert resolve_event_log(bare) is None
+    # an explicit service wins at any profile
+    assert resolve_checkpoint(bare, explicit=object.__new__(FileCheckpointStore)) is not None
 
 
 def test_default_ephemeral_picks_memory():
@@ -73,7 +88,7 @@ def test_default_graph_picks_file():
 
 
 def test_resolvers_return_protocol_instances():
-    cfg = FrameworkConfig.default()
+    cfg = _production()
     assert isinstance(resolve_checkpoint(cfg), CheckpointStore)
     assert isinstance(resolve_event_log(cfg), EventLog)
     assert isinstance(resolve_approval(cfg), ApprovalStore)
@@ -84,7 +99,8 @@ def test_resolvers_return_protocol_instances():
 
 
 def test_none_config_uses_default():
-    assert isinstance(resolve_checkpoint(None), FileCheckpointStore)
+    assert resolve_checkpoint(None) is None  # default profile is bare
+    assert isinstance(resolve_checkpoint(_production()), FileCheckpointStore)
     assert isinstance(resolve_cache(None), InMemoryCache)
 
 
@@ -135,7 +151,8 @@ def test_redis_namespace_is_threaded_through():
 
 def test_unknown_relational_backend_raises():
     """An unknown backend kind raises NotImplementedError (not silent fallthrough)."""
-    cfg = FrameworkConfig(backend=BackendConfig(checkpoint="postgres"))
+    cfg = FrameworkConfig.default()
+    cfg.profile = "production"  # bare short-circuits before the kind check
     object.__setattr__(cfg.backend, "checkpoint", "sqlite")  # type: ignore[attr-defined]
     with pytest.raises(NotImplementedError, match="sqlite"):
         resolve_checkpoint(cfg)

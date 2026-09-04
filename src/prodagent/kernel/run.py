@@ -11,12 +11,11 @@ from typing_extensions import TypeVar
 from prodagent.base.codec import dump, load
 from prodagent.base.determinism import now_monotonic, now_wall
 from prodagent.base.errors import ClassifiedError, ErrorLayer, IllegalTransition, classify_error
-from prodagent.kernel.interrupt import Interrupt, InterruptKind
+from prodagent.kernel.interrupt import Interrupt
 from prodagent.kernel.node_state import NodeRuntimeState
 from prodagent.kernel.types import (
     LLMResponse,
     MessageList,
-    NodeStatus,
     RunCompletedEvent,
     RunFailedEvent,
     RunState,
@@ -36,16 +35,27 @@ CHILD_SEPARATOR = "::"
 
 _TERMINAL_ERROR = "run ended without a terminal event"
 
-RUN_SCHEMA_VERSION = 2
+MARKER_TAIL_CURSOR = "terminal"
+"""The boxed cursor key holding the loop recipe's marker tail (round and
+terminal markers). Plan events interleave with those markers on the SAME
+stream (``<run_id>``), and the plan cursor's ``last_seq`` tracks that
+stream too — so the one tail is kept in both boxes, advanced in lockstep
+through :meth:`Run.advance_marker_tail` and read as one number through
+:meth:`Run.marker_tail`. (The ``reactive`` key survives only as the v1
+migration target in :func:`_cursors_from_dict`.)"""
+
+RUN_SCHEMA_VERSION = 3
 """Serialization format of ``Run.to_dict``. Bumped when the dict shape
 changes in a way old loaders would misread. A checkpoint written by a newer
 schema loads best-effort (fields it doesn't know are ignored); readers warn
 on a higher version rather than refusing — a checkpoint that loads wrong is
 recoverable, one that refuses to load is not.
 
-v2 boxes the per-executor resumption tails into one ``cursors`` section
-(v1 carried them flat: ``plan_state`` / ``plan_last_seq`` /
-``last_event_seq``); v1 checkpoints migrate on load."""
+v3 replaces the three pending_* park fields with ONE ``interrupt`` fact (no
+legacy mapping — an older checkpoint reads as not parked). v2 boxed the
+per-executor resumption tails into one ``cursors`` section (v1 carried them
+flat: ``plan_state`` / ``plan_last_seq`` / ``last_event_seq``); v1
+checkpoints migrate on load."""
 
 
 def is_child_run_id(run_id: str) -> bool:
@@ -83,62 +93,17 @@ def child_run_id(parent_run_id: str, child_name: str) -> str:
 
 
 def is_child_subordinate(run: Run) -> bool:
-    """Child-agent run whose side-effects are owned by the parent (not a peer continuation)."""
-    return run.parent_run_id is not None and not run.is_peer_continuation
+    """Spawned child run: its side-effects and flushes are owned by the parent."""
+    return run.parent_run_id is not None
 
 
-@dataclass
-class PendingHandoff:
-    """A run's pending transfer of control to a peer agent."""
-
-    peer_name: str
-    task: str
-    input_refs: dict[str, str] = field(default_factory=dict)
-    prior_output: str = ""
-    peer_run_id: str | None = None
-    message_id: str = ""
-    """Identity of the relay crossing — minted once when the handoff tool
-    fires, reused by the relay (and by crash-replay suppression). Checkpoints
-    written before this field existed load with "" and mint at relay time."""
-
-    def to_dict(self) -> JsonDict:
-        return dump(self)
-
-    @classmethod
-    def from_dict(cls, d: JsonDict | None) -> PendingHandoff | None:
-        if d is None:
-            return None
-        if isinstance(d, PendingHandoff):
-            return d
-        return load(cls, d)
-
-
-# ── Resume points — where a run is parked awaiting the world ─────────────────
+# ── Parks — where a run is stopped awaiting the world ────────────────────────
 #
-# A run parks in exactly one of two situations: awaiting HITL approval
-# (retry this exact call once approved) or awaiting a peer relay (this run is
-# finished, control transfers). The storage is three nullable fields (kept
-# for checkpoint compatibility); the invariant — at most one logically
-# active park, handoff outranking approval — is enforced by the park methods
-# below and read through the typed :meth:`Run.resume_point` view.
-
-
-@dataclass(frozen=True, slots=True)
-class AwaitingApproval:
-    """Paused mid-batch: retry this exact call once the decision arrives."""
-
-    call: ToolCall
-    request_id: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class AwaitingHandoff:
-    """Control transfers to a peer; this run is finished."""
-
-    handoff: PendingHandoff
-
-
-ResumePoint = AwaitingApproval | AwaitingHandoff | None
+# A run parks in exactly one situation: an Interrupt (HITL approval, a
+# question, an external wait) — ONE durable fact on this object, not a
+# family of fields. Control transfer is NOT a park — a handoff is a command
+# the scheduler applies to the plan, so the plan cursor is the chain's
+# resume point, never a field here.
 
 
 def _cursors_from_dict(d: JsonDict) -> dict[str, Any]:
@@ -166,6 +131,12 @@ def _toolcall_from_dict(d: ToolCall | JsonDict) -> ToolCall:
     if isinstance(d, ToolCall):
         return d
     return ToolCall.from_dict(d)
+
+
+def _interrupt_from_wire(d: JsonDict) -> Interrupt | None:
+    """Read the park fact off a checkpoint — no legacy mapping: a checkpoint
+    without the ``interrupt`` wire simply wasn't parked."""
+    return Interrupt.from_dict(d.get("interrupt"))
 
 
 @dataclass
@@ -264,13 +235,14 @@ class Run(Generic[_RunT]):
     retry_counter: dict[str, int] = field(default_factory=dict)
     fingerprints: list[str] = field(default_factory=list)
     idempotency_seq: int = 0
-    pending_tool_call: ToolCall | None = None
-    pending_approval_id: str | None = None
-    pending_interrupt: dict[str, Any] | None = None
-    """Wire form of the park's :class:`~prodagent.kernel.interrupt.Interrupt`
-    (kind + payload). Checkpoints written before the field existed load
-    ``None`` and read back as the historical kind (approve)."""
-    pending_handoff: PendingHandoff | None = None
+    interrupt: Interrupt | None = None
+    """The ONE durable park fact — what a suspended run is waiting on
+    (:class:`~prodagent.kernel.interrupt.Interrupt`: kind, request id, the
+    node it parked at, and the staged action in its payload). Not smeared
+    across fields: the frozen call is the payload of an approve, the
+    request id rides the fact, the parked node is a structural field.
+    Checkpoints written before this field existed upgrade on read from the
+    historical three-field wire."""
     last_error: str | None = None
     error: ClassifiedError | None = None
     cursors: dict[str, Any] = field(default_factory=dict)
@@ -278,8 +250,11 @@ class Run(Generic[_RunT]):
     here and the shape of its value (JSON-able; checkpointed as its own
     section so each mode's cursor evolves without touching this object or
     bumping anyone else's schema). Keys in use: ``plan`` (PlanEventLog —
-    ``{"state": JsonDict | None, "last_seq": int}``), ``reactive``
-    (the react engine's turn-marker tail seq — an int)."""
+    ``{"state": JsonDict | None, "last_seq": int}``) and ``terminal``
+    (the loop recipe's marker tail — an int); the two track ONE stream and
+    move together through :meth:`marker_tail` / :meth:`advance_marker_tail`.
+    ``reactive`` survives only as the v1 migration target in
+    :func:`_cursors_from_dict`."""
     node_states: dict[str, NodeRuntimeState] = field(default_factory=dict)
     """Per-node execution state — the mutable half of every Node in the plan
     this run executes. The blueprint stays static and shareable; progress
@@ -294,7 +269,6 @@ class Run(Generic[_RunT]):
 
     final_output: str | None = None
     structured_output: _RunT | None = None
-    is_peer_continuation: bool = False
 
     @property
     def turn_count(self) -> int:
@@ -333,12 +307,6 @@ class Run(Generic[_RunT]):
             st = NodeRuntimeState(node_id)
             self.node_states[node_id] = st
         return st
-
-    def requeue_suspended_nodes(self) -> None:
-        """Flip SUSPENDED nodes back to PENDING so they re-execute on resume."""
-        for st in self.node_states.values():
-            if st.status is NodeStatus.SUSPENDED:
-                st.reset_to_pending()
 
     # ── Terminal transitions — the single throat ────────────────────────────
     # State flips used to live in ~16 scattered assignments; the pairings
@@ -409,10 +377,10 @@ class Run(Generic[_RunT]):
             self.error = classify_error(reason, layer=ErrorLayer.RUNTIME)
 
     def suspend(self, reason: str = "") -> None:
-        """Transition to SUSPENDED — awaiting the world (HITL decision or a
-        relay). Softer pairing than the others: the plan-approval path
-        suspends without a parked call, so the invariant is "awaiting",
-        not "has a resume_point"."""
+        """Transition to SUSPENDED — awaiting the world (a HITL decision).
+        Softer pairing than the others: the plan-approval path suspends
+        before its interrupt fact lands, so the invariant is "awaiting",
+        not "has an interrupt"."""
         self._transition(RunState.SUSPENDED)
         if reason:
             self.last_error = reason
@@ -426,89 +394,35 @@ class Run(Generic[_RunT]):
 
     # ── Resume-point parking — the invariant's single home ──────────────────
 
-    def resume_point(self) -> ResumePoint:
-        """Typed view of where this run is parked, if anywhere.
+    @property
+    def pending_approval_id(self) -> str | None:
+        """The outstanding HITL request id — a derived READ of the park
+        fact, never stored separately (the approval-correlation surfaces —
+        gates, summaries, the playground — all mean "the interrupt's
+        request")."""
+        return self.interrupt.request_id if self.interrupt is not None else None
 
-        A handoff outranks an approval: if a racing batch parked both (only
-        the plan executor can), the chain continues at the peer and the
-        parked call is abandoned.
-        """
-        if self.pending_handoff is not None:
-            return AwaitingHandoff(self.pending_handoff)
-        if self.pending_tool_call is not None:
-            return AwaitingApproval(self.pending_tool_call, self.pending_approval_id)
-        return None
+    def park(self, interrupt: Interrupt) -> bool:
+        """Park awaiting the world on ``interrupt`` (column 20's letting-go).
 
-    def interrupt(self) -> Interrupt | None:
-        """What the park is waiting on, in column 20's vocabulary.
-
-        A handoff is a transfer, not an interrupt (control leaves for
-        good) — this view speaks only for the approval-shaped park. Old
-        checkpoints (no ``pending_interrupt`` wire) read back as the
-        historical kind: approve."""
-        if self.pending_handoff is not None or self.pending_tool_call is None:
-            return None
-        if self.pending_interrupt is not None:
-            return Interrupt.from_dict(self.pending_interrupt)
-        return Interrupt(
-            kind=InterruptKind.APPROVE,
-            request_id=self.pending_approval_id or "",
-            payload={},
-        )
-
-    def park_for_approval(
-        self,
-        call: ToolCall,
-        request_id: str | None,
-        *,
-        interrupt: Interrupt | None = None,
-    ) -> bool:
-        """Park awaiting the world on ``call`` (column 20's letting-go).
-
-        The default park is an approval; pass ``interrupt`` to park another
-        kind of wait (need_input / await_external) — the mechanism is one,
-        the kind is payload. Refuses — ``False``, nothing changes — when
-        the run is already parked (a pending handoff outranks an approval;
-        a second suspension never moves the first parked call). Callers
-        keep their own bookkeeping (history pruning, plan events) outside
-        this method.
-        """
-        if self.pending_handoff is not None or self.state is RunState.SUSPENDED:
+        Refuses — ``False``, nothing changes — when the run is already
+        parked (a second suspension never moves the first park; a node
+        refines the parked fact via ``dataclasses.replace`` instead).
+        Callers keep their own bookkeeping (history pruning, plan events)
+        outside this method."""
+        if self.state is RunState.SUSPENDED:
             return False
         self.suspend()
-        self.pending_tool_call = call
-        self.pending_approval_id = request_id
-        self.pending_interrupt = (
-            interrupt.to_dict()
-            if interrupt is not None
-            else {
-                "kind": InterruptKind.APPROVE.value,
-                "request_id": request_id or "",
-                "payload": {},
-            }
-        )
+        self.interrupt = interrupt
         return True
 
-    def park_handoff(self, handoff: PendingHandoff) -> bool:
-        """Park a peer transfer — first handoff wins. Overwrites an approval
-        park (a transfer outranks a pending decision) and finishes the run."""
-        if self.pending_handoff is not None:
-            return False
-        self.complete(f"Handed off to {handoff.peer_name}" if handoff.peer_name else "Handed off")
-        self.pending_handoff = handoff
-        return True
-
-    def clear_approval_park(self) -> AwaitingApproval | None:
-        """Consume the approval park — the resume path retries the returned
-        call once the decision is in (the frozen action, verbatim). Handoff
-        parks are consumed by the relay."""
-        if self.pending_tool_call is None:
-            return None
-        park = AwaitingApproval(self.pending_tool_call, self.pending_approval_id)
-        self.pending_tool_call = None
-        self.pending_approval_id = None
-        self.pending_interrupt = None
-        return park
+    def take_interrupt(self) -> Interrupt | None:
+        """Consume the park — the resume path re-drives from this fact (the
+        approval's staged call retries verbatim, never a re-ask of the
+        model)."""
+        iv = self.interrupt
+        self.interrupt = None
+        return iv
 
     def increment_retry(self, tool_name: str) -> int:
         c = self.retry_counter.get(tool_name, 0) + 1
@@ -534,6 +448,23 @@ class Run(Generic[_RunT]):
         """Write the plan executor's resumption tail (same wire shape as
         always — v1 checkpoints and this class agree on the dict)."""
         self.set_cursor("plan", cursor.to_wire())
+
+    def marker_tail(self) -> int:
+        """The marker stream's ONE tail seq (0 = empty).
+
+        Plan events and the loop recipe's round/terminal markers interleave
+        on the run's stream, so the plan cursor and the loop's own box must
+        never drift apart — a graph shape whose work node is a loop had the
+        plan tail at 4 while the loop's box sat at 0, and the first round
+        marker died on VersionConflict. ``max`` reads through a box that a
+        legacy checkpoint left half-advanced; every writer since keeps the
+        two in lockstep via :meth:`advance_marker_tail`."""
+        return max(self.plan_cursor().last_seq, int(self.cursor(MARKER_TAIL_CURSOR, 0) or 0))
+
+    def advance_marker_tail(self, seq: int) -> None:
+        """Record the tail an append returned — both boxes, one number."""
+        self.set_plan_cursor(SchedulerCursor(state=self.plan_cursor().state, last_seq=seq))
+        self.set_cursor(MARKER_TAIL_CURSOR, seq)
 
     def push_fingerprint(self, fp: str, *, window: int) -> int:
         """Append a tool-call fingerprint to the sliding window and return how
@@ -595,17 +526,11 @@ class Run(Generic[_RunT]):
             "retry_counter": dict(self.retry_counter),
             "fingerprints": list(self.fingerprints),
             "idempotency_seq": self.idempotency_seq,
-            "pending_tool_call": (
-                self.pending_tool_call.to_dict() if self.pending_tool_call else None
-            ),
-            "pending_approval_id": self.pending_approval_id,
-            "pending_interrupt": dict(self.pending_interrupt) if self.pending_interrupt else None,
-            "pending_handoff": self.pending_handoff.to_dict() if self.pending_handoff else None,
+            "interrupt": self.interrupt.to_dict() if self.interrupt is not None else None,
             "last_error": self.last_error,
             "error": self.error.to_dict() if self.error is not None else None,
             "cursors": dict(self.cursors),
             "shared": dict(self.shared),
-            "is_peer_continuation": self.is_peer_continuation,
         }
 
     @classmethod
@@ -637,19 +562,11 @@ class Run(Generic[_RunT]):
             retry_counter=dict(d.get("retry_counter", {})),
             fingerprints=list(d.get("fingerprints", [])),
             idempotency_seq=d.get("idempotency_seq", 0),
-            pending_tool_call=(
-                _toolcall_from_dict(d["pending_tool_call"]) if d.get("pending_tool_call") else None
-            ),
-            pending_approval_id=d.get("pending_approval_id"),
-            pending_interrupt=(
-                dict(d["pending_interrupt"]) if d.get("pending_interrupt") else None
-            ),
-            pending_handoff=PendingHandoff.from_dict(d.get("pending_handoff")),
+            interrupt=_interrupt_from_wire(d),
             last_error=d.get("last_error"),
             error=(
                 ClassifiedError.from_dict(d["error"]) if isinstance(d.get("error"), dict) else None
             ),
             cursors=_cursors_from_dict(d),
             shared=dict(d.get("shared") or {}),
-            is_peer_continuation=d.get("is_peer_continuation", False),
         )

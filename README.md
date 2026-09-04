@@ -47,7 +47,7 @@
   Event Log 唯一真相，State = fold(事件)
 ```
 
-内核不认任何厂商、任何「模式」。ReAct、plan-first、多 Agent 协作，都是**用内核原语在应用层拼出来的配方**——`runtime/recipes/` 里的 `LoopBody`、`react` 就是参考实现。
+内核不认任何厂商、任何「模式」。ReAct、plan-first、多 Agent 协作，都是**用内核原语在应用层拼出来的配方**——`runtime/recipes/` 里的 `LoopBody`、`react` 就是参考实现。框架不为任务起草执行图：默认 Agent 即 ReAct（agent-as-unit）；plan-and-resolve 由你在应用层用内核原语拼装（见 `compliance_audit`）。
 
 ---
 
@@ -160,7 +160,7 @@ pip install "prodagent[postgres,redis,neo4j]" # 生产后端
 - `greeter` — 最小骨架（Agent + @tool）
 - `trader` / `deep_research` / `code_detective` — ReAct 多轮（对话、探索、调试）
 - `compliance_audit` — **plan-and-resolve 用内核原语拼装**（plan 节点产清单 → work 节点执行）+ HITL 审批
-- `trip_planner` — Workflow 图 + 委派 + 长期记忆
+- `trip_planner` — ReAct 编排 + 并行 spawn 委派 + 长期记忆
 - `aiops` — 工具级审批 + 多工具编排
 
 ---

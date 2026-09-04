@@ -88,8 +88,9 @@ async def test_high_tool_suspends_without_approval_bundle():
     await _run_batch(runner, run, calls)
 
     assert run.state == RunState.SUSPENDED
-    assert run.pending_tool_call is not None
-    assert run.pending_tool_call.name == "page_oncall"
+    assert run.interrupt is not None
+    assert run.interrupt.staged_call() is not None
+    assert run.interrupt.staged_call().name == "page_oncall"
     assert not any(c.name == "page_oncall" for c in run.tool_history)
 
 
@@ -116,7 +117,7 @@ async def test_high_tool_suspends_leaves_no_tool_result():
     assert yielded_results[0].get("suspended") is True
     assert yielded_results[0].get("tool") == "critical_op"
     assert run.state == RunState.SUSPENDED
-    assert run.pending_tool_call is not None
+    assert run.interrupt is not None
 
 
 @pytest.mark.asyncio
@@ -175,8 +176,9 @@ async def test_high_tool_does_not_drop_prior_readonly_results():
         f"readonly result dropped on SUSPEND: {yielded_results}"
     )
     assert run.state == RunState.SUSPENDED
-    assert run.pending_tool_call is not None
-    assert run.pending_tool_call.name == "dangerous_write"
+    assert run.interrupt is not None
+    assert run.interrupt.staged_call() is not None
+    assert run.interrupt.staged_call().name == "dangerous_write"
     assert not any(c.name == "dangerous_write" for c in run.tool_history)
     assert any("42" in m.get("content", "") for m in run.messages if m.get("role") == "tool")
 

@@ -13,7 +13,7 @@ import pytest
 
 from prodagent.kernel.bodies import FnBody
 from prodagent.kernel.command import Update
-from prodagent.kernel.graph import Node, Plan, compile_planned
+from prodagent.kernel.graph import Node, Plan
 from prodagent.kernel.scheduler import Scheduler
 from prodagent.tooling.dispatcher import ToolDispatcher
 
@@ -37,8 +37,8 @@ async def _drive(scheduler: Scheduler):
 def _cycle_plan(rounds_key: str = "rounds") -> Plan:
     """entry → counter → tail, plus the back edge tail → counter that stays
     active while the counter's own count is below three."""
-    plan = compile_planned(
-        [
+    plan = Plan(
+        nodes=[
             Node(node_id="entry", body=FnBody(fn="entry")),
             Node(node_id="counter", body=FnBody(fn="counter"), depends_on=["entry"]),
             Node(node_id="tail", body=FnBody(fn="tail"), depends_on=["counter"]),
@@ -88,8 +88,8 @@ async def test_forward_edge_cascades_a_redo_to_completed_dependents():
     """A re-run source's completed dependents are stale — the forward edge
     requeues them (the spreadsheet redo), no goto needed."""
 
-    plan = compile_planned(
-        [
+    plan = Plan(
+        nodes=[
             Node(node_id="entry", body=FnBody(fn="entry")),
             Node(node_id="work", body=FnBody(fn="work"), depends_on=["entry"]),
             Node(node_id="sink", body=FnBody(fn="sink"), depends_on=["work"]),
@@ -116,8 +116,8 @@ async def test_forward_edge_cascades_a_redo_to_completed_dependents():
 
 
 async def test_goto_requeues_a_named_target_at_runtime():
-    plan = compile_planned(
-        [
+    plan = Plan(
+        nodes=[
             Node(node_id="entry", body=FnBody(fn="entry")),
             Node(node_id="router", body=FnBody(fn="router"), depends_on=["entry"]),
             Node(node_id="sink", body=FnBody(fn="sink"), depends_on=["router"]),
@@ -151,8 +151,8 @@ async def test_goto_requeues_a_named_target_at_runtime():
 async def test_goto_to_an_unknown_target_is_a_loud_error():
     from prodagent.kernel.command import Goto
 
-    plan = compile_planned(
-        [
+    plan = Plan(
+        nodes=[
             Node(node_id="entry", body=FnBody(fn="entry"), is_terminal=True),
         ]
     )
@@ -166,8 +166,8 @@ async def test_dead_loop_without_terminating_writes_is_detected():
     cap. Run-death settles the run (a terminal event, not a raise)."""
     from prodagent.kernel.types import RunFailedEvent
 
-    plan = compile_planned(
-        [
+    plan = Plan(
+        nodes=[
             Node(node_id="entry", body=FnBody(fn="entry")),
             Node(node_id="spin", body=FnBody(fn="spin"), depends_on=["entry"]),
             Node(node_id="tail", body=FnBody(fn="tail"), depends_on=["spin"]),

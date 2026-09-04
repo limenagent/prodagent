@@ -21,12 +21,13 @@ from typing import TYPE_CHECKING, Any
 
 from prodagent.base.blobs import DEFAULT_THRESHOLD_BYTES, spill_value
 from prodagent.base.config import ContextConfig, LoopConfig
-from prodagent.base.determinism import new_uuid4, now_wall
+from prodagent.base.determinism import now_wall
 from prodagent.base.errors import SECURITY_VETO_EXCEPTIONS, ErrorLayer, ErrorReason, classify_error
 from prodagent.base.event_log import BoundaryEventType, Event, boundary_stream
 from prodagent.base.retry import Backoff, RetryPolicy
 from prodagent.kernel.body import coerce_result
 from prodagent.kernel.bus import Gate, HookEvent
+from prodagent.kernel.interrupt import Interrupt
 from prodagent.kernel.types import (
     GET_SKILL_TOOL_NAME,
     SKILL_INJECTION_KEY,
@@ -244,7 +245,16 @@ class ToolDispatcher:
         deferred_injections: list[str],
         emitted: set[str] | None = None,
     ) -> bool:
-        if self._is_handoff(result, call, run):
+        if result.outcome is ToolOutcome.HANDOFF:
+            # Answer this call in the transcript — a dangling tool_use would
+            # break the chain's next model call — then stop the batch: the
+            # siblings are balance-marked, and the loop folds the handoff
+            # into its own outcome. Nothing parks here; control transfer is
+            # a command the scheduler applies to the plan.
+            run.messages.append(self.build_tool_message(result.to_wire(), call, run))
+            if emitted is not None:
+                emitted.add(call.call_id)
+            run.tool_history = [c for c in run.tool_history if c is not call]
             return True
         if self._is_suspended(result, call, run):
             return True
@@ -268,7 +278,7 @@ class ToolDispatcher:
         blocks lack tool_results, so every never-dispatched sibling gets an
         explicit skip marker; the early-terminating call itself (``keep``) is
         excluded — a suspended call is replayed on resume and a handoff call
-        is answered by the handoff path. Skipped calls also leave
+        was answered by the batch itself. Skipped calls also leave
         ``tool_history``: history records what actually ran."""
         for call in calls:
             if call is keep or call.call_id in emitted:
@@ -308,28 +318,12 @@ class ToolDispatcher:
         if result.outcome is ToolOutcome.SUSPENDED:
             # Batch discipline guarantees a single park here (suspension stops
             # the batch), so the bool is ignored — the method is the invariant.
-            run.park_for_approval(call, result.approval_request_id or None)
+            # The node identity, which this layer cannot know, is refined by
+            # the node runner's park site.
+            run.park(Interrupt.from_result(result, call))
             run.tool_history = [c for c in run.tool_history if c is not call]
             return True
         return False
-
-    @staticmethod
-    def _is_handoff(result: ToolResult, call: ToolCall, run: Run) -> bool:
-        if result.outcome is not ToolOutcome.HANDOFF:
-            return False
-        from prodagent.kernel.run import PendingHandoff
-
-        h = result.handoff or {}
-        run.park_handoff(
-            PendingHandoff(
-                peer_name=h.get("peer", ""),
-                task=h.get("task", ""),
-                input_refs=dict(h.get("input_refs") or {}),
-                message_id=new_uuid4(),
-            )
-        )
-        run.tool_history = [c for c in run.tool_history if c is not call]
-        return True
 
     @staticmethod
     def _coerce_outcome(outcome: Any, call: ToolCall, run: Run) -> ToolResult:

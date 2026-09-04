@@ -10,6 +10,7 @@ from prodagent.hooks.bundles.memory import MemoryHooks
 from prodagent.hooks.bundles.security import ApprovalHooks
 from prodagent.kernel.bus import HookRegistry
 from prodagent.llm.fake import script
+from prodagent.runtime.runner import find_approval_gate
 
 
 def test_find_approval_gate_returns_gate_via_protocol():
@@ -24,7 +25,7 @@ def test_find_approval_gate_returns_gate_via_protocol():
             extensions=[ApprovalHooks(gate=gate)],
         ),
     )
-    found = agent._find_approval_gate()
+    found = find_approval_gate(agent)
     assert found is gate
     assert isinstance(found, ApprovalProvider)
 
@@ -33,7 +34,7 @@ def test_find_approval_gate_returns_none_without_bundle():
     agent = Agent(
         name="t", system_prompt="x", config=AgentConfig(name="t", llm=script({"content": "ok"}))
     )
-    assert agent._find_approval_gate() is None
+    assert find_approval_gate(agent) is None
 
 
 def test_memory_manager_returns_manager_via_protocol(tmp_path):

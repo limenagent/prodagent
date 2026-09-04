@@ -21,12 +21,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, cast, runtime_checkable
 
 from prodagent.kernel.run import is_child_run_id
-from prodagent.kernel.types import RunState
 
 if TYPE_CHECKING:
     from prodagent.base.config import FrameworkConfig
     from prodagent.base.session import ConversationSession
     from prodagent.kernel.run import Run
+    from prodagent.kernel.types import RunState
     from prodagent.ports import CheckpointStore, SessionStore
     from prodagent.runtime.agent import Agent
 
@@ -266,7 +266,6 @@ class RunSummary:
     example: str
     state: RunState
     pending_approval_id: str | None
-    pending_handoff_peer: str | None
     final_output: str | None
     last_error: str | None
 
@@ -276,7 +275,6 @@ class RunSummary:
             "example": self.example,
             "state": self.state.value,
             "pending_approval_id": self.pending_approval_id,
-            "pending_handoff_peer": self.pending_handoff_peer,
             "final_output": self.final_output,
             "last_error": self.last_error,
         }
@@ -306,13 +304,19 @@ SessionStoreFactory = Callable[[ExampleSpec], "SessionStore"]
 def _default_checkpoint_factory(spec: ExampleSpec) -> CheckpointStore:
     from prodagent.backends.factory import resolve_checkpoint
 
-    return resolve_checkpoint(spec.framework_config)
+    store = resolve_checkpoint(spec.framework_config)
+    if store is None:  # unreachable: the playground is the production cockpit
+        raise RuntimeError(f"example {spec.name!r}: no checkpoint backend configured")
+    return store
 
 
 def _default_session_store_factory(spec: ExampleSpec) -> SessionStore:
     from prodagent.backends.factory import resolve_session_store
 
-    return resolve_session_store(spec.framework_config)
+    store = resolve_session_store(spec.framework_config)
+    if store is None:  # unreachable: the playground is the production cockpit
+        raise RuntimeError(f"example {spec.name!r}: no session backend configured")
+    return store
 
 
 class RunRegistry:
@@ -373,7 +377,7 @@ class RunRegistry:
         """Rebuild an agent for a run the process never saw — the stateless
         HTTP story. Any unrecognized run_id is chased back through session
         and checkpoint storage (every example, probed) and the factories
-        rebuilt from the discovered spec; a chain parked mid-relay resumes
+        rebuilt from the discovered spec; a suspended run resumes in place
         at the suspended peer instead of the root."""
         if not run_id:
             raise RunReconstructError("empty run_id", run_id, status_code=400)
@@ -403,12 +407,6 @@ class RunRegistry:
             raise RunReconstructError("unknown run", run_id, status_code=404)
 
         target_run_id = run.run_id
-        if run.state is not RunState.SUSPENDED and run.pending_handoff is not None:
-            # Root finished its hop and parked a handoff; the suspended PEER
-            # is where the chain actually continues — resume there.
-            peer_id = await self._resolve_suspended_peer(spec, run)
-            if peer_id is not None:
-                target_run_id = peer_id
 
         if spec.factory is None:
             raise RunReconstructError(
@@ -447,12 +445,6 @@ class RunRegistry:
                 continue
             summaries.extend(result)
         return summaries
-
-    async def _resolve_suspended_peer(self, spec: ExampleSpec, root: Run) -> str | None:
-        from prodagent.playground.resume_peer import resolve_suspended_peer_run_id
-
-        store = self.checkpoint_for(spec.name)
-        return await resolve_suspended_peer_run_id(store, str(root.run_id))
 
     async def _find(self, run_id: str) -> tuple[ExampleSpec | None, Run | None]:
         async def probe(spec: ExampleSpec) -> tuple[ExampleSpec, Run | None]:
@@ -518,13 +510,11 @@ class RunRegistry:
 
 
 def _summary_from(example: str, run: Run) -> RunSummary:
-    peer = run.pending_handoff.peer_name if run.pending_handoff else None
     return RunSummary(
         run_id=run.run_id,
         example=example,
         state=run.state,
         pending_approval_id=run.pending_approval_id,
-        pending_handoff_peer=peer,
         final_output=run.final_output,
         last_error=run.last_error,
     )

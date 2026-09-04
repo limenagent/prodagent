@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from prodagent.backends.file.checkpoint import FileCheckpointStore
@@ -11,6 +13,9 @@ from prodagent.base.event_log import (
 )
 from prodagent.kernel.event_log import apply_event
 from prodagent.kernel.run import Run
+
+if TYPE_CHECKING:
+    from prodagent.kernel.graph import Plan
 
 
 def _make(event_type: PlanEventType, stream_id: str = "p1", version: int = 1, **data) -> Event:
@@ -314,6 +319,83 @@ class TestExpectedSeq:
 
         with pytest.raises(VersionConflict):
             await worker_a.append(_make(PlanEventType.NODE_COMPLETED, node_id="s2"), expected_seq=1)
+
+
+class TestMarkerStreamTailUnity:
+    """Plan events and the loop recipe's round markers interleave on ONE
+    stream (a graph whose work node is a loop), so both writers must share
+    one tail. Regression for the 2026-09-04 aiops incident: the plan cursor
+    reached 4 while the loop's marker box sat at 0, and the work node's
+    first ROUND_COMPLETED died on ``expected tail seq 0 … found 4``."""
+
+    def _plan(self) -> Plan:
+        from prodagent.kernel.bodies import ToolBody
+        from prodagent.kernel.graph import Node, Origin, Plan
+
+        plan = Plan(plan_id="r1", origin=Origin.STATIC)
+        plan.add_nodes([Node(node_id="work", body=ToolBody(tool="t"), is_terminal=True)])
+        return plan
+
+    async def test_round_marker_after_plan_events_shares_one_tail(self, tmp_path):
+        from prodagent.base.event_log import RunEventType
+        from prodagent.kernel.event_log import PlanEventLog
+
+        pel = PlanEventLog(FileEventLog(tmp_path), FileCheckpointStore(tmp_path / "ckpt"))
+        run = Run(run_id="r1", task="t")
+        plan = self._plan()
+        await pel.record_plan_created(plan, run)
+        await pel.record_node_started(plan, run, "work")
+
+        # The append that died in the incident: the work node's first round
+        # marker must expect the plan events' tail, not its own box's 0.
+        seq = await pel.event_log.append(
+            Event.make(RunEventType.ROUND_COMPLETED, stream_id=run.run_id, version=0),
+            expected_seq=run.marker_tail(),
+        )
+        run.advance_marker_tail(seq)
+        assert seq == 3
+
+        # And the plan executor's next event still lands on top of it.
+        await pel.record_node_completed(plan, run, "work", {"result": "ok"})
+        assert run.marker_tail() == 4
+        assert [e.seq for e in await pel.event_log.get_events("r1")] == [1, 2, 3, 4]
+
+    async def test_plan_event_after_loop_markers_shares_one_tail(self, tmp_path):
+        from prodagent.base.event_log import RunEventType
+        from prodagent.kernel.event_log import PlanEventLog
+
+        pel = PlanEventLog(FileEventLog(tmp_path), FileCheckpointStore(tmp_path / "ckpt"))
+        run = Run(run_id="r1", task="t")
+        plan = self._plan()
+        await pel.record_plan_created(plan, run)
+
+        for _ in range(2):  # two loop rounds, advanced the way the loop does
+            seq = await pel.event_log.append(
+                Event.make(RunEventType.ROUND_COMPLETED, stream_id=run.run_id, version=0),
+                expected_seq=run.marker_tail(),
+            )
+            run.advance_marker_tail(seq)
+
+        await pel.record_node_started(plan, run, "work")
+        assert [e.seq for e in await pel.event_log.get_events("r1")] == [1, 2, 3, 4]
+        assert run.marker_tail() == 4
+
+    async def test_restore_clamps_a_marker_box_ahead_of_the_store(self, tmp_path):
+        from prodagent.kernel.event_log import PlanEventLog
+
+        log = FileEventLog(tmp_path)
+        cs = FileCheckpointStore(tmp_path / "ckpt")
+        await log.append(_make(PlanEventType.PLAN_CREATED, stream_id="r1"))
+
+        # The body-shape restore hands the STORED run back as the live one,
+        # box and all — here the box claims a tail the store never kept.
+        run = Run(run_id="r1", task="t")
+        run.set_cursor("terminal", 9)
+        await cs.save(run)
+
+        await PlanEventLog(log, cs).restore_plan(run)
+
+        assert run.marker_tail() == 1, "the next append must expect the real tail"
 
 
 class TestFileEventLogCrashDurability:

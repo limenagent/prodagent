@@ -199,8 +199,7 @@ class AppState:
         label: str,
     ) -> None:
         """Pump one run's event stream onto its SSE queue until a terminal
-        event lands. Handoff continuations are skipped here — the chain
-        driver owns them; this surface reports each hop's own ending."""
+        event lands."""
         ctx.driving = True
         try:
             async for event in stream_method(run_id=run_id):
@@ -218,8 +217,6 @@ class AppState:
                     )
                     return
                 if isinstance(event, RunCompletedEvent):
-                    if event.run.pending_handoff is not None:
-                        continue  # mid-chain hop completion — the chain's own ending follows
                     ctx.final_output = event.run.final_output
                     await ctx.queue.put(
                         {
