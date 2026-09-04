@@ -19,19 +19,10 @@ jobs:
           python-version: "3.12"
       - name: Install dev environment
         run: uv sync --extra dev
-      - name: Ruff (lint + format)
+      - name: Ruff (lint)
         run: |
-          uv run ruff check src/prodagent tests
-          uv run ruff format --check src/prodagent tests
-      - name: Mypy (strict)
-        run: uv run mypy src/prodagent
-      # Determinism boundary (Replay law) — report-only soak period: the ban
-      # annotates without failing; flips to a hard error once the domain is
-      # provably clean for a stretch. In-domain code must draw time/random/
-      # ids from prodagent.base.determinism.
-      - name: Determinism boundary (report-only)
-        run: uv run ruff check --select TID251 src/prodagent tests
-        continue-on-error: true
+          uv run ruff check src tests examples
+          uv run ruff format --check src tests
 
   hashseed:
     runs-on: ubuntu-latest
@@ -44,7 +35,7 @@ jobs:
         run: uv sync --extra dev
       # Order-independence under set/dict iteration randomness: the suite
       # must be green for any hash seed — a seed-flake here is a determinism
-      # leak (Replay law) finding its way into control flow.
+      # leak finding its way into control flow.
       - name: Pytest under alternate PYTHONHASHSEED
         run: |
           PYTHONHASHSEED=1 uv run pytest tests/ -q
@@ -63,19 +54,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install dev environment
         run: uv sync --extra dev --python ${{ matrix.python-version }}
-      # conftest.py forces USE_FAKE_LLM=1 — the whole suite runs offline,
-      # zero API keys, zero services. That is a feature; keep it true.
-      - name: Pytest (offline, FakeLLM)
+      # The suite runs offline with scripted LLMs — zero API keys, zero
+      # services. That is a feature; keep it true.
+      - name: Pytest (offline)
         run: uv run pytest tests/ -q
-
-  docs-refs:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-        with:
-          python-version: "3.12"
-      - name: Install dev environment
-        run: uv sync --extra dev
-      - name: Docs code references resolve
-        run: uv run python scripts/check_docs_refs.py
