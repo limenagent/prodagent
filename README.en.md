@@ -33,15 +33,14 @@ The kernel knows no vendor and no "mode". ReAct, plan-first, multi-agent — all
 
 ---
 
-## Three API levels, one graph
+## Two API levels, one graph
 
 ```
-L1  prebuilt    ReActAgent / LoopBody —— one line, out of the box
-L2  @workflow   @workflow decorator + sequence/if/while/parallel → edges
-L3  raw graph   Plan / Node / Edge / Channel —— hand-written
+L1  prebuilt    Agent —— one line, a ReAct loop by default (agent-as-unit)
+L2  raw graph   Plan / Node / Edge / Channel —— hand-written; plan-and-resolve composed at the app layer
 ```
 
-All three run on the **same kernel**. Write L2 code, it compiles to the L3 graph, the scheduler doesn't change a line.
+Both levels run on the **same kernel**. The graph shape is not another mode — it is how you write plan-and-resolve as code (see `audit_workflow` in `compliance_audit`); the scheduler doesn't change a line.
 
 ---
 
@@ -60,25 +59,6 @@ async def search(query: str) -> str:
 agent = Agent("demo", system_prompt="Find answers.", tools=[search])
 
 asyncio.run(agent.chat("what's the weather in Paris?"))
-```
-
-### @workflow: write the flow as code, the compiler makes the edges
-
-```python
-from prodagent import workflow, compile
-
-async def fetch(ctx, s): ...
-async def analyze(ctx, s): ...
-async def report(ctx, s): ...
-
-@workflow
-async def body(ctx, s):
-    await ctx.call(fetch)            # sequence → sequence edge
-    if s.need_deep:                  # if → conditional edge
-        await ctx.call(analyze)
-    await ctx.call(report)           # while → back edge
-
-plan = compile(body).plan            # compiles to Plan(nodes, edges)
 ```
 
 ### Production armor in one line

@@ -3,7 +3,7 @@
 One ceiling vocabulary everywhere: a lone agent checks its own spend with
 :func:`check_budget`; concurrent spenders (spawn children, stages) share
 one :class:`BudgetLedger` by reference and reserve/commit against it. The
-fold side of the same arithmetic — :class:`SpawnAccumulator`, the metrics
+fold side of the same arithmetic — the runtime's spawn accumulator, the metrics
 sink that lands child spend on the parent's persisted run — lives here
 too: enforcement and reporting are one settlement concept.
 """
@@ -13,14 +13,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from prodagent.base.determinism import now_monotonic
 from prodagent.base.errors import BudgetExceeded
 
 if TYPE_CHECKING:
     from prodagent.kernel.run import Run
-    from prodagent.kernel.types import ToolCall
 
 logger = logging.getLogger(__name__)
 
@@ -401,7 +400,7 @@ def spent_to_dict(spend: _Spend, *, elapsed: float) -> dict[str, float | int]:
 
 
 class SpendSnapshot(Protocol):
-    """Structural: anything carrying live spend totals (SpawnAccumulator)."""
+    """Structural: anything carrying live spend totals."""
 
     turns: int
     input_tokens: int
@@ -436,68 +435,3 @@ def check_spawn_budget(
         extra_tokens=extra_tokens,
         extra_cost_usd=extra_cost_usd,
     )
-
-
-# ── Spawn accounting — the fold side of the settlement arithmetic ─────────────
-# Moved from runtime/parent_runtime.py: pure data + arithmetic over runs and
-# child results, same concept family as run_enveloped/check_spawn_budget. The
-# enforcement view is the BudgetLedger above; this section is the metrics/
-# transcript fold — child spend that must land on the parent's persisted
-# Run.metrics at hop end.
-
-
-def fold_spawn_fields(target: Any, source: Any) -> None:
-    """Add source's flat spawn-accounting fields onto target, in place."""
-    target.cost_usd += source.cost_usd
-    target.input_tokens += source.input_tokens
-    target.output_tokens += source.output_tokens
-    if source.tool_history:
-        target.tool_history.extend(source.tool_history)
-
-
-@dataclass
-class SpawnAccumulator:
-    """Shared sink for sub-agent spend so parent runs can reconcile cost.
-
-    The enforcement view is the shared ``BudgetLedger`` above; this
-    accumulator is the metrics/transcript fold sink — child spend that must
-    land on the parent's persisted ``Run.metrics`` at hop end.
-    """
-
-    cost_usd: float = 0.0
-    turns: int = 0
-    input_tokens: int = 0
-    output_tokens: int = 0
-    spawn_count: int = 0
-    tool_history: list[ToolCall] = field(default_factory=list)
-
-    def add(self, result: Any) -> None:
-        fold_spawn_fields(self, result)
-        self.turns += result.turns
-        self.spawn_count += 1
-
-    def fold_into(self, run: Run) -> None:
-        """Fold accumulator totals onto a run's persisted metrics, in place.
-
-        The single home for the accumulator→metrics arithmetic (the other
-        direction — child result→accumulator — is :func:`fold_spawn_fields`);
-        ``RunLoop._finalize_run`` calls this at hop end so child spend lands
-        on the parent's persisted ``Run.metrics``. No-op when nothing
-        was spawned.
-        """
-        if self.spawn_count == 0:
-            return
-        m = run.metrics
-        m.cost_usd += self.cost_usd
-        m.input_tokens += self.input_tokens
-        m.output_tokens += self.output_tokens
-        m.turn_count += self.turns
-        if self.tool_history:
-            run.tool_history.extend(self.tool_history)
-        logger.debug(
-            "[spawn] folded %d sub-agent spawns: +$%.4f, +%d turns, +%d tools",
-            self.spawn_count,
-            self.cost_usd,
-            self.turns,
-            len(self.tool_history),
-        )

@@ -83,7 +83,7 @@ def apply_event(state: dict[str, Any], event: Event) -> None:
                 steps[wire["node_id"]] = wire
         case PlanEventType.COMMAND_APPLIED:
             # Only updates fold — control-flow commands left with the
-            # combinators; pre-combinator goto/send events replay as no-ops.
+            # command vocabulary; pre-command goto/send events replay as no-ops.
             cmd = event.data.get("command") or {}
             if (update := cmd.get("update")) is not None:
                 shared = state.setdefault("shared", {})

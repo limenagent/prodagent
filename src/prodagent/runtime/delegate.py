@@ -21,6 +21,7 @@ from prodagent.tooling.dispatcher import ToolDispatcher
 from prodagent.tooling.merge import merge_tools_by_name
 
 if TYPE_CHECKING:
+    from prodagent.kernel.run import Run
     from prodagent.runtime.agent import Agent
     from prodagent.runtime.runner import RunContext
 
@@ -33,6 +34,7 @@ a peer's ``LoopBody`` asks this factory for its driver on first handoff."""
 __all__ = [
     "ChildResult",
     "PEER_ENGINES_KEY",
+    "SpawnAccumulator",
     "PeerEngines",
     "activate_child",
     "fork_as_peer",
@@ -290,3 +292,66 @@ async def _build_loop_driver(peer: Agent, ctx: RunContext) -> Any:
         spill_store=ctx.spill_store,
         budget_ledger=ctx.budget_ledger,
     )
+
+
+# ── Spawn accounting — the fold side of the settlement arithmetic ─────────────
+# Spawn accounting is delegation's concept: child spend that must land on the
+# parent's persisted Run.metrics at hop end. The enforcement view is the
+# kernel's BudgetLedger; this section is the metrics/transcript fold.
+
+
+def fold_spawn_fields(target: Any, source: Any) -> None:
+    """Add source's flat spawn-accounting fields onto target, in place."""
+    target.cost_usd += source.cost_usd
+    target.input_tokens += source.input_tokens
+    target.output_tokens += source.output_tokens
+    if source.tool_history:
+        target.tool_history.extend(source.tool_history)
+
+
+@dataclass
+class SpawnAccumulator:
+    """Shared sink for sub-agent spend so parent runs can reconcile cost.
+
+    The enforcement view is the shared kernel ``BudgetLedger``; this
+    accumulator is the metrics/transcript fold sink — child spend that must
+    land on the parent's persisted ``Run.metrics`` at hop end.
+    """
+
+    cost_usd: float = 0.0
+    turns: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    spawn_count: int = 0
+    tool_history: list[Any] = field(default_factory=list)
+
+    def add(self, result: Any) -> None:
+        fold_spawn_fields(self, result)
+        self.turns += result.turns
+        self.spawn_count += 1
+
+    def fold_into(self, run: Run) -> None:
+        """Fold accumulator totals onto a run's persisted metrics, in place.
+
+        The single home for the accumulator→metrics arithmetic (the other
+        direction — child result→accumulator — is :func:`fold_spawn_fields`);
+        ``RunLoop._finalize_run`` calls this at hop end so child spend lands
+        on the parent's persisted ``Run.metrics``. No-op when nothing
+        was spawned.
+        """
+        if self.spawn_count == 0:
+            return
+        m = run.metrics
+        m.cost_usd += self.cost_usd
+        m.input_tokens += self.input_tokens
+        m.output_tokens += self.output_tokens
+        m.turn_count += self.turns
+        if self.tool_history:
+            run.tool_history.extend(self.tool_history)
+        logger.debug(
+            "[spawn] folded %d sub-agent spawns: +$%.4f, +%d turns, +%d tools",
+            self.spawn_count,
+            self.cost_usd,
+            self.turns,
+            len(self.tool_history),
+        )

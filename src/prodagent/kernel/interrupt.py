@@ -9,7 +9,7 @@ the Interrupt itself: a serializable "what are we waiting for" that rides
 the checkpoint across processes.
 
 Three trigger kinds cover every wait there is — the model needs a fact
-from the human (``need_input``), a side effect needs the human's blessing
+from the world, a side effect needs the human's blessing
 (``approve``), a long task waits on an external event (``await_external``)
 — and a new reason is a new payload, not a new mechanism. Cancellation is
 the other thing entirely: "not wanted anymore" ends the run; an interrupt
@@ -29,11 +29,8 @@ __all__ = ["InterruptKind", "Interrupt"]
 
 
 class InterruptKind(StrEnum):
-    """Why a run let go — three trigger positions, one mechanism."""
+    """Why a run let go — one mechanism, a kind per payload shape."""
 
-    NEED_INPUT = "need_input"
-    """The model is missing a fact only the human has; the answer becomes
-    the resumed input."""
     APPROVE = "approve"
     """A side effect is staged and needs the human's blessing before it
     fires (the HITL gate)."""

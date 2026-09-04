@@ -4,12 +4,11 @@ A :class:`Graph` is pure topology: a set of nodes and a set of
 :class:`Edge` objects. Nothing here knows about versions, checkpoints, or
 runs — every method that needs progress takes the states as an argument.
 That is what lets one hand-written graph serve many runs, and what lets a
-:class:`Plan` (a Graph *plus* a version counter and a lineage label) layer
-replanning on top without touching the topology layer.
+:class:`Plan` (a Graph *plus* a version counter) layer run identity on top
+without touching the topology layer.
 
 Edges are the runtime truth. ``Node.depends_on`` is declaration sugar —
-the form every front-end (hand-written Workflow, checkpoint wire) naturally
-speaks — and :meth:`Graph.add_nodes` folds it into edges at construction;
+the form every front-end (code, checkpoint wire) naturally speaks — and :meth:`Graph.add_nodes` folds it into edges at construction;
 the one mutation site that ever grows the set (:meth:`Send` instantiation)
 goes through ``add_nodes`` too, so the declared view never drifts from the
 edge set. What ONLY lives on an Edge
@@ -56,9 +55,8 @@ if TYPE_CHECKING:
 class Origin(StrEnum):
     """Where a node came from — the trust label that survives the wire.
 
-    STATIC — declared in code, trusted, validated once at compile time.
-    DYNAMIC — grown at runtime (a Send's instantiated template, a
-    combinator's compiled shape).
+    STATIC — declared in code. DYNAMIC — grown at runtime (a Send's
+    instantiated template, a handoff's peer node).
 
     The old PLANNED label (a model-drafted graph) is gone with the planner:
     models produce task lists, not graphs (column 24). Legacy wire values
@@ -108,11 +106,10 @@ class Node:
 
     node_id: str
     body: NodeBody
-    """Any NodeBody — the five built-ins (wire-restorable) or a composed one
-    (Sequential/Parallel/Route/Loop, a user class). Composed bodies are
-    process-local: their wire form records kind and target, but restore
-    re-materializes only the built-ins — composition is re-declared in
-    code, not persisted (ruling 3: names, never live objects)."""
+    """Any NodeBody — the built-ins (wire-restorable) or a composed one (a
+    loop, a user class). Composed bodies are process-local: their wire form
+    records kind and target, but restore re-declares them by name from
+    configuration (ruling 3: names, never live objects)."""
     params: dict[str, Any] = field(default_factory=dict)
     depends_on: Sequence[str] = ()
     """Declaration sugar for plain incoming edges; conditional edges are
@@ -129,8 +126,7 @@ class Node:
     first one done. A conditional branch's merge is ``any`` — exactly one
     branch runs, the other is SKIPPED — while a fan-in is ``all``."""
     origin: Origin = Origin.STATIC
-    """Unstated lineage reads as STATIC — code-declared is the default the
-    compile-time validator has already gated."""
+    """Unstated lineage reads as STATIC — code-declared is the default."""
 
     def __post_init__(self) -> None:
         # Freeze the containers: the frozen dataclass guards the fields, the
@@ -224,10 +220,10 @@ class Graph:
         *,
         deps: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
-        """Initial insertion (planner output / Workflow compile). Each
+        """Initial insertion (a hand-written plan, a derived template). Each
         node's declared ``depends_on`` — plus the optional ``deps`` map —
         becomes edges: the edge set is the runtime truth from here on.
-        Shape checks live in the validator; every birth line (compiler,
+        Shape is the caller's promise; every birth line (builder,
         planner, merge) validates before calling this."""
         for n in nodes:
             self._nodes[n.node_id] = n
@@ -436,11 +432,10 @@ class Graph:
 class Plan(Graph):
     """A versioned blueprint a run executes — Graph topology plus lineage.
 
-    Static by construction: nodes are frozen, the graph is built once, and a
-    replan doesn't rewrite it in place — it produces the next *version*,
-    with replaced nodes carrying lineage (``replaces_node_id``) so the event
-    log can replay every revision and resume never mistakes "never ran" for
-    "ran and was scrapped".
+    Static by construction: nodes are frozen and the graph is built once
+    (``Plan(nodes=[...])``); runtime growth joins through ``add_nodes``.
+    ``version`` rides the plan events and the checkpoint so a resume folds
+    onto the revision it left.
 
     How far execution has gotten does **not** live here — that is
     :class:`prodagent.kernel.node_state.NodeRuntimeState`, held by the run.

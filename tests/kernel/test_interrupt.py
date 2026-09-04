@@ -2,7 +2,7 @@
 
 The laws under test: a park is ONE durable fact (kind, request id, parked
 node, staged action in the payload — never a family of fields); the kind is
-payload, not mechanism (need_input / approve / await_external ride the same
+payload, not mechanism (approve / await_external ride the same
 door); the wire round-trips the kind so a resumed process knows what it was
 waiting for; the historical three-field checkpoint wire upgrades on read;
 and the four doors enforce the allowed-transition table — the nonsensical
@@ -41,7 +41,7 @@ def _suspended_result(request_id: str = "req-9") -> ToolResult:
 
 
 def test_three_trigger_kinds_one_mechanism():
-    assert [k.value for k in InterruptKind] == ["need_input", "approve", "await_external"]
+    assert [k.value for k in InterruptKind] == ["approve", "await_external"]
 
 
 def test_interrupt_wire_roundtrip_carries_kind_payload_and_node():
@@ -69,9 +69,11 @@ def test_approval_park_carries_the_staged_call_and_the_request():
 
 
 def test_another_kind_of_wait_is_just_payload():
-    run = _parked_run(Interrupt(InterruptKind.NEED_INPUT, "req-3", {"question": "which account?"}))
+    run = _parked_run(
+        Interrupt(InterruptKind.AWAIT_EXTERNAL, "req-3", {"question": "which account?"})
+    )
     iv = run.interrupt
-    assert iv is not None and iv.kind is InterruptKind.NEED_INPUT
+    assert iv is not None and iv.kind is InterruptKind.AWAIT_EXTERNAL
     assert iv.payload["question"] == "which account?"
 
 
@@ -85,15 +87,15 @@ def test_taking_the_interrupt_consumes_the_whole_park():
 
 def test_a_second_suspension_never_moves_the_first_park():
     run = _parked_run()
-    assert run.park(Interrupt(InterruptKind.NEED_INPUT, "req-2", {})) is False
+    assert run.park(Interrupt(InterruptKind.AWAIT_EXTERNAL, "req-2", {})) is False
     assert run.interrupt is not None and run.interrupt.request_id == "req-9"
 
 
 def test_park_wire_roundtrip_keeps_the_kind():
-    run = _parked_run(Interrupt(InterruptKind.NEED_INPUT, "req-5", {"q": "how many?"}))
+    run = _parked_run(Interrupt(InterruptKind.AWAIT_EXTERNAL, "req-5", {"q": "how many?"}))
     restored = Run.from_dict(run.to_dict())
     iv = restored.interrupt
-    assert iv is not None and iv.kind is InterruptKind.NEED_INPUT
+    assert iv is not None and iv.kind is InterruptKind.AWAIT_EXTERNAL
     assert iv.payload == {"q": "how many?"}
 
 

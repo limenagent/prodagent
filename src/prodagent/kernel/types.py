@@ -298,9 +298,7 @@ class ToolResult(Generic[_T]):
     reason: str = ""
     tool: ToolName = ""
     approval_request_id: str = ""  # populated on SUSPENDED — correlates to submit_decision
-    interrupt_kind: str = (
-        ""  # populated on SUSPENDED — column 20's kind (need_input/approve/await_external)
-    )
+    interrupt_kind: str = ""  # populated on SUSPENDED — column 20's kind (approve/await_external)
     handoff: JsonDict | None = None  # populated on HANDOFF — {peer, task, input_refs}
 
     @classmethod

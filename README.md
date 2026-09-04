@@ -51,15 +51,15 @@
 
 ---
 
-## 三层 API，同一张图
+## 两层 API，同一张图
 
 ```
-L1  prebuilt    ReActAgent / LoopBody —— 一行起，开箱即用
-L2  @workflow   @workflow 装饰器 + 顺序/if/while/并行，编译器生成边
-L3  裸图        Plan / Node / Edge / Channel —— 手写图
+L1  prebuilt    Agent —— 一行起，默认即 ReAct 循环（agent-as-unit）
+L2  裸图        Plan / Node / Edge / Channel —— 手写图，应用层拼 plan-and-resolve
 ```
 
-三层跑的是**同一个内核**。写 L2 代码，编译成 L3 的图，调度器一行不改。
+两层跑的是**同一个内核**。图形态不是另一种模式——它是你把 plan-and-resolve
+写成代码的方式（见 `compliance_audit` 的 `audit_workflow`），调度器一行不改。
 
 ---
 
@@ -78,25 +78,6 @@ async def search(query: str) -> str:
 agent = Agent("demo", system_prompt="Find answers.", tools=[search])
 
 asyncio.run(agent.chat("巴黎今天天气如何？"))
-```
-
-### 用 @workflow 把流程写成代码，边由编译器生成
-
-```python
-from prodagent import workflow, compile
-
-async def fetch(ctx, s): ...
-async def analyze(ctx, s): ...
-async def report(ctx, s): ...
-
-@workflow
-async def body(ctx, s):
-    await ctx.call(fetch)            # 顺序 → 顺序边
-    if s.need_deep:                  # if → 条件边
-        await ctx.call(analyze)
-    await ctx.call(report)           # while → 回边
-
-plan = compile(body).plan            # 编译成 Plan(nodes, edges)
 ```
 
 ### 一键上生产全套护甲

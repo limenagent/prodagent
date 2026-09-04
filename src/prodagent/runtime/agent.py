@@ -12,7 +12,6 @@ from prodagent.base.config import FrameworkConfig
 from prodagent.base.errors import (
     UnknownApprovalError,
 )
-from prodagent.kernel.budget import SpawnAccumulator
 from prodagent.kernel.bus import Gate, HookEvent, HookRegistry, InjectionPoint
 from prodagent.kernel.run import CHILD_SEPARATOR, collect_final_run
 from prodagent.kernel.types import (
@@ -24,6 +23,7 @@ from prodagent.kernel.types import (
 from prodagent.ports.execution import AgentSpec
 from prodagent.ports.llm import LLMClient
 from prodagent.runtime.config import AgentConfig
+from prodagent.runtime.delegate import SpawnAccumulator
 from prodagent.runtime.runner import drive_stream
 from prodagent.tooling.merge import merge_tools_by_name
 

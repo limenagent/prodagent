@@ -34,7 +34,6 @@ from prodagent.base.event_log import Event, RunEventType
 from prodagent.base.time_recorder import RecordingTimePort
 from prodagent.kernel.budget import SAFETY_NET_BUDGET, check_spawn_budget
 from prodagent.kernel.bus import HookEvent, HookRegistry
-from prodagent.kernel.progress import ProgressMonitor
 from prodagent.kernel.types import (
     AgentEvent,
     LLMResponse,
@@ -47,6 +46,7 @@ from prodagent.kernel.types import (
     ToolResult,
     ToolResultEvent,
 )
+from prodagent.runtime.progress import ProgressMonitor
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable

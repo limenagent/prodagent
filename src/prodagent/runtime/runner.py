@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from prodagent.base.config import ContextConfig
 from prodagent.base.errors import PermissionDenied, PlanAlreadyCompletedError
-from prodagent.kernel.budget import SAFETY_NET_BUDGET, SpawnAccumulator, open_ledger
+from prodagent.kernel.budget import SAFETY_NET_BUDGET, open_ledger
 from prodagent.kernel.bus import Gate, HookEvent
 from prodagent.kernel.run import (
     Run,
@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from prodagent.ports.llm import LLMClient
     from prodagent.ports.persistence import BlobStore
     from prodagent.runtime.agent import Agent
+    from prodagent.runtime.delegate import SpawnAccumulator
 
 
 logger = logging.getLogger(__name__)

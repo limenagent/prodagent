@@ -48,7 +48,7 @@ class NodeKind(StrEnum):
 class FnBody:
     """L0 — a pure Python function from the context's fn table.
     Deterministic, side-effect-free, zero model calls; exactly the function
-    the Workflow author wrote, with no tool-registry costume."""
+    the plan author wrote, with no tool-registry costume."""
 
     kind = NodeKind.FN
     fn: str
@@ -63,8 +63,8 @@ class FnBody:
         if fn is None:
             raise KeyError(
                 f"fn node {self.fn!r}: no function registered under this name. "
-                "Workflow step functions are registered at compile time — "
-                "was this plan compiled by a different Workflow?"
+                "fn step functions are registered via AgentConfig.node_fns — "
+                "was this plan built by a different front-end?"
             )
         value = fn(**input.params)
         return Outcome(value=await value if inspect.isawaitable(value) else value)

@@ -3,8 +3,8 @@ from __future__ import annotations
 import datetime
 from pathlib import Path
 
-from prodagent.kernel.progress import _tool_fingerprint
 from prodagent.kernel.types import ToolCall, stable_serialize
+from prodagent.runtime.progress import _tool_fingerprint
 
 
 class TestStableSerializeNoCollisions:

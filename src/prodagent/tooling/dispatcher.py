@@ -76,11 +76,11 @@ if TYPE_CHECKING:
 
     from prodagent.cognition.context.spill import ToolResultSpillStore
     from prodagent.kernel.bus import HookRegistry
-    from prodagent.kernel.progress import ProgressMonitor
     from prodagent.kernel.run import Run
     from prodagent.kernel.types import AgentEvent
     from prodagent.ports.observability import EventLog
     from prodagent.ports.persistence import BlobStore
+    from prodagent.runtime.progress import ProgressMonitor
     from prodagent.skills.registry import SkillRegistry
     from prodagent.tooling.base import FunctionTool
     from prodagent.tooling.registry import ToolRegistry

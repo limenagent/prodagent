@@ -2,7 +2,7 @@
 
 It does exactly one thing, over and over: compute the ready set, run it as
 one wave, apply the outcome — until nothing is ready. Where the graph came
-from (a hand-written Workflow, a preset plan, a resumed checkpoint, a
+from (a hand-written plan, a resumed checkpoint, a
 single body wrapped as one node) never reaches this loop; ``bootstrap``
 hands over a (run, plan) pair and the scheduler just schedules — one
 engine, so persistence, recovery, approval, observation and replay are
@@ -88,7 +88,7 @@ condition reads."""
 
 _MAX_PLAN_NODES = 1024
 """The ceiling on a runtime-grown plan (Send instances, Handoff peers).
-The STATIC size budget lives in graph_validator (checked at compile);
+The STATIC size budget is the blueprint author's promise;
 growth gets a wider but finite ceiling, checked at every instantiation —
 a fan-out or a hand-off loop beyond this is a blueprint bug wearing a
 work costume, stopped loudly instead of spinning to the wave cap."""

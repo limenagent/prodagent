@@ -41,21 +41,14 @@ terminal markers). Plan events interleave with those markers on the SAME
 stream (``<run_id>``), and the plan cursor's ``last_seq`` tracks that
 stream too — so the one tail is kept in both boxes, advanced in lockstep
 through :meth:`Run.advance_marker_tail` and read as one number through
-:meth:`Run.marker_tail`. (The ``reactive`` key survives only as the v1
-migration target in :func:`_cursors_from_dict`.)"""
+:meth:`Run.marker_tail`."""
 
 RUN_SCHEMA_VERSION = 3
 """Serialization format of ``Run.to_dict``. Bumped when the dict shape
 changes in a way old loaders would misread. A checkpoint written by a newer
 schema loads best-effort (fields it doesn't know are ignored); readers warn
 on a higher version rather than refusing — a checkpoint that loads wrong is
-recoverable, one that refuses to load is not.
-
-v3 replaces the three pending_* park fields with ONE ``interrupt`` fact (no
-legacy mapping — an older checkpoint reads as not parked). v2 boxed the
-per-executor resumption tails into one ``cursors`` section (v1 carried them
-flat: ``plan_state`` / ``plan_last_seq`` / ``last_event_seq``); v1
-checkpoints migrate on load."""
+recoverable, one that refuses to load is not."""
 
 
 def is_child_run_id(run_id: str) -> bool:
@@ -107,18 +100,8 @@ def is_child_subordinate(run: Run) -> bool:
 
 
 def _cursors_from_dict(d: JsonDict) -> dict[str, Any]:
-    """v2 reads the boxed ``cursors`` section; a v1 dict (flat ``plan_state`` /
-    ``plan_last_seq`` / ``last_event_seq``) migrates into it on load."""
-    if "cursors" in d:
-        return dict(d.get("cursors") or {})
-    cursors: dict[str, Any] = {}
-    plan_state = d.get("plan_state")
-    plan_last_seq = d.get("plan_last_seq", 0)
-    if plan_state is not None or plan_last_seq:
-        cursors["plan"] = {"state": plan_state, "last_seq": plan_last_seq}
-    if d.get("last_event_seq", 0):
-        cursors["reactive"] = d.get("last_event_seq", 0)
-    return cursors
+    """The boxed ``cursors`` section, read straight off the wire."""
+    return dict(d.get("cursors") or {})
 
 
 def _toolcall_to_dict(call: ToolCall | JsonDict) -> JsonDict:
@@ -252,9 +235,7 @@ class Run(Generic[_RunT]):
     bumping anyone else's schema). Keys in use: ``plan`` (PlanEventLog —
     ``{"state": JsonDict | None, "last_seq": int}``) and ``terminal``
     (the loop recipe's marker tail — an int); the two track ONE stream and
-    move together through :meth:`marker_tail` / :meth:`advance_marker_tail`.
-    ``reactive`` survives only as the v1 migration target in
-    :func:`_cursors_from_dict`."""
+    move together through :meth:`marker_tail` / :meth:`advance_marker_tail`."""
     node_states: dict[str, NodeRuntimeState] = field(default_factory=dict)
     """Per-node execution state — the mutable half of every Node in the plan
     this run executes. The blueprint stays static and shareable; progress

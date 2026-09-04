@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from prodagent.cognition.context.spill import ToolResultSpillStore
     from prodagent.cognition.memory.manager import MemoryProvider
     from prodagent.hooks.approval.gate import ApprovalProvider
-    from prodagent.kernel.budget import HardBudget, SpawnAccumulator
+    from prodagent.kernel.budget import HardBudget
     from prodagent.kernel.bus import Gate, HookEvent, HookRegistry, InjectionPoint
     from prodagent.kernel.graph import Plan
     from prodagent.llm import LLMClient
@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from prodagent.ports import CheckpointStore, EventLog, SessionStore, Tool
     from prodagent.ports.persistence import BlobStore
     from prodagent.runtime.agent import Agent
+    from prodagent.runtime.delegate import SpawnAccumulator
     from prodagent.skills.registry import SkillRegistry
     from prodagent.tooling.registry import ToolRegistry
 

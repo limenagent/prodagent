@@ -1,7 +1,7 @@
 """PlanBootstrap — run/plan preparation, resumption, and the HITL approval gate.
 
 Where a run comes from, in source order: a resumable event-log state (crash
-recovery), a preset Workflow plan, the injected planner — or a single unit
+recovery), a preset plan, the injected planner — or a single unit
 wrapped as a one-node graph (the agent-as-unit shape, with its own
 checkpoint-based resume). Keeping the choice here means the scheduler starts
 every run the same way: with a (run, plan) pair in hand. No modes — the
@@ -108,7 +108,7 @@ class PlanBootstrap:
 
         Two branches, by construction source, never by resume mechanism: a
         fresh run gets its plan from its shape (a body wraps as a one-node
-        graph; a preset Workflow plan derives; no source at all is a
+        graph; a preset plan derives; no source at all is a
         composition bug), and EVERY resume goes through the one restore
         throat — :meth:`_restore` — no matter which shape grew the plan.
         That symmetry is the point: a plan grown past its root (a handoff's

@@ -112,7 +112,7 @@ class NodeBody(Protocol):
     for the built-ins, a plain string for composed bodies), and the
     wave-discipline flag (True: concurrent in a wave; False: serial; None:
     defer to the registry). It is deliberately NOT part of the protocol:
-    every built-in and every combinator carries it as class attributes, and
+    every body carries it as class attributes, and
     the few graph-facing consumers read it with getattr defaults, so a bare
     run-only body stays a first-class citizen anywhere a caller drives it."""
 

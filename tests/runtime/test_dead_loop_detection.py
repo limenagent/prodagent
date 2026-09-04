@@ -3,9 +3,9 @@ from __future__ import annotations
 import pytest
 
 from prodagent.base.errors import InfiniteLoopDetected
-from prodagent.kernel.progress import ProgressMonitor, _tool_fingerprint
 from prodagent.kernel.run import Run
 from prodagent.kernel.types import ToolCall
+from prodagent.runtime.progress import ProgressMonitor, _tool_fingerprint
 
 
 def _call(name: str, **params) -> ToolCall:
