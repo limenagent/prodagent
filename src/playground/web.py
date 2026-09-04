@@ -9,21 +9,30 @@ PAGE = r"""<!doctype html>
 <style>
   :root{--bd:#e5e7eb;--mut:#6b7280;--bg:#f7f8fa;--ink:#1f2937;--brand:#2563eb;}
   *{box-sizing:border-box}
+  html,body{height:100%}
+  /* 页面本身不滚动：三栏各自内部滚，右栏详情永远在视口内 */
   body{margin:0;font:14px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
-       color:var(--ink);background:var(--bg);padding-bottom:64px}
+       color:var(--ink);background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
   header{padding:14px 20px;background:#fff;border-bottom:1px solid var(--bd);
-         display:flex;align-items:baseline;gap:12px}
+         display:flex;align-items:baseline;gap:12px;flex-shrink:0}
   header h1{font-size:16px;margin:0}
   header span{color:var(--mut);font-size:12px}
-  .wrap{display:grid;grid-template-columns:260px 1fr 320px;gap:16px;padding:16px;max-width:1400px;margin:0 auto}
-  .card{background:#fff;border:1px solid var(--bd);border-radius:10px;padding:14px}
+  .wrap{flex:1;min-height:0;width:100%;display:grid;grid-template-columns:260px 1fr 320px;
+        gap:16px;padding:16px;max-width:1400px;margin:0 auto}
+  .card{background:#fff;border:1px solid var(--bd);border-radius:10px;padding:14px;min-height:0}
+  .card.flow{display:flex;flex-direction:column;overflow:hidden}
+  .card.flow>*{flex-shrink:0}
+  #scenes{flex:1;min-height:0;overflow-y:auto}
+  #timeline{flex:1;min-height:0;overflow-y:auto}
+  #stream{max-height:26vh;overflow-y:auto}
+  .result{max-height:22vh;overflow-y:auto}
   .scene{display:block;width:100%;text-align:left;margin:6px 0;padding:9px 10px;border:1px solid var(--bd);
          border-radius:8px;background:#fff;cursor:pointer}
   .scene:hover{border-color:var(--brand)}
   .scene.active{border-color:var(--brand);background:#eff6ff}
   .scene b{display:block;font-size:13px}
   .scene small{color:var(--mut)}
-  .bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--bd);z-index:10}
+  .bar{flex-shrink:0;background:#fff;border-top:1px solid var(--bd)}
   .bar .in{display:grid;grid-template-columns:260px 1fr;gap:16px;
            max-width:1100px;margin:0 auto;padding:10px 16px}
   input[type=text]{flex:1;padding:9px 11px;border:1px solid var(--bd);border-radius:8px;font-size:14px}
@@ -40,7 +49,7 @@ PAGE = r"""<!doctype html>
   .ev{cursor:pointer}
   .ev:hover{background:#eff6ff}
   .detail{white-space:pre-wrap;font:12px/1.5 ui-monospace,Menlo,monospace;
-          max-height:75vh;overflow:auto}
+          flex:1;min-height:0;margin:0;overflow:auto}
   .approve{margin:12px 0;padding:12px;border:1px solid #fbbf24;background:#fffbeb;border-radius:8px;display:none}
   .approve .q{font-weight:600;margin-bottom:8px}
   .chunk{margin:8px 0;border:1px solid var(--bd);border-radius:8px;overflow:hidden}
@@ -59,11 +68,11 @@ PAGE = r"""<!doctype html>
 <header><h1>src playground</h1>
   <span>选一个场景运行，看节点/状态事件流，遇到人工节点就在这里审批</span></header>
 <div class="wrap">
-  <div class="card">
+  <div class="card flow">
     <h3 style="margin-top:0">示例场景</h3>
     <div id="scenes"></div>
   </div>
-  <div class="card">
+  <div class="card flow">
     <div id="desc" class="muted" style="margin-bottom:8px"></div>
 
     <div class="approve" id="approve">
@@ -82,7 +91,7 @@ PAGE = r"""<!doctype html>
     <div class="result" id="result"></div>
   </div>
 
-  <div class="card">
+  <div class="card flow">
     <h3 style="margin-top:0">事件详情</h3>
     <pre class="detail muted" id="detail">点击事件流里的条目，这里显示它的完整数据。</pre>
   </div>
@@ -131,6 +140,7 @@ function select(s, el){
 
 function render(ev){
   const box=document.getElementById("timeline");
+  const stick=box.scrollHeight-box.scrollTop-box.clientHeight<48;  // 用户上翻看历史时不打扰
   if(box.firstChild && box.firstChild.classList && box.firstChild.classList.contains("muted")) box.innerHTML="";
   const d=document.createElement("div"); d.className="ev "+ev.kind;
   let detail="";
@@ -145,7 +155,7 @@ function render(ev){
     p.classList.remove("muted");
     p.textContent=JSON.stringify(ev,null,2);
   };
-  box.appendChild(d); box.scrollTop=box.scrollHeight;
+  box.appendChild(d); if(stick) box.scrollTop=box.scrollHeight;
 }
 
 function onDelta(ev){
@@ -153,10 +163,13 @@ function onDelta(ev){
   const key=`${(ev.data.run_id||"?").slice(0,8)} · ${ev.data.node_id||"?"}`;
   const s=streams[key]||(streams[key]={r:"",c:""});
   if(ev.data.kind==="reasoning") s.r+=ev.data.text||""; else s.c+=ev.data.text||"";
+  const st=document.getElementById("stream");
+  const stick=st.scrollHeight-st.scrollTop-st.clientHeight<48;
   document.getElementById("streamH").style.display="";
-  document.getElementById("stream").innerHTML=Object.entries(streams).map(([k,s])=>
+  st.innerHTML=Object.entries(streams).map(([k,s])=>
     `<div class="chunk"><div class="ck">${k}</div><div class="ct">`+
     (s.r?`<div class="rs">${esc(s.r)}</div>`:"")+esc(s.c)+`</div></div>`).join("");
+  if(stick) st.scrollTop=st.scrollHeight;
 }
 
 async function poll(){

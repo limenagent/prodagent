@@ -2,6 +2,7 @@
 name = "prodagent"
 version = "0.1.0"
 description = "一个小到能读完、却保留生产级骨架的教学型 Agent 内核"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
 
@@ -36,4 +37,4 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["prodagent*"]
+include = ["src*"]

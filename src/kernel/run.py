@@ -2,7 +2,7 @@
 
 蓝图 Plan 是“图纸”，Run 是“这一次执行”：它持有当前共享状态、每个节点
 跑到哪了、父子关系，以及 RUNNING/SUSPENDED/COMPLETED/FAILED 四个状态。
-状态转移只有一个入口 _transition，非法跳转直接报错（第 08、11 课）。
+状态转移只有一个入口 _transition，非法跳转直接报错。
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ class NodeRuntimeState:
 
 @dataclass(frozen=True)
 class Interrupt:
-    """一张“挂起凭证”：在哪个节点、因为什么、要问外界什么（第 20 课）。"""
+    """一张“挂起凭证”：在哪个节点、因为什么、要问外界什么。"""
 
     kind: str  # approval / input / external
     payload: Any = None
@@ -208,7 +208,7 @@ class Run:
             self.shared[key] = channel.fold(self.shared.get(key, channel.init), delta)
         return wave_delta
 
-    # —— 快照与恢复：只存数据，不存蓝图和活端口（第 13 课）——
+    # —— 快照与恢复：只存数据，不存蓝图和活端口——
     def snapshot(self) -> dict[str, Any]:
         return {
             "run_id": self.run_id,

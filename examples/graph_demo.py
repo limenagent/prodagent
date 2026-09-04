@@ -43,7 +43,7 @@ async def main():
     plan = build_plan()
     sch = Scheduler()
 
-    # 订阅总线：旁观内核每一步，观察者出错也不会影响执行（第 21 课）。
+    # 订阅总线：旁观内核每一步，观察者出错也不会影响执行。
     sch.bus.on("node_started", lambda evt: print(f"  ▶ 开始 {evt.data['node']}"))
     sch.bus.on("node_completed", lambda evt: print(f"  ✔ 完成 {evt.data['node']}"))
 

@@ -1,4 +1,4 @@
-"""body —— 唯一的可组合接口，以及四种内置 body（第 03、04、26 课）。
+"""body —— 唯一的可组合接口，以及四种内置 body。
 
 内核眼里“能被调度的东西”只有一种：一个满足 NodeBody 协议、
 吃 input 和 NodeContext、吐出 Outcome 的执行体。于是：
@@ -89,7 +89,7 @@ class NodeContext:
 
     注意它是 wiring 不是 data：它持有模型端口、工具端口这些活对象，
     因此不参与序列化；一次运行的数据走 input / state_delta，绝不偷偷
-    塞进 context——这条界限让检查点保持干净（第 04、12 课）。
+    塞进 context——这条界限让检查点保持干净。
     """
 
     def __init__(
@@ -155,7 +155,7 @@ class NodeContext:
         from src.kernel.types import ToolCall
 
         self.run.metrics["tool_calls"] += 1
-        # 稳定幂等键：同一节点的同一次尝试重试时不变（第 19 课）。
+        # 稳定幂等键：同一节点的同一次尝试重试时不变。
         attempt = self.run.state_of(self.node_id).attempts
         call = ToolCall(name, arguments or {}, call_id=f"{self.run_id}:{self.node_id}:{attempt}")
         return await self._tools.dispatch(call, ctx=self)
@@ -214,7 +214,7 @@ class LLMBody:
 
 
 class SubPlanBody:
-    """L3：激活一个子图/子 Agent，用同一套内核递归跑完，fold 其终态（第 26 课）。"""
+    """L3：激活一个子图/子 Agent，用同一套内核递归跑完，fold 其终态。"""
 
     def __init__(self, spec: Any):
         self.spec = spec

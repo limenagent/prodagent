@@ -1,4 +1,4 @@
-"""mcp —— 把 MCP Server 的工具在边界拉平，内部只留一条主路径（第 15 课）。
+"""mcp —— 把 MCP Server 的工具在边界拉平，内部只留一条主路径。
 
 Agent 不该关心一个工具是本地 Python 函数，还是来自某个 MCP Server。这里做的
 事情只有一件：把 MCP 端列出的工具，逐个注册成 ToolRegistry 里的普通 ToolSpec，
