@@ -44,17 +44,27 @@ from src.kernel.types import NodeStatus, RunState
 
 class InProcessActivator:
     """默认子 Agent 激活器：在同进程用同一个调度器递归跑子 Plan（call 语义）。
-
     换远程实现（A2A、RPC）只需满足 SubagentPort 协议，内核一行不改——
-    “在哪执行”是端口后面的事（位置透明）。
+    “在哪执行”是端口后面的事（第 32 课的位置透明）。
     """
-
-    def __init__(self, scheduler: Scheduler):
+    def __init__(self, scheduler: "Scheduler"):
         self.scheduler = scheduler
 
-    async def activate(self, spec: Any, task: str, parent_run: Run, payload: Any = None) -> dict:
-        child = Run.start(spec, parent_id=parent_run.run_id, depth=parent_run.depth + 1, task=task)
+    async def activate(self, spec, task: str, parent_run: Run, payload=None) -> dict:
+        child_depth = parent_run.depth + 1
+        if child_depth > self.scheduler.max_depth:
+            # 深度兜底：无限互相委派（A 激活 B、B 又激活 A）会让 Run 树只增不减，
+            # 在这里统一挡住，比把“记得别互相调用”寄托给模型可靠得多（第 10、26 课）。
+            raise RecursionError(
+                f"子 Run 深度超过上限 {self.scheduler.max_depth}，"
+                "请检查是否出现了 Agent 之间循环委派"
+            )
+        child = Run.start(spec, parent_id=parent_run.run_id, depth=child_depth, task=task)
         await self.scheduler.drive(spec, child)
+        if child.state == RunState.FAILED:
+            # call 语义：委派出去的子 Run 崩了，父节点不能把它当“正常产出”吞掉，
+            # 失败要沿 Run 树向上穿透（深度兜底的 RecursionError 也走这条路传到根）。
+            raise RuntimeError(f"子 Run {child.run_id} 失败：{child.final_output}")
         return {
             "run_id": child.run_id,
             "state": str(child.state),
@@ -62,29 +72,26 @@ class InProcessActivator:
             "shared": child.shared,
         }
 
-
 class Scheduler:
     def __init__(
         self,
         *,
-        llm: Any = None,
-        tools: Any = None,
-        bus: Bus | None = None,
-        eventlog: Any = None,
-        store: Any = None,
-        on_handoff: Any = None,
+        llm=None, tools=None, bus=None, eventlog=None, store=None,
+        on_handoff=None,
         max_waves: int = 64,
         concurrency: int = 8,
+        max_depth: int = 8,          # ← 新增：Run 树最大深度
     ):
         self.llm = llm
         self.tools = tools
         self.bus = bus or Bus()
         self.eventlog = eventlog or InMemoryEventLog()
         self.store = store or InMemoryStore()
-        self.on_handoff = on_handoff  # transfer 语义是应用层配方，可注入
+        self.on_handoff = on_handoff
         self.max_waves = max_waves
+        self.max_depth = max_depth   # ← 挡住 A 交 B、B 又交回 A 的环
         self._sem = asyncio.Semaphore(concurrency)
-        self._seq: dict[str, int] = {}  # 每个 run 独立递增的事件序号
+        self._seq: dict[str, int] = {}
         self.subagent = InProcessActivator(self)
 
     # —— 对外主入口 ——
