@@ -1,6 +1,6 @@
 """门面层测试：Agent / Workflow 好用的高层 API，底层仍是同一套 BSP 内核。"""
 
-from src import Agent, Workflow, fork, go, hand_off, wait_human
+from src import Agent, Workflow, go, send, wait_human
 from src.kernel import ToolCall, append
 from src.runtime.llm import ScriptedLlm
 
@@ -79,7 +79,8 @@ async def test_workflow_dynamic_fan_out():
     wf.channel("logs", append())
 
     async def dispatch(x, ctx):
-        return fork("worker", [{"i": 1}, {"i": 2}, {"i": 3}])
+        # 要几份就发几个 Send（数量运行时才知道），引擎把它们放进同一波并行。
+        return [send("worker", {"i": i}) for i in (1, 2, 3)]
 
     async def worker(item, ctx):
         return {"logs": [item["i"] * 10]}
@@ -121,25 +122,13 @@ async def test_workflow_wait_human_and_resume():
     assert second.output == "按你的选择执行：{'approved': True}"
 
 
-async def test_workflow_handoff_binds_agent_on_use():
-    diagnoser = Agent("diagnoser", model=ScriptedLlm(["根因=连接池耗尽"]))
+async def test_workflow_goto_agent_is_transfer():
+    # 交接（transfer）= 同图里 go 到另一个 Agent 节点、且不画回边：
+    # relay 把输入转交给 repairer，repairer 用自己的模型接手并直接收尾。
     repairer = Agent("repairer", model=ScriptedLlm(["已扩容，恢复"]))
     wf = Workflow()
-    wf.add("diagnose", diagnoser)
-    wf.add("relay", lambda x, ctx: hand_off(repairer, x), terminal=True)
-    wf.edge("diagnose", "relay")
-    wf.entry("diagnose")
-    # 不传 handoff_to：hand_off(repairer) 直接给了对象，用即绑定。
-    result = await wf.run("故障")
-    assert result.output == "已扩容，恢复"
-
-
-async def test_workflow_handoff_by_name_needs_registration():
-    # 只给名字字符串时，需要 handoff_to 先登记对象。
-    repairer = Agent("repairer", model=ScriptedLlm(["按名字接力成功"]))
-    wf = Workflow()
-    wf.add("relay", lambda x, ctx: hand_off("repairer", x), terminal=True)
+    wf.add("relay", lambda x, ctx: go("repairer", x))
+    wf.add("repairer", repairer, terminal=True)
     wf.entry("relay")
-    wf.handoff_to(repairer)
-    result = await wf.run("故障")
-    assert result.output == "按名字接力成功"  # 接力者用自己的模型，结果直接收尾
+    result = await wf.run("故障=连接池耗尽")
+    assert result.output == "已扩容，恢复"  # 没有回边，控制权一去不返

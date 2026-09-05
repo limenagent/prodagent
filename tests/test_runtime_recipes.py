@@ -10,7 +10,6 @@ from src.kernel import (
 )
 from src.runtime.llm import ScriptedLlm
 from src.runtime.multiagent import (
-    HandoffController,
     build_pipeline,
     build_supervisor,
 )
@@ -119,12 +118,13 @@ async def test_supervisor_delegates_to_workers():
     assert run.metrics["tool_calls"] == 2
 
 
-async def test_handoff_transfers_without_returning():
-    target = simple_plan("接棒")
-    controller = HandoffController({"b": target})
+async def test_goto_carries_payload_to_target():
+    # Goto 转场时携带的 payload，就是目标节点这一次的输入（交接靠它带摘要）。
     plan = Plan()
-    plan.add(Node("a", FnBody(lambda x, ctx: Outcome.handoff("b", "交给你")), terminal=True))
-    sch = Scheduler(on_handoff=controller)
+    plan.add(Node("a", FnBody(lambda x, ctx: Outcome.goto("b", "交接物"))))
+    plan.add(Node("b", FnBody(lambda x, ctx: Outcome.ok(f"b收到:{x}")), terminal=True))
+    sch = Scheduler()
     run = await sch.run(plan, task="起点")
-    assert run.final_output == "接棒:交给你"  # 接力者的最终结果直接落到当前 Run
-    assert controller.chain[0]["to"] == "b"  # 交接链可审计
+    assert run.final_output == "b收到:交接物"
+    # b 没有静态入边，是被 Goto 激活的；没有回边，a 不会再跑第二遍。
+    assert run.state_of("a").attempts == 1
