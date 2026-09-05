@@ -12,7 +12,8 @@
 关键定位：**每个 Agent 自带模型、工具和运行时，自成一个运行单元。**
 - tools 直接传普通函数，schema 自动推断；
 - teammates 是“派活给它、它干完把结果交回来”的子 Agent（call / agent-as-tool）；
-- “交出去不回头”的接力（transfer/handoff）属于图编排，在 Workflow 里用 hand_off；
+- “交出去不回头”的接力（transfer）属于图编排：在 Workflow 里把各 Agent 当节点，
+  用 go(目标Agent, 交接摘要) 转场，不画回边就是不回头，不需要专门的交接命令；
 - context / memory 是可选横切策略，不传也能跑。
 
 一个 Agent 调用另一个 Agent，本质是它的某个节点 body 里又跑起同一套内核——
@@ -70,30 +71,6 @@ class AgentResult:
         return str(self.output)
 
 
-class _AgentHandoff:
-    """transfer 语义：激活目标 Agent 自己的运行时接力，并把结果直接落到当前 Run。"""
-
-    def __init__(self, agents):
-        # agents 可以是 dict，也可以是返回 dict 的 getter（动态读取用即绑定）。
-        self._agents = agents
-        self.chain: list[dict] = []
-
-    def _resolve(self, name: str):
-        table = self._agents() if callable(self._agents) else self._agents
-        return table.get(name)
-
-    async def __call__(self, cmd: Any, run: Any, scheduler: Any) -> None:
-        target = self._resolve(cmd.agent)
-        if target is None:
-            raise RuntimeError(
-                f"未知的交接目标：{cmd.agent}（hand_off 传对象会用即绑定；"
-                "传名字需先用 wf.handoff_to 登记）"
-            )
-        self.chain.append({"from_run": run.run_id, "to": cmd.agent, "task": cmd.task})
-        output = await target._run_standalone(cmd.task)  # 接力者用自己的模型
-        run.complete(output)  # 不回退给上一个 Agent
-
-
 class Agent:
     def __init__(
         self,
@@ -133,7 +110,7 @@ class Agent:
             )
 
         # call：每个队友就是一个“委派工具”，调用时用队友自己的运行时跑，结果交回。
-        # 至于“交出去不回头”的 transfer/handoff，属于图编排，用 Workflow.hand_off 表达。
+        # 至于“交出去不回头”的 transfer，属于图编排：同图里 go 到另一个 Agent 节点。
         self.teammates = list(teammates or [])
         for mate in self.teammates:
             self._registry.add(

@@ -19,7 +19,7 @@ from src.kernel.channels import (
     last,
     merge,
 )
-from src.kernel.command import Command, Goto, Handoff, Send
+from src.kernel.command import Command, Goto, Send
 from src.kernel.eventlog import (
     CheckpointStore,
     Event,
@@ -55,7 +55,6 @@ __all__ = [
     "EventLog",
     "FnBody",
     "Goto",
-    "Handoff",
     "InMemoryEventLog",
     "InMemoryStore",
     "InProcessActivator",

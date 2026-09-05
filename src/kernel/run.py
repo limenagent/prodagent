@@ -82,6 +82,8 @@ class Run:
         # 动态扇出：模板 id -> 它被实例化出的 key 列表；实例输入单独存。
         self.instances: dict[str, list[str]] = {}
         self.instance_inputs: dict[str, Any] = {}
+        # Goto 转场时喂给目标节点这一次的输入（动态边传值，和 Send 的 payload 对称）。
+        self.deliveries: dict[str, Any] = {}
         self._instance_seq = 0
         # 被控制命令（Goto）显式激活的节点：显式 entry 时，只有入口和这里的节点
         # 能在“没有入边”的情况下起步，避免孤立节点被误当源点第一波就跑。
@@ -170,9 +172,17 @@ class Run:
     def mark_failed(self, key: str, error: str) -> None:
         self.node_states[key].mark_failed(error)
 
-    def reset_pending(self, key: str) -> None:
+    def rearm(self, key: str) -> None:
+        """重新武装：把一个（可能已 COMPLETED 的）节点退回 PENDING。
+
+        这是“让节点能再跑一次”唯一的底层动作。它只改状态，不决定是否立即放行。
+        """
         self.node_states.setdefault(key, NodeRuntimeState()).reset_pending()
-        self.activated.add(key)  # 记录“被命令激活”，供就绪判定放行
+
+    def reset_pending(self, key: str) -> None:
+        """Goto 用：重新武装，并加入 activated —— 下一波绕过前驱、立即就绪。"""
+        self.rearm(key)
+        self.activated.add(key)  # 记录“被命令立即激活”，供就绪判定放行
 
     # —— 动态实例（Send 扇出）——
     def add_instance(self, template: str, payload: Any, key: str | None = None) -> str:
@@ -223,6 +233,7 @@ class Run:
             },
             "instances": self.instances,
             "instance_inputs": self.instance_inputs,
+            "deliveries": self.deliveries,
             "instance_seq": self._instance_seq,
             "activated": list(self.activated),
             "interrupt": None if self.interrupt is None else self.interrupt.__dict__,
@@ -246,6 +257,7 @@ class Run:
         }
         run.instances = snap.get("instances", {})
         run.instance_inputs = snap.get("instance_inputs", {})
+        run.deliveries = snap.get("deliveries", {})
         run._instance_seq = snap.get("instance_seq", 0)
         run.activated = set(snap.get("activated", ()))
         run.final_output = snap.get("final_output")

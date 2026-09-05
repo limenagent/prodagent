@@ -24,7 +24,7 @@ from typing import Any
 from src.kernel.body import NodeContext, Outcome
 from src.kernel.bus import Bus
 from src.kernel.channels import WaveWrites
-from src.kernel.command import Goto, Handoff, Send
+from src.kernel.command import Goto, Send
 from src.kernel.eventlog import (
     INTERRUPTED,
     NODE_COMPLETED,
@@ -44,17 +44,19 @@ from src.kernel.types import NodeStatus, RunState
 
 class InProcessActivator:
     """默认子 Agent 激活器：在同进程用同一个调度器递归跑子 Plan（call 语义）。
+
     换远程实现（A2A、RPC）只需满足 SubagentPort 协议，内核一行不改——
-    “在哪执行”是端口后面的事（第 32 课的位置透明）。
+    “在哪执行”是端口后面的事（位置透明）。
     """
-    def __init__(self, scheduler: "Scheduler"):
+
+    def __init__(self, scheduler: Scheduler):
         self.scheduler = scheduler
 
-    async def activate(self, spec, task: str, parent_run: Run, payload=None) -> dict:
+    async def activate(self, spec: Any, task: str, parent_run: Run, payload: Any = None) -> dict:
         child_depth = parent_run.depth + 1
         if child_depth > self.scheduler.max_depth:
             # 深度兜底：无限互相委派（A 激活 B、B 又激活 A）会让 Run 树只增不减，
-            # 在这里统一挡住，比把“记得别互相调用”寄托给模型可靠得多（第 10、26 课）。
+            # 在这里统一挡住，比把“记得别互相调用”寄托给模型可靠得多。
             raise RecursionError(
                 f"子 Run 深度超过上限 {self.scheduler.max_depth}，"
                 "请检查是否出现了 Agent 之间循环委派"
@@ -72,26 +74,29 @@ class InProcessActivator:
             "shared": child.shared,
         }
 
+
 class Scheduler:
     def __init__(
         self,
         *,
-        llm=None, tools=None, bus=None, eventlog=None, store=None,
-        on_handoff=None,
+        llm: Any = None,
+        tools: Any = None,
+        bus: Bus | None = None,
+        eventlog: Any = None,
+        store: Any = None,
         max_waves: int = 64,
         concurrency: int = 8,
-        max_depth: int = 8,          # ← 新增：Run 树最大深度
+        max_depth: int = 8,
     ):
         self.llm = llm
         self.tools = tools
         self.bus = bus or Bus()
         self.eventlog = eventlog or InMemoryEventLog()
         self.store = store or InMemoryStore()
-        self.on_handoff = on_handoff
         self.max_waves = max_waves
-        self.max_depth = max_depth   # ← 挡住 A 交 B、B 又交回 A 的环
+        self.max_depth = max_depth  # Run 树最大深度：挡住 A 交 B、B 又交回 A 的环
         self._sem = asyncio.Semaphore(concurrency)
-        self._seq: dict[str, int] = {}
+        self._seq: dict[str, int] = {}  # 每个 run 独立递增的事件序号
         self.subagent = InProcessActivator(self)
 
     # —— 对外主入口 ——
@@ -246,6 +251,8 @@ class Scheduler:
     def _node_input(self, plan: Any, run: Run, key: str) -> Any:
         if run.is_instance(key):
             return run.input_of(key)
+        if key in run.deliveries:
+            return run.deliveries.pop(key)  # Goto 转场带来的输入，消费一次
         preds = plan.incoming(key)
         if not preds:
             return run.task
@@ -275,17 +282,15 @@ class Scheduler:
             commands = control if isinstance(control, list) else [control]
             for cmd in commands:
                 if isinstance(cmd, Goto):
-                    run.reset_pending(cmd.target)  # 回边/跳转：目标重新就绪
+                    if cmd.immediate:
+                        run.reset_pending(cmd.target)  # 重新武装 + 立即放行（回边/跳转/交接）
+                    else:
+                        # 只重新武装：仍由入边和 join 决定何时就绪（迭代汇聚点等齐前驱）
+                        run.rearm(cmd.target)
+                    if cmd.payload is not None:
+                        run.deliveries[cmd.target] = cmd.payload  # 转场输入，和 Send 对称
                 elif isinstance(cmd, Send):
                     run.add_instance(cmd.template, cmd.payload, cmd.key)
-                elif isinstance(cmd, Handoff):
-                    # transfer（不回头的交接）涉及会话归属，是应用层配方。
-                    if self.on_handoff is None:
-                        raise RuntimeError(
-                            "收到 Handoff 但未装配 on_handoff；委派请用 SubPlanBody(call)，"
-                            "交接(transfer)需在应用层提供处理器。"
-                        )
-                    await self.on_handoff(cmd, run, self)
                 else:
                     raise TypeError(f"未知控制命令：{cmd!r}")
 

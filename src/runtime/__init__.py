@@ -11,9 +11,8 @@ from src.runtime.agent import Agent, AgentResult
 from src.runtime.workflow import (
     Workflow,
     WorkflowResult,
-    fork,
     go,
-    hand_off,
+    send,
     wait_human,
 )
 
@@ -22,8 +21,7 @@ __all__ = [
     "AgentResult",
     "Workflow",
     "WorkflowResult",
-    "fork",
     "go",
-    "hand_off",
+    "send",
     "wait_human",
 ]

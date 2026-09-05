@@ -10,7 +10,8 @@
     result = await wf.run("任务")
 
 节点函数写 async def fn(input, ctx) 即可，返回值很宽松：裸值=给下游的值，
-dict=写共享状态；要控制流程就用本模块的 go / fork / hand_off / wait_human。
+dict=写共享状态；要控制流程就用本模块的 go / send / wait_human（go 到另一个
+Agent 节点、且不画回边，就是“交出去不回头”的接力；要并行多份就返回一组 send）。
 未事先声明的状态键会自动补一个 last 通道，所以入门时你不用先学 reducer。
 
 底层仍是 Plan/Node/Scheduler 那台 BSP 引擎，这层只让声明更顺手。
@@ -18,7 +19,6 @@ dict=写共享状态；要控制流程就用本模块的 go / fork / hand_off / 
 
 from __future__ import annotations
 
-import dataclasses
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -32,47 +32,27 @@ from src.kernel import (
     Plan,
     Run,
     Scheduler,
-    Send,
     SubPlanBody,
     last,
 )
 from src.kernel.body import NodeBody, coerce_outcome
-from src.runtime.agent import Agent, _AgentHandoff
+from src.runtime.agent import Agent
 
 # —— 节点里用来表达控制流的便捷函数（不必 import 内核的 Outcome/Command）——
 
 
 def go(target: str, value: Any = None, **state_delta) -> Outcome:
-    """跳到/回到某个节点（回边、循环靠它）。"""
+    """转场到某个节点（回边、循环、交接都靠它）；value 是喂给目标这一次的输入。"""
     return Outcome.goto(target, value, **state_delta)
 
 
-def fork(template: str, items: list, *, key: str | Callable | None = None) -> Outcome:
-    """动态扇出：把模板节点按 items 实例化多份并行跑（数量运行时才知道）。"""
-    sends = []
-    for i, item in enumerate(items):
-        if key is None:
-            inst_key = str(i)
-        elif isinstance(key, str):
-            inst_key = str(item[key])
-        else:
-            inst_key = str(key(item, i))
-        sends.append(Send(template, item, inst_key))
-    return Outcome.fan_out(*sends)
+def send(template: str, payload: Any, key: str | None = None) -> Outcome:
+    """运行时实例化一份模板节点、把 payload 喂给它（就是内核的 Send）。
 
-
-def hand_off(agent: Any, task: str) -> Outcome:
-    """接力（transfer）：把控制权交给另一个 Agent，不再返回当前流程。
-
-    直接传 Agent 对象即可“用即绑定”，无需事先登记；内核命令里仍只记录它的名字
-    （可序列化），对象绑定放在 Outcome.bindings 这个运行期瞬态字段上。
-    只有当你传的是名字字符串时，才需要 wf.handoff_to 先登记目标。
+    要一次扇出多份并行，就返回一组：return [send("w", x) for x in items]，
+    具体几份运行时才知道也没关系，引擎会把它们放进同一波里并发跑。
     """
-    name = agent.name if hasattr(agent, "name") else str(agent)
-    outcome = Outcome.handoff(name, task)
-    if hasattr(agent, "plan"):  # 传的是 Agent 对象：记下绑定
-        outcome = dataclasses.replace(outcome, bindings={name: agent})
-    return outcome
+    return Outcome.send(template, payload, key)
 
 
 def wait_human(question: str = "", payload: Any = None, *, kind: str = "approval") -> Outcome:
@@ -97,8 +77,6 @@ class _FacadeBody:
         for k in outcome.state_delta:  # 未声明的键自动补 last 通道
             if k not in plan.channels:
                 plan.channels[k] = last(None)
-        if outcome.bindings:  # hand_off(Agent) 用即绑定
-            self.workflow._runtime_targets.update(outcome.bindings)
         return outcome
 
 
@@ -150,9 +128,6 @@ class Workflow:
         self._edges: list[tuple[str, str, Any]] = []
         self._entry: list[str] = []
         self._channels: dict[str, Any] = {}
-        self._known_agents: dict[str, Any] = {}  # 作为节点加入的 Agent
-        self._runtime_targets: dict[str, Any] = {}  # hand_off(Agent) 运行时用即绑定
-        self._extra_handoffs: dict[str, Any] = {}  # handoff_to 显式登记（传名字时才需要）
 
     # —— 声明 ——
     def channel(self, name: str, reducer: Any) -> Workflow:
@@ -181,8 +156,6 @@ class Workflow:
                 "retry": retry,
             },
         )
-        if isinstance(body, Agent):  # 记下它，交接时按名激活其自身运行时
-            self._known_agents[body.name] = body
         return self
 
     # 简短别名，链式更顺。
@@ -201,15 +174,6 @@ class Workflow:
 
     def entry(self, *names: str) -> Workflow:
         self._entry = list(names)
-        return self
-
-    def handoff_to(self, agent: Any) -> Workflow:
-        """显式登记一个可接力的 Agent。
-
-        通常不需要：直接在节点里 hand_off(agent_obj, task) 会用即绑定。只有当你
-        只能给出目标名字（hand_off("repairer", task)）时，才用这里先登记对象。
-        """
-        self._extra_handoffs[agent.name] = agent
         return self
 
     # —— 编译 ——
@@ -234,26 +198,18 @@ class Workflow:
         return plan
 
     def _scheduler(self, plan: Plan) -> Scheduler:
-        # handoff 目标来自三处：作为节点加入的 Agent、hand_off(对象) 的用即绑定、
-        # handoff_to 的显式登记。接力时一律用目标 Agent 自己的运行时。
-        # 用 getter 而非快照：hand_off(对象) 的用即绑定在节点执行时才产生。
-        on_handoff = _AgentHandoff(
-            lambda: {**self._known_agents, **self._runtime_targets, **self._extra_handoffs}
-        )
         return Scheduler(
             llm=self._model,
             tools=self._tools,
             bus=self.bus,
             store=self.store,
             eventlog=self.eventlog,
-            on_handoff=on_handoff,
             max_waves=self.max_waves,
             concurrency=self.concurrency,
         )
 
     # —— 运行 ——
     async def run(self, input: Any = None) -> WorkflowResult:
-        self._runtime_targets.clear()  # 每次运行重新收集用即绑定
         plan = self._compile()
         task = ""
         run = Run.start(plan, task=task)

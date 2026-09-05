@@ -20,7 +20,6 @@ from src.kernel import (
     EventLog,
     FnBody,
     Goto,
-    Handoff,
     InMemoryEventLog,
     InMemoryStore,
     Interrupt,
@@ -47,9 +46,8 @@ from src.runtime.agent import Agent, AgentResult
 from src.runtime.workflow import (
     Workflow,
     WorkflowResult,
-    fork,
     go,
-    hand_off,
+    send,
     wait_human,
 )
 
@@ -63,7 +61,6 @@ __all__ = [
     "EventLog",
     "FnBody",
     "Goto",
-    "Handoff",
     "InMemoryEventLog",
     "InMemoryStore",
     "Interrupt",
@@ -83,10 +80,9 @@ __all__ = [
     "WorkflowResult",
     "add",
     "append",
-    "fork",
     "go",
-    "hand_off",
     "last",
     "merge",
+    "send",
     "wait_human",
 ]

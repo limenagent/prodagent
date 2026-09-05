@@ -14,7 +14,7 @@
 Outcome 是 body 的产出，正交地分三块：
 - value：给下游节点的值；
 - state_delta：要按 reducer 折叠进共享状态的数据；
-- control：Goto/Send/Handoff 控制命令（None=沿静态边自然走）；
+- control：Goto/Send 控制命令（None=沿静态边自然走）；
 - suspend：非空则请求在这一点放手暂停（Interrupt）。
 """
 
@@ -24,7 +24,7 @@ import inspect
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
-from src.kernel.command import Command, Goto, Handoff, Send
+from src.kernel.command import Command, Goto, Send
 from src.kernel.run import Interrupt
 
 
@@ -35,9 +35,6 @@ class Outcome:
     # control 可以是一条命令，也可以是一组命令（一次扇出多个 Send）。
     control: Command | list[Command] | None = None
     suspend: Interrupt | None = None
-    # 门面层运行期的“名字→对象”瞬态绑定（如 hand_off 传了 Agent 对象）；
-    # 它不进状态、不参与序列化，内核命令本身仍只带名字。
-    bindings: dict | None = None
 
     # —— 便捷构造，读起来像在“陈述意图” ——
     @classmethod
@@ -45,8 +42,13 @@ class Outcome:
         return cls(value=value, state_delta=dict(delta))
 
     @classmethod
-    def goto(cls, target: str, value: Any = None, **delta: Any) -> Outcome:
-        return cls(value=value, state_delta=dict(delta), control=Goto(target))
+    def goto(
+        cls, target: str, payload: Any = None, *, immediate: bool = True, **delta: Any
+    ) -> Outcome:
+        """转场到 target；payload 作为它下一次输入，delta 折叠进共享状态。"""
+        return cls(
+            state_delta=dict(delta), control=Goto(target, immediate, payload)
+        )
 
     @classmethod
     def send(cls, template: str, payload: Any, key: str | None = None) -> Outcome:
@@ -58,22 +60,34 @@ class Outcome:
         return cls(state_delta=dict(delta), control=list(sends))
 
     @classmethod
-    def handoff(cls, agent: str, task: str) -> Outcome:
-        return cls(control=Handoff(agent, task))
-
-    @classmethod
     def park(cls, kind: str, payload: Any = None, question: str = "") -> Outcome:
         return cls(suspend=Interrupt(kind, payload, question))
 
 
 def coerce_outcome(raw: Any) -> Outcome:
-    """让 body 可以“偷懒”：返回裸值/dict/命令，自动规整成 Outcome。"""
+    """让 body 可以“偷懒”：裸值/dict/命令/一组命令都能自动规整成 Outcome。"""
     if raw is None:
         return Outcome()
     if isinstance(raw, Outcome):
         return raw
     if isinstance(raw, Command):
         return Outcome(control=raw)
+    if isinstance(raw, list):
+        # 只有“整组都是控制意图（命令/Outcome）”时才当作一组控制（如一次扇出多个
+        # Send）；普通 list（比如排序后的结果）仍然是业务值，不能靠“是个列表”就猜
+        # 它是命令——否则业务里返回列表会被误伤。
+        if raw and all(isinstance(x, (Command, Outcome)) for x in raw):
+            controls: list = []
+            delta: dict = {}
+            for item in raw:
+                oc = coerce_outcome(item)
+                if oc.control is not None:
+                    controls.extend(
+                        oc.control if isinstance(oc.control, list) else [oc.control]
+                    )
+                delta.update(oc.state_delta)
+            return Outcome(state_delta=delta, control=controls or None)
+        return Outcome(value=raw)
     if isinstance(raw, dict):
         return Outcome(state_delta=raw)
     return Outcome(value=raw)

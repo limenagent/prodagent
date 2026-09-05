@@ -17,6 +17,7 @@ from typing import Any
 
 from src.kernel import (
     FnBody,
+    Goto,
     Node,
     Outcome,
     Plan,
@@ -50,8 +51,14 @@ def build_plan_execute(*, make_steps: MakeSteps, worker: Any, synth: Any = None)
         if not steps:
             return Outcome.goto("synth", steps=[])
         sends = [Send("worker", step, key=step["id"]) for step in steps]
-        # 计划清单写进 state，同时把每个步骤扇出成一个 worker 实例。
-        return Outcome.fan_out(*sends, steps=steps)
+        # 计划清单写进 state；同时扇出 worker，并把汇聚点 synth 重新武装——
+        # 这样即便发生重规划（某步 Goto 回 planner 再来一轮），synth 也会等
+        # 这一波 worker 全部齐活后再汇总，而不会沿用上一轮的“已完成”状态。
+        return Outcome(
+            state_delta={"steps": steps},
+            # immediate=False：只重新武装 synth，仍等这一波 worker 齐活再汇总
+            control=[*sends, Goto("synth", immediate=False)],
+        )
 
     async def default_synth(inputs, ctx):
         # template 前驱 worker 的输出会被聚合成一个 list 传进来。

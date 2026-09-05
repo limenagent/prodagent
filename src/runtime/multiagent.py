@@ -6,21 +6,26 @@
 - supervisor（主管-工人，call/委派）：主管本身就是一个 ReAct，只不过它的
   “工具”是一个个子 Agent——调用工具 = 递归激活一个子 Run，跑完把结果交回，
   主管据此再决定下一步。这就是 ADK 的 agent-as-tool，用内核原语天然表达；
-- handoff（接力/transfer）：控制权交出去不回头，走内核的 Handoff 命令 +
-  注入的 on_handoff 控制器，和 call 的“去了要回来”形成对照。
+- transfer（接力/交接，不回头）：在同一张图里把各 Agent 当节点，用 go 转到目标
+  Agent 节点、不画回边即一去不返，和 call 的“去了要回来”形成对照，无需专门命令。
+另外提供 build_blackboard：多角色共写一块共享板、主持人 join=all 汇聚、可多轮趋同。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from itertools import pairwise
 from typing import Any
 
 from src.kernel import (
+    FnBody,
+    Goto,
     Node,
+    Outcome,
     Plan,
     Run,
     SubPlanBody,
+    append,
+    last,
 )
 from src.runtime.react import build_react_plan, start_react_run
 from src.runtime.tools import ToolRegistry, ToolSpec
@@ -99,25 +104,59 @@ async def run_supervisor(plan: Plan, task: str, scheduler: Any) -> Run:
     return run
 
 
-# —— 接力：transfer 不回头（对照 call）——
-@dataclass
-class HandoffController:
-    """作为 Scheduler(on_handoff=...) 注入：收到 Handoff 就激活目标 Agent 接力。
+# 说明：多 Agent 的“交接（transfer，不回头）”不需要专门控制器——在同一张
+# Workflow 图里把各 Agent 当节点，用 go(目标Agent, 交接摘要) 转场、且不画回边，
+# 控制权就一去不返；这与 call（ctx.spawn 子 Run、干完返回）正好对照。
 
-    与 call 的区别在于：交接不把结果交回调用者，控制权沿链向后传，chain 记录
-    完整交接路径，便于审计。真实 swarm 里，模型产出“交给谁”的意图后映射成
-    Outcome.handoff(...)，剩下的都由这个控制器统一处理。
+
+# —— 黑板：共享工作区 + 多角色并行 + 主持人汇聚（可多轮趋同）——
+def build_blackboard(
+    experts: list[tuple[str, Any]],
+    moderator: Any,
+    *,
+    final: Any = None,
+    board_key: str = "board",
+) -> Plan:
+    """搭一块“共享黑板”：异构专家并行写、主持人按 join=all 汇聚裁决。
+
+    结构（全部是已有原语，没有为黑板新造引擎）：
+
+        fanout ──并行──▶ expert1 ┐
+                 ├──────▶ expert2 ├──▶ moderator(join=all) ──共识──▶ final
+                 └──────▶ expert3 ┘            │ 未达成
+                                             └─ Goto 回 fanout 再来一轮
+
+    - experts 是 [(名字, body 或子 Plan), ...]，每个专家是不同角色（不同提示/工具），
+      它们只往共享通道 board_key（append）追加自己的意见，彼此不直接通信；
+    - moderator 是主持人 body，读 ctx.shared 裁决：达成则 Outcome.goto("final",
+      verdict=...)，未达成则 Outcome.goto("fanout", round=r+1) 触发下一轮；
+    - 多轮的关键是 fanout 每轮用 Goto(节点, immediate=False) 把专家和主持人“重新武装”：
+      专家等 fanout 完成即并行，主持人依旧等所有专家这一轮齐活才裁决。
     """
+    expert_names: list[str] = []
 
-    agents: dict[str, Plan]
-    chain: list[dict] = field(default_factory=list)
+    async def fanout(_, ctx):
+        # 只重新武装、不立即激活：并行时机仍由 fanout→expert 的边、汇聚时机
+        # 仍由 expert→moderator 的 join=all 决定，让这套判定每一轮都重来。
+        return Outcome(
+            control=[Goto(n, immediate=False) for n in (*expert_names, "moderator")]
+        )
 
-    async def __call__(self, cmd: Any, run: Run, scheduler: Any) -> None:
-        if cmd.agent not in self.agents:
-            raise RuntimeError(f"未知的交接目标：{cmd.agent}")
-        self.chain.append({"from_run": run.run_id, "to": cmd.agent, "task": cmd.task})
-        target = self.agents[cmd.agent]
-        child = Run.start(target, parent_id=run.run_id, depth=run.depth + 1, task=cmd.task)
-        await scheduler.drive(target, child)
-        # transfer：把接力到的最终结果直接落到当前 Run，不回退给上一个调用者。
-        run.complete(child.final_output)
+    plan = Plan(channels={board_key: append(), "round": last(0), "verdict": last(None)})
+    plan.add(Node("fanout", FnBody(fanout)))
+    for name, body in experts:
+        plan.add(Node(name, _as_body(body)))
+        plan.edge("fanout", name)
+        plan.edge(name, "moderator")
+        expert_names.append(name)
+    plan.add(Node("moderator", _as_body(moderator), join="all"))
+
+    async def default_final(_, ctx):
+        return Outcome.ok(
+            {"verdict": ctx.shared.get("verdict"), board_key: ctx.shared[board_key]}
+        )
+
+    plan.add(Node("final", _as_body(final) if final is not None else FnBody(default_final),
+                  terminal=True))
+    plan.entry = ("fanout",)
+    return plan

@@ -4,7 +4,7 @@
 
 prodagent 是一个**教学型、同时保留必要生产能力**的 Agent 框架。它用尽量少、尽量
 正交的抽象，把“一台 Agent 执行引擎由哪几块构成、为什么非它们不可”讲清楚，你可以
-读完内核，并照着自己手写一遍；再用上层配方拼出 ReAct、先规划后执行、 多 Agent 协作等。
+读完内核，并照着自己手写一遍；再用上层配方拼出 ReAct、先规划后执行、多 Agent 协作等。
 
 
 ## 三层结构
@@ -41,7 +41,7 @@ src/kernel/        机制层（零三方依赖，不懂“模式”）
         │
         ▼
   Scheduler（引擎）：算就绪 → 波次并发 → 屏障折叠 → 落检查点
-  Outcome / body · Command（Goto/Send/Handoff）
+  Outcome / body · Command（Goto/Send）
   Interrupt（挂起）· Bus（三协议+背压）· EventLog（事实源）
 ```
 
@@ -57,7 +57,7 @@ src/kernel/        机制层（零三方依赖，不懂“模式”）
 | Run | `kernel/run.py` | 一次运行的动态状态、生命周期状态机、快照 |
 | Channel / reducer | `kernel/channels.py` | 并发写入如何确定地合并（append/last/add/merge） |
 | Outcome / body | `kernel/body.py` | 唯一可组合接口 + 函数/工具/模型/子图四种 body |
-| Command | `kernel/command.py` | Goto / Send / Handoff：只改“下一波就绪集合” |
+| Command | `kernel/command.py` | Goto / Send：只改“下一波就绪集合”；Goto 可带 payload 作为转场输入 |
 | EventLog / Store | `kernel/eventlog.py` | 事件是事实源，状态是折叠投影 |
 | Bus | `kernel/bus.py` | 旁观 fire / 裁决 check / 收集 collect + 有界订阅背压 |
 | Scheduler | `kernel/scheduler.py` | BSP 波次主循环，把所有部件装成一台机器 |
@@ -70,8 +70,9 @@ src/kernel/        机制层（零三方依赖，不懂“模式”）
    时间旅行、崩溃恢复因此是同一件事。
 2. **波次是一致性边界。** 同波节点并发、互不可见半成品，一波结束统一提交，结果与
    调度顺序无关；每个波次边界天然是一个检查点。
-3. **复杂能力是原语递归组合长出来的。** 多 Agent 不是新引擎，而是某个节点的 body
-   递归又跑起一张图（子 Run），call 要返回、handoff 不回头，只是汇合方式不同。
+3. **复杂能力是原语递归组合长出来的。** 多 Agent 不是新引擎：call（委派）是某个
+   节点的 body 递归又跑起一张子 Run、干完把结果交回；transfer（接力）更省——同一张
+   图里 go 到对方的节点、不画回边，控制权就一去不返。汇合方式不同，用的都是同一条 Goto。
 
 ## 两种使用姿势：门面，或直接用内核
 
@@ -79,7 +80,7 @@ src/kernel/        机制层（零三方依赖，不懂“模式”）
 `Workflow` 是一张看得清的流程图，节点既能是函数也能直接是 Agent：
 
 ```python
-from src import Agent, Workflow, go, hand_off
+from src import Agent, Workflow, go
 
 # 1) 一个自主 Agent：模型 + 工具，run 一下
 agent = Agent(name="researcher", model=llm, instruction="...", tools=[search])
@@ -89,26 +90,32 @@ result = await agent.run("帮我查 X")  # result.output 是最终答复
 boss = Agent(name="boss", model=llm, teammates=[researcher, writer])
 
 # 3) 确定性编排 / 多 Agent 接力：Workflow
+async def decide(root, ctx):
+    return go("repair", root)  # 转场到修复 Agent：无回边即交接（transfer）不回头
+
 wf = Workflow()
 wf.add("diagnose", diagnose_fn)  # 函数节点
-wf.add("repair", repair_agent)  # 也可以直接放一个 Agent
-wf.add("relay", lambda x, ctx: hand_off(repair_agent, x), terminal=True)  # 接力不回头
-wf.edge("diagnose", "relay").entry("diagnose").handoff_to(repair_agent)
+wf.add("decide", decide)  # 决定转场去哪的普通节点
+wf.add("repair", repair_agent, terminal=True)  # 节点也可以直接是一个 Agent
+wf.edge("diagnose", "decide")
+wf.entry("diagnose")
 result = await wf.run("故障")
 ```
 
-节点里的控制流用四个好记的函数：`go`（跳/回边）、`fork`（动态扇出并行）、
-`hand_off`（接力）、`wait_human`（停下等人，随后 `wf.resume`）。想看清门面底下
-怎么用 Plan/Node/Scheduler 拼出来，再回到内核与 `graph_demo.py`、`react_demo.py`。
+节点里的控制流用三个好记的函数：`go`（转场：回边、循环、交接都靠它，value 会作为
+目标这一次的输入）、`send`（动态扇出：`return [send("worker", x) for x in items]`，
+几份运行时才知道也没关系，引擎会放进同一波里并发跑）、`wait_human`（停下等人，
+随后 `wf.resume`）。想看清门面底下怎么用 Plan/Node/Scheduler 拼出来，再回到内核与
+`graph_demo.py`、`react_demo.py`。
 
 ## 上层配方与横切策略（都可替换）
 
 | 能力 | 位置 | 说明 |
 |---|---|---|
-| Agent / Workflow 门面 | `runtime/agent.py`、`runtime/workflow.py` | 好用的高层 API：自主体、声明式图、go/fork/hand_off/wait_human |
+| Agent / Workflow 门面 | `runtime/agent.py`、`runtime/workflow.py` | 好用的高层 API：自主体、声明式图、go/send/wait_human |
 | ReAct | `runtime/react.py` | think⇄tools 环 + final，环上前进由 Goto 驱动，可无限多轮工具 |
-| 先规划后执行 | `runtime/plan_first.py` | LLM 计划只是 state 里的步骤清单，Send 动态扇出、汇合 |
-| 多 Agent | `runtime/multiagent.py` | pipeline / supervisor（子 Agent 即工具）/ handoff 接力 |
+| 先规划后执行 | `runtime/plan_first.py` | LLM 计划只是 state 里的步骤清单，send 动态扇出、汇合点等齐前驱才汇总 |
+| 多 Agent | `runtime/multiagent.py` | pipeline / supervisor（子 Agent 即工具）/ 黑板（专家并行写板、主持人 join=all 裁决、可多轮趋同）；transfer=同图 go 不回头 |
 | 工具 | `runtime/tools.py` | 函数即工具、自动推断 schema、读写分级、审批门、失败即反馈 |
 | MCP | `runtime/mcp.py` | MCP 工具在边界拉平成普通工具，内部只走一条管线 |
 | 上下文 | `runtime/context.py` | 五级压缩：不动→机械缩工具结果→逐级摘要→紧急只留最近，装配策略可换 |
@@ -130,7 +137,7 @@ PYTHONPATH=. python examples/03_deep_research.py  # 连查多轮 + 五级上下�
 PYTHONPATH=. python examples/04_compliance_audit.py # 并行核查 + 挂起审批，被拒不推倒
 PYTHONPATH=. python examples/05_code_detective.py # MCP 工具 + 从磁盘加载技能 + 失败再改
 PYTHONPATH=. python examples/06_trip_planner.py   # 主 Agent 扇出三个并行子 Agent
-PYTHONPATH=. python examples/07_aiops.py          # 诊断 call 要返回 + 修复 handoff 接力
+PYTHONPATH=. python examples/07_aiops.py          # 诊断 call 要返回 + 修复 transfer 接力（go 不回头）
 PYTHONPATH=. python examples/09_persistence.py    # 检查点落盘，换新实例也能从断点恢复
 PYTHONPATH=. python examples/10_retry_timeout.py  # 节点超时 + 指数退避重试
 PYTHONPATH=. python examples/11_backpressure.py   # 节点流式吐事件，有界订阅 block/drop 背压
@@ -149,7 +156,7 @@ make play                 # 等价：PYTHONPATH=. python3 -m src.playground
 
 - 节点开始/完成、状态增量、运行完成等**事件流时间线**（订阅的是同一个 Bus）；
 - 遇到 `wait_human` 的人工节点会**真正挂起**，页面弹出“批准/拒绝”，点完从断点继续；
-- 多 Agent 的并行、委派（call）、接力（handoff）都能在时间线上看出来。
+- 多 Agent 的并行、委派（call）、接力（transfer）都能在时间线上看出来。
 
 Playground 只用标准库（`http.server` + 后台事件循环），不引入任何 web 框架。示例默认
 用离线脚本模型，零配置即可点。

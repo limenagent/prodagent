@@ -12,7 +12,7 @@ import asyncio
 import os
 
 import src.runtime as _runtime_pkg
-from src import Agent, Workflow, go, hand_off, wait_human
+from src import Agent, Workflow, go, wait_human
 from src.kernel import LlmReply, ToolCall
 from src.runtime.context import TieredCompactionContext
 from src.runtime.llm import ScriptedLlm, env_llm
@@ -275,10 +275,12 @@ def _aiops():
         return go("decide", f"根因=连接池耗尽（{cpu}；{log}）")
 
     async def decide(root, ctx):
-        return hand_off(repairer, root)
+        # transfer：go 到同图的修复 Agent，无回边即不回头，root 作为它这一次的输入。
+        return go("repairer", root)
 
     wf.add("diagnose", diagnose)
-    wf.add("decide", decide, terminal=True)
+    wf.add("decide", decide)
+    wf.add("repairer", repairer, terminal=True)
     wf.edge("diagnose", "decide")
     wf.entry("diagnose")
     return wf
@@ -392,7 +394,7 @@ SCENARIOS = [
         "key": "07",
         "title": "07 故障应急·委派与接力",
         "default": "订单服务延迟飙升",
-        "desc": "并行委派诊断（call），再 handoff 给修复 Agent（transfer）。",
+        "desc": "并行委派诊断（call），再 go 到修复 Agent 接力（transfer）。",
         "build": _aiops,
         "is_async": False,
     },
