@@ -31,6 +31,7 @@ async def main():
     def run_test(a):
         runs["n"] += 1
         return "测试通过" if runs["n"] >= 2 else "1 个测试仍失败：边界没处理"
+
     repo.define("run_test", run_test, description="运行测试")
 
     registry = ToolRegistry()
@@ -46,23 +47,29 @@ async def main():
     # 3) 模型剧本：第一轮补丁没修好，看到测试反馈后再改，第二次转绿。
     agent = Agent(
         name="detective",
-        model=env_llm(ScriptedLlm([
-            ToolCall("read_file", {"file": "test_x.py"}),
-            ToolCall("grep", {"pattern": "func_x"}),
-            ToolCall("read_file", {"file": "x.py"}),
-            ToolCall("apply_patch", {"change": "补边界"}),
-            ToolCall("run_test", {}),
-            ToolCall("apply_patch", {"change": "再补空值"}),
-            ToolCall("run_test", {}),
-            "定位到空值边界问题，两次修改后测试全部通过。",
-        ])),
+        model=env_llm(
+            ScriptedLlm(
+                [
+                    ToolCall("read_file", {"file": "test_x.py"}),
+                    ToolCall("grep", {"pattern": "func_x"}),
+                    ToolCall("read_file", {"file": "x.py"}),
+                    ToolCall("apply_patch", {"change": "补边界"}),
+                    ToolCall("run_test", {}),
+                    ToolCall("apply_patch", {"change": "再补空值"}),
+                    ToolCall("run_test", {}),
+                    "定位到空值边界问题，两次修改后测试全部通过。",
+                ]
+            )
+        ),
         instruction=system,
         registry=registry,
     )
 
     result = await agent.run("test_x 一直红，帮我修好")
     print("结论：", result.output)
-    print(f"加载技能：{skill.name}｜工具调用 {result.metrics['tool_calls']} 次（跑测试 {runs['n']} 次）")
+    print(
+        f"加载技能：{skill.name}｜工具调用 {result.metrics['tool_calls']} 次（跑测试 {runs['n']} 次）"
+    )
 
 
 if __name__ == "__main__":

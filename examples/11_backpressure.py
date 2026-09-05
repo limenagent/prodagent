@@ -24,7 +24,7 @@ async def main():
 
     async def streamer(_, ctx):
         for i in range(8):
-            await ctx.emit("token", i=i)       # 边算边吐，像逐 token 输出那样
+            await ctx.emit("token", i=i)  # 边算边吐，像逐 token 输出那样
         return "流式输出结束"
 
     wf = Workflow(bus=bus)

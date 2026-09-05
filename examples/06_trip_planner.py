@@ -30,9 +30,10 @@ async def main():
 
     async def synth(parts, ctx):
         return "行程书已生成：\n- " + "\n- ".join(parts.values())
+
     wf.add("synth", synth, join="all", terminal=True)
 
-    wf.entry("itinerary", "dining", "traffic")     # 三个子 Agent 同一波并行
+    wf.entry("itinerary", "dining", "traffic")  # 三个子 Agent 同一波并行
     wf.edge("itinerary", "synth")
     wf.edge("dining", "synth")
     wf.edge("traffic", "synth")

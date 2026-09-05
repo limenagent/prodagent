@@ -1,4 +1,5 @@
 """黑板模式：异构专家并行写共享通道，主持人 join=all 汇聚，多轮趋同。"""
+
 from src.kernel import (
     Bus,
     FnBody,
@@ -24,7 +25,7 @@ def make_expert(name):
 
 async def moderator(_, ctx):
     r = ctx.shared["round"]
-    last_votes = [b.split(":", 1)[1] for b in ctx.shared["board"][-len(NAMES):]]
+    last_votes = [b.split(":", 1)[1] for b in ctx.shared["board"][-len(NAMES) :]]
     if all(v == "agree" for v in last_votes):
         return Outcome.goto("final", verdict="consensus")
     return Outcome.goto("fanout", round=r + 1)  # 未达成：回边再来一轮
@@ -47,9 +48,7 @@ async def test_blackboard_single_round_when_all_agree():
     async def all_agree(_, ctx):
         return Outcome.goto("final", verdict="consensus")
 
-    plan = build_blackboard(
-        [(n, make_expert(n)) for n in ["alice", "bob"]], FnBody(all_agree)
-    )
+    plan = build_blackboard([(n, make_expert(n)) for n in ["alice", "bob"]], FnBody(all_agree))
     sch = Scheduler(bus=Bus(), eventlog=InMemoryEventLog(), store=InMemoryStore())
     run = await sch.run(plan, task="评审")
     assert run.shared["verdict"] == "consensus"

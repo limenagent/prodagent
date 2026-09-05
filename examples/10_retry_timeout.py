@@ -25,9 +25,10 @@ async def main():
 
     wf = Workflow()
     wf.add(
-        "call", flaky_api, terminal=True,
-        retry=RetryPolicy(max_attempts=4, base_delay=0.05, factor=2,
-                          retry_on=(ConnectionError,)),
+        "call",
+        flaky_api,
+        terminal=True,
+        retry=RetryPolicy(max_attempts=4, base_delay=0.05, factor=2, retry_on=(ConnectionError,)),
     )
     wf.entry("call")
 

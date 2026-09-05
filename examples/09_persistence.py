@@ -17,8 +17,7 @@ from src.backends.file_store import FileCheckpointStore, FileEventLog
 
 def build(directory: str) -> Workflow:
     """每次都返回一个全新实例，但它们共用同一个磁盘目录。"""
-    wf = Workflow(store=FileCheckpointStore(directory),
-                  eventlog=FileEventLog(directory))
+    wf = Workflow(store=FileCheckpointStore(directory), eventlog=FileEventLog(directory))
 
     async def prepare(x, ctx):
         return "退款单已准备好，金额 88 元"
@@ -26,8 +25,9 @@ def build(directory: str) -> Workflow:
     async def approve(prep, ctx):
         if ctx.resume_value is None:
             return wait_human("批准这笔 88 元退款吗？", {"prep": prep})
-        return go("finish", prep,
-                  decision="已退款" if ctx.resume_value.get("approved") else "已撤销")
+        return go(
+            "finish", prep, decision="已退款" if ctx.resume_value.get("approved") else "已撤销"
+        )
 
     async def finish(prep, ctx):
         return f"{prep}｜处置：{ctx.shared['decision']}"
@@ -44,12 +44,12 @@ def build(directory: str) -> Workflow:
 async def main():
     directory = tempfile.mkdtemp(prefix="src-ckpt-")
 
-    first = build(directory)                       # 第一个实例（可理解为上线进程）
+    first = build(directory)  # 第一个实例（可理解为上线进程）
     r1 = await first.run("订单 O-1 申请退款")
     print("第一次运行：", r1.status)
     print("磁盘文件：", sorted(os.listdir(directory)))
 
-    second = build(directory)                      # 全新实例（可理解为重启后的进程）
+    second = build(directory)  # 全新实例（可理解为重启后的进程）
     r2 = await second.resume(r1.run_id, {"approved": True})
     print("新实例从磁盘恢复后：", r2.status, "｜", r2.output)
 

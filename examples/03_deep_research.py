@@ -35,13 +35,17 @@ async def main():
 
     agent = Agent(
         name="researcher",
-        model=env_llm(ScriptedLlm([
-            ToolCall("search", {"query": "市场规模"}),
-            ToolCall("search", {"query": "年增速"}),
-            ToolCall("search", {"query": "头部玩家"}),
-            ToolCall("search", {"query": "政策风向"}),
-            "报告：综合四轮检索，市场规模稳步增长，头部集中，政策友好……",
-        ])),
+        model=env_llm(
+            ScriptedLlm(
+                [
+                    ToolCall("search", {"query": "市场规模"}),
+                    ToolCall("search", {"query": "年增速"}),
+                    ToolCall("search", {"query": "头部玩家"}),
+                    ToolCall("search", {"query": "政策风向"}),
+                    "报告：综合四轮检索，市场规模稳步增长，头部集中，政策友好……",
+                ]
+            )
+        ),
         instruction="你是行业研究员。",
         tools=[search],
         context=context,
@@ -49,8 +53,10 @@ async def main():
 
     result = await agent.run("帮我研究新能源赛道")
     print("最终报告：", result.output)
-    print(f"检索 {result.metrics['tool_calls']} 轮｜压缩到级别 "
-          f"{CompressionLevel.NAME[context.last_level]}｜摘要模型调用 {context.summarizer.times} 次")
+    print(
+        f"检索 {result.metrics['tool_calls']} 轮｜压缩到级别 "
+        f"{CompressionLevel.NAME[context.last_level]}｜摘要模型调用 {context.summarizer.times} 次"
+    )
 
 
 if __name__ == "__main__":

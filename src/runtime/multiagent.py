@@ -138,9 +138,7 @@ def build_blackboard(
     async def fanout(_, ctx):
         # 只重新武装、不立即激活：并行时机仍由 fanout→expert 的边、汇聚时机
         # 仍由 expert→moderator 的 join=all 决定，让这套判定每一轮都重来。
-        return Outcome(
-            control=[Goto(n, immediate=False) for n in (*expert_names, "moderator")]
-        )
+        return Outcome(control=[Goto(n, immediate=False) for n in (*expert_names, "moderator")])
 
     plan = Plan(channels={board_key: append(), "round": last(0), "verdict": last(None)})
     plan.add(Node("fanout", FnBody(fanout)))
@@ -152,11 +150,12 @@ def build_blackboard(
     plan.add(Node("moderator", _as_body(moderator), join="all"))
 
     async def default_final(_, ctx):
-        return Outcome.ok(
-            {"verdict": ctx.shared.get("verdict"), board_key: ctx.shared[board_key]}
-        )
+        return Outcome.ok({"verdict": ctx.shared.get("verdict"), board_key: ctx.shared[board_key]})
 
-    plan.add(Node("final", _as_body(final) if final is not None else FnBody(default_final),
-                  terminal=True))
+    plan.add(
+        Node(
+            "final", _as_body(final) if final is not None else FnBody(default_final), terminal=True
+        )
+    )
     plan.entry = ("fanout",)
     return plan

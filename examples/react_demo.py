@@ -52,12 +52,16 @@ async def think(_input, ctx):
     if reply.tool_calls:
         # 要调工具：Goto 让 tools 就绪（多轮时它会被反复重入），并记下这一步。
         return Outcome(
-            state_delta={"messages": [{"role": "assistant", "calls": reply.tool_calls}],
-                         "pending": reply.tool_calls},
-            control=Goto("tools"))
+            state_delta={
+                "messages": [{"role": "assistant", "calls": reply.tool_calls}],
+                "pending": reply.tool_calls,
+            },
+            control=Goto("tools"),
+        )
     # 没有工具调用 = 出最终答案，静态条件边据此走向 final。
-    return Outcome(state_delta={"messages": [{"role": "assistant", "text": reply.text}],
-                                "answer": reply.text})
+    return Outcome(
+        state_delta={"messages": [{"role": "assistant", "text": reply.text}], "answer": reply.text}
+    )
 
 
 async def tools(_input, ctx):
@@ -71,9 +75,11 @@ async def tools(_input, ctx):
 
 def build_react_plan() -> Plan:
     p = Plan(channels={"messages": append(), "pending": last(None), "answer": last(None)})
-    p.add(Node("think", FnBody(think)),
-          Node("tools", FnBody(tools)),
-          Node("final", FnBody(lambda x, ctx: Outcome.ok(ctx.shared["answer"])), terminal=True))
+    p.add(
+        Node("think", FnBody(think)),
+        Node("tools", FnBody(tools)),
+        Node("final", FnBody(lambda x, ctx: Outcome.ok(ctx.shared["answer"])), terminal=True),
+    )
     # think→tools 条件边（有待办才走），多轮重入靠 think 的 Goto；tools 完 Goto 回 think。
     p.edge("think", "tools", when=lambda s: bool(s.get("pending")))
     p.edge("tools", "think")
@@ -84,14 +90,21 @@ def build_react_plan() -> Plan:
 
 async def main():
     from src.kernel import Run
+
     plan = build_react_plan()
     sch = Scheduler(llm=FakeLlm(), tools=FakeTools())
     run = Run.start(plan, task="北京天气怎么样？")
     run.shared["messages"] = [{"role": "user", "content": run.task}]  # 首轮用户输入
     await sch.drive(plan, run)
     print("最终答案：", run.final_output)
-    print("波次：", run.metrics["waves"], "| 模型调用：", run.metrics["llm_calls"],
-          "| 工具调用：", run.metrics["tool_calls"])
+    print(
+        "波次：",
+        run.metrics["waves"],
+        "| 模型调用：",
+        run.metrics["llm_calls"],
+        "| 工具调用：",
+        run.metrics["tool_calls"],
+    )
 
 
 if __name__ == "__main__":

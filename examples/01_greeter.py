@@ -18,10 +18,14 @@ async def main():
 
     agent = Agent(
         name="greeter",
-        model=env_llm(ScriptedLlm([
-            ToolCall("menu", {"drink": "芋泥啵啵"}),
-            "有的，芋泥啵啵在售，18 元一杯，需要帮你下单吗？",
-        ])),
+        model=env_llm(
+            ScriptedLlm(
+                [
+                    ToolCall("menu", {"drink": "芋泥啵啵"}),
+                    "有的，芋泥啵啵在售，18 元一杯，需要帮你下单吗？",
+                ]
+            )
+        ),
         instruction="你是奶茶店助手，回答简洁。",
         tools=[menu],
     )

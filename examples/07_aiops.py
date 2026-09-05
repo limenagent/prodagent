@@ -27,16 +27,25 @@ async def main():
 
     # 配了 OPENAI_API_KEY 用真实模型，没配按离线脚本跑（与 playground 同一开关）。
     def engineer(name, *script, tools=None):
-        return Agent(name, model=env_llm(ScriptedLlm(list(script))),
-                     instruction=f"你是{name}，先用工具查数据再下结论，两句话内给出结论。",
-                     tools=tools or [])
+        return Agent(
+            name,
+            model=env_llm(ScriptedLlm(list(script))),
+            instruction=f"你是{name}，先用工具查数据再下结论，两句话内给出结论。",
+            tools=tools or [],
+        )
 
-    diag_cpu = engineer("diag_cpu",
-                        ToolCall("cpu_metrics", {}), "CPU 每十分钟周期性打满，疑似下游排队。",
-                        tools=[cpu_metrics])
-    diag_log = engineer("diag_log",
-                        ToolCall("error_log", {}), "错误日志显示获取连接超时，连接池已耗尽。",
-                        tools=[error_log])
+    diag_cpu = engineer(
+        "diag_cpu",
+        ToolCall("cpu_metrics", {}),
+        "CPU 每十分钟周期性打满，疑似下游排队。",
+        tools=[cpu_metrics],
+    )
+    diag_log = engineer(
+        "diag_log",
+        ToolCall("error_log", {}),
+        "错误日志显示获取连接超时，连接池已耗尽。",
+        tools=[error_log],
+    )
     repairer = engineer("repairer", "已扩容连接池并对上游限流，服务恢复。")
 
     wf = Workflow()
@@ -44,8 +53,8 @@ async def main():
     async def diagnose(x, ctx):
         # call：两个诊断子 Agent 并行，结果都要回来汇总。
         cpu, log = await asyncio.gather(
-            diag_cpu.delegate("看 CPU 曲线"),
-            diag_log.delegate("看错误日志"))
+            diag_cpu.delegate("看 CPU 曲线"), diag_log.delegate("看错误日志")
+        )
         root = f"根因=连接池耗尽（{cpu}；{log}）"
         return go("decide", root)
 

@@ -46,9 +46,7 @@ class Outcome:
         cls, target: str, payload: Any = None, *, immediate: bool = True, **delta: Any
     ) -> Outcome:
         """转场到 target；payload 作为它下一次输入，delta 折叠进共享状态。"""
-        return cls(
-            state_delta=dict(delta), control=Goto(target, immediate, payload)
-        )
+        return cls(state_delta=dict(delta), control=Goto(target, immediate, payload))
 
     @classmethod
     def send(cls, template: str, payload: Any, key: str | None = None) -> Outcome:
@@ -82,9 +80,7 @@ def coerce_outcome(raw: Any) -> Outcome:
             for item in raw:
                 oc = coerce_outcome(item)
                 if oc.control is not None:
-                    controls.extend(
-                        oc.control if isinstance(oc.control, list) else [oc.control]
-                    )
+                    controls.extend(oc.control if isinstance(oc.control, list) else [oc.control])
                 delta.update(oc.state_delta)
             return Outcome(state_delta=delta, control=controls or None)
         return Outcome(value=raw)

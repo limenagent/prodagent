@@ -40,9 +40,9 @@ def build_audit_workflow():
     wf.add("synthesize", synthesize, join="all")
     wf.add("freeze", freeze)
     wf.add("report", report, terminal=True)
-    wf.entry("screen_suspicious", "screen_accounts")     # 两个入口同波并行
+    wf.entry("screen_suspicious", "screen_accounts")  # 两个入口同波并行
     wf.edge("screen_suspicious", "synthesize")
-    wf.edge("screen_accounts", "synthesize")             # join=all：两条都到才汇合
+    wf.edge("screen_accounts", "synthesize")  # join=all：两条都到才汇合
     wf.edge("synthesize", "freeze")
     wf.edge("freeze", "report")
     return wf

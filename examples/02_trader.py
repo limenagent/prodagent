@@ -33,18 +33,22 @@ async def main():
 
     agent = Agent(
         name="buyer",
-        model=env_llm(ScriptedLlm([
-            ToolCall("quote", {}),
-            ToolCall("quote", {}),
-            ToolCall("place_order", {"price": 16, "pickup": "配送"}),    # 会被拦下
-            ToolCall("place_order", {"price": 14, "pickup": "自取"}),    # 改方案后放行
-            "谈妥了，14 元自取，已按你的偏好做无糖。",
-        ])),
+        model=env_llm(
+            ScriptedLlm(
+                [
+                    ToolCall("quote", {}),
+                    ToolCall("quote", {}),
+                    ToolCall("place_order", {"price": 16, "pickup": "配送"}),  # 会被拦下
+                    ToolCall("place_order", {"price": 14, "pickup": "自取"}),  # 改方案后放行
+                    "谈妥了，14 元自取，已按你的偏好做无糖。",
+                ]
+            )
+        ),
         instruction="你是代购助手，写操作必须先获批。",
         tools=[quote],
         memory=memory,
     )
-    agent.add_tool(place_order, side_effect="write")   # 下单是写操作，要过审批门
+    agent.add_tool(place_order, side_effect="write")  # 下单是写操作，要过审批门
 
     # 审批门：第一次认为太贵拒绝，第二次方案合理才放行。
     gate = {"n": 0}
@@ -52,11 +56,14 @@ async def main():
     def approve(**_):
         gate["n"] += 1
         return gate["n"] >= 2
+
     agent.bus.checker("tool:place_order", approve)
 
     result = await agent.run("帮我买杯奶茶，尽量便宜点")
     print("最终：", result.output)
-    print(f"模型 {result.metrics['llm_calls']} 次｜工具 {result.metrics['tool_calls']} 次｜审批拦截 1 次")
+    print(
+        f"模型 {result.metrics['llm_calls']} 次｜工具 {result.metrics['tool_calls']} 次｜审批拦截 1 次"
+    )
 
 
 if __name__ == "__main__":
