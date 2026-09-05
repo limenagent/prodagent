@@ -2,15 +2,15 @@
 
 两种多 Agent 协作语义在同一个 Workflow 里同时出现：
 - call（委派要返回）：diagnose 节点并行 delegate 两个诊断 Agent，结果都要回来；
-- transfer（接力不回头）：根因明确后，decide 节点 hand_off 给修复 Agent，
-  由它用自己的模型接手，直接以它的结果收尾，不再返回诊断流程。
+- transfer（接力不回头）：根因明确后，decide 节点 go 到修复 Agent 节点，
+  图上不画回边，由修复 Agent 用自己的模型接手并直接收尾，不再返回诊断流程。
 
 跑法：PYTHONPATH=. python3 examples/07_aiops.py
 """
 
 import asyncio
 
-from src import Agent, Workflow, go, hand_off
+from src import Agent, Workflow, go
 from src.kernel import ToolCall
 from src.runtime.llm import ScriptedLlm, env_llm
 
@@ -59,14 +59,15 @@ async def main():
         return go("decide", root)
 
     async def decide(root, ctx):
-        # transfer：把根因交给修复 Agent 接力，自己不再继续。
-        return hand_off(repairer, root)
+        # transfer：go 到修复 Agent 节点；图上不画回边，交出去就由它收尾、不再回来。
+        return go("repairer", root)
 
     wf.add("diagnose", diagnose)
-    wf.add("decide", decide, terminal=True)
+    wf.add("decide", decide)
+    wf.add("repairer", repairer, terminal=True)   # Agent 可以直接当图上的节点
     wf.edge("diagnose", "decide")
     wf.entry("diagnose")
-    # hand_off(repairer, ...) 直接传了 Agent 对象，用即绑定，无需事先登记。
+    # 能交给谁，就是图上 add 了哪些 Agent 节点；repairer 没有出边，接力到此为止。
 
     result = await wf.run("订单服务延迟飙升")
     print("诊断与处置结果：", result.output)

@@ -1,4 +1,4 @@
-# prodagent：一个能从头读完、也能直接上手改的 Agent 框架
+# prodagent：1800行代码，浓缩LangGraph和ADK的设计精华
 
 **中文** · [English](README.en.md) · 极客时间专栏[《生产级 Agent 排雷实战》](http://gk.link/a/12L6Q)配套框架
 
