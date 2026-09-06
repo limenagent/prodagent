@@ -1,12 +1,15 @@
-"""mcp —— 把 MCP Server 的工具在边界拉平，内部只留一条主路径。
+"""mcp — flatten MCP-server tools at the boundary; keep one main path inside.
 
-Agent 不该关心一个工具是本地 Python 函数，还是来自某个 MCP Server。这里做的
-事情只有一件：把 MCP 端列出的工具，逐个注册成 ToolRegistry 里的普通 ToolSpec，
-它们背后的 func 统一改成“通过 MCP 客户端调用”。于是校验、审批、幂等、结果
-归一全都复用同一条工具管线，MCP 只是工具的又一个来源。
+An agent shouldn't care whether a tool is a local Python function or comes from
+an MCP server. This module does one thing: register each tool listed by the MCP
+side as an ordinary ToolSpec in the ToolRegistry, with its underlying func
+uniformly changed to "call through the MCP client". Validation, approval,
+idempotency, and result normalization then all reuse the same tool pipeline; MCP
+is just one more source of tools.
 
-- InProcessMCPServer：进程内的 MCP 形态，离线测试/演示用；
-- StdioMCPClient：通过子进程 + JSON-RPC 连接真实 MCP Server（标准库实现）。
+- InProcessMCPServer: an in-process MCP form for offline tests/demos;
+- StdioMCPClient: connects to a real MCP server over a subprocess + JSON-RPC
+  (standard-library implementation).
 """
 
 from __future__ import annotations
@@ -29,7 +32,7 @@ class McpToolInfo:
 
 
 class InProcessMCPServer:
-    """一个最小的进程内 MCP Server：工具名 -> (说明, schema, 处理函数)。"""
+    """A minimal in-process MCP server: tool name -> (description, schema, handler)."""
 
     def __init__(self, server_name: str = "inproc"):
         self.server_name = server_name
@@ -55,7 +58,7 @@ class InProcessMCPServer:
 
 
 async def load_mcp_tools(registry: ToolRegistry, server: Any, *, prefix: str = "") -> list[str]:
-    """异步把 MCP 工具挂到注册表里，返回导入的工具名。"""
+    """Asynchronously attach MCP tools to the registry; return the imported tool names."""
     names = []
     for info in await server.list_tools():
         full_name = f"{prefix}{info.name}" if prefix else info.name
@@ -80,10 +83,11 @@ async def load_mcp_tools(registry: ToolRegistry, server: Any, *, prefix: str = "
 
 
 class StdioMCPClient:
-    """通过 stdio + JSON-RPC 连接真实 MCP Server 的极简客户端（标准库实现）。
+    """A minimal client to a real MCP server over stdio + JSON-RPC (stdlib only).
 
-    教学版只覆盖 initialize / tools/list / tools/call 三个方法，足以说明
-    “协议适配在边界完成”。生产可替换为官方 mcp SDK，对上暴露的仍是这两个方法。
+    The teaching build covers only initialize / tools/list / tools/call, enough
+    to show "protocol adaptation happens at the boundary". In production swap in
+    the official MCP SDK; the two methods exposed upward stay the same.
     """
 
     def __init__(self, command: list[str]):
@@ -112,7 +116,7 @@ class StdioMCPClient:
         line = await self._proc.stdout.readline()
         response = json.loads(line)
         if "error" in response:
-            raise RuntimeError(f"MCP {method} 失败：{response['error']}")
+            raise RuntimeError(f"MCP {method} failed: {response['error']}")
         return response.get("result", {})
 
     async def list_tools(self) -> list[McpToolInfo]:

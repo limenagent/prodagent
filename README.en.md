@@ -1,188 +1,207 @@
-# prodagent: an agent framework you can read end to end — and start hacking on
+# prodagent: an agent-framework kernel in ~1800 lines
 
-**English** · [中文](README.md) · Companion framework for the GeekTime column
-[《生产级 Agent 排雷实战》](http://gk.link/a/12L6Q) (in Chinese)
+[![CI](https://github.com/limenagent/prodagent/actions/workflows/ci.yml/badge.svg)](https://github.com/limenagent/prodagent/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
-prodagent is a **teaching-oriented framework that still keeps the capabilities production
-actually needs**. With as few and as orthogonal abstractions as possible, it answers one
-question: *what pieces make up an agent execution engine, and why exactly those?* You can
-read the whole kernel and rewrite it yourself; then use the recipes above it to assemble
-ReAct, plan-first execution, multi-agent collaboration, and more.
+[**中文**](README.md) · English · Docs: [中文](docs/zh/README.md) · [English](docs/en/README.md)
 
+prodagent is a **teaching-grade agent kernel that keeps the essentials of a
+production runtime**. With a small set of orthogonal abstractions it makes one
+question concrete: what are the moving parts of an agent execution engine, and
+why is each of them unavoidable? You can read the whole kernel in a weekend,
+re-implement it yourself, and then see how ReAct, plan-then-execute, and
+multi-agent collaboration are all *composed* from the same primitives on top.
+
+> Zero runtime third-party dependencies · ~1800-line kernel · 65 fully offline tests · 12 graduated examples · a stdlib-only web playground
+
+If you have tried to read LangGraph or Google's ADK and bounced off the code
+volume and layers of abstraction, start here. It explains the same kernel with
+as little code as possible; going back to those frameworks afterward gets much
+easier.
+
+## Where to start — pick one of three paths
+
+- **Five-minute taste**: run `make play`, pick a scenario on the left, and watch
+  the event timeline, concurrent waves, and a human-approval pause that resumes
+  from a checkpoint.
+- **Really understand an agent framework**: follow the [reading order](#suggested-reading-order)
+  with the [English docs](docs/en/README.md); you can finish the kernel in a weekend.
+- **Just build something**: jump to [two levels of API](#two-levels-of-api-facade-or-raw-kernel)
+  and adapt an example under `examples/`.
 
 ## Three layers
 
 ```
-examples/          business examples: ReAct, approval, compaction, multi-agent, MCP
+examples/          business examples: ReAct, approval, compression, multi-agent, MCP
 ─────────────────────────────────────────────────────────────
-src/runtime/       policy/recipe layer (replaceable as a whole)
+src/runtime/       strategy / recipe layer (wholly replaceable)
   react / plan_first / multiagent        how to orchestrate
   tools / mcp                            where tools come from
-  context / memory / skills              cross-cutting policies, injected as needed
-src/backends/      storage implementations: file-level checkpoint & resume
+  context / memory / skills              cross-cutting strategies, injected
+src/backends/      storage: file-based resume from checkpoint
 ─────────────────────────────────────────────────────────────
-src/kernel/        mechanism layer (zero third-party deps, knows nothing about "modes")
+src/kernel/        mechanism layer (zero third-party deps, knows no "pattern")
   Plan / Run / Scheduler / Node / Edge / Channel
   Outcome / Command / Interrupt / Bus / EventLog
 
-  ▲ models / tools / sub-agents / storage are injected through ports; the kernel never imports them
+  ▲ model / tools / sub-agent / storage are all injected through ports; the kernel never imports them
 ```
 
-**Mechanisms inside, policies outside.** There is no ReAct in the kernel and no "execution
-mode enum"; ReAct, plan-first, and multi-agent are all assembled on top of the same kernel
-primitives. Swapping in a different orchestration never touches a line of the kernel.
+**Mechanism inside, strategy outside.** There is no ReAct class and no
+"execution-mode enum" in the kernel. ReAct, plan-then-execute, and multi-agent
+are all assembled on top with the same primitives — a different orchestration
+needs not a single line of kernel change.
 
-## One diagram of the kernel
+## A map of the kernel
 
+```mermaid
+flowchart TB
+  subgraph APP["Application layer (strategy)"]
+    A["ReAct · plan-first · multi-agent · your business"]
+  end
+  subgraph K["Kernel (mechanism)"]
+    direction TB
+    P["Plan, the static blueprint: Node / Edge / Channel"]
+    R["Run, one execution: state and lifecycle"]
+    S["Scheduler: ready-set → concurrent wave → barrier fold → checkpoint"]
+    E["EventLog source of truth · Bus outward · Interrupt suspend"]
+    P --> R --> S --> E
+  end
+  A -->|assembled from the same primitives| K
 ```
-application layer (policies)
-  ReAct recipe · plan-first · multi-agent · your business …
-        │  all assembled from the kernel primitives below
-        ▼
-kernel (mechanisms)
-  Plan (static blueprint): Node / Edge / Channel
-  Run (one dynamic execution): state / instances / lifecycle
-        │
-        ▼
-  Scheduler (the engine): compute ready → wave concurrency → barrier fold → checkpoint
-  Outcome / body · Command (Goto/Send)
-  Interrupt (suspension) · Bus (three protocols + backpressure) · EventLog (source of truth)
-```
 
-> If you find this useful, consider
-> [giving it a Star ⭐ on GitHub](https://github.com/limenagent/prodagent) —
-> your support helps more agent engineers fighting fires in production discover it.
+> If this is useful, a [GitHub Star ⭐](https://github.com/limenagent/prodagent)
+> helps other engineers who want to actually understand agent frameworks find it.
 
-## Kernel parts, each in its own file
+## The seven kernel parts, one file each
 
-| Part | File | Responsibility in one sentence |
+| Part | File | One-line job |
 |---|---|---|
-| Plan / Node / Edge | `kernel/graph.py` | the static blueprint, plus the pure computation of "who is ready this wave" |
-| Run | `kernel/run.py` | the dynamic state of one execution, its lifecycle state machine, snapshots |
+| Plan / Node / Edge / Channel | `kernel/graph.py` | the static blueprint and the pure "who is ready this wave" computation |
+| Run | `kernel/run.py` | dynamic state of one execution, lifecycle state machine, snapshots |
 | Channel / reducer | `kernel/channels.py` | how concurrent writes merge deterministically (append/last/add/merge) |
-| Outcome / body | `kernel/body.py` | the one composable interface + four bodies: function/tool/model/subgraph |
-| Command | `kernel/command.py` | Goto / Send: only change "the ready set of the next wave"; Goto can carry a payload as the transition input |
+| Outcome / body | `kernel/body.py` | the single composable interface + four bodies: fn/tool/LLM/sub-plan |
+| Command | `kernel/command.py` | Goto / Send change only "the next ready set"; Goto may carry a payload |
 | EventLog / Store | `kernel/eventlog.py` | events are the source of truth, state is a folded projection |
-| Bus | `kernel/bus.py` | observe fire / arbitrate check / collect collect + bounded-subscription backpressure |
-| Scheduler | `kernel/scheduler.py` | the BSP wave main loop that assembles all parts into one machine |
-| ports | `kernel/ports.py` | dependency-inversion ports for LLM / tools / sub-agents |
+| Bus | `kernel/bus.py` | observe `fire` / adjudicate `check` / collect `collect`, plus bounded-subscription backpressure |
+| Scheduler | `kernel/scheduler.py` | the BSP wave loop that assembles every part into an engine |
+| ports | `kernel/ports.py` | dependency-inversion ports for the LLM, tools, and sub-agent |
 
-### Three running principles
+### Three principles that run through it
 
-1. **State is a projection folded from an event stream.** Nodes never touch shared state
-   directly; they only emit `state_delta`. The engine folds it per reducer at the wave
-   barrier and appends the wave delta to the event log. Replay is rebuild — audit, time
-   travel, and crash recovery all become the same thing.
-2. **A wave is the consistency boundary.** Nodes in the same wave run concurrently and
-   never see each other's half-done work; everything commits together at the end of the
-   wave, so results are independent of scheduling order. Every wave boundary is naturally
-   a checkpoint.
-3. **Complex capabilities grow out of recursive composition of primitives.** Multi-agent
-   is not a new engine: call (delegation) is a node body recursively running a child Run
-   and handing the result back; transfer is even cheaper — in the same graph, `go` to the
-   other agent's node and draw no back edge, and control never returns. Different ways of
-   rejoining, same single Goto.
+1. **State is a projection folded from an event stream.** Nodes never touch
+   shared state directly; they return `state_delta`, and the engine folds it with
+   reducers at the wave barrier, recording the "wave delta" in the event log.
+   Replay rebuilds state — audit, time travel, and crash recovery become one thing.
+2. **A wave is a consistency boundary.** Nodes in a wave run concurrently and
+   never see each other's half-finished state; everything commits together when
+   the wave ends, so the result is independent of scheduling order, and every
+   barrier is naturally a checkpoint.
+3. **Complex capabilities grow from recursive composition.** Multi-agent needs
+   no new engine: *call* (delegation) is a node body that recursively runs a
+   child Run and returns its result; *transfer* (handoff) is even cheaper — a
+   `go` to another agent node in the same graph with no return edge, so control
+   never comes back. Different convergence semantics, the same Goto.
 
-## Two ways to use it: the facade, or the kernel directly
+## Two levels of API: facade, or raw kernel
 
-**Most of the time the facade is enough** — `Agent` is an autonomous unit that thinks,
-calls tools, and delegates to teammates; `Workflow` is a flowchart you can actually read,
-whose nodes can be plain functions or whole Agents:
+**Most of the time the facade is enough** — `Agent` is an autonomous body that
+thinks, calls tools, and delegates to teammates; `Workflow` is a readable flow
+chart whose nodes can be functions or whole Agents:
 
 ```python
 from src import Agent, Workflow, go
 
-# 1) An autonomous agent: model + tools, just run it
+# 1) An autonomous agent: model + tools, then run
 agent = Agent(name="researcher", model=llm, instruction="...", tools=[search])
-result = await agent.run("look up X for me")  # result.output is the final reply
+result = await agent.run("look up X")  # result.output is the final answer
 
-# 2) A boss delegating: teammates are sub-agents called away that return results (call)
+# 2) A supervisor: teammates are child Agents that are dispatched and return (call)
 boss = Agent(name="boss", model=llm, teammates=[researcher, writer])
 
-# 3) Deterministic orchestration / multi-agent transfer: Workflow
+# 3) Deterministic orchestration / multi-agent handoff: Workflow
 async def decide(root, ctx):
-    return go("repair", root)  # transition to the repair agent: no back edge = no coming back
+    return go("repair", root)  # hand to the repair agent: no return edge = transfer, no coming back
 
 wf = Workflow()
-wf.add("diagnose", diagnose_fn)  # a function node
-wf.add("decide", decide)  # a plain node deciding where to transition
-wf.add("repair", repair_agent, terminal=True)  # a node can also just be an Agent
+wf.add("diagnose", diagnose_fn)             # a function node
+wf.add("decide", decide)                    # a plain node that chooses where to go
+wf.add("repair", repair_agent, terminal=True)  # a node can also be a whole Agent
 wf.edge("diagnose", "decide")
 wf.entry("diagnose")
 result = await wf.run("incident")
 ```
 
-Control flow inside nodes uses three memorable functions: `go` (transition — back edges,
-loops, and handovers alike; the value becomes the target's input for that run), `send`
-(dynamic fan-out — `return [send("worker", x) for x in items]`; the count may only be
-known at runtime, the engine runs all instances concurrently in one wave), and
-`wait_human` (park and wait for a human, then `wf.resume`). To see how the facade is
-assembled from Plan/Node/Scheduler underneath, go back to the kernel plus
+Three memorable functions drive control inside a node: `go` (transition —
+back-edges, loops, and handoffs; its value is the target's next input), `send`
+(dynamic fan-out: `return [send("worker", x) for x in items]`, however many
+branches are only known at runtime — the engine runs them concurrently in one
+wave), and `wait_human` (pause for a person, then `wf.resume`). To see how the
+facade is assembled from Plan/Node/Scheduler, return to the kernel and to
 `graph_demo.py` and `react_demo.py`.
 
-## Recipes and cross-cutting policies on top (all replaceable)
+## Recipes and cross-cutting strategies (all replaceable)
 
-| Capability | Where | Notes |
+| Capability | Location | Notes |
 |---|---|---|
-| Agent / Workflow facade | `runtime/agent.py`, `runtime/workflow.py` | the friendly high-level API: autonomous agents, declarative graphs, go/send/wait_human |
-| ReAct | `runtime/react.py` | think⇄tools loop + final; forward motion on the loop is driven by Goto, unbounded tool rounds |
-| Plan-first | `runtime/plan_first.py` | the LLM plan is just a step list in state; send fans out dynamically, the synthesis node waits for all predecessors |
-| Multi-agent | `runtime/multiagent.py` | pipeline / supervisor (sub-agents as tools) / blackboard (experts write in parallel, a join=all moderator adjudicates, multiple rounds converge); transfer = `go` within the same graph, no back edge |
-| Tools | `runtime/tools.py` | functions as tools with inferred schemas, read/write tiers, approval gates, failures fed back as results |
-| MCP | `runtime/mcp.py` | MCP tools flattened into ordinary tools at the boundary; one pipeline inside |
-| Context | `runtime/context.py` | five-tier compaction: leave alone → mechanically shrink tool results → summarize tier by tier → emergency recent-only; the assembly strategy is swappable |
-| Long-term memory | `runtime/memory.py` | one unified record + orthogonal tags, swappable retrieval (keyword-based teaching version; swap in vectors for production) |
-| Skills | `runtime/skills.py` | tools + operating instructions packaged as expertise; loads from a directory's SKILL.md, chosen on demand |
-| Step elasticity | `kernel/graph.py`, `kernel/scheduler.py` | Node carries timeout + RetryPolicy; a timeout counts as one failure, retried with exponential backoff |
-| Streaming backpressure | `kernel/bus.py` | nodes `ctx.emit` while computing; bounded subscriptions block (backpressure) or drop with accounting |
-| File persistence | `backends/file_store.py` | atomic checkpoint writes + JSONL events; resume across processes |
+| Agent / Workflow facade | `runtime/agent.py`, `runtime/workflow.py` | ergonomic high-level API: autonomous agent, declarative graph, go/send/wait_human |
+| ReAct | `runtime/react.py` | think⇄tools loop + final, advanced by Goto, unbounded tool rounds |
+| Plan-then-execute | `runtime/plan_first.py` | the LLM plan is just a step list in state; `send` fans out, the join waits for predecessors |
+| Multi-agent | `runtime/multiagent.py` | pipeline / supervisor (sub-agent as tool) / blackboard; transfer = same-graph `go` with no return |
+| Tools | `runtime/tools.py` | functions as tools, inferred schema, read/write grading, approval gate, error-as-feedback |
+| MCP | `runtime/mcp.py` | MCP tools are normalized to ordinary tools at the boundary |
+| Context | `runtime/context.py` | five-level compression; the assembly strategy is replaceable |
+| Long-term memory | `runtime/memory.py` | one unified record + orthogonal tags; retrieval is swappable (keyword in teaching, vectors in prod) |
+| Skills | `runtime/skills.py` | tool + operating instructions packaged as expertise, loaded from a directory's SKILL.md |
+| Step resilience | `kernel/graph.py`, `kernel/scheduler.py` | a Node carries timeout + RetryPolicy; timeout counts as one failure, exponential backoff |
+| Streaming backpressure | `kernel/bus.py` | a node streams via `ctx.emit`; bounded subscription blocks (backpressure) or drops-and-counts |
+| File persistence | `backends/file_store.py` | atomic checkpoint writes + JSONL events, cross-process resume |
 
-## Examples, from shallow to deep
+## Run it
+
+**No API key and no spend required**: every example uses `ScriptedLlm`, which
+plays the model from a script — offline and deterministic, so you can run things
+as often as you like.
 
 ```bash
-cd src
-PYTHONPATH=. python examples/graph_demo.py        # how waves advance (pure kernel)
-PYTHONPATH=. python examples/react_demo.py        # ReAct assembled by hand (pure kernel)
-PYTHONPATH=. python examples/01_greeter.py        # minimal agent: ReAct with one tool
-PYTHONPATH=. python examples/02_trader.py         # multi-round bargaining + write approval gate + memory
-PYTHONPATH=. python examples/03_deep_research.py  # many rounds of lookup + five-tier context compaction
-PYTHONPATH=. python examples/04_compliance_audit.py # parallel checks + suspended approval; rejection doesn't tear it down
-PYTHONPATH=. python examples/05_code_detective.py # MCP tools + skills loaded from disk + retry with changes
-PYTHONPATH=. python examples/06_trip_planner.py   # a main agent fanning out three parallel sub-agents
-PYTHONPATH=. python examples/07_aiops.py          # diagnosis via call (must return) + repair via transfer (go, no coming back)
-PYTHONPATH=. python examples/09_persistence.py    # checkpoints on disk; a fresh instance resumes from the breakpoint
-PYTHONPATH=. python examples/10_retry_timeout.py  # node timeouts + exponential backoff retry
-PYTHONPATH=. python examples/11_backpressure.py   # nodes streaming events; bounded subscriptions block/drop
+# Run a single example from the repository root
+PYTHONPATH=. python examples/graph_demo.py         # how waves advance (raw kernel)
+PYTHONPATH=. python examples/react_demo.py         # hand-assemble ReAct (raw kernel)
+PYTHONPATH=. python examples/01_greeter.py         # smallest agent: a one-tool ReAct
+PYTHONPATH=. python examples/03_deep_research.py   # multi-round lookup + five-level compression
+PYTHONPATH=. python examples/07_aiops.py           # diagnose via call + repair via transfer
+PYTHONPATH=. python examples/09_persistence.py     # checkpoint to disk, resume in a fresh process
+PYTHONPATH=. python examples/11_backpressure.py    # streaming events, bounded block/drop backpressure
 ```
 
-Every example uses `ScriptedLlm` to play the model from a script — **they run offline**,
-with no real API required.
+The rest live under `examples/`; the numbering is the suggested order.
 
 ## Playground: one command, every example in the browser
 
 ```bash
-make play                 # equivalent: PYTHONPATH=. python3 -m src.playground
+make play                 # equivalent to: PYTHONPATH=. python3 -m src.playground
 # open http://127.0.0.1:8000
 ```
 
-Pick any of the 9 scenarios on the left (including multi-agent draft–review–revise,
-parallel delegation + transfer, cross-session memory recall). On the right you get:
+Pick a scenario on the left (multi-agent draft-review-revise, parallel
+delegation + handoff, cross-session memory recall). On the right you see:
 
-- a **timeline of the event stream** (node started/completed, state deltas, run finished —
-  subscribed from the very same Bus);
-- human-in-the-loop nodes using `wait_human` **genuinely suspend**; the page shows an
-  approve/reject prompt and continues from the breakpoint once you answer;
-- multi-agent parallelism, delegation (call), and transfer are all visible on the timeline.
+- an **event timeline** of node start/complete, state deltas, and run completion
+  (subscribed to the same Bus);
+- a `wait_human` node **really suspends**; the UI shows Approve/Reject and the
+  run resumes from its checkpoint;
+- multi-agent parallelism, delegation (call), and handoff (transfer) are all
+  visible on the timeline.
 
-The Playground uses only the standard library (`http.server` + a background event loop) —
-no web framework. Scenarios default to the offline scripted model, so it's zero-config.
+The playground uses only the standard library (`http.server` + a background
+event loop) — no web framework.
 
-### Plugging in a real model (optional)
+### Use a real model (optional)
 
-`runtime/openai_lite.py` talks to any OpenAI-compatible service over the standard library,
-no SDK. Set the environment variables `OPENAI_API_KEY`, optionally `OPENAI_BASE_URL`
-(self-hosted gateways / compatible services), and `OPENAI_MODEL`, then swap the scripted
-model for it — nothing else in your code changes:
+`runtime/openai_lite.py` talks to any OpenAI-compatible endpoint with the
+standard library, no SDK. Set `OPENAI_API_KEY` (and optionally `OPENAI_BASE_URL`,
+`OPENAI_MODEL`), swap the scripted model for it, and nothing else changes:
 
 ```python
 from src.runtime.openai_lite import OpenAICompatibleLlm
@@ -190,7 +209,7 @@ from src.runtime.openai_lite import OpenAICompatibleLlm
 agent = Agent(name="demo", model=OpenAICompatibleLlm(), tools=[...])
 ```
 
-## Running the tests
+## Run the tests
 
 ```bash
 pip install pytest pytest-asyncio
@@ -199,13 +218,21 @@ python -m pytest tests/ -q
 
 ## Suggested reading order
 
-1. `kernel/types.py → command.py → channels.py`: value objects and merge rules;
-2. `kernel/graph.py`: the static blueprint and `ready()`, the pure function most worth a
-   careful read in the whole kernel;
-3. `kernel/run.py → body.py`: what one execution carries, and what the single composable
-   interface looks like;
-4. `kernel/eventlog.py → bus.py → ports.py`: source of truth, the outward seam,
+The kernel is one graph; read it along the flow of data so each step builds on
+the last:
+
+1. `kernel/types.py → command.py → channels.py`: value objects, the two control
+   commands, state merge rules;
+2. `kernel/graph.py`: the static blueprint and `ready()`, the pure function most
+   worth close reading;
+3. `kernel/run.py → body.py`: what one execution carries, the single composable
+   interface;
+4. `kernel/eventlog.py → bus.py → ports.py`: source of truth, outward seam,
    dependency inversion;
-5. then `kernel/scheduler.py`: the main loop is short enough to feel like a recap;
-6. move on to `runtime/`: watch the same primitives assemble ReAct and multi-agent;
-7. cross-reference `examples/` and `tests/`, and you're ready to change things yourself.
+5. finally `kernel/scheduler.py`: the main loop is short enough to feel like review;
+6. then `runtime/`: how the same primitives compose into ReAct and multi-agent;
+7. cross-reference `examples/` and `tests/` (the tests are the best executable
+   documentation), and you are ready to modify it yourself.
+
+For the *why* behind each design and the alternatives that were rejected, read
+the design notes under [docs/en](docs/en/README.md); 中文读者见 [docs/zh](docs/zh/README.md).

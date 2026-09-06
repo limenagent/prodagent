@@ -1,8 +1,10 @@
-"""run —— 一次动态执行：节点运行态、Interrupt 挂起凭证、Run 状态机与快照。
+"""run — one dynamic execution: node runtime states, the Interrupt token, the
+Run state machine, and snapshots.
 
-蓝图 Plan 是“图纸”，Run 是“这一次执行”：它持有当前共享状态、每个节点
-跑到哪了、父子关系，以及 RUNNING/SUSPENDED/COMPLETED/FAILED 四个状态。
-状态转移只有一个入口 _transition，非法跳转直接报错。
+The Plan is the drawing; a Run is one execution of it. It holds current shared
+state, how far each node got, parent/child relations, and the four states
+RUNNING/SUSPENDED/COMPLETED/FAILED. State transitions have a single entry
+point _transition; an illegal jump raises immediately.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ def _new_id(prefix: str = "run") -> str:
 
 @dataclass
 class NodeRuntimeState:
-    """一个节点（或动态实例）在本次 Run 里的运行态。"""
+    """Runtime state of a node (or dynamic instance) within this Run."""
 
     status: NodeStatus = NodeStatus.PENDING
     output: Any = None
@@ -43,22 +45,27 @@ class NodeRuntimeState:
         self.output = error
 
     def reset_pending(self) -> None:
-        """Goto 回边时把节点打回 pending，准备下一波重新执行。"""
+        """On a Goto back-edge, return the node to pending for the next wave."""
         self.status = NodeStatus.PENDING
 
 
 @dataclass(frozen=True)
 class Interrupt:
-    """一张“挂起凭证”：在哪个节点、因为什么、要问外界什么。"""
+    """A suspension token: at which node, why, and what to ask the outside world."""
 
     kind: str  # approval / input / external
     payload: Any = None
     question: str = ""
-    node_id: str = ""  # 由 Run 在 park 时补上
+    node_id: str = ""  # filled in by Run when parking
+
+
+class AmbiguousPark(RuntimeError):  # noqa: N818
+    pass
 
 
 class Run:
-    """一次 Plan 的执行实例。同一个 Plan 可以同时有很多个互不干扰的 Run。"""
+    """One execution instance of a Plan. The same Plan can have many Runs at
+    once that never interfere with each other."""
 
     def __init__(
         self,
@@ -74,38 +81,44 @@ class Run:
         self.parent_id = parent_id
         self.depth = depth
         self.task = task
+        self.event_seq = 0
 
         self.shared: dict[str, Any] = plan.initial_shared()
         self.node_states: dict[str, NodeRuntimeState] = {
             nid: NodeRuntimeState() for nid in plan.nodes
         }
-        # 动态扇出：模板 id -> 它被实例化出的 key 列表；实例输入单独存。
+        # Dynamic fan-out: template id -> list of instance keys it produced;
+        # instance inputs are stored separately.
         self.instances: dict[str, list[str]] = {}
         self.instance_inputs: dict[str, Any] = {}
-        # Goto 转场时喂给目标节点这一次的输入（动态边传值，和 Send 的 payload 对称）。
+        # Input handed to a target on a Goto transition (dynamic-edge value
+        # passing, symmetric with Send.payload).
         self.deliveries: dict[str, Any] = {}
         self._instance_seq = 0
-        # 被控制命令（Goto）显式激活的节点：显式 entry 时，只有入口和这里的节点
-        # 能在“没有入边”的情况下起步，避免孤立节点被误当源点第一波就跑。
+        # Nodes explicitly activated by a control command (Goto). Under an
+        # explicit entry, only the entry and these nodes can start "without an
+        # incoming edge", so an isolated node isn't mistaken for a source on the
+        # first wave.
         self.activated: set[str] = set()
 
         self.state: RunState = RunState.RUNNING
         self.interrupt: Interrupt | None = None
         self.resume_value: Any = None
+        self.resume_target: str | None = None
         self.final_output: Any = None
         self.metrics: dict[str, int] = {"waves": 0, "llm_calls": 0, "tool_calls": 0}
 
-    # —— 对外便捷构造 ——
+    # — convenient construction —
     @classmethod
     def start(cls, plan: Any, **kw: Any) -> Run:
         plan.validate()
         return cls(plan, **kw)
 
-    # —— 状态机：唯一转移入口 ——
+    # — state machine: the single transition entry —
     def _transition(self, target: RunState) -> None:
         allowed = _ALLOWED_TRANSITIONS[self.state]
         if target not in allowed:
-            raise RuntimeError(f"非法状态转移：{self.state} -> {target}")
+            raise RuntimeError(f"illegal state transition: {self.state} -> {target}")
         self.state = target
 
     def complete(self, output: Any = None) -> None:
@@ -122,14 +135,23 @@ class Run:
 
     def resume(self, value: Any = None) -> None:
         self.resume_value = value
+        self.resume_target = self.interrupt.node_id if self.interrupt is not None else None
         self.interrupt = None
         self._transition(RunState.RUNNING)
+
+    def take_resume(self, key: str) -> Any:
+        if key != self.resume_target:
+            return None
+        self.resume_target = None
+        value = self.resume_value
+        self.resume_value = None
+        return value
 
     @property
     def running(self) -> bool:
         return self.state == RunState.RUNNING
 
-    # —— 节点状态查询 ——
+    # — node state queries —
     def state_of(self, key: str) -> NodeRuntimeState:
         return self.node_states[key]
 
@@ -159,7 +181,7 @@ class Run:
             NodeStatus.FAILED,
         )
 
-    # —— 节点状态变更 ——
+    # — node state changes —
     def mark_running(self, key: str) -> None:
         self.node_states[key].mark_running()
 
@@ -173,21 +195,24 @@ class Run:
         self.node_states[key].mark_failed(error)
 
     def rearm(self, key: str) -> None:
-        """重新武装：把一个（可能已 COMPLETED 的）节点退回 PENDING。
+        """Re-arm: move a (possibly COMPLETED) node back to PENDING.
 
-        这是“让节点能再跑一次”唯一的底层动作。它只改状态，不决定是否立即放行。
+        This is the one low-level action that lets a node run again. It only
+        changes state; it does not decide whether to release it immediately.
         """
         self.node_states.setdefault(key, NodeRuntimeState()).reset_pending()
 
     def reset_pending(self, key: str) -> None:
-        """Goto 用：重新武装，并加入 activated —— 下一波绕过前驱、立即就绪。"""
+        """Used by Goto: re-arm and add to activated — next wave it bypasses
+        predecessors and becomes ready immediately."""
         self.rearm(key)
-        self.activated.add(key)  # 记录“被命令立即激活”，供就绪判定放行
+        self.activated.add(key)  # record "command-activated now" for the readiness check
 
-    # —— 动态实例（Send 扇出）——
+    # — dynamic instances (Send fan-out) —
     def add_instance(self, template: str, payload: Any, key: str | None = None) -> str:
         self._instance_seq += 1
-        # 内部 key 统一带 “模板#” 前缀，这样凭 key 总能反推出它是哪个模板的实例。
+        # Internal keys carry a "template#" prefix, so a key always reveals which
+        # template it is an instance of.
         suffix = key if key is not None else str(self._instance_seq)
         full_key = f"{template}#{suffix}"
         if full_key not in self.node_states:
@@ -197,16 +222,20 @@ class Run:
         return full_key
 
     def input_of(self, key: str) -> Any:
-        # 动态实例吃 Send 带来的 payload；静态节点吃上一步输出（由调度器另行传入）。
+        # A dynamic instance consumes the payload carried by Send; a static node
+        # consumes the previous step's output (passed separately by the scheduler).
         return self.instance_inputs.get(key)
 
-    # —— 波次屏障：按通道 reducer 折叠这一波的增量 ——
+    # — wave barrier: fold this wave's deltas with channel reducers —
     def fold_writes(self, writes: list[Any], channels: dict[str, Channel]) -> dict[str, Any]:
-        """把本波增量折叠进共享状态，返回“波增量”（供事件日志记录）。
+        """Fold this wave's deltas into shared state and return the "wave delta"
+        (for the event log to record).
 
-        分两步，顺序不能反：先在波内把对同一通道的多次写入从中性元聚合成一个
-        波增量，再把波增量折进历史状态。这样事件里存的是“这一波新增了什么”，
-        重放整条事件流时逐波 fold，才能无重复地重建出最终状态。
+        Two steps, in this order: first aggregate the multiple writes to a
+        channel within the wave from the identity element into one wave delta,
+        then fold that wave delta into historical state. This way an event
+        stores "what this wave added", and replaying the whole stream wave by
+        wave rebuilds the final state without double-counting.
         """
         wave_delta: dict[str, Any] = {}
         for w in writes:
@@ -218,7 +247,7 @@ class Run:
             self.shared[key] = channel.fold(self.shared.get(key, channel.init), delta)
         return wave_delta
 
-    # —— 快照与恢复：只存数据，不存蓝图和活端口——
+    # — snapshot and restore: store only data, not the blueprint or live ports —
     def snapshot(self) -> dict[str, Any]:
         return {
             "run_id": self.run_id,
@@ -239,6 +268,7 @@ class Run:
             "interrupt": None if self.interrupt is None else self.interrupt.__dict__,
             "final_output": self.final_output,
             "metrics": self.metrics,
+            "event_seq": self.event_seq,
         }
 
     @classmethod
@@ -262,7 +292,8 @@ class Run:
         run.activated = set(snap.get("activated", ()))
         run.final_output = snap.get("final_output")
         run.metrics = snap.get("metrics", run.metrics)
-        # 恢复时直接落到当时的状态，绕过构造期的 RUNNING。
+        run.event_seq = snap.get("event_seq", 0)
+        # Restore lands directly on the saved state, bypassing construction-time RUNNING.
         run.state = RunState(snap["state"])
         if snap.get("interrupt"):
             d = snap["interrupt"]

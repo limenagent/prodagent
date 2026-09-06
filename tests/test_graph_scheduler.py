@@ -113,20 +113,20 @@ async def test_stagnation_fails():
         Node("b", FnBody(lambda x, ctx: Outcome.ok("B"))),
     )
     p.edge("a", "b")
-    p.edge("b", "a")  # a 等 b、b 等 a，且没有入口节点
+    p.edge("b", "a")  # a waits for b, b waits for a, and there is no entry node
     run = await run_plan(p)
     assert run.state == RunState.FAILED
-    assert "停滞" in (run.final_output or "")
+    assert "stalled" in (run.final_output or "")
 
 
-# —— 只回边不前进，撞上 max_waves 防空转 ——
+# —— a back-edge that never makes progress hits the max_waves spin guard ——
 async def test_max_waves_guards_spin():
     p = Plan(channels={"c": add(0)})
     p.add(Node("spin", FnBody(lambda x, ctx: Outcome.goto("spin", c=1)), terminal=True))
     sch = Scheduler(max_waves=5)
     run = await sch.run(p)
     assert run.state == RunState.FAILED
-    assert "最大波次" in run.final_output
+    assert "max waves" in run.final_output
 
 
 # —— 状态机：非法转移直接拒绝 ——

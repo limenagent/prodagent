@@ -1,12 +1,16 @@
-"""eventlog —— 事件是唯一事实源，状态是事件流折叠出的投影。
+"""eventlog — events are the source of truth; state is a projection folded
+from the event stream.
 
-三件东西：
-- Event：不可变的“已经发生的事实”，只追加、不修改；
-- apply_event：纯函数，把一个事件 fold 进共享状态——重放事件流就能重建状态；
-- EventLog / CheckpointStore 两个存储端口 + 进程内默认实现，生产可换 Redis/PG。
+Three pieces:
+- Event: an immutable "fact that happened", append-only, never modified;
+- apply_event: a pure function that folds one event into shared state —
+  replaying the stream rebuilds state;
+- EventLog / CheckpointStore storage protocols plus in-process defaults; in
+  production swap in Redis/Postgres.
 
-为什么状态要从事件 fold，而不是直接存一个最新 dict？因为事件流同时给了你
-审计（怎么走到这一步的）、时间旅行（回到任意一步）和崩溃恢复（重放即可）。
+Why fold state from events instead of storing one latest dict? Because the
+event stream gives you audit (how we got here), time travel (back to any
+step), and crash recovery (just replay) all at once.
 """
 
 from __future__ import annotations
@@ -16,7 +20,8 @@ from typing import Any, Protocol
 
 from src.kernel.channels import Channel
 
-# 事件种类（教学只保留最能说明问题的几种；生产可以更细）。
+# Event kinds (the teaching build keeps just the most telling ones;
+# production can be finer-grained).
 RUN_STARTED = "run_started"
 NODE_STARTED = "node_started"
 NODE_COMPLETED = "node_completed"
@@ -30,15 +35,16 @@ RUN_FAILED = "run_failed"
 
 @dataclass(frozen=True)
 class Event:
-    seq: int  # 在同一个 run 内单调递增
+    seq: int  # monotonically increasing within a run
     run_id: str
     kind: str
     data: dict[str, Any] = field(default_factory=dict)
-    parent_id: str | None = None  # 子 Run 事件借此挂到父 Run，重建 Run 树
+    parent_id: str | None = None  # child-Run events attach to the parent to rebuild the Run tree
 
 
 def apply_event(shared: dict[str, Any], event: Event, channels: dict[str, Channel]) -> None:
-    """把单个事件折叠进 shared（原地）。纯函数：同样的事件流必得同样状态。"""
+    """Fold a single event into ``shared`` (in place). Pure: the same event
+    stream always yields the same state."""
     if event.kind != STATE_DELTA:
         return
     for key, value in event.data.get("delta", {}).items():
@@ -49,7 +55,7 @@ def apply_event(shared: dict[str, Any], event: Event, channels: dict[str, Channe
 def fold_events(
     events: list[Event], channels: dict[str, Channel], initial: dict[str, Any]
 ) -> dict[str, Any]:
-    """从初始状态重放一整段事件流（测试与时间旅行用）。"""
+    """Replay a whole event stream from an initial state (tests, time travel)."""
     shared = dict(initial)
     for ev in events:
         apply_event(shared, ev, channels)
@@ -70,7 +76,8 @@ class CheckpointStore(Protocol):
 
 
 class InMemoryEventLog:
-    """进程内事件日志，默认实现；接口就是生产实现要满足的契约。"""
+    """In-process event log, the default implementation; its interface is the
+    contract a production backend must satisfy."""
 
     def __init__(self) -> None:
         self._streams: dict[str, list[Event]] = {}
@@ -88,7 +95,8 @@ class InMemoryEventLog:
 
 
 class InMemoryStore:
-    """进程内检查点存储，默认实现；换成数据库只改这一层。"""
+    """In-process checkpoint store, the default; swapping in a database only
+    touches this layer."""
 
     def __init__(self) -> None:
         self._snapshots: dict[str, dict] = {}
@@ -97,9 +105,10 @@ class InMemoryStore:
     async def save(
         self, run_id: str, snapshot: dict, *, expected_version: int | None = None
     ) -> int:
-        # 乐观并发：带了期望版本就必须对得上，防止两个执行互相覆盖。
+        # Optimistic concurrency: if an expected version is given it must match,
+        # so two executions cannot overwrite each other.
         if expected_version is not None and self._version.get(run_id, 0) != expected_version:
-            raise RuntimeError(f"检查点版本冲突：期望 {expected_version}")
+            raise RuntimeError(f"checkpoint version conflict: expected {expected_version}")
         version = self._version.get(run_id, 0) + 1
         self._snapshots[run_id] = snapshot
         self._version[run_id] = version

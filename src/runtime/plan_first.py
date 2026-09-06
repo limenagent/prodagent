@@ -1,13 +1,15 @@
-"""plan_first —— 配方二：先规划、再并行执行、最后综合。
+"""plan_first — recipe two: plan first, execute in parallel, then synthesize.
 
-这里有一个关键认知，千万别搞混：LLM 产出的“计划”只是共享状态里的一份步骤
-清单（state.steps），**不是**内核那张执行图。内核图始终只有固定四个角色：
+One key insight not to confuse: the "plan" produced by the LLM is just a step
+list living in shared state (state.steps); it is **not** the kernel's execution
+graph. The kernel graph always has only four fixed roles:
 
-    planner ──Send 扇出──▶ worker*(模板，每步一个实例) ──汇聚──▶ synth
+    planner ──Send fan-out──▶ worker* (template, one instance per step) ──join──▶ synth
 
-planner 让模型把任务拆成 N 步写进 state，并对每一步 Send 一个 worker 实例；
-worker 是模板节点，可以是普通函数，也可以是一个会用工具的小 ReAct；全部完成
-后 synth 汇总。想重规划，让某个节点 Goto 回 planner 即可，不需要新引擎。
+The planner asks the model to break the task into N steps written to state and
+Sends one worker instance per step; worker is a template node whose body can be
+a plain function or a small tool-using ReAct; synth summarizes once all finish.
+To re-plan, have a node Goto back to planner — no new engine needed.
 """
 
 from __future__ import annotations
@@ -26,12 +28,12 @@ from src.kernel import (
     last,
 )
 
-# make_steps：拿到任务与上下文，返回 [{"id":..., "instruction":...}, ...]
+# make_steps: given the task and context, return [{"id":..., "instruction":...}, ...]
 MakeSteps = Callable[[str, Any], Any]
 
 
 def parse_numbered_list(text: str) -> list[dict]:
-    """把 '1. xxx\\n2. yyy' 这样的模型输出解析成步骤清单（教学版解析）。"""
+    """Parse model output like '1. xxx\\n2. yyy' into a step list (teaching parser)."""
     steps = []
     for line in text.splitlines():
         line = line.strip()
@@ -44,24 +46,26 @@ def parse_numbered_list(text: str) -> list[dict]:
 
 
 def build_plan_execute(*, make_steps: MakeSteps, worker: Any, synth: Any = None) -> Plan:
-    """worker / synth 都是满足 NodeBody 的执行体（通常直接用 FnBody 包一层）。"""
+    """worker / synth are both NodeBody-compatible executables (usually wrapped in FnBody)."""
 
     async def planner(task, ctx):
         steps = await _maybe_await(make_steps(task, ctx))
         if not steps:
             return Outcome.goto("synth", steps=[])
         sends = [Send("worker", step, key=step["id"]) for step in steps]
-        # 计划清单写进 state；同时扇出 worker，并把汇聚点 synth 重新武装——
-        # 这样即便发生重规划（某步 Goto 回 planner 再来一轮），synth 也会等
-        # 这一波 worker 全部齐活后再汇总，而不会沿用上一轮的“已完成”状态。
+        # Write the step list to state; fan out workers at the same time, and
+        # re-arm the join point synth — so even on re-planning (some step Gotos
+        # back to planner for another round), synth waits for this whole wave of
+        # workers to finish instead of reusing the previous round's "done" state.
         return Outcome(
             state_delta={"steps": steps},
-            # immediate=False：只重新武装 synth，仍等这一波 worker 齐活再汇总
+            # immediate=False: only re-arm synth; it still waits for this wave of
+            # workers to finish before synthesizing.
             control=[*sends, Goto("synth", immediate=False)],
         )
 
     async def default_synth(inputs, ctx):
-        # template 前驱 worker 的输出会被聚合成一个 list 传进来。
+        # Outputs of the template predecessor worker are aggregated into a list.
         return Outcome.ok(inputs)
 
     plan = Plan(channels={"steps": last([])})

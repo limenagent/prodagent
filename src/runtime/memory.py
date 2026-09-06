@@ -1,13 +1,17 @@
-"""memory —— 长期记忆是一种可替换策略。
+"""memory — long-term memory as a replaceable strategy.
 
-记忆不是和上下文混在一起的“第二份对话”，它是跨会话存在、按需检索后注入的
-外部知识。这里只立一个最小可用的形态：一条统一记录 + 一组正交标签
-（谁的、什么类别、多重要），而不是短期/长期/实体三座孤岛。
+Memory is not a "second conversation" mixed into the context; it is external
+knowledge that lives across sessions and is retrieved on demand before being
+injected. Here we keep only a minimal usable shape: one unified record plus a
+set of orthogonal tags (whose, what category, how important), rather than three
+isolated silos of short-term / long-term / entity memory.
 
-- remember：写入一条带标签的事实；
-- recall：按当前问题检索相关记录（教学版用关键词重叠打分，生产换向量检索即可）。
+- remember: write a tagged fact;
+- recall: retrieve records relevant to the current question (the teaching build
+  scores by keyword overlap; in production swap in vector retrieval).
 
-ReAct 配方在 think 前调用 recall，把结果拼进 system——内核依然不知道记忆存在。
+The ReAct recipe calls recall before "think" and splices the result into the
+system prompt — the kernel still has no idea memory exists.
 """
 
 from __future__ import annotations
@@ -33,7 +37,8 @@ class Memory(Protocol):
 
 
 def _tokens(text: str) -> set[str]:
-    # 教学版：英文按词、中文按单字切分，足够演示相关性排序。
+    # Teaching build: split English on words and Chinese on single characters,
+    # which is enough to demonstrate relevance ranking.
     return set(re.findall(r"[a-zA-Z]+|[\u4e00-\u9fff]", text.lower()))
 
 

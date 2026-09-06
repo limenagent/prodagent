@@ -1,1 +1,1 @@
-"""src.backends —— 内核存储端口的具体实现（可替换的策略）。"""
+"""src.backends — concrete implementations of the kernel storage ports (replaceable strategies)."""

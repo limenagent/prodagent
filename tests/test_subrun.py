@@ -46,10 +46,11 @@ async def test_nested_subruns_build_a_run_tree():
 
 
 async def test_mutual_delegation_loop_is_capped():
-    # A 激活 B、B 又激活 A：没有深度兜底会无限递归，这里必须在 max_depth 处失败。
+    # A activates B and B activates A: without a depth guard this recurses
+    # forever, so it must fail at max_depth.
     plan_a, plan_b = Plan(), Plan()
     plan_a.add(Node("a", SubPlanBody(plan_b), terminal=True))
     plan_b.add(Node("b", SubPlanBody(plan_a), terminal=True))
-    run = await Scheduler(max_depth=3).run(plan_a, task="互相委派")
+    run = await Scheduler(max_depth=3).run(plan_a, task="mutual delegation")
     assert run.state == RunState.FAILED
-    assert "深度" in str(run.final_output)
+    assert "depth" in str(run.final_output)

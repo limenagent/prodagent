@@ -1,20 +1,24 @@
-"""workflow —— 面向使用者的声明式编排门面。
+"""workflow — declarative orchestration facade for users.
 
-当你要的不是“一个会自己想的 Agent”，而是“一张看得清的流程图”时，用 Workflow：
+Use Workflow when you don't want "an agent that thinks on its own" but "a flow
+chart you can see clearly":
 
     wf = Workflow()
     wf.add_node("fetch", fetch_fn)
-    wf.add_node("write", writer_agent)        # 节点也可以直接是一个 Agent
+    wf.add_node("write", writer_agent)        # a node can also be an Agent directly
     wf.edge("fetch", "write")
     wf.entry("fetch")
-    result = await wf.run("任务")
+    result = await wf.run("task")
 
-节点函数写 async def fn(input, ctx) 即可，返回值很宽松：裸值=给下游的值，
-dict=写共享状态；要控制流程就用本模块的 go / send / wait_human（go 到另一个
-Agent 节点、且不画回边，就是“交出去不回头”的接力；要并行多份就返回一组 send）。
-未事先声明的状态键会自动补一个 last 通道，所以入门时你不用先学 reducer。
+A node function is just `async def fn(input, ctx)` with permissive returns: a
+bare value is passed downstream, a dict writes shared state. To steer control
+flow use this module's go / send / wait_human (go to another Agent node without
+a return edge is a "hand off and don't come back" transfer; return a list of
+sends to fan out parallel copies). State keys not declared up front get an
+automatic last channel, so you needn't learn reducers to get started.
 
-底层仍是 Plan/Node/Scheduler 那台 BSP 引擎，这层只让声明更顺手。
+Underneath it is still the Plan/Node/Scheduler BSP engine; this layer only makes
+declaration more ergonomic.
 """
 
 from __future__ import annotations
@@ -38,30 +42,32 @@ from src.kernel import (
 from src.kernel.body import NodeBody, coerce_outcome
 from src.runtime.agent import Agent
 
-# —— 节点里用来表达控制流的便捷函数（不必 import 内核的 Outcome/Command）——
+# ---- Convenience helpers for control flow inside a node (no need to import
+# the kernel's Outcome/Command). ----
 
 
 def go(target: str, value: Any = None, **state_delta) -> Outcome:
-    """转场到某个节点（回边、循环、交接都靠它）；value 是喂给目标这一次的输入。"""
+    """Transition to a node (back-edges, loops, and handoffs all use it); value is this activation's input."""
     return Outcome.goto(target, value, **state_delta)
 
 
 def send(template: str, payload: Any, key: str | None = None) -> Outcome:
-    """运行时实例化一份模板节点、把 payload 喂给它（就是内核的 Send）。
+    """Instantiate one copy of a template node at runtime and feed it payload (the kernel's Send).
 
-    要一次扇出多份并行，就返回一组：return [send("w", x) for x in items]，
-    具体几份运行时才知道也没关系，引擎会把它们放进同一波里并发跑。
+    To fan out several parallel copies at once, return a list:
+    return [send("w", x) for x in items]. It's fine that the count is unknown
+    until runtime; the engine runs them concurrently in the same wave.
     """
     return Outcome.send(template, payload, key)
 
 
 def wait_human(question: str = "", payload: Any = None, *, kind: str = "approval") -> Outcome:
-    """在这一点真正停下来等人给回外部输入（审批/补料），随后用 wf.resume 继续。"""
+    """Truly stop here and wait for external input (approval / more info), then continue with wf.resume."""
     return Outcome.park(kind, payload, question)
 
 
 class _FacadeBody:
-    """包一层用户函数：把宽松返回值规整成 Outcome，并给新状态键自动补通道。"""
+    """Wrap a user function: normalize its permissive return into an Outcome and auto-add channels for new state keys."""
 
     def __init__(self, fn: Callable, workflow: Workflow, plan_ref: list):
         self.fn = fn
@@ -74,7 +80,7 @@ class _FacadeBody:
             result = await result
         outcome = coerce_outcome(result)
         plan = self.plan_ref[0]
-        for k in outcome.state_delta:  # 未声明的键自动补 last 通道
+        for k in outcome.state_delta:  # auto-add a last channel for undeclared keys
             if k not in plan.channels:
                 plan.channels[k] = last(None)
         return outcome
@@ -129,9 +135,9 @@ class Workflow:
         self._entry: list[str] = []
         self._channels: dict[str, Any] = {}
 
-    # —— 声明 ——
+    # ---- declaration ----
     def channel(self, name: str, reducer: Any) -> Workflow:
-        """显式声明状态通道及其合并规则（如 append/add/merge）。"""
+        """Explicitly declare a state channel and its merge rule (e.g. append/add/merge)."""
         self._channels[name] = reducer
         return self
 
@@ -158,7 +164,7 @@ class Workflow:
         )
         return self
 
-    # 简短别名，链式更顺。
+    # Short alias for smoother chaining.
     def add(self, name: str, body: Any, **opts) -> Workflow:
         return self.add_node(name, body, **opts)
 
@@ -167,7 +173,7 @@ class Workflow:
         return self
 
     def branch(self, src: str, routes: dict[str, str], *, decide: Callable) -> Workflow:
-        """条件分支：decide(state) 返回 routes 的某个键，据此选边。"""
+        """Conditional branch: decide(state) returns a key of routes, and the edge is chosen accordingly."""
         for key, dst in routes.items():
             self._edges.append((src, dst, lambda s, k=key: decide(s) == k))
         return self
@@ -176,15 +182,15 @@ class Workflow:
         self._entry = list(names)
         return self
 
-    # —— 编译 ——
+    # ---- compile ----
     def _as_body(self, body: Any, plan_ref: list) -> NodeBody:
-        if isinstance(body, Agent):  # Agent 自包含跑自己的模型
+        if isinstance(body, Agent):  # an Agent runs its own model self-contained
             return _FacadeBody(body.as_task(), self, plan_ref)
-        if isinstance(body, Plan):  # 裸 Plan 才用同一调度器递归
+        if isinstance(body, Plan):  # only a bare Plan is recursed by the same scheduler
             return SubPlanBody(body)
-        if callable(body):  # 普通函数 -> 宽松包装
+        if callable(body):  # ordinary function -> permissive wrapper
             return _FacadeBody(body, self, plan_ref)
-        return body  # 已经是内核 body，原样使用
+        return body  # already a kernel body, use as-is
 
     def _compile(self) -> Plan:
         plan = Plan(channels=dict(self._channels))
@@ -208,12 +214,12 @@ class Workflow:
             concurrency=self.concurrency,
         )
 
-    # —— 运行 ——
+    # ---- run ----
     async def run(self, input: Any = None) -> WorkflowResult:
         plan = self._compile()
         task = ""
         run = Run.start(plan, task=task)
-        if isinstance(input, dict):  # dict 作为初始共享状态
+        if isinstance(input, dict):  # a dict seeds initial shared state
             for k, v in input.items():
                 plan.channels.setdefault(k, last(None))
                 run.shared[k] = v

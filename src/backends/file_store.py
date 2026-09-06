@@ -1,11 +1,13 @@
-"""file_store —— 用本地文件实现检查点与事件日志，真正做到跨进程断点续跑。
+"""file_store — local-file checkpoints and event log for cross-process resume.
 
-内核只定义 CheckpointStore / EventLog 两个端口，默认给内存版。这里给出文件版：
-- 检查点：每个 run 一个 .json，写入走“临时文件 + os.replace”原子替换，
-  进程在任意时刻崩溃都不会留下写了一半的检查点；
-- 事件日志：每个 run 一个 .jsonl，只追加，天然是审计流水。
+The kernel only defines the CheckpointStore / EventLog ports and ships in-memory
+defaults. Here is the file-backed version:
+- checkpoints: one .json per run; writes use "temp file + os.replace" atomic
+  replacement, so a crash at any instant never leaves a half-written checkpoint;
+- event log: one .jsonl per run, append-only — a natural audit trail.
 
-换成 Redis/Postgres 只是再写两个满足同样协议的类，内核与配方一行不改。
+Swapping in Redis/Postgres is just writing two more classes that satisfy the
+same protocols; the kernel and recipes don't change a line.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from src.kernel import Event
 def _atomic_write_json(path: pathlib.Path, obj) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(obj, ensure_ascii=False, default=str), encoding="utf-8")
-    os.replace(tmp, path)  # 同目录 rename 在 POSIX/NT 上都是原子的
+    os.replace(tmp, path)  # same-directory rename is atomic on both POSIX and NT
 
 
 class FileCheckpointStore:
@@ -39,7 +41,9 @@ class FileCheckpointStore:
         if path.exists():
             version = json.loads(path.read_text(encoding="utf-8")).get("_version", 0)
         if expected_version is not None and version != expected_version:
-            raise RuntimeError(f"检查点版本冲突：期望 {expected_version}，实际 {version}")
+            raise RuntimeError(
+                f"checkpoint version conflict: expected {expected_version}, got {version}"
+            )
         version += 1
         record = dict(snapshot)
         record["_version"] = version

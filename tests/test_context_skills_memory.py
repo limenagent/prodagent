@@ -46,10 +46,10 @@ async def test_tiered_tool_compress_spends_no_llm():
 async def test_tiered_history_summary_spends_one_llm():
     summ = FixedSummarizer()
     ctx = TieredCompactionContext(summ, capacity=8)
-    out = await ctx.assemble(_chat(9))  # 19 条，ratio≈2.4 → 历史摘要级
+    out = await ctx.assemble(_chat(9))  # 19 messages, ratio≈2.4 -> history-summary level
     assert ctx.last_level == CompressionLevel.HISTORY_SUMMARY
     assert summ.calls == 1
-    assert any("历史摘要" in str(m.get("content", "")) for m in out)
+    assert any("History summary" in str(m.get("content", "")) for m in out)
     assert len(out) <= 8
 
 

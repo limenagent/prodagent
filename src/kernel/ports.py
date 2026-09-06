@@ -1,8 +1,10 @@
-"""ports —— 内核与外部世界之间的端口（依赖倒置）。
+"""ports — the boundary between the kernel and the outside world (DIP).
 
-内核只认识这些 Protocol，不认识 OpenAI、不认识某个向量库、不认识你的工具
-是 HTTP 还是本地函数。组合根（启动处）负责把具体实现“注入”进来，
-测试时则换成脚本化的 Fake，于是整条链路可以离线、确定性地跑。
+The kernel only knows these Protocols. It does not know OpenAI, does not know
+a vector store, and does not know whether your tool is an HTTP call or a local
+function. The composition root (startup) injects concrete implementations; in
+tests we swap in scripted Fakes, so the whole pipeline runs offline and
+deterministically.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from src.kernel.types import ToolCall, ToolResult
 
 @dataclass(frozen=True)
 class LlmReply:
-    """一次模型调用的归一结果：文本 + 模型请求的工具调用 + token 计量。"""
+    """Normalized result of one model call: text + tool calls + token count."""
 
     text: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
@@ -24,10 +26,12 @@ class LlmReply:
 
 @runtime_checkable
 class LlmPort(Protocol):
-    """模型端口：吃消息，吐归一结果。具体厂商由适配层实现。
+    """Model port: messages in, normalized reply out. Vendors live in adapters.
 
-    on_delta 是可选的流式回调：实现方边生成边回调文本片段（如 UI 上的“吐字”），
-    最终仍返回完整 LlmReply；不需要流式的调用方不传即可。
+    ``on_delta`` is an optional streaming callback: the implementation invokes
+    it with text fragments as they are produced (e.g. token-by-token UI), and
+    still returns the full LlmReply at the end. Callers that don't stream
+    simply omit it.
     """
 
     async def chat(
@@ -42,10 +46,11 @@ class LlmPort(Protocol):
 
 @runtime_checkable
 class ToolPort(Protocol):
-    """工具端口：一次受治理的工具调用（校验/授权/执行都在实现侧）。
+    """Tool port: one governed tool call (validation/auth/execution on the impl).
 
-    ctx 是可选的节点上下文，需要时工具能借此激活子 Agent（agent-as-tool）；
-    不关心上下文的简单实现忽略它即可。
+    ``ctx`` is an optional node context so a tool can activate a sub-agent
+    (agent-as-tool) when needed; simple implementations that don't care just
+    ignore it.
     """
 
     async def dispatch(self, call: ToolCall, ctx: Any = None) -> ToolResult: ...
@@ -53,7 +58,8 @@ class ToolPort(Protocol):
 
 @runtime_checkable
 class SubagentPort(Protocol):
-    """子 Agent 激活端口：用同一个内核递归跑一个子 Run（call 语义，要返回）。"""
+    """Sub-agent activation port: recursively run a child Run with the same
+    kernel (call semantics — it returns a result)."""
 
     async def activate(
         self, spec: Any, task: str, parent_run: Any, payload: Any = None

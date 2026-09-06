@@ -1,12 +1,15 @@
-"""tools —— 统一工具层：本地函数、MCP 工具、子 Agent 都归一到这里。
+"""tools — unified tool layer: local functions, MCP tools, and sub-agents all converge here.
 
-对模型而言，世界上只有一种“工具”：一个名字、一段给模型看的说明、一份参数
-schema，以及背后真正执行的函数。无论它来自本地 Python 函数、MCP Server，还是
-“调用另一个 Agent”，都在这一层拉平成同样的 ToolSpec，走同一条调度管线：
+To the model there is only one kind of "tool": a name, a description written for
+the model, a parameter schema, and the function that actually runs. Whether it
+comes from a local Python function, an MCP server, or "calling another agent",
+it is flattened at this layer into the same ToolSpec and runs the same pipeline:
 
-    存在性校验 → 参数校验 → 写操作过审批门(bus.check) → 执行 → 统一 ToolResult
+    existence check -> argument validation -> write ops pass an approval gate
+    (bus.check) -> execute -> uniform ToolResult
 
-它满足内核的 ToolPort：Scheduler 只认 dispatch(call)，不关心工具从哪来。
+It satisfies the kernel's ToolPort: the Scheduler only knows dispatch(call) and
+doesn't care where the tool came from.
 """
 
 from __future__ import annotations
@@ -29,10 +32,11 @@ _PY_TO_JSON = {
 
 
 def infer_schema(fn: Callable) -> dict:
-    """从函数签名和类型注解，推断一份最简 JSON Schema（教学版，不引第三方）。"""
+    """Infer a minimal JSON Schema from signature and type hints (teaching build, no third party)."""
     sig = inspect.signature(fn)
     properties, required = {}, []
-    # 约定：ctx 是框架注入的上下文，不是模型要填的参数，跳过。
+    # Convention: ctx is framework-injected context, not a parameter the model
+    # fills in, so skip it.
     for name, p in sig.parameters.items():
         if name in ("ctx", "_ctx", "context"):
             continue
@@ -49,22 +53,23 @@ class ToolSpec:
     description: str
     func: Callable
     parameters: dict = field(default_factory=lambda: {"type": "object", "properties": {}})
-    # read=只读可放心并行/重试；write=有副作用，执行前过审批门。
+    # read = read-only, safe to parallelize/retry; write = has side effects,
+    # passes an approval gate before execution.
     side_effect: str = "read"
 
 
 class ToolRegistry:
-    """工具注册表 + 受治理的执行管线（它就是一个 ToolPort）。"""
+    """Tool registry plus a governed execution pipeline (it is itself a ToolPort)."""
 
     def __init__(self, *, bus: Any = None, write_needs_approval: bool = True):
         self._tools: dict[str, ToolSpec] = {}
         self.bus = bus
         self.write_needs_approval = write_needs_approval
 
-    # —— 注册 ——
+    # ---- registration ----
     def add(self, spec: ToolSpec) -> ToolRegistry:
         if spec.name in self._tools:
-            raise ValueError(f"工具重名：{spec.name}")
+            raise ValueError(f"duplicate tool name: {spec.name}")
         self._tools[spec.name] = spec
         return self
 
@@ -76,7 +81,7 @@ class ToolRegistry:
         description: str = "",
         side_effect: str = "read",
     ) -> ToolRegistry:
-        """把一个普通 Python 函数注册成工具，schema 自动从签名推断。"""
+        """Register an ordinary Python function as a tool; schema is inferred from its signature."""
         doc = (inspect.getdoc(fn) or "").strip()
         desc = description or (doc.splitlines()[0] if doc else "")
         spec = ToolSpec(
@@ -95,7 +100,7 @@ class ToolRegistry:
         return list(self._tools)
 
     def schemas(self) -> list[dict]:
-        """给模型看的 function-calling 工具清单。"""
+        """The function-calling tool list shown to the model."""
         return [
             {
                 "type": "function",
@@ -108,36 +113,39 @@ class ToolRegistry:
             for s in self._tools.values()
         ]
 
-    # —— 受治理的执行 ——
+    # ---- governed execution ----
     async def dispatch(self, call: ToolCall, ctx: Any = None) -> ToolResult:
         spec = self._tools.get(call.name)
         if spec is None:
-            return ToolResult.failure(f"没有这个工具：{call.name}", call.call_id)
+            return ToolResult.failure(f"no such tool: {call.name}", call.call_id)
 
         missing = [k for k in spec.parameters.get("required", []) if k not in call.arguments]
         if missing:
-            # 参数错误是“反馈”而不是崩溃：把缺什么告诉模型，让它下一轮改对。
-            return ToolResult.failure(f"缺少必填参数：{missing}", call.call_id)
+            # A bad argument is "feedback", not a crash: tell the model what's
+            # missing so it can fix it next round.
+            return ToolResult.failure(f"missing required arguments: {missing}", call.call_id)
 
         if spec.side_effect == "write" and self.write_needs_approval and self.bus is not None:
             verdict = await self.bus.check(f"tool:{spec.name}", call=call, ctx=ctx)
             if not verdict.allowed:
-                return ToolResult.failure(f"操作未获批准：{verdict.reason}", call.call_id)
+                return ToolResult.failure(f"operation not approved: {verdict.reason}", call.call_id)
 
         try:
             result = self._invoke(spec.func, call.arguments, ctx)
             if inspect.isawaitable(result):
                 result = await result
             return ToolResult.success(result, call.call_id)
-        except Exception as exc:  # 工具异常也变成可回喂的反馈，而不是炸穿整图
+        except Exception as exc:  # tool exceptions also become feedback, never blow up the graph
             return ToolResult.failure(f"{type(exc).__name__}: {exc}", call.call_id)
 
     @staticmethod
     def _invoke(fn: Callable, arguments: dict, ctx: Any) -> Any:
-        # 两种入参约定都支持：
-        # - 普通业务函数：参数就是模型要填的字段（weather(city, ctx)），按名注入；
-        # - 适配类函数（如 MCP caller）：只有一个 arguments/args/payload 形参，整包传入。
-        # 名为 ctx 的参数不由模型填，由框架注入。
+        # Support both calling conventions:
+        # - ordinary business function: parameters are the fields the model
+        #   fills (weather(city, ctx)), injected by name;
+        # - adapter-style function (e.g. an MCP caller): a single
+        #   arguments/args/payload parameter receives the whole dict.
+        # A parameter named ctx is filled by the framework, not the model.
         sig = inspect.signature(fn)
         data_params = [n for n in sig.parameters if n not in ("ctx", "_ctx", "context")]
         kwargs: dict[str, Any] = {}
@@ -150,7 +158,7 @@ class ToolRegistry:
                 elif name in arguments:
                     kwargs[name] = arguments[name]
                 elif p.default is inspect.Parameter.empty:
-                    raise TypeError(f"缺少参数：{name}")
+                    raise TypeError(f"missing argument: {name}")
                 else:
                     kwargs[name] = p.default
         if any(n in ("ctx", "_ctx", "context") for n in sig.parameters):

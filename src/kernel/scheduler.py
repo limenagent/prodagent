@@ -1,18 +1,24 @@
-"""scheduler —— 内核唯一的引擎：反复算“现在谁就绪”，一波一波推进。
+"""scheduler — the kernel's single engine: repeatedly compute "who is ready
+now" and advance wave by wave.
 
-主循环刻意写得很短，因为复杂度都被前面的部件吸收了：
+The main loop is deliberately short, because the earlier parts absorb the
+complexity:
 
-    while 还在运行:
-        ready   = plan.ready(run)           # 1) 沿边算这一波谁就绪
-        results = 并发执行 ready            # 2) 波次并发（带上限），互不直接碰状态
-        屏障: fold 增量 / 应用命令 / 落检查点  # 3) 一波结束才统一提交
+    while running:
+        ready   = plan.ready(run)           # 1) along edges, who is ready this wave
+        results = run ready concurrently    # 2) wave concurrency (bounded), no direct shared-state mutation
+        barrier: fold deltas / apply commands / checkpoint  # 3) commit together at wave end
 
-三个关键性质：
-- 波次是一致性边界：节点执行中只产出 Outcome，不直接写共享状态，
-  全部在屏障处按 reducer 折叠，所以并发结果确定、且天然是一个提交点；
-- 挂起是“放手”：某节点请求 Interrupt，会等本波其它节点跑完，再整体落盘暂停，
-  resume 时只重跑当初那一个节点并把外部输入喂回去；
-- 多 Agent 不新增引擎：SubPlanBody 通过激活端口递归跑一个子 Run，用的还是这里。
+Three key properties:
+- the wave is a consistency boundary: while running, nodes only produce
+  Outcomes and never write shared state directly; everything is folded by
+  reducers at the barrier, so concurrent results are deterministic and the
+  barrier is naturally a commit point;
+- suspension is "letting go": when a node requests an Interrupt, the wave lets
+  the other nodes finish, then persists and pauses as a whole; on resume only
+  that one node re-runs with the external input fed back;
+- multi-agent adds no new engine: SubPlanBody recursively runs a child Run via
+  the activation port — still right here.
 """
 
 from __future__ import annotations
@@ -38,15 +44,36 @@ from src.kernel.eventlog import (
     InMemoryEventLog,
     InMemoryStore,
 )
-from src.kernel.run import Run
+from src.kernel.run import AmbiguousPark, Run
 from src.kernel.types import NodeStatus, RunState
 
 
-class InProcessActivator:
-    """默认子 Agent 激活器：在同进程用同一个调度器递归跑子 Plan（call 语义）。
+def _invalid_control(plan: Any, controls: list[tuple[str, Any]]) -> tuple[str, str] | None:
+    for writer, control in controls:
+        commands = control if isinstance(control, list) else [control]
+        for cmd in commands:
+            if isinstance(cmd, Goto):
+                target = plan.nodes.get(cmd.target)
+                if target is None:
+                    return writer, f"Goto target {cmd.target!r} does not exist"
+                if target.template:
+                    return writer, f"Goto target {cmd.target!r} is a template node; use Send"
+            elif isinstance(cmd, Send):
+                target = plan.nodes.get(cmd.template)
+                if target is None:
+                    return writer, f"Send template {cmd.template!r} does not exist"
+                if not target.template:
+                    return writer, f"Send target {cmd.template!r} is not a template node"
+    return None
 
-    换远程实现（A2A、RPC）只需满足 SubagentPort 协议，内核一行不改——
-    “在哪执行”是端口后面的事（位置透明）。
+
+class InProcessActivator:
+    """Default sub-agent activator: recursively run a child Plan in-process
+    with the same scheduler (call semantics).
+
+    A remote implementation (A2A, RPC) only has to satisfy the SubagentPort
+    protocol, without changing a line of the kernel — "where it runs" lives
+    behind the port (location transparency).
     """
 
     def __init__(self, scheduler: Scheduler):
@@ -55,18 +82,20 @@ class InProcessActivator:
     async def activate(self, spec: Any, task: str, parent_run: Run, payload: Any = None) -> dict:
         child_depth = parent_run.depth + 1
         if child_depth > self.scheduler.max_depth:
-            # 深度兜底：无限互相委派（A 激活 B、B 又激活 A）会让 Run 树只增不减，
-            # 在这里统一挡住，比把“记得别互相调用”寄托给模型可靠得多。
+            # Depth guard: unbounded mutual delegation (A activates B, B activates
+            # A) would make the Run tree only grow. Blocking it here is far more
+            # reliable than trusting the model to "remember not to call each other".
             raise RecursionError(
-                f"子 Run 深度超过上限 {self.scheduler.max_depth}，"
-                "请检查是否出现了 Agent 之间循环委派"
+                f"child Run depth exceeds the limit {self.scheduler.max_depth}; "
+                "check for a circular delegation between agents"
             )
         child = Run.start(spec, parent_id=parent_run.run_id, depth=child_depth, task=task)
         await self.scheduler.drive(spec, child)
         if child.state == RunState.FAILED:
-            # call 语义：委派出去的子 Run 崩了，父节点不能把它当“正常产出”吞掉，
-            # 失败要沿 Run 树向上穿透（深度兜底的 RecursionError 也走这条路传到根）。
-            raise RuntimeError(f"子 Run {child.run_id} 失败：{child.final_output}")
+            # Call semantics: a delegated child Run that failed cannot be swallowed
+            # as a "normal output" by the parent; failure propagates up the Run tree
+            # (the depth-guard RecursionError reaches the root this way too).
+            raise RuntimeError(f"child Run {child.run_id} failed: {child.final_output}")
         return {
             "run_id": child.run_id,
             "state": str(child.state),
@@ -94,22 +123,22 @@ class Scheduler:
         self.eventlog = eventlog or InMemoryEventLog()
         self.store = store or InMemoryStore()
         self.max_waves = max_waves
-        self.max_depth = max_depth  # Run 树最大深度：挡住 A 交 B、B 又交回 A 的环
+        self.max_depth = max_depth  # max Run-tree depth: blocks A→B→A cycles
         self._sem = asyncio.Semaphore(concurrency)
-        self._seq: dict[str, int] = {}  # 每个 run 独立递增的事件序号
         self.subagent = InProcessActivator(self)
 
-    # —— 对外主入口 ——
+    # — main public entry —
     async def run(self, plan: Any, *, task: str = "") -> Run:
         run = Run.start(plan, task=task)
         await self.drive(plan, run)
         return run
 
     async def resume(self, plan: Any, run_id: str, value: Any = None) -> Run:
-        """从检查点恢复：取出挂起的节点，喂回外部值，只重跑它再继续。"""
+        """Resume from a checkpoint: fetch the parked node, feed back the
+        external value, re-run only it, then continue."""
         snap = await self.store.load(run_id)
         if snap is None:
-            raise KeyError(f"找不到 {run_id} 的检查点，无法恢复")
+            raise KeyError(f"no checkpoint for {run_id}; cannot resume")
         parked_node = (snap.get("interrupt") or {}).get("node_id", "")
         run = Run.restore(plan, snap)
         run.resume(value)
@@ -119,7 +148,7 @@ class Scheduler:
         await self.drive(plan, run)
         return run
 
-    # —— 引擎主循环 ——
+    # — engine main loop —
     async def drive(self, plan: Any, run: Run) -> None:
         if run.metrics["waves"] == 0 and run.state == RunState.RUNNING:
             await self._emit(run, RUN_STARTED, {"task": run.task})
@@ -127,23 +156,29 @@ class Scheduler:
         while run.running:
             ready = plan.ready(run)
             if not ready:
-                # 先清理走不通的死分支（可能级联），再确认一次是否真的停摆。
+                # First clean up dead branches that can't be reached (may cascade),
+                # then confirm once more whether it really stalled.
                 plan.sweep_skipped(run)
                 ready = plan.ready(run)
+            if not ready:
+                ready = plan.ready(run, empty_fanout=True)
             if not ready:
                 self._settle(plan, run)
                 break
 
             run.metrics["waves"] += 1
             if run.metrics["waves"] > self.max_waves:
-                run.fail(f"超过最大波次 {self.max_waves}，疑似空转（请检查回边是否有进展）")
+                run.fail(
+                    f"exceeded max waves {self.max_waves}; suspected spin (check that a back-edge makes progress)"
+                )
                 await self._emit(run, RUN_FAILED, {"reason": run.final_output})
                 break
 
-            # 2) 波次并发：节点之间不共享可变状态，只各自产出 Outcome。
+            # 2) Wave concurrency: nodes share no mutable state, each yields an Outcome.
             results = await asyncio.gather(*[self._run_node(plan, run, key) for key in ready])
 
-            # 3) 屏障：统一处理结果。任一节点失败，默认 fail-fast 让整 Run 停下。
+            # 3) Barrier: handle results together. If any node fails, default to
+            # fail-fast and stop the whole Run.
             parked: tuple[str, Any] | None = None
             controls: list[tuple[str, Any]] = []
             writes = WaveWrites(plan.channels)
@@ -155,6 +190,11 @@ class Scheduler:
                     await self._emit(run, RUN_FAILED, {"node": key, "reason": repr(error)})
                     break
                 if outcome.suspend is not None:
+                    if parked is not None:
+                        raise AmbiguousPark(
+                            f"nodes {parked[0]!r} and {key!r} both requested suspension "
+                            "in the same wave; converge them (join) or park once per wave"
+                        )
                     parked = (key, outcome.suspend)
                     continue
                 run.mark_completed(key, outcome.value)
@@ -165,6 +205,13 @@ class Scheduler:
                 await self._emit(run, NODE_COMPLETED, {"node": key})
 
             if run.state == RunState.FAILED:
+                break
+
+            invalid = _invalid_control(plan, controls)
+            if invalid is not None:
+                writer, reason = invalid
+                run.fail(reason)
+                await self._emit(run, RUN_FAILED, {"node": writer, "reason": reason})
                 break
 
             writes.check_ambiguous()
@@ -184,12 +231,10 @@ class Scheduler:
 
             await self._checkpoint(run)
 
-    # —— 单个节点的执行 ——
+    # — executing a single node —
     async def _run_node(
         self, plan: Any, run: Run, key: str
     ) -> tuple[str, Outcome | None, BaseException | None]:
-        template = run.template_of(key)
-        node = plan.get(template)
         run.mark_running(key)
         await self._emit(run, NODE_STARTED, {"node": key})
         ctx = NodeContext(
@@ -199,25 +244,29 @@ class Scheduler:
             tools=self.tools,
             subagent=self.subagent,
             bus=self.bus,
-            resume_value=run.resume_value,
+            resume_value=run.take_resume(key),
         )
         try:
-            async with self._sem:  # 全局并发上限
+            async with self._sem:  # global concurrency cap
+                node = plan.get(run.template_of(key))
                 outcome = await self._run_body(
                     node, self._node_input(plan, run, key), ctx, run, key
                 )
             return key, outcome, None
-        except BaseException as exc:  # 交回屏障统一处置
+        except BaseException as exc:  # hand back to the barrier for uniform handling
             return key, None, exc
 
     async def _run_body(
         self, node: Any, value: Any, ctx: NodeContext, run: Run, key: str
     ) -> Outcome:
-        """执行一个节点的 body，套上“超时 + 重试退避”这层步骤级弹性。
+        """Run a node's body wrapped in the step-level resilience layer of
+        "timeout + retry with backoff".
 
-        机制是固定的：超时算一次失败、失败按策略决定是否再来一次；策略本身
-        （试几次、等多久、哪些错值得重试）挂在 Node 上，可整体替换。外部取消
-        不属于“可重试的失败”，必须原样向上传播。
+        The mechanism is fixed: a timeout counts as one failure, and after a
+        failure the policy decides whether to try again. The policy itself (how
+        many tries, how long to wait, which errors are worth retrying) hangs on
+        the Node and is fully replaceable. External cancellation is not a
+        "retryable failure" and must propagate unchanged.
         """
         policy = node.retry
         attempts = policy.max_attempts if policy else 1
@@ -228,7 +277,7 @@ class Scheduler:
                     return await asyncio.wait_for(node.body.run(value, ctx), node.timeout)
                 return await node.body.run(value, ctx)
             except asyncio.CancelledError:
-                raise  # 被外部取消：立即停，不重试
+                raise  # cancelled externally: stop now, no retry
             except BaseException as exc:
                 last_exc = exc
                 can_retry = (
@@ -252,7 +301,7 @@ class Scheduler:
         if run.is_instance(key):
             return run.input_of(key)
         if key in run.deliveries:
-            return run.deliveries.pop(key)  # Goto 转场带来的输入，消费一次
+            return run.deliveries.pop(key)  # input carried by a Goto transition, consumed once
         preds = plan.incoming(key)
         if not preds:
             return run.task
@@ -260,41 +309,47 @@ class Scheduler:
         for e in preds:
             src = e.source
             node = plan.get(src)
-            if node.template:  # 模板前驱：聚合其所有实例输出
+            if node.template:  # template predecessor: aggregate all its instances' outputs
                 vals = [
                     run.state_of(k).output
                     for k in run.instances.get(src, ())
                     if run.is_completed(k)
                 ]
-                if vals:
-                    upstream[src] = vals
+                upstream[src] = vals
             elif run.is_completed(src) and plan._edge_live(e, run.shared):
-                # 只沿“此刻活着”的边取前驱输出：条件边没选中的分支不喂输入，
-                # 否则互斥分支里没走的那个前驱会把输入拼成多余的 dict。
+                # Take a predecessor's output only along an edge that is "live now":
+                # a branch not selected by a conditional edge feeds no input,
+                # otherwise an untaken predecessor in an exclusive branch would pad
+                # the input with a spurious dict.
                 upstream[src] = run.state_of(src).output
         if len(upstream) == 1:
             return next(iter(upstream.values()))
         return upstream
 
-    # —— 控制命令：改的是“下一波的就绪集合” ——
+    # — control commands: they change "the next wave's ready set" —
     async def _apply_controls(self, plan: Any, run: Run, controls: list[tuple[str, Any]]) -> None:
         for _writer, control in controls:
             commands = control if isinstance(control, list) else [control]
             for cmd in commands:
                 if isinstance(cmd, Goto):
                     if cmd.immediate:
-                        run.reset_pending(cmd.target)  # 重新武装 + 立即放行（回边/跳转/交接）
+                        run.reset_pending(
+                            cmd.target
+                        )  # re-arm + release now (back-edge/jump/handover)
                     else:
-                        # 只重新武装：仍由入边和 join 决定何时就绪（迭代汇聚点等齐前驱）
+                        # Only re-arm: readiness is still decided by incoming edges
+                        # and join (an iterative convergence point waits for preds).
                         run.rearm(cmd.target)
                     if cmd.payload is not None:
-                        run.deliveries[cmd.target] = cmd.payload  # 转场输入，和 Send 对称
+                        run.deliveries[cmd.target] = (
+                            cmd.payload
+                        )  # transition input, symmetric with Send
                 elif isinstance(cmd, Send):
                     run.add_instance(cmd.template, cmd.payload, cmd.key)
                 else:
-                    raise TypeError(f"未知控制命令：{cmd!r}")
+                    raise TypeError(f"unknown control command: {cmd!r}")
 
-    # —— 收尾 ——
+    # — settle —
     def _settle(self, plan: Any, run: Run) -> None:
         if plan.is_done(run):
             run.complete(self._final_output(plan, run))
@@ -305,21 +360,23 @@ class Scheduler:
                 if s.status == NodeStatus.PENDING
                 and not (k in plan.nodes and plan.nodes[k].template)
             ]
-            run.fail(f"图停滞：没有就绪节点但仍有未完成节点 {pending}（多半是边没连对）")
+            run.fail(
+                f"graph stalled: no ready node but unfinished nodes remain {pending} (an edge is likely mis-wired)"
+            )
 
     def _final_output(self, plan: Any, run: Run) -> Any:
-        # 只取真正完成的汇聚节点，被条件边结构性跳过的分支不进最终结果。
+        # Take only convergence nodes that actually completed; branches
+        # structurally skipped by conditional edges don't enter the final result.
         terms = [t for t in plan.terminal_ids() if run.is_completed(t)]
         values = {t: run.state_of(t).output for t in terms}
         if len(values) == 1:
             return next(iter(values.values()))
         return values
 
-    # —— 事件与检查点 ——
+    # — events and checkpoints —
     async def _emit(self, run: Run, kind: str, data: dict | None = None) -> None:
-        seq = self._seq.get(run.run_id, 0) + 1
-        self._seq[run.run_id] = seq
-        event = Event(seq, run.run_id, kind, data or {}, parent_id=run.parent_id)
+        run.event_seq += 1
+        event = Event(run.event_seq, run.run_id, kind, data or {}, parent_id=run.parent_id)
         await self.eventlog.append(event)
         await self.bus.fire(kind, evt=event)
 

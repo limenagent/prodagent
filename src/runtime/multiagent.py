@@ -1,14 +1,18 @@
-"""multiagent —— 配方三：多 Agent 协作，全部用同一套内核拼出来。
+"""multiagent — recipe three: multi-agent collaboration, all assembled from the same kernel.
 
-三种最常见的协作关系，没有一个需要新引擎：
+None of the three most common collaboration relationships needs a new engine:
 
-- pipeline（流水线）：静态边把几个子 Agent 串起来，上游产出喂下游；
-- supervisor（主管-工人，call/委派）：主管本身就是一个 ReAct，只不过它的
-  “工具”是一个个子 Agent——调用工具 = 递归激活一个子 Run，跑完把结果交回，
-  主管据此再决定下一步。这就是 ADK 的 agent-as-tool，用内核原语天然表达；
-- transfer（接力/交接，不回头）：在同一张图里把各 Agent 当节点，用 go 转到目标
-  Agent 节点、不画回边即一去不返，和 call 的“去了要回来”形成对照，无需专门命令。
-另外提供 build_blackboard：多角色共写一块共享板、主持人 join=all 汇聚、可多轮趋同。
+- pipeline: static edges chain several sub-agents, feeding upstream output
+  downstream;
+- supervisor (call/delegation): the supervisor is itself a ReAct whose "tools"
+  are sub-agents — calling a tool = recursively activating a child Run, which
+  returns its result when done, and the supervisor decides the next step. This is
+  ADK's agent-as-tool, expressed naturally with kernel primitives;
+- transfer (handoff, no return): in one graph, treat agents as nodes and go to
+  the target agent node without a return edge, so control leaves for good — in
+  deliberate contrast to call's "go and come back". No dedicated command needed.
+Also provides build_blackboard: several roles co-write one shared board, a
+moderator joins with join=all, and they may converge over multiple rounds.
 """
 
 from __future__ import annotations
@@ -31,19 +35,21 @@ from src.runtime.react import build_react_plan, start_react_run
 from src.runtime.tools import ToolRegistry, ToolSpec
 
 DEFAULT_SUPERVISOR_SYSTEM = (
-    "你是主管，不亲自做具体执行。根据用户目标，选择合适的专业子 Agent 去完成；"
-    "拿到它们的结果后，决定是否还需要再派谁，最终汇总成对用户的答复。"
+    "You are a supervisor and do not perform concrete execution yourself. "
+    "Given the user's goal, choose the appropriate specialist sub-agent to do it; "
+    "after receiving their results, decide whether to delegate to anyone else, and "
+    "finally synthesize the answer to the user."
 )
 
 
 def _as_body(spec: Any):
-    """一张 Plan 用 SubPlanBody 递归激活；已经是 body 的原样使用。"""
+    """A Plan is activated recursively via SubPlanBody; an existing body is used as-is."""
     return SubPlanBody(spec) if isinstance(spec, Plan) else spec
 
 
-# —— 流水线：静态串联 ——
+# ---- pipeline: static chaining ----
 def build_pipeline(stages: list[tuple[str, Any]]) -> Plan:
-    """stages 为 [(名字, 子Plan或body), ...]，按顺序执行，末节点产出最终结果。"""
+    """stages is [(name, sub-Plan or body), ...], run in order; the last node yields the result."""
     plan = Plan()
     names = []
     for i, (name, spec) in enumerate(stages):
@@ -56,14 +62,16 @@ def build_pipeline(stages: list[tuple[str, Any]]) -> Plan:
     return plan
 
 
-# —— 主管-工人：子 Agent 即工具（call 语义）——
+# ---- supervisor-worker: a sub-agent is a tool (call semantics) ----
 def register_agent_tool(
     registry: ToolRegistry, name: str, child_plan: Plan, description: str
 ) -> None:
-    """把一个子 Agent 注册成主管可调用的“委派工具”。"""
+    """Register one sub-agent as a "delegation tool" the supervisor can call."""
 
     async def delegate(task: str, ctx: Any):
-        result = await ctx.spawn(child_plan, task)  # 递归起子 Run，call 语义要返回
+        result = await ctx.spawn(
+            child_plan, task
+        )  # recursively start a child Run; call means it returns
         return result["output"]
 
     registry.add(
@@ -73,7 +81,9 @@ def register_agent_tool(
             func=delegate,
             parameters={
                 "type": "object",
-                "properties": {"task": {"type": "string", "description": "交给该子 Agent 的任务"}},
+                "properties": {
+                    "task": {"type": "string", "description": "The task to hand to this sub-agent"}
+                },
                 "required": ["task"],
             },
             side_effect="read",
@@ -89,7 +99,7 @@ def build_supervisor(
     memory: Any = None,
     registry: ToolRegistry | None = None,
 ) -> Plan:
-    """workers: {工具名: (子 Plan, 给主管看的能力说明)}。主管就是一个 ReAct。"""
+    """workers: {tool name: (child Plan, capability description for the supervisor)}. The supervisor is a ReAct."""
     registry = registry or ToolRegistry()
     for name, (child_plan, desc) in workers.items():
         register_agent_tool(registry, name, child_plan, desc)
@@ -104,12 +114,13 @@ async def run_supervisor(plan: Plan, task: str, scheduler: Any) -> Run:
     return run
 
 
-# 说明：多 Agent 的“交接（transfer，不回头）”不需要专门控制器——在同一张
-# Workflow 图里把各 Agent 当节点，用 go(目标Agent, 交接摘要) 转场、且不画回边，
-# 控制权就一去不返；这与 call（ctx.spawn 子 Run、干完返回）正好对照。
+# Note: multi-agent "transfer" (handoff, no return) needs no dedicated controller —
+# in one Workflow graph, treat agents as nodes and use go(target_agent, handoff
+# summary) without a return edge, so control leaves for good; this is the exact
+# counterpart of call (ctx.spawn a child Run, return when done).
 
 
-# —— 黑板：共享工作区 + 多角色并行 + 主持人汇聚（可多轮趋同）——
+# ---- blackboard: shared workspace + parallel roles + moderator join (multi-round convergence) ----
 def build_blackboard(
     experts: list[tuple[str, Any]],
     moderator: Any,
@@ -117,27 +128,31 @@ def build_blackboard(
     final: Any = None,
     board_key: str = "board",
 ) -> Plan:
-    """搭一块“共享黑板”：异构专家并行写、主持人按 join=all 汇聚裁决。
+    """Build a "shared blackboard": heterogeneous experts write in parallel and a moderator adjudicates with join=all.
 
-    结构（全部是已有原语，没有为黑板新造引擎）：
+    Structure (all existing primitives; no new engine for the blackboard):
 
-        fanout ──并行──▶ expert1 ┐
-                 ├──────▶ expert2 ├──▶ moderator(join=all) ──共识──▶ final
-                 └──────▶ expert3 ┘            │ 未达成
-                                             └─ Goto 回 fanout 再来一轮
+        fanout ──parallel──▶ expert1 ┐
+                     ├──────▶ expert2 ├──▶ moderator(join=all) ──consensus──▶ final
+                     └──────▶ expert3 ┘            │ not reached
+                                                  └─ Goto back to fanout for another round
 
-    - experts 是 [(名字, body 或子 Plan), ...]，每个专家是不同角色（不同提示/工具），
-      它们只往共享通道 board_key（append）追加自己的意见，彼此不直接通信；
-    - moderator 是主持人 body，读 ctx.shared 裁决：达成则 Outcome.goto("final",
-      verdict=...)，未达成则 Outcome.goto("fanout", round=r+1) 触发下一轮；
-    - 多轮的关键是 fanout 每轮用 Goto(节点, immediate=False) 把专家和主持人“重新武装”：
-      专家等 fanout 完成即并行，主持人依旧等所有专家这一轮齐活才裁决。
+    - experts is [(name, body or sub-Plan), ...]; each expert is a different role
+      (different prompt/tools), appending only its opinion to the shared append
+      channel board_key, never talking to each other directly;
+    - moderator is a body that reads ctx.shared to adjudicate: on consensus it
+      Outcome.goto("final", verdict=...), otherwise Outcome.goto("fanout",
+      round=r+1) to trigger the next round;
+    - multi-round works because fanout each round uses Goto(node, immediate=False)
+      to "re-arm" experts and moderator: experts run in parallel once fanout
+      completes, and the moderator still waits for every expert of that round.
     """
     expert_names: list[str] = []
 
     async def fanout(_, ctx):
-        # 只重新武装、不立即激活：并行时机仍由 fanout→expert 的边、汇聚时机
-        # 仍由 expert→moderator 的 join=all 决定，让这套判定每一轮都重来。
+        # Re-arm without immediate activation: parallel timing is still set by
+        # the fanout→expert edges, and join timing by expert→moderator join=all,
+        # so this judgment repeats every round.
         return Outcome(control=[Goto(n, immediate=False) for n in (*expert_names, "moderator")])
 
     plan = Plan(channels={board_key: append(), "round": last(0), "verdict": last(None)})

@@ -1,8 +1,8 @@
-"""types —— 全内核共享的最底层值对象与枚举。
+"""types — leaf value objects and enums shared by the whole kernel.
 
-它们有两个共同点：不可变、不依赖内核里任何其它模块。
-正因为是叶子，谁都可以安全地 import 它，而不会产生循环依赖。
-（状态用枚举显式表达，不让非法状态有机会出现。）
+They share two properties: immutable, and independent of every other kernel
+module. Being leaves, anyone can import them safely without creating a cycle.
+(States are expressed as explicit enums so that invalid states cannot exist.)
 """
 
 from __future__ import annotations
@@ -12,26 +12,27 @@ from enum import StrEnum
 
 
 class NodeStatus(StrEnum):
-    """图里一个节点（的一次执行实例）所处的状态。"""
+    """Status of one (execution instance of a) node in the graph."""
 
-    PENDING = "pending"  # 还没轮到它
-    RUNNING = "running"  # 这一波正在跑
-    COMPLETED = "completed"  # 成功完成，输出已落袋
-    SKIPPED = "skipped"  # 条件边全部不满足，结构性跳过
-    FAILED = "failed"  # 执行失败
+    PENDING = "pending"  # not eligible yet
+    RUNNING = "running"  # running in the current wave
+    COMPLETED = "completed"  # finished successfully, output is settled
+    SKIPPED = "skipped"  # no conditional edge matched, structurally skipped
+    FAILED = "failed"  # execution failed
 
 
 class RunState(StrEnum):
-    """一次 Run 的一生只有四个状态。"""
+    """A Run has exactly four states in its lifetime."""
 
     RUNNING = "running"
-    SUSPENDED = "suspended"  # 主动放手、落盘等人/等外部
+    SUSPENDED = "suspended"  # deliberately released and persisted, waiting on a human/external
     COMPLETED = "completed"
     FAILED = "failed"
 
 
-# 状态机里唯一合法的转移表。除此之外的跳转一律报错——
-# “让非法状态根本造不出来”，比事后判断当前是什么状态可靠得多。
+# The only legal transition table. Any jump outside of it raises —
+# "make invalid states unrepresentable" is far more reliable than checking
+# the current state after the fact.
 _ALLOWED_TRANSITIONS: dict[RunState, frozenset[RunState]] = {
     RunState.RUNNING: frozenset({RunState.SUSPENDED, RunState.COMPLETED, RunState.FAILED}),
     RunState.SUSPENDED: frozenset({RunState.RUNNING, RunState.FAILED}),
@@ -42,10 +43,11 @@ _ALLOWED_TRANSITIONS: dict[RunState, frozenset[RunState]] = {
 
 @dataclass(frozen=True)
 class ToolCall:
-    """一次工具调用请求。
+    """A single tool-call request.
 
-    call_id 是稳定的幂等键：同一次决策重试时它不变，工具侧据此去重，
-    保证“至少投递一次 + 幂等 = 效果恰好一次”。
+    ``call_id`` is a stable idempotency key: it stays the same when the same
+    decision is retried, so the tool side can de-duplicate. Together:
+    "at-least-once delivery + idempotency = exactly-once effect".
     """
 
     name: str
@@ -55,7 +57,7 @@ class ToolCall:
 
 @dataclass(frozen=True)
 class ToolResult:
-    """一次工具调用的结果。ok 为 False 时 error 说明原因。"""
+    """The result of a tool call. When ``ok`` is False, ``error`` says why."""
 
     ok: bool
     output: object = None

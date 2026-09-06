@@ -1,14 +1,17 @@
-"""channels —— 状态通道与合并规则（内核最精华的设计之一）。
+"""channels — state channels and reducers (one of the kernel's key ideas).
 
-为什么状态不是一个普通 dict、写的时候直接 `state[k] = v`？
-因为波次内多个节点是并发跑的，它们可能同时写同一个键：
-- 消息历史这种，应该“追加”而不是互相覆盖；
-- 成本这种，应该“相加”；
-- 当前阶段这种，才是“后写覆盖”。
+Why isn't state a plain dict that you update with ``state[k] = v``?
+Because several nodes run concurrently within a wave and may write the same
+key at the same time:
+- a message history should be *appended* to, not overwritten;
+- a cost counter should be *added*;
+- only something like the current phase is *last write wins*.
 
-于是我们让每个键（通道）显式声明一个 reducer：(旧值, 新值) -> 合并值。
-调度器在波次屏障处统一按 reducer 折叠，并发结果就是确定的，与谁先跑完无关。
-reducer 必须是纯函数——这也是状态能靠事件重放出来的前提。
+So each key (channel) explicitly declares a reducer: (old, new) -> merged.
+The scheduler folds with the reducer once at the wave barrier, making the
+concurrent result deterministic regardless of which node finishes first.
+A reducer must be a pure function — this is also what lets state be rebuilt
+by replaying events.
 """
 
 from __future__ import annotations
@@ -45,13 +48,16 @@ def _merge(old: Any, new: Any) -> dict:
 
 @dataclass(frozen=True)
 class Channel:
-    """一个状态通道：初始值 + 合并规则 + 中性元。
+    """A state channel: initial value + reducer + identity element.
 
-    allow_multi 标记同一波内是否允许多个节点并发写它：追加/求和/合并满足结合
-    交换，允许；last 通道并发写结果取决于调度顺序，属于歧义写入，默认禁止。
+    ``allow_multi`` says whether multiple nodes may write it in the same wave.
+    append/add/merge are associative and commutative, so they allow it; a last
+    channel written concurrently would depend on scheduling order — an
+    ambiguous write — so it is forbidden by default.
 
-    empty 是这个合并规则的“中性元”，用来把同一波里对同一通道的多次写入先
-    聚合成一个“波增量”：事件流记录波增量，重放时才不会重复累计。
+    ``empty`` is the reducer's identity element, used to first aggregate the
+    multiple writes to a channel within a wave into one "wave delta". The event
+    log records the wave delta, so replay does not double-count.
     """
 
     init: Any
@@ -63,43 +69,45 @@ class Channel:
         return self.reducer(old, new)
 
 
-# —— 四个常用通道的工厂，名字即语义 ——
+# — Factories for the four common channels; the name is the semantics. —
 def last(init: Any = None) -> Channel:
-    """后写覆盖：当前阶段、最终结论这类单值。"""
+    """Last write wins: single values such as the current phase or verdict."""
     return Channel(init, _last, allow_multi=False, empty=None)
 
 
 def append(init: Any = None) -> Channel:
-    """追加成列表：消息历史、检索片段。"""
+    """Append into a list: message history, retrieved snippets."""
     return Channel(list(init or []), _append, allow_multi=True, empty=[])
 
 
 def add(init: Any = 0) -> Channel:
-    """数值累加：成本、计数。"""
+    """Numeric accumulation: cost, counters."""
     return Channel(init, _add, allow_multi=True, empty=0)
 
 
 def merge(init: Any = None) -> Channel:
-    """字典合并：结构化结果拼合。"""
+    """Dict merge: combining structured results."""
     return Channel(dict(init or {}), _merge, allow_multi=True, empty={})
 
 
-class AmbiguousWrite(RuntimeError):  # noqa: N818 —— 名字直指语义，教学优先于命名惯例
-    """同一波内，多个节点并发写了一个 last 通道——结果不确定，必须显式处理。"""
+class AmbiguousWrite(RuntimeError):  # noqa: N818 — the name states the semantics; teaching beats naming convention
+    """Several nodes wrote a last channel in the same wave — nondeterministic,
+    and must be handled explicitly."""
 
 
 @dataclass
 class _Write:
     key: str
     value: Any
-    writer: str  # 是哪个节点写的，报错时能定位
+    writer: str  # which node wrote it, so errors can point to the source
 
 
 class WaveWrites:
-    """收集“这一波”所有节点的状态增量，屏障后一次性折叠。
+    """Collects state deltas from every node in a wave and folds once at the
+    barrier.
 
-    节点在执行过程中不直接改共享状态，只把增量交到这里，从根上避免了
-    “读到另一个节点跑到一半的半成品状态”这种并发竞态。
+    Nodes never touch shared state while running; they hand deltas here, which
+    removes the race of "reading another node's half-finished state".
     """
 
     def __init__(self, channels: dict[str, Channel]):
@@ -109,12 +117,13 @@ class WaveWrites:
     def buffer(self, key: str, value: Any, writer: str) -> None:
         channel = self._channels.get(key)
         if channel is None:
-            # 写入一个从未声明的通道，几乎一定是笔误或设计遗漏，早报错比静默丢强。
-            raise KeyError(f"写入了未声明的状态通道 {key!r}（来自节点 {writer!r}）")
+            # Writing a channel that was never declared is almost always a typo
+            # or a design omission — failing early beats silently dropping it.
+            raise KeyError(f"wrote to undeclared state channel {key!r} (from node {writer!r})")
         self._buffer.append(_Write(key, value, writer))
 
     def check_ambiguous(self) -> None:
-        """屏障处检查：last 通道是否被同一波的多个节点写了。"""
+        """At the barrier, check whether a last channel got multiple writers."""
         writers_by_key: dict[str, set[str]] = {}
         for w in self._buffer:
             writers_by_key.setdefault(w.key, set()).add(w.writer)
@@ -122,12 +131,13 @@ class WaveWrites:
             channel = self._channels[key]
             if not channel.allow_multi and len(writers) > 1:
                 raise AmbiguousWrite(
-                    f"通道 {key!r} 是 last（后写覆盖），却被同波多个节点 {writers} 并发写，"
-                    f"结果取决于调度顺序；请改用 append/add/merge，或只让一个节点写它。"
+                    f"channel {key!r} is last (last-write-wins) but was written concurrently "
+                    f"by multiple nodes {writers} in one wave; the result would depend on "
+                    f"scheduling order. Use append/add/merge, or let only one node write it."
                 )
 
     def drain(self) -> list[_Write]:
-        """按进入顺序取出本波全部增量，并清空缓冲。"""
+        """Return this wave's deltas in arrival order and clear the buffer."""
         out = self._buffer
         self._buffer = []
         return out

@@ -1,11 +1,14 @@
-"""skills —— 技能是“打包好的专长”，也是可替换策略。
+"""skills — a skill is "packaged expertise", also a replaceable strategy.
 
-工具是一个原子动作；技能是一组相关工具 + 一段专门的操作指引（instructions）
-+ 可选资源，打包成一个可被按需选用的专长包。它和记忆、上下文一样不进内核：
+A tool is one atomic action; a skill bundles a set of related tools plus a piece
+of dedicated operating instructions and optional resources into an expertise
+package selected on demand. Like memory and context, it stays out of the kernel:
 
-- 注册：声明技能名、说明、操作指引、要用的工具名；
-- 选用：resolve 按名字精确取，match 按当前任务描述挑最相关的；
-- 落地：把技能的 instructions 拼进 system，并把工具收敛到技能声明的范围。
+- register: declare the skill's name, description, instructions, and tool names;
+- select: resolve fetches by exact name, match picks the most relevant one for
+  the current task description;
+- land: splice the skill's instructions into the system prompt and narrow the
+  tools to the scope the skill declares.
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ class Skill:
     name: str
     description: str
     instructions: str = ""
-    tools: list[str] = field(default_factory=list)  # 该技能涉及的工具名
+    tools: list[str] = field(default_factory=list)  # tool names this skill involves
 
 
 def _tokens(text: str) -> set[str]:
@@ -38,7 +41,7 @@ class SkillRegistry:
         return self._skills.get(name)
 
     def match(self, task: str) -> Skill | None:
-        """按任务描述与技能说明的词重叠，挑最相关的一个（教学版相关性）。"""
+        """Pick the most relevant skill by word overlap with the task (teaching relevance)."""
         q = _tokens(task)
         best, best_score = None, 0
         for skill in self._skills.values():
@@ -48,19 +51,20 @@ class SkillRegistry:
         return best
 
     def apply_to_system(self, skill: Skill, system: str = "") -> str:
-        """把技能指引拼进系统提示。"""
+        """Splice the skill's instructions into the system prompt."""
         if not skill:
             return system
-        return (
-            system + "\n\n" if system else ""
-        ) + f"使用技能「{skill.name}」：\n{skill.instructions}"
+        prefix = system + "\n\n" if system else ""
+        return prefix + f'Use the skill "{skill.name}":\n{skill.instructions}'
 
-    # —— 从目录加载：每个子目录一份 SKILL.md，就是一个可渐进披露的技能 ——
+    # ---- Load from a directory: each subdirectory with a SKILL.md is one
+    # progressively-disclosable skill. ----
     @staticmethod
     def parse_skill_md(text: str) -> Skill:
-        """解析一份 SKILL.md：开头三横线之间写 name/description，其后正文即指引。
+        """Parse one SKILL.md: name/description between the leading '---' fences, body after.
 
-        故意只认最简单的 frontmatter，不引入 YAML 依赖，教学上一眼能看懂。
+        Deliberately understands only the simplest frontmatter and pulls in no
+        YAML dependency, so it stays readable at a glance for teaching.
         """
         lines = text.strip().splitlines()
         meta: dict[str, str] = {}
@@ -74,13 +78,13 @@ class SkillRegistry:
                         meta[k.strip()] = v.strip()
                 instructions_text = "\n".join(lines[end + 1 :]).strip()
         return Skill(
-            name=meta.get("name", "未命名"),
+            name=meta.get("name", "unnamed"),
             description=meta.get("description", ""),
             instructions=instructions_text,
         )
 
     def load_dir(self, root: str) -> list[Skill]:
-        """加载 root 下每个含 SKILL.md 的子目录；root 自身若是单个技能也支持。"""
+        """Load every subdirectory under root that contains SKILL.md; root itself may be one skill."""
         import os
 
         loaded: list[Skill] = []

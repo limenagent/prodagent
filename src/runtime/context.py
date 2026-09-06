@@ -1,14 +1,19 @@
-"""context —— 上下文窗口管理是一种可替换策略。
+"""context — context-window management as a replaceable strategy.
 
-上下文窗口不是内存，它是每次调用模型前，从完整对话历史里“现场装配”出的一个
-投影。怎么装、装多少、超了怎么办，全部是策略：
+The context window is not memory; before every model call it is a projection
+"assembled on the spot" from the full conversation history. How to assemble it,
+how much to keep, and what to do when it overflows are all strategy:
 
-- WindowContext：只保留首轮诉求 + 最近若干条，最简单；
-- SummarizingContext：超过预算时，把较早的消息交模型压成一段摘要，再与最近
-  消息拼接，既不硬丢早期关键信息，也不撑爆窗口。
+- WindowContext: keep only the first-turn request plus the most recent few
+  messages, the simplest option;
+- SummarizingContext: when over budget, compress older messages into a summary
+  via a model, then splice on the recent messages — neither hard-dropping early
+  key facts nor overflowing the window.
 
-这里用“消息条数”做预算，方便教学；生产里把计数换成 tokenizer 的 token 计数
-即可，装配流程完全一样。内核不认识这些类，它们只在 ReAct 配方的 think 前被调用。
+Here "message count" is used as the budget for teaching; in production swap the
+counter for a tokenizer's token count and the assembly flow is identical. The
+kernel doesn't know these classes; they're only invoked before "think" in the
+ReAct recipe.
 """
 
 from __future__ import annotations
@@ -21,7 +26,7 @@ class ContextManager(Protocol):
 
 
 class WindowContext:
-    """保留首轮用户诉求，再保留最近 keep_last 条。"""
+    """Keep the first-turn user request, then the most recent keep_last messages."""
 
     def __init__(self, keep_last: int = 8):
         self.keep_last = keep_last
@@ -35,7 +40,7 @@ class WindowContext:
 
 
 class SummarizingContext:
-    """旧消息超预算时压成摘要，拼上最近消息（摘要器走 LlmPort，可被替换）。"""
+    """When old messages exceed budget, summarize them and splice on recent ones (the summarizer uses LlmPort, replaceable)."""
 
     def __init__(self, llm: Any, max_messages: int = 10, keep_last: int = 4):
         self.llm = llm
@@ -51,12 +56,12 @@ class SummarizingContext:
             [
                 {
                     "role": "user",
-                    "content": "把下面的对话压缩成要点摘要，保留关键事实、数字和未决事项，不要展开：\n"
-                    + _render(old),
+                    "content": "Compress the conversation below into a bullet-point summary, "
+                    "keeping key facts, numbers, and open items; do not expand:\n" + _render(old),
                 }
             ]
         )
-        summary = {"role": "system", "content": f"此前对话摘要：{reply.text}"}
+        summary = {"role": "system", "content": f"Summary of earlier conversation: {reply.text}"}
         return [summary, *recent]
 
 
@@ -71,13 +76,16 @@ def _render(messages: list[dict]) -> str:
     return "\n".join(lines)
 
 
-# —— 五级压缩：按填充率逐级升级，便宜的机械手段先用，只有摘要级才花一次 LLM ——
+# ---- Five-level compression: escalate by fill ratio; use cheap mechanical means
+# first, and spend one LLM call only at the summary levels. ----
 class CompressionLevel:
-    NONE = 0  # 没超窗口：不动
-    TOOL_COMPRESS = 1  # 规则化压缩超长工具结果（不调模型）
-    HISTORY_SUMMARY = 2  # 摘要较早轮次，保留较多近期原文
-    TOPIC_SUMMARY = 3  # 更激进：只留很少近期原文，其余压成主题摘要
-    EMERGENCY = 4  # 兜底：只留最近两条 + 最近一条摘要
+    NONE = 0  # within window: leave untouched
+    TOOL_COMPRESS = 1  # rule-based shrink of over-long tool results (no model)
+    HISTORY_SUMMARY = 2  # summarize earlier rounds, keep more recent verbatim
+    TOPIC_SUMMARY = (
+        3  # more aggressive: keep very little recent verbatim, summarize the rest by topic
+    )
+    EMERGENCY = 4  # fallback: keep only the latest two messages + the latest prior summary
 
     NAME: ClassVar[dict[int, str]] = {
         0: "NONE",
@@ -89,22 +97,23 @@ class CompressionLevel:
 
 
 def _tool_groups(messages: list[dict]) -> list[list[dict]]:
-    """把消息切成“原子组”：一次工具调用的 assistant 与它的 tool 结果必须同组，
+    """Split messages into "atomic groups": the assistant message of one tool call must stay grouped with its tool results.
 
-    裁剪时整组丢弃，绝不留下没有父调用的孤儿 tool 结果（那会直接触发模型报错）。
+    When trimming, drop whole groups, never leaving an orphan tool result with no
+    parent call (that would immediately make the model error out).
     """
     groups: list[list[dict]] = []
     cur: list[dict] | None = None
     for m in messages:
         is_call = m.get("role") == "assistant" and bool(m.get("tool_calls"))
         is_result = m.get("role") == "tool"
-        if is_call:  # 工具调用父消息开一组
+        if is_call:  # a tool-call parent message opens a group
             if cur:
                 groups.append(cur)
             cur = [m]
-        elif is_result and cur is not None:  # 结果并入当前组
+        elif is_result and cur is not None:  # results join the current group
             cur.append(m)
-        else:  # 普通消息关闭当前组
+        else:  # an ordinary message closes the current group
             if cur:
                 groups.append(cur)
                 cur = None
@@ -115,12 +124,14 @@ def _tool_groups(messages: list[dict]) -> list[list[dict]]:
 
 
 def _fit_tail(messages: list[dict], capacity: int) -> list[dict]:
-    """保留最近、且总条数不超过 capacity 的若干“完整原子组”。"""
+    """Keep the most recent complete atomic groups whose total count stays within capacity."""
     groups = _tool_groups(messages)
     kept: list[list[dict]] = []
     used = 0
     for g in reversed(groups):
-        if used + len(g) > capacity and kept:  # 再放就超，且已经有内容
+        if (
+            used + len(g) > capacity and kept
+        ):  # adding it would overflow and we already have something
             break
         kept.append(g)
         used += len(g)
@@ -128,28 +139,31 @@ def _fit_tail(messages: list[dict], capacity: int) -> list[dict]:
 
 
 def _shrink_tool_text(content: str, limit: int = 160) -> str:
-    """规则化压缩一条超长工具结果：保留头尾，中间省略（不调模型）。"""
+    """Rule-based shrink of one over-long tool result: keep head and tail, elide the middle (no model)."""
     if not isinstance(content, str) or len(content) <= limit:
         return content
     head, tail = content[: limit * 3 // 5], content[-limit // 5 :]
-    return f"{head}\n…[省略 {len(content) - len(head) - len(tail)} 字]…\n{tail}"
+    return f"{head}\n...[{len(content) - len(head) - len(tail)} chars omitted]...\n{tail}"
 
 
 class TieredCompactionContext:
-    """五级逐级压缩的上下文策略（对应专栏“上下文窗口是现场装配的投影”）。
+    """A five-level, gradually escalating context strategy (matches "the context window is an assembled projection").
 
-    用消息条数估算填充率，方便教学；生产把 _size 换成 tokenizer 计数即可，
-    逐级升级与“机械优先、摘要才花模型钱”的结构完全不变。
+    Fill ratio is estimated by message count for teaching; in production swap
+    _size for a tokenizer count, and the gradual escalation plus "mechanical
+    first, spend model money only to summarize" structure stays unchanged.
     """
 
     def __init__(
         self, summarizer: Any, *, capacity: int = 12, history_recent: int = 6, topic_recent: int = 3
     ):
-        self.summarizer = summarizer  # 只在摘要级才会被调用
+        self.summarizer = summarizer  # called only at summary levels
         self.capacity = capacity
         self.history_recent = history_recent
         self.topic_recent = topic_recent
-        self.last_level = CompressionLevel.NONE  # 最近一次装配选了哪级，便于观察
+        self.last_level = (
+            CompressionLevel.NONE
+        )  # which level the latest assembly chose, for observability
 
     @staticmethod
     def _size(messages: list[dict]) -> int:
@@ -169,8 +183,8 @@ class TieredCompactionContext:
             [
                 {
                     "role": "user",
-                    "content": f"把下面较早的对话压成{title}，保留关键事实、数字与未决事项：\n"
-                    + _render(older),
+                    "content": f"Compress the earlier conversation below into a {title}, "
+                    "keeping key facts, numbers, and open items:\n" + _render(older),
                 }
             ]
         )
@@ -178,7 +192,7 @@ class TieredCompactionContext:
 
     async def assemble(self, messages: list[dict]) -> list[dict]:
         size = self._size(messages)
-        if size <= self.capacity:  # 0 级：窗口够用，原样返回
+        if size <= self.capacity:  # level 0: window is sufficient, return as-is
             self.last_level = CompressionLevel.NONE
             return messages
 
@@ -187,7 +201,8 @@ class TieredCompactionContext:
         self.last_level = level
 
         if level == CompressionLevel.TOOL_COMPRESS:
-            # 1 级：只把超长工具结果就地缩短，一条一条消息都不丢（仍不调模型）。
+            # Level 1: only shorten over-long tool results in place, dropping no
+            # message at all (still no model call).
             shrunk = [
                 {**m, "content": _shrink_tool_text(str(m.get("content", "")))}
                 if m.get("role") == "tool"
@@ -197,17 +212,18 @@ class TieredCompactionContext:
             return _fit_tail(shrunk, self.capacity)
 
         if level == CompressionLevel.HISTORY_SUMMARY:
-            return await self._summary_level(messages, self.history_recent, "历史摘要")
+            return await self._summary_level(messages, self.history_recent, "History summary")
         if level == CompressionLevel.TOPIC_SUMMARY:
-            return await self._summary_level(messages, self.topic_recent, "主题摘要")
+            return await self._summary_level(messages, self.topic_recent, "Topic summary")
 
-        # 4 级紧急：只留最近两条原文，外加最近一条已有摘要，再原子裁剪兜底。
+        # Level 4 emergency: keep only the latest two verbatim messages plus the
+        # latest existing summary, then fall back to atomic trimming.
         tail = _fit_tail(messages, 2)
         last_summary = next(
             (
                 m
                 for m in reversed(messages)
-                if str(m.get("content", "")).startswith(("[历史摘要]", "[主题摘要]"))
+                if str(m.get("content", "")).startswith(("[History summary]", "[Topic summary]"))
             ),
             None,
         )
@@ -215,7 +231,8 @@ class TieredCompactionContext:
         return _fit_tail(out, self.capacity)
 
     async def _summary_level(self, messages: list[dict], recent_n: int, title: str):
-        # 近期窗口的切点不能落在孤儿 tool 结果上：向前回退到原子组边界。
+        # The recent-window cut must not land on an orphan tool result: walk back
+        # to an atomic-group boundary.
         idx = max(0, len(messages) - recent_n)
         while 0 < idx < len(messages) and messages[idx].get("role") == "tool":
             idx -= 1

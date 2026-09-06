@@ -60,9 +60,9 @@ async def test_tool_schema_and_missing_arg_feedback():
     schema = reg.schemas()[0]["function"]
     assert set(schema["parameters"]["required"]) == {"a", "b"}  # ctx 不进 schema
 
-    # 缺参数：返回 failure 反馈，而不是抛异常。
+    # Missing argument: returns failure feedback rather than raising.
     result = await reg.dispatch(ToolCall("add_numbers", {"a": 1}))
-    assert not result.ok and "必填" in result.error
+    assert not result.ok and "required" in result.error
 
 
 async def test_write_tool_goes_through_approval_gate():
@@ -73,12 +73,12 @@ async def test_write_tool_goes_through_approval_gate():
 
     reg.function(refund, side_effect="write")
 
-    # 审批门拒绝：写操作被拦下，原因可回喂给模型。
+    # Approval gate rejects: the write is blocked and the reason is fed back to the model.
     sch = Scheduler(tools=reg)
-    reg.bus = sch.bus  # 工具注册表接上同一条总线才能过裁决门
+    reg.bus = sch.bus  # wire the registry to the same bus to reach the adjudication gate
     sch.bus.checker("tool:refund", lambda **_: False)
     result = await reg.dispatch(ToolCall("refund", {"order_id": "o1"}), ctx=None)
-    assert not result.ok and "批准" in result.error
+    assert not result.ok and "approved" in result.error
 
 
 async def test_plan_first_fan_out():

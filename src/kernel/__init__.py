@@ -1,4 +1,4 @@
-"""src.kernel —— 教学型 Agent 内核的公共出口。"""
+"""src.kernel — public surface of the teaching-grade agent kernel."""
 
 from src.kernel.body import (
     FnBody,
@@ -31,7 +31,7 @@ from src.kernel.eventlog import (
 )
 from src.kernel.graph import Edge, Node, Plan, RetryPolicy
 from src.kernel.ports import LlmPort, LlmReply, SubagentPort, ToolPort
-from src.kernel.run import Interrupt, NodeRuntimeState, Run
+from src.kernel.run import AmbiguousPark, Interrupt, NodeRuntimeState, Run
 from src.kernel.scheduler import InProcessActivator, Scheduler
 from src.kernel.types import (
     NodeStatus,
@@ -41,16 +41,17 @@ from src.kernel.types import (
 )
 
 __all__ = [
+    "AmbiguousPark",
     "AmbiguousWrite",
     "BlockingResult",
-    # 总线 / 端口类型
+    # bus / port types
     "Bus",
     "Channel",
     "CheckpointStore",
-    # 命令
+    # commands
     "Command",
     "Edge",
-    # 事件 / 存储
+    # events / storage
     "Event",
     "EventLog",
     "FnBody",
@@ -69,13 +70,13 @@ __all__ = [
     "NodeRuntimeState",
     "NodeStatus",
     "Outcome",
-    # 图与状态
+    # graph and state
     "Plan",
     "RetryPolicy",
-    # 运行
+    # run
     "Run",
     "RunState",
-    # 引擎
+    # engine
     "Scheduler",
     "Send",
     "SubPlanBody",

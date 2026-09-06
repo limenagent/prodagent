@@ -1,21 +1,23 @@
-"""body —— 唯一的可组合接口，以及四种内置 body。
+"""body — the single composable interface, plus four built-in bodies.
 
-内核眼里“能被调度的东西”只有一种：一个满足 NodeBody 协议、
-吃 input 和 NodeContext、吐出 Outcome 的执行体。于是：
+In the kernel's eyes there is only one kind of "schedulable thing": an
+executable that satisfies the NodeBody protocol, takes input and a
+NodeContext, and returns an Outcome. So:
 
-- 一个纯函数（FnBody）是 body；
-- 一次受治理工具调用（ToolBody）是 body；
-- 一次固定 prompt 的模型调用（LLMBody）是 body；
-- 激活一个子 Agent / 子图（SubPlanBody）也是 body。
+- a plain function (FnBody) is a body;
+- one governed tool call (ToolBody) is a body;
+- one fixed-prompt model call (LLMBody) is a body;
+- activating a sub-agent / sub-plan (SubPlanBody) is also a body.
 
-没有“宏节点 vs 微 Agent”两套词汇，只有 body 里再套 body——多 Agent
-不过是某个 body 递归地又跑起一张图。
+There is no separate "macro node vs micro agent" vocabulary, only bodies
+nested inside bodies — multi-agent is simply some body recursively running
+another graph.
 
-Outcome 是 body 的产出，正交地分三块：
-- value：给下游节点的值；
-- state_delta：要按 reducer 折叠进共享状态的数据；
-- control：Goto/Send 控制命令（None=沿静态边自然走）；
-- suspend：非空则请求在这一点放手暂停（Interrupt）。
+An Outcome is what a body produces, split orthogonally into:
+- value: a value for downstream nodes;
+- state_delta: data folded into shared state via reducers;
+- control: a Goto/Send command (None = follow static edges naturally);
+- suspend: when set, request to be released and suspended at this point.
 """
 
 from __future__ import annotations
@@ -32,11 +34,11 @@ from src.kernel.run import Interrupt
 class Outcome:
     value: Any = None
     state_delta: dict[str, Any] = field(default_factory=dict)
-    # control 可以是一条命令，也可以是一组命令（一次扇出多个 Send）。
+    # control can be one command or a group of them (fan out several Sends).
     control: Command | list[Command] | None = None
     suspend: Interrupt | None = None
 
-    # —— 便捷构造，读起来像在“陈述意图” ——
+    # — convenient constructors that read like "stating intent" —
     @classmethod
     def ok(cls, value: Any = None, **delta: Any) -> Outcome:
         return cls(value=value, state_delta=dict(delta))
@@ -45,7 +47,7 @@ class Outcome:
     def goto(
         cls, target: str, payload: Any = None, *, immediate: bool = True, **delta: Any
     ) -> Outcome:
-        """转场到 target；payload 作为它下一次输入，delta 折叠进共享状态。"""
+        """Transition to target; payload is its next input, delta folds into state."""
         return cls(state_delta=dict(delta), control=Goto(target, immediate, payload))
 
     @classmethod
@@ -54,7 +56,8 @@ class Outcome:
 
     @classmethod
     def fan_out(cls, *sends: Send, **delta: Any) -> Outcome:
-        """一次动态扇出到多个实例；**delta 可同时写共享状态（如步骤清单）。"""
+        """Dynamically fan out to several instances at once; delta may also
+        write shared state (e.g. the step list)."""
         return cls(state_delta=dict(delta), control=list(sends))
 
     @classmethod
@@ -63,7 +66,8 @@ class Outcome:
 
 
 def coerce_outcome(raw: Any) -> Outcome:
-    """让 body 可以“偷懒”：裸值/dict/命令/一组命令都能自动规整成 Outcome。"""
+    """Let a body be terse: a bare value/dict/command/group is normalized into
+    an Outcome automatically."""
     if raw is None:
         return Outcome()
     if isinstance(raw, Outcome):
@@ -71,9 +75,11 @@ def coerce_outcome(raw: Any) -> Outcome:
     if isinstance(raw, Command):
         return Outcome(control=raw)
     if isinstance(raw, list):
-        # 只有“整组都是控制意图（命令/Outcome）”时才当作一组控制（如一次扇出多个
-        # Send）；普通 list（比如排序后的结果）仍然是业务值，不能靠“是个列表”就猜
-        # 它是命令——否则业务里返回列表会被误伤。
+        # Treat it as a control group only when the whole group is control
+        # intent (commands/Outcomes), e.g. fanning out several Sends. An ordinary
+        # list (such as sorted results) stays a business value — being a list
+        # alone must not make us guess it is a command, or returning lists in
+        # business logic would be misread.
         if raw and all(isinstance(x, (Command, Outcome)) for x in raw):
             controls: list = []
             delta: dict = {}
@@ -95,11 +101,12 @@ class NodeBody(Protocol):
 
 
 class NodeContext:
-    """body 执行时能用到的“服务接线”。
+    """The "service wiring" a body can use while running.
 
-    注意它是 wiring 不是 data：它持有模型端口、工具端口这些活对象，
-    因此不参与序列化；一次运行的数据走 input / state_delta，绝不偷偷
-    塞进 context——这条界限让检查点保持干净。
+    Note this is wiring, not data: it holds live objects like the model port
+    and tool port, so it is never serialized. A run's data travels via
+    input / state_delta and is never smuggled into context — that boundary keeps
+    checkpoints clean.
     """
 
     def __init__(
@@ -123,7 +130,8 @@ class NodeContext:
 
     @property
     def shared(self) -> dict[str, Any]:
-        """共享状态只读视图；要改状态请返回 state_delta，由引擎在屏障处折叠。"""
+        """Read-only view of shared state; to change state return state_delta and
+        let the engine fold it at the barrier."""
         return self.run.shared
 
     @property
@@ -135,7 +143,7 @@ class NodeContext:
             await self._bus.fire(event, run_id=self.run_id, node_id=self.node_id, **data)
 
     async def llm_complete(self, prompt: str, system: str | None = None) -> str:
-        """一次固定 prompt 模型调用：处理输入，不决定流程。"""
+        """One fixed-prompt model call: it processes input, it doesn't decide flow."""
         reply = await self.llm_chat([{"role": "user", "content": prompt}], system=system)
         return reply.text
 
@@ -147,43 +155,46 @@ class NodeContext:
         system: str | None = None,
         on_delta: Any = None,
     ):
-        """走模型端口发起一次对话调用，并统一记账（返回归一 LlmReply）。
+        """Make one chat call through the model port and meter it uniformly
+        (returns the normalized LlmReply).
 
-        on_delta 透传给实现方做流式“吐字”；记账与归一化仍在这里统一。
+        on_delta is passed through to the implementation for token streaming;
+        metering and normalization still happen here.
         """
         if self._llm is None:
-            raise RuntimeError("没有注入 LlmPort，无法执行模型调用")
+            raise RuntimeError("no LlmPort injected; cannot call the model")
         reply = await self._llm.chat(messages, tools=tools, system=system, on_delta=on_delta)
         self.run.metrics["llm_calls"] += 1
         self.run.metrics["tokens"] = self.run.metrics.get("tokens", 0) + reply.tokens
         return reply
 
     async def call_tool(self, name: str, arguments: dict | None = None) -> Any:
-        """经工具端口发起一次受治理调用，返回 ToolResult。"""
+        """Make one governed call through the tool port, returning a ToolResult."""
         if self._tools is None:
-            raise RuntimeError("没有注入 ToolPort，无法执行工具")
+            raise RuntimeError("no ToolPort injected; cannot call a tool")
         from src.kernel.types import ToolCall
 
         self.run.metrics["tool_calls"] += 1
-        # 稳定幂等键：同一节点的同一次尝试重试时不变。
+        # Stable idempotency key: unchanged when the same attempt of a node retries.
         attempt = self.run.state_of(self.node_id).attempts
         call = ToolCall(name, arguments or {}, call_id=f"{self.run_id}:{self.node_id}:{attempt}")
         return await self._tools.dispatch(call, ctx=self)
 
     async def spawn(self, spec: Any, task: str, payload: Any = None) -> dict:
-        """激活一个子 Run（call 语义：跑完把结果交回来）。"""
+        """Activate a child Run (call semantics: it returns its result when done)."""
         if self._subagent is None:
-            raise RuntimeError("没有注入 SubagentPort，无法激活子 Agent")
+            raise RuntimeError("no SubagentPort injected; cannot activate a sub-agent")
         return await self._subagent.activate(spec, task, self.run, payload)
 
 
-# ════════════ 四种内置 body ════════════
+# ════════════ Four built-in bodies ════════════
 
 
 class FnBody:
-    """L0：一个 Python 函数（普通或 async）。
+    """L0: a Python function (plain or async).
 
-    函数可以写 f(x) 只拿输入，也可以写 f(x, ctx) 用上服务，内核按形参数量适配。
+    The function may be written as f(x) taking only input, or f(x, ctx) to use
+    services; the kernel adapts by the number of parameters.
     """
 
     def __init__(self, fn: Any):
@@ -199,19 +210,21 @@ class FnBody:
 
 
 class ToolBody:
-    """L1：按名字发起一次受治理工具调用，input 即参数。"""
+    """L1: make one governed tool call by name; input is the arguments."""
 
     def __init__(self, tool_name: str):
         self.tool_name = tool_name
 
     async def run(self, input: Any, ctx: NodeContext) -> Outcome:
         result = await ctx.call_tool(self.tool_name, input if isinstance(input, dict) else {})
-        # 工具成败作为 value 交回，由上游/模型决定下一步，而不是在引擎里抛死。
+        # Tool success/failure comes back as value; the upstream/model decides the
+        # next step rather than the engine dying on a raise.
         return Outcome.ok(result)
 
 
 class LLMBody:
-    """L2：一次固定 prompt 的模型调用。prompt 可以是字符串或 input->str 的函数。"""
+    """L2: one fixed-prompt model call. prompt may be a string or an
+    input->str function."""
 
     def __init__(self, prompt: Any, system: str | None = None):
         self.prompt = prompt
@@ -224,12 +237,14 @@ class LLMBody:
 
 
 class SubPlanBody:
-    """L3：激活一个子图/子 Agent，用同一套内核递归跑完，fold 其终态。"""
+    """L3: activate a sub-plan/sub-agent, run it recursively with the same
+    kernel, and fold its terminal state."""
 
     def __init__(self, spec: Any):
         self.spec = spec
 
     async def run(self, input: Any, ctx: NodeContext) -> Outcome:
         result = await ctx.spawn(self.spec, str(input or ""))
-        # call 语义：默认只把子 Run 的最终产出交回来，需要完整信息可用自定义 body。
+        # Call semantics: by default return only the child Run's final output; a
+        # custom body can pull the full result.
         return Outcome.ok(result.get("output"))

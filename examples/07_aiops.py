@@ -64,7 +64,7 @@ async def main():
 
     wf.add("diagnose", diagnose)
     wf.add("decide", decide)
-    wf.add("repairer", repairer, terminal=True)   # Agent 可以直接当图上的节点
+    wf.add("repairer", repairer, terminal=True)  # Agent 可以直接当图上的节点
     wf.edge("diagnose", "decide")
     wf.entry("diagnose")
     # 能交给谁，就是图上 add 了哪些 Agent 节点；repairer 没有出边，接力到此为止。

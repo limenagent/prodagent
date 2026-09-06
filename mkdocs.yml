@@ -1,0 +1,95 @@
+# MkDocs configuration for the prodagent bilingual documentation site.
+# Deployed automatically to GitHub Pages by .github/workflows/docs.yml.
+# Local preview:  pip install mkdocs-material && mkdocs serve
+
+site_name: prodagent
+site_description: A minimal, readable agent-framework kernel in ~1800 lines — understand how LangGraph/ADK work under the hood.
+site_author: Haoshuang Li
+repo_url: https://github.com/limenagent/prodagent
+repo_name: limenagent/prodagent
+# Project Pages live under /prodagent/; keep this in sync with the repository name.
+site_url: https://limenagent.github.io/prodagent/
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - 中文文档:
+      - 导读: zh/README.md
+      - 架构总览: zh/architecture.md
+      - 设计说明:
+          - 01 蓝图与一次执行为什么分开: zh/design/01-plan-and-run.md
+          - 02 状态为什么是事件折叠出来的: zh/design/02-state-from-events.md
+          - 03 波次为什么是一致性边界: zh/design/03-waves.md
+          - 04 为什么内核里没有 ReAct: zh/design/04-no-pattern-in-kernel.md
+          - 05 为什么多 Agent 不需要新引擎: zh/design/05-multi-agent.md
+      - 概念对照表: zh/comparison.md
+      - 示例导览: zh/examples.md
+      - 常见问题: zh/faq.md
+      - 术语表: zh/glossary.md
+      - 专题：上下文压缩触发点: topics/compress_threshold.md
+  - English:
+      - Guide: en/README.md
+      - Architecture: en/architecture.md
+      - Design notes:
+          - 01 Blueprint vs execution: en/design/01-plan-and-run.md
+          - 02 State folded from events: en/design/02-state-from-events.md
+          - 03 The wave as a boundary: en/design/03-waves.md
+          - 04 No ReAct in the kernel: en/design/04-no-pattern-in-kernel.md
+          - 05 Multi-agent needs no new engine: en/design/05-multi-agent.md
+      - Concept map: en/comparison.md
+      - Example guide: en/examples.md
+      - FAQ: en/faq.md
+      - Glossary: en/glossary.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search:
+      lang:
+        - en
+        - ja

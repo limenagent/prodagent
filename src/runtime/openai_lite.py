@@ -1,16 +1,18 @@
-"""openai_lite —— 只用标准库对接 OpenAI 兼容的 /chat/completions。
+"""openai_lite — talk to an OpenAI-compatible /chat/completions using only the stdlib.
 
-src 内核零三方依赖，这里也不引入 openai/httpx：用 urllib 发一个 POST 就够。
-任何兼容 OpenAI 协议的服务（官方、各类网关、本地 vLLM 等）都能用。
+The src kernel has zero third-party dependencies, and we don't pull in
+openai/httpx here either: one POST via urllib is enough. Any OpenAI-protocol-
+compatible service (the official API, gateways, a local vLLM, etc.) works.
 
-配置（环境变量）：
-  OPENAI_API_KEY    密钥
-  OPENAI_BASE_URL   服务地址，默认 https://api.openai.com/v1
-  OPENAI_MODEL      模型名，默认 gpt-4o-mini
-  OPENAI_MAX_TOKENS 输出预算（含思考），默认 8192
+Configuration (environment variables):
+  OPENAI_API_KEY     API key
+  OPENAI_BASE_URL    service URL, default https://api.openai.com/v1
+  OPENAI_MODEL       model name, default gpt-4o-mini
+  OPENAI_MAX_TOKENS  output budget (including reasoning), default 8192
 
-传了 on_delta 就走 SSE 流式：边收边把文本片段回调出去（UI 上的“吐字”），
-收完拼出与普通路径一致的 LlmReply。
+With on_delta it uses SSE streaming, calling back text fragments as they arrive
+(the UI "typewriter" effect), then assembles an LlmReply identical to the
+non-streaming path once done.
 """
 
 from __future__ import annotations
@@ -25,12 +27,12 @@ from src.kernel import LlmReply, ToolCall
 
 
 def _wire(messages: list) -> list[dict]:
-    """内部消息 -> OpenAI 线上格式。
+    """Internal messages -> OpenAI wire format.
 
-    运行时消息里存的是内核 ToolCall 对象（直接 json 会炸），
-    这里拼成 tool_calls 数组，并让后续 tool 消息用 tool_call_id 对上号。
+    Runtime messages store kernel ToolCall objects (plain json would fail); here
+    we assemble the tool_calls array and match later tool messages by tool_call_id.
     """
-    out, ids = [], {}  # name -> 上一轮分配的 call_id
+    out, ids = [], {}  # name -> call_id assigned in the previous round
     for i, m in enumerate(messages):
         role = m.get("role")
         if role == "assistant" and m.get("tool_calls"):
@@ -51,7 +53,8 @@ def _wire(messages: list) -> list[dict]:
             out.append(
                 {
                     "role": "assistant",
-                    "content": m.get("text") or "",  # 严格网关拒绝 null，空串通吃
+                    "content": m.get("text")
+                    or "",  # strict gateways reject null; "" works everywhere
                     "tool_calls": calls,
                 }
             )
@@ -72,7 +75,7 @@ def _wire(messages: list) -> list[dict]:
 
 
 class OpenAICompatibleLlm:
-    """实现内核 LlmPort：chat(messages, tools, system, on_delta) -> LlmReply。"""
+    """Implements the kernel LlmPort: chat(messages, tools, system, on_delta) -> LlmReply."""
 
     def __init__(
         self,
@@ -91,11 +94,12 @@ class OpenAICompatibleLlm:
         self.model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         self.temperature = temperature
         self.timeout = timeout
-        # 推理模型（GLM/DeepSeek 等）的思考也计入输出预算；不少网关默认只给 1024，
-        # 思考一长正文就被截成空。这里默认给足，可用环境变量覆盖。
+        # Reasoning models (GLM/DeepSeek, etc.) count their thinking against the
+        # output budget; many gateways default to just 1024, so a long reasoning
+        # trace truncates the answer to empty. Give enough by default; an env var overrides.
         self.max_tokens = max_tokens or int(os.getenv("OPENAI_MAX_TOKENS", "8192"))
 
-    # —— 请求构造与发送（两条路径共用）——
+    # ---- request construction and sending (shared by both paths) ----
     def _payload(self, messages, tools, system) -> dict:
         msgs = ([{"role": "system", "content": system}] if system else []) + _wire(messages)
         payload = {
@@ -104,12 +108,12 @@ class OpenAICompatibleLlm:
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
         }
-        if tools:  # 注册表给的就是 OpenAI 格式
+        if tools:  # the registry already hands us OpenAI format
             payload["tools"] = tools
         return payload
 
     def _open(self, payload: dict):
-        """发请求、返回响应对象；服务端错误读出正文，便于排查。"""
+        """Send the request and return the response object; read the body on server errors for debugging."""
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(
             f"{self.base_url}/chat/completions",
@@ -125,12 +129,12 @@ class OpenAICompatibleLlm:
             return urllib.request.urlopen(req, timeout=self.timeout)
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "ignore")
-            raise RuntimeError(f"模型接口返回 {exc.code}：{detail[:300]}") from None
+            raise RuntimeError(f"model API returned {exc.code}: {detail[:300]}") from None
 
     async def chat(self, messages, *, tools=None, system=None, on_delta=None) -> LlmReply:
         payload = self._payload(messages, tools, system)
         if on_delta is None:
-            # 不需要吐字：阻塞请求丢到线程里，一次拿全。
+            # No typewriter needed: offload the blocking request to a thread, get it all at once.
             return await asyncio.to_thread(self._chat_sync, payload)
         payload["stream"] = True
         return await self._chat_stream(payload, on_delta)
@@ -141,10 +145,11 @@ class OpenAICompatibleLlm:
         return self._reply_from(raw, {})
 
     async def _chat_stream(self, payload: dict, on_delta) -> LlmReply:
-        # 连接与每次读行都是阻塞的，各丢进线程，读完一行回到循环上回调 on_delta。
+        # Both connecting and reading each line block; offload them to threads,
+        # returning to this loop after each line to call on_delta.
         resp = await asyncio.to_thread(self._open, payload)
         text, reasoning, calls, usage, saw_sse = "", "", {}, {}, False
-        raws: list[bytes] = []  # 诊断用：留几行原始 SSE
+        raws: list[bytes] = []  # diagnostics: keep a few raw SSE lines
         try:
             while True:
                 line = await asyncio.to_thread(resp.readline)
@@ -153,13 +158,14 @@ class OpenAICompatibleLlm:
                 line = line.strip()
                 if not line.startswith(b"data:"):
                     if line.startswith(b"{"):
-                        # 网关没按 SSE 回（忽略 stream 或直接回了 JSON）：整段按普通响应解析。
+                        # The gateway didn't answer with SSE (ignored stream or
+                        # returned JSON directly): parse the whole thing as a normal response.
                         rest = await asyncio.to_thread(resp.read)
                         reply = self._reply_from(json.loads((line + rest).decode("utf-8")), {})
                         if reply.text:
                             await on_delta(reply.text)
                         return reply
-                    continue  # 空行/SSE 注释行
+                    continue  # blank line / SSE comment line
                 saw_sse = True
                 piece = line[5:].strip()
                 if piece == b"[DONE]":
@@ -169,17 +175,21 @@ class OpenAICompatibleLlm:
                 chunk = json.loads(piece)
                 usage = chunk.get("usage") or usage
                 if not chunk.get("choices"):
-                    if chunk.get("error"):  # 200 但内嵌错误：别当“无内容”糊弄过去
-                        raise RuntimeError(f"模型接口流式返回错误：{str(chunk['error'])[:300]}")
+                    if chunk.get(
+                        "error"
+                    ):  # 200 with an embedded error: don't paper over it as "no content"
+                        raise RuntimeError(f"model API stream error: {str(chunk['error'])[:300]}")
                     continue
                 delta = chunk["choices"][0].get("delta") or {}
-                if delta.get("reasoning_content"):  # 推理模型的思考通道（GLM/DeepSeek 等）
+                if delta.get(
+                    "reasoning_content"
+                ):  # reasoning channel of reasoning models (GLM/DeepSeek, etc.)
                     reasoning += delta["reasoning_content"]
                     await on_delta(delta["reasoning_content"], "reasoning")
                 if delta.get("content"):
                     text += delta["content"]
                     await on_delta(delta["content"])
-                for tc in delta.get("tool_calls") or []:  # 分片到达，按 index 拼装
+                for tc in delta.get("tool_calls") or []:  # arrives in fragments; assemble by index
                     slot = calls.setdefault(tc.get("index", 0), {"id": "", "name": "", "args": ""})
                     slot["id"] = slot["id"] or tc.get("id", "")
                     fn = tc.get("function") or {}
@@ -189,13 +199,14 @@ class OpenAICompatibleLlm:
             resp.close()
         if not text and not calls:
             if reasoning:
-                # 有的推理模型（GLM 偶发）把完整答案都放在思考通道、正文留空：
-                # 采纳思考为正文，别让调用方拿到空回答。
+                # Some reasoning models (GLM occasionally) put the whole answer in
+                # the reasoning channel and leave content empty: adopt reasoning as
+                # content rather than handing the caller an empty answer.
                 text = reasoning
             elif saw_sse:
-                # 真的什么都没有：大声失败并带回现场，别静默给出空回答。
+                # Genuinely nothing: fail loudly with the scene, never return an empty answer silently.
                 sample = b" | ".join(raws)[:300]
-                raise RuntimeError(f"模型流式响应无正文，原始片段：{sample!r}")
+                raise RuntimeError(f"model stream returned no content; raw fragments: {sample!r}")
         return self._reply_from(
             {"choices": [{"message": {"content": text}}], "usage": usage}, calls
         )
@@ -211,7 +222,7 @@ class OpenAICompatibleLlm:
             except json.JSONDecodeError:
                 args = {}
             tool_calls.append(ToolCall(fn.get("name", ""), args, tc.get("id", "")))
-        for i in sorted(calls):  # 流式路径：用拼装结果补进来
+        for i in sorted(calls):  # streaming path: add the assembled results
             slot = calls[i]
             try:
                 args = json.loads(slot["args"] or "{}")

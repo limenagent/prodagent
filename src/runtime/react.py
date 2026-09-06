@@ -1,13 +1,16 @@
-"""react —— 配方一：用内核原语拼出 ReAct。
+"""react — recipe one: assemble ReAct from kernel primitives.
 
-内核里没有 ReAct。这里用三个节点 + 两条条件边 + 一条回边把它拼出来：
+There is no ReAct in the kernel. Here it is assembled from three nodes, two
+conditional edges, and one back-edge:
 
-    think ──有工具调用?──▶ tools ──Goto 回边──▶ think
+    think ──tool calls?──▶ tools ──Goto back-edge──▶ think
       │
-      └──没有工具调用、已有答案?──▶ final
+      └──no tool calls, answer ready?──▶ final
 
-上下文压缩、长期记忆都是**可选注入的策略**：传进来就在 think 前生效，
-不传也完全能跑——内核与这份配方都不依赖它们的具体实现。
+Context compression and long-term memory are both **optionally injected
+strategies**: pass them in and they take effect before "think"; leave them out
+and it still runs fine — neither the kernel nor this recipe depends on their
+concrete implementation.
 """
 
 from __future__ import annotations
@@ -36,26 +39,29 @@ def _last_user_text(messages: list[dict]) -> str:
 def build_react_plan(
     tools: Any, *, system: str = "", context: Any = None, memory: Any = None
 ) -> Plan:
-    """tools 是满足 ToolPort 的工具注册表（见 runtime.tools.ToolRegistry）。"""
+    """tools is a ToolPort-compatible tool registry (see runtime.tools.ToolRegistry)."""
 
     async def think(_input, ctx):
         messages = list(ctx.shared["messages"])
-        if context is not None:  # 策略：上下文窗口管理/压缩
+        if context is not None:  # strategy: context-window assembly/compression
             messages = await context.assemble(messages)
         sys_text = system
-        if memory is not None:  # 策略：长期记忆检索后注入
+        if memory is not None:  # strategy: retrieve long-term memory, then inject
             recalled = await memory.recall(_last_user_text(messages))
             if recalled:
-                sys_text = (system + "\n\n" if system else "") + "相关记忆：\n" + recalled
+                sys_text = (system + "\n\n" if system else "") + "Relevant memory:\n" + recalled
 
-        async def _delta(piece, kind="content"):  # 模型吐字：实时投到总线（不入事件日志）
+        async def _delta(
+            piece, kind="content"
+        ):  # token streaming: emit to bus live (not into event log)
             await ctx.emit("llm_delta", text=piece, kind=kind)
 
         reply = await ctx.llm_chat(
             messages, tools=tools.schemas(), system=sys_text or None, on_delta=_delta
         )
         if reply.tool_calls:
-            # 要调工具：用 Goto 显式让 tools 重新就绪（多轮调用时它会被反复重入）。
+            # Tools requested: use Goto to explicitly make tools ready again (it
+            # is re-entered repeatedly across multi-round calls).
             return Outcome(
                 state_delta={
                     "messages": [{"role": "assistant", "tool_calls": reply.tool_calls}],
@@ -74,9 +80,10 @@ def build_react_plan(
         outputs = []
         for call in ctx.shared["pending"]:
             result = await ctx.call_tool(call.name, call.arguments)
-            content = result.output if result.ok else f"[工具报错] {result.error}"
+            content = result.output if result.ok else f"[tool error] {result.error}"
             outputs.append({"role": "tool", "name": call.name, "content": content})
-        # 清空待办，并用 Goto 让 think 重新就绪——ReAct 的“循环”就是这条回边。
+        # Clear the pending list and use Goto to make think ready again — the
+        # ReAct "loop" is exactly this back-edge.
         return Outcome.goto("think", messages=outputs, pending=[])
 
     plan = Plan(channels={"messages": append(), "pending": last(None), "answer": last(None)})
@@ -85,10 +92,12 @@ def build_react_plan(
         Node("tools", FnBody(run_tools)),
         Node("final", FnBody(lambda x, ctx: Outcome.ok(ctx.shared["answer"])), terminal=True),
     )
-    # think⇄tools 构成环：
-    # - think→tools 是条件边（pending 非空才走），保证“直接出答案”时不会误激活工具；
-    # - 多轮调用时 tools 已完成，靠 think 返回的 Goto("tools") 把它重新置为就绪；
-    # - tools 完用 Goto 回 think；只有出答案这一条条件边通向 final。
+    # think⇄tools forms a cycle:
+    # - think→tools is a conditional edge (only when pending is non-empty), so a
+    #   direct answer never accidentally activates the tools;
+    # - across multi-round calls tools is already COMPLETED, and the Goto("tools")
+    #   returned by think re-arms it to ready;
+    # - tools Gotos back to think; only the "answer ready" conditional edge reaches final.
     plan.edge("think", "tools", when=lambda s: bool(s.get("pending")))
     plan.edge("tools", "think")
     plan.edge("think", "final", when=lambda s: bool(s.get("answer")))
@@ -97,10 +106,11 @@ def build_react_plan(
 
 
 def start_react_run(plan: Plan, task: str, history: list | None = None) -> Run:
-    """创建一次 ReAct 运行并放入本轮用户消息（随后交给 Scheduler.drive）。
+    """Create a ReAct run and seed it with this turn's user message (then Scheduler.drive).
 
-    history 是之前的对话消息：传入即多轮续聊（新 Run 接着旧上下文想），
-    不传就是全新对话——会话状态由调用方持有，Agent 自身保持无状态。
+    history holds prior dialogue messages: pass it for multi-turn continuation
+    (the new Run thinks with the old context), omit it for a fresh conversation —
+    session state is held by the caller, and the Agent itself stays stateless.
     """
     run = Run.start(plan, task=task)
     run.shared["messages"] = (
