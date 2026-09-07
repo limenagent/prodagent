@@ -1,10 +1,12 @@
-"""06 行程规划 —— 主流程一次性并行派三个专业子 Agent，再汇合合成行程书。
+"""06 Trip planning — the main flow fans out three specialist sub-agents in
+one shot, then converges into one itinerary.
 
-三个子 Agent（排行程、订餐厅、查交通）作为 Workflow 的并行节点，在同一波并发
-执行、各用各的模型；合成节点等三个都完成（join="all"）后汇总。这就是 call 语义：
-派出去、结果都要交回来。
+The three sub-agents (itinerary, dining, traffic) are parallel Workflow
+nodes: concurrent in one wave, each with its own model; the synth node waits
+for all three (join="all") and then assembles. This is the call semantics:
+dispatched out, results all come back.
 
-跑法：PYTHONPATH=. python3 examples/06_trip_planner.py
+Run: PYTHONPATH=. python3 examples/06_trip_planner.py
 """
 
 import asyncio
@@ -14,14 +16,15 @@ from src.runtime.llm import ScriptedLlm, env_llm
 
 
 def specialist(name, line):
-    # 每个专业 Agent 用固定脚本扮演，离线可跑；换成真实模型即可。
-    return Agent(name, model=env_llm(ScriptedLlm([line])), instruction=f"你负责{name}")
+    # Each specialist is played by a fixed script so the demo runs offline;
+    # swap in a real model when ready.
+    return Agent(name, model=env_llm(ScriptedLlm([line])), instruction=f"You handle {name}.")
 
 
 async def main():
-    itinerary = specialist("itinerary", "第一天外滩、第二天迪士尼")
-    dining = specialist("dining", "本帮菜晚餐已预留")
-    traffic = specialist("traffic", "地铁 2 号线接驳，备打车方案")
+    itinerary = specialist("itinerary", "Day 1 the Bund, Day 2 Disneyland")
+    dining = specialist("dining", "local-cuisine dinner reserved")
+    traffic = specialist("traffic", "Metro Line 2 connection, taxi as backup")
 
     wf = Workflow()
     wf.add("itinerary", itinerary)
@@ -29,18 +32,18 @@ async def main():
     wf.add("traffic", traffic)
 
     async def synth(parts, ctx):
-        return "行程书已生成：\n- " + "\n- ".join(parts.values())
+        return "Itinerary ready:\n- " + "\n- ".join(parts.values())
 
     wf.add("synth", synth, join="all", terminal=True)
 
-    wf.entry("itinerary", "dining", "traffic")  # 三个子 Agent 同一波并行
+    wf.entry("itinerary", "dining", "traffic")  # the three sub-agents run in parallel in one wave
     wf.edge("itinerary", "synth")
     wf.edge("dining", "synth")
     wf.edge("traffic", "synth")
 
-    result = await wf.run("上海两日游")
+    result = await wf.run("A two-day trip to Shanghai")
     print(result.output)
-    print(f"总波次 {result.metrics['waves']}（三个子 Agent 在同一波并行）")
+    print(f"waves: {result.metrics['waves']} (the three sub-agents ran in one wave)")
 
 
 if __name__ == "__main__":

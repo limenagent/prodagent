@@ -1,14 +1,16 @@
-"""第一个例子：不接任何模型，只用纯函数节点看清“波次”是怎么推进的。
+"""The first example: no model attached at all — pure function nodes, so you
+can see exactly how waves advance.
 
-运行：PYTHONPATH=. python examples/graph_demo.py
+Run: PYTHONPATH=. python examples/graph_demo.py
 
-图是一个菱形：
+The graph is a diamond:
         a
        / \\
-      b   c   （b、c 互不依赖，在同一波并发执行）
+      b   c   (b and c do not depend on each other; they run concurrently in one wave)
        \\ /
         d
-订阅总线事件，就能看到调度器每一波让谁就绪、谁完成——这就是 BSP 超步。
+Subscribe to the bus and you can watch which nodes the scheduler makes ready
+and which complete in each wave — that is the BSP superstep.
 """
 
 import asyncio
@@ -27,10 +29,10 @@ from src.kernel import (
 def build_plan() -> Plan:
     p = Plan(channels={"log": append(), "cost": add(0)})
     p.add(
-        Node("a", FnBody(lambda x, ctx: Outcome.ok("来自a", log=["a 跑了"], cost=1))),
-        Node("b", FnBody(lambda x, ctx: Outcome.ok(f"b 收到：{x}", log=["b 跑了"], cost=2))),
-        Node("c", FnBody(lambda x, ctx: Outcome.ok(f"c 收到：{x}", log=["c 跑了"], cost=3))),
-        Node("d", FnBody(lambda x, ctx: Outcome.ok(x, log=["d 汇总"])), terminal=True),
+        Node("a", FnBody(lambda x, ctx: Outcome.ok("from a", log=["a ran"], cost=1))),
+        Node("b", FnBody(lambda x, ctx: Outcome.ok(f"b got: {x}", log=["b ran"], cost=2))),
+        Node("c", FnBody(lambda x, ctx: Outcome.ok(f"c got: {x}", log=["c ran"], cost=3))),
+        Node("d", FnBody(lambda x, ctx: Outcome.ok(x, log=["d summarized"])), terminal=True),
     )
     p.edge("a", "b")
     p.edge("a", "c")
@@ -43,15 +45,16 @@ async def main():
     plan = build_plan()
     sch = Scheduler()
 
-    # 订阅总线：旁观内核每一步，观察者出错也不会影响执行。
-    sch.bus.on("node_started", lambda evt: print(f"  ▶ 开始 {evt.data['node']}"))
-    sch.bus.on("node_completed", lambda evt: print(f"  ✔ 完成 {evt.data['node']}"))
+    # Subscribe to the bus: observe every kernel step; a broken observer
+    # cannot affect execution.
+    sch.bus.on("node_started", lambda evt: print(f"  ▶ start {evt.data['node']}"))
+    sch.bus.on("node_completed", lambda evt: print(f"  ✔ done {evt.data['node']}"))
 
-    print("运行菱形图：")
-    run = await sch.run(plan, task="起点输入")
-    print("最终结果：", run.final_output)
-    print("共享状态：", run.shared)
-    print("波次数：", run.metrics["waves"], "（a | b,c | d，正好三波）")
+    print("Running the diamond graph:")
+    run = await sch.run(plan, task="seed input")
+    print("Final result:", run.final_output)
+    print("Shared state:", run.shared)
+    print("Waves:", run.metrics["waves"], "(a | b,c | d — exactly three waves)")
 
 
 if __name__ == "__main__":

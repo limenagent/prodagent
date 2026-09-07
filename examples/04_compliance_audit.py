@@ -1,9 +1,12 @@
-"""04 合规审计 —— 并行核查 + 写操作人工审批，被拒后只改动作、不推倒重来。
+"""04 Compliance audit — parallel checks + human approval on the write; a
+denial changes only the action, not the whole rerun.
 
-两条核查分支并行跑，汇合后出结论；“冻结账户”要真正停下来等人批准（wait_human）。
-若没批，流程不重跑前面的核查，只是沿另一条边走到报告，标注“未获批准”。
+Two audit branches run in parallel and converge into a conclusion; "freeze
+accounts" truly stops and waits for a human (wait_human). If denied, the flow
+does not re-run the checks — it takes the other edge to the report,
+annotated "not approved".
 
-跑法：PYTHONPATH=. python3 examples/04_compliance_audit.py
+Run: PYTHONPATH=. python3 examples/04_compliance_audit.py
 """
 
 import asyncio
@@ -15,34 +18,35 @@ def build_audit_workflow():
     wf = Workflow()
 
     async def screen_suspicious(x, ctx):
-        return {"flags": "发现快进快出交易"}
+        return {"flags": "fast-in fast-out transfers detected"}
 
     async def screen_accounts(x, ctx):
-        return {"links": "关联到 3 个同源账户"}
+        return {"links": "linked to 3 accounts of the same origin"}
 
     async def synthesize(x, ctx):
         s = ctx.shared
-        return f"综合判断：{s['flags']}；{s['links']}，建议冻结。"
+        return f"Synthesis: {s['flags']}; {s['links']}. Recommend freezing."
 
     async def freeze(summary, ctx):
         if ctx.resume_value is None:
-            # 第一次到这里：还没问过人，先挂起，把待确认信息一并交出去。
-            return wait_human("批准冻结这些账户吗？", {"accounts": ["A1", "A2"]})
+            # First time here: nobody has been asked yet — suspend, handing
+            # out the information to confirm along the way.
+            return wait_human("Freeze these accounts?", {"accounts": ["A1", "A2"]})
         if not ctx.resume_value.get("approved"):
-            return go("report", summary, decision="建议冻结，但本次未获批准")
-        return go("report", summary, decision="已冻结 A1、A2")
+            return go("report", summary, decision="freeze recommended but not approved this time")
+        return go("report", summary, decision="froze A1 & A2")
 
     async def report(summary, ctx):
-        return f"{summary}｜处置：{ctx.shared['decision']}"
+        return f"{summary} | action taken: {ctx.shared['decision']}"
 
     wf.add("screen_suspicious", screen_suspicious)
     wf.add("screen_accounts", screen_accounts)
     wf.add("synthesize", synthesize, join="all")
     wf.add("freeze", freeze)
     wf.add("report", report, terminal=True)
-    wf.entry("screen_suspicious", "screen_accounts")  # 两个入口同波并行
+    wf.entry("screen_suspicious", "screen_accounts")  # two entries run in parallel in one wave
     wf.edge("screen_suspicious", "synthesize")
-    wf.edge("screen_accounts", "synthesize")  # join=all：两条都到才汇合
+    wf.edge("screen_accounts", "synthesize")  # join="all": converge only when both arrive
     wf.edge("synthesize", "freeze")
     wf.edge("freeze", "report")
     return wf
@@ -51,12 +55,13 @@ def build_audit_workflow():
 async def main():
     wf = build_audit_workflow()
 
-    first = await wf.run("审计账户 A1")
-    print("第一次运行状态：", first.status, "—— 已挂起等待审批")
+    first = await wf.run("Audit account A1")
+    print("First run status:", first.status, "— suspended awaiting approval")
 
-    # 人看了材料后选择“不批准冻结”，从挂起点恢复，前面的核查结果都还在。
+    # The human reads the material and picks "deny the freeze"; the run
+    # resumes from its suspension — every earlier check result is still there.
     second = await wf.resume(first.run_id, {"approved": False})
-    print("恢复后最终报告：", second.output)
+    print("Final report after resume:", second.output)
 
 
 if __name__ == "__main__":

@@ -1,13 +1,15 @@
-"""用内核原语“拼”出一个 ReAct（运行：PYTHONPATH=. python examples/react_demo.py）。
+"""Assemble a ReAct out of kernel primitives (run: PYTHONPATH=. python examples/react_demo.py).
 
-内核里没有任何 ReAct/循环模式。这里用两个节点 + 条件边 + 一条回边，
-就把“思考 -> 调工具 -> 把结果喂回 -> 再思考 -> 出答案”拼了出来：
+The kernel contains no ReAct and no loop pattern. With two nodes, a
+conditional edge, and one back edge, "think -> call tool -> feed the result
+back -> think again -> answer" is assembled:
 
-    user ─▶ think ──有工具调用?──▶ tools ──Goto 回边──▶ think
+    user ─▶ think ──has tool calls?──▶ tools ──Goto back edge──▶ think
               │
-              └──没有工具调用、已有答案?──▶ final
+              └──no tool calls, answer in hand?──▶ final
 
-模型和工具都是脚本化的 Fake，所以整个例子离线、确定性地跑，不需要 API key。
+The model and the tools are scripted fakes, so the whole example runs offline
+and deterministically, no API key needed.
 """
 
 import asyncio
@@ -28,7 +30,8 @@ from src.kernel import (
 
 
 class FakeLlm:
-    """脚本化模型：第一次要求查天气，第二次（看到工具结果后）给最终答案。"""
+    """A scripted model: the first turn asks for the weather; the second turn
+    (after seeing the tool result) gives the final answer."""
 
     def __init__(self):
         self.n = 0
@@ -36,21 +39,22 @@ class FakeLlm:
     async def chat(self, messages, *, tools=None, system=None, on_delta=None):
         self.n += 1
         if self.n == 1:
-            return LlmReply(tool_calls=[ToolCall("get_weather", {"city": "北京"})], tokens=12)
-        return LlmReply(text="北京今天晴，26℃。", tokens=8)
+            return LlmReply(tool_calls=[ToolCall("get_weather", {"city": "Beijing"})], tokens=12)
+        return LlmReply(text="Beijing is sunny today, 26°C.", tokens=8)
 
 
 class FakeTools:
     async def dispatch(self, call: ToolCall, ctx=None) -> ToolResult:
         if call.name == "get_weather":
-            return ToolResult.success(f"{call.arguments['city']} 晴 26℃", call.call_id)
+            return ToolResult.success(f"{call.arguments['city']}: sunny, 26°C", call.call_id)
         return ToolResult.failure("unknown tool", call.call_id)
 
 
 async def think(_input, ctx):
     reply = await ctx.llm_chat(ctx.shared["messages"])
     if reply.tool_calls:
-        # 要调工具：Goto 让 tools 就绪（多轮时它会被反复重入），并记下这一步。
+        # Tool calls wanted: Goto makes tools ready (on multi-round loops it
+        # gets re-entered repeatedly), and this step is recorded.
         return Outcome(
             state_delta={
                 "messages": [{"role": "assistant", "calls": reply.tool_calls}],
@@ -58,7 +62,8 @@ async def think(_input, ctx):
             },
             control=Goto("tools"),
         )
-    # 没有工具调用 = 出最终答案，静态条件边据此走向 final。
+    # No tool calls = the final answer is out; the static conditional edge
+    # routes to final on exactly this.
     return Outcome(
         state_delta={"messages": [{"role": "assistant", "text": reply.text}], "answer": reply.text}
     )
@@ -69,7 +74,8 @@ async def tools(_input, ctx):
     for call in ctx.shared["pending"]:
         r = await ctx.call_tool(call.name, call.arguments)
         results.append({"role": "tool", "name": call.name, "content": r.output})
-    # 清空待办，并通过 Goto 让 think 重新就绪——回边就是这么来的。
+    # Clear the pending list and Goto think back to ready — that is where the
+    # back edge comes from.
     return Outcome.goto("think", messages=results, pending=[])
 
 
@@ -80,7 +86,8 @@ def build_react_plan() -> Plan:
         Node("tools", FnBody(tools)),
         Node("final", FnBody(lambda x, ctx: Outcome.ok(ctx.shared["answer"])), terminal=True),
     )
-    # think→tools 条件边（有待办才走），多轮重入靠 think 的 Goto；tools 完 Goto 回 think。
+    # think→tools is a conditional edge (taken only with pending items);
+    # multi-round re-entry rides on think's Goto; after tools, Goto back to think.
     p.edge("think", "tools", when=lambda s: bool(s.get("pending")))
     p.edge("tools", "think")
     p.edge("think", "final", when=lambda s: bool(s.get("answer")))
@@ -93,16 +100,16 @@ async def main():
 
     plan = build_react_plan()
     sch = Scheduler(llm=FakeLlm(), tools=FakeTools())
-    run = Run.start(plan, task="北京天气怎么样？")
-    run.shared["messages"] = [{"role": "user", "content": run.task}]  # 首轮用户输入
+    run = Run.start(plan, task="What's the weather in Beijing?")
+    run.shared["messages"] = [{"role": "user", "content": run.task}]  # first-turn user input
     await sch.drive(plan, run)
-    print("最终答案：", run.final_output)
+    print("Final answer:", run.final_output)
     print(
-        "波次：",
+        "waves:",
         run.metrics["waves"],
-        "| 模型调用：",
+        "| LLM calls:",
         run.metrics["llm_calls"],
-        "| 工具调用：",
+        "| tool calls:",
         run.metrics["tool_calls"],
     )
 

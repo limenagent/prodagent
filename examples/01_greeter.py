@@ -1,7 +1,8 @@
-"""01 问候点单 —— 最小的 Agent：一个模型 + 一个工具，run 一下就好。
+"""01 Greet & order — the smallest agent: one model + one tool, just run it.
 
-跑法：PYTHONPATH=. python3 examples/01_greeter.py
-ScriptedLlm 按脚本扮演模型，离线就能看到“想一步、调一次工具、再回答”的完整闭环。
+Run: PYTHONPATH=. python3 examples/01_greeter.py
+ScriptedLlm plays the model from a script, so offline you can watch the full
+loop of "think once, call one tool, answer".
 """
 
 import asyncio
@@ -13,26 +14,29 @@ from src.runtime.llm import ScriptedLlm, env_llm
 
 async def main():
     async def menu(drink, ctx):
-        """查询某款饮品是否在售。"""
-        return {"芋泥啵啵": "在售，18 元", "美式": "在售，12 元"}.get(drink, "菜单里没有")
+        """Check whether a drink is on the menu."""
+        return {
+            "taro-bubble-tea": "in stock, ¥18",
+            "americano": "in stock, ¥12",
+        }.get(drink, "not on the menu")
 
     agent = Agent(
         name="greeter",
         model=env_llm(
             ScriptedLlm(
                 [
-                    ToolCall("menu", {"drink": "芋泥啵啵"}),
-                    "有的，芋泥啵啵在售，18 元一杯，需要帮你下单吗？",
+                    ToolCall("menu", {"drink": "taro-bubble-tea"}),
+                    "Yes — taro bubble tea is in stock, ¥18 a cup. Want me to order one?",
                 ]
             )
         ),
-        instruction="你是奶茶店助手，回答简洁。",
+        instruction="You are a bubble-tea shop assistant; keep answers short.",
         tools=[menu],
     )
 
-    result = await agent.run("你们这儿有芋泥啵啵吗？")
-    print("最终答复：", result.output)
-    print(f"模型 {result.metrics['llm_calls']} 次｜工具 {result.metrics['tool_calls']} 次")
+    result = await agent.run("Do you have taro bubble tea?")
+    print("Final answer:", result.output)
+    print(f"LLM calls: {result.metrics['llm_calls']} | tool calls: {result.metrics['tool_calls']}")
 
 
 if __name__ == "__main__":

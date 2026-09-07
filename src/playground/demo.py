@@ -1,10 +1,13 @@
-"""playground 内置演示：客服退款。
+"""Built-in playground demo: customer-support refund.
 
-一条很能体现框架价值的链路：客服 Agent 先调只读工具查订单、给出退款建议；
-真要动钱时，流程在 approve 节点 wait_human 挂起，网页上点“批准/拒绝”后继续。
+A path that shows off the framework: a support agent first queries the order
+with a read-only tool and proposes a refund; when money is about to move, the
+flow suspends at an `approve` node via wait_human, and the web page resumes it
+after Approve/Reject.
 
-- 配了 OPENAI_API_KEY：用真实的 OpenAI 兼容模型；
-- 没配：用内置脚本模型离线演示，零配置也能完整点一遍“对话→审批→继续”。
+- With OPENAI_API_KEY set: a real OpenAI-compatible model is used;
+- Without it: the built-in scripted model runs the demo offline — zero config,
+  and the full "chat → approval → continue" loop still plays end to end.
 """
 
 from __future__ import annotations
@@ -13,33 +16,34 @@ from src import Agent, Workflow, go, wait_human
 from src.kernel import ToolCall
 from src.runtime.llm import ScriptedLlm, env_llm
 
-# 假装的订单库，真实项目里这里会去查数据库/下游服务。
+# A pretend order store; a real project would query a database / downstream service.
 _ORDERS = {
-    "O-1234": {"status": "已超时3天未发货", "amount": 88},
-    "O-5678": {"status": "已签收", "amount": 120},
+    "O-1234": {"status": "not shipped for 3 days (overdue)", "amount": 88},
+    "O-5678": {"status": "delivered", "amount": 120},
 }
 
 
 async def query_order(order_id, ctx):
-    """按订单号查询订单状态与金额。"""
-    order = _ORDERS.get(order_id, {"status": "查无此单", "amount": 0})
-    return f"订单 {order_id}：{order['status']}，金额 {order['amount']} 元"
+    """Look up an order's status and amount by order id."""
+    order = _ORDERS.get(order_id, {"status": "no such order", "amount": 0})
+    return f"Order {order_id}: {order['status']}, amount {order['amount']}"
 
 
 async def _refund(suggestion, ctx):
-    return f"已按审批结果执行退款。{suggestion}"
+    return f"Refund executed per the approval. {suggestion}"
 
 
 async def _deny(suggestion, ctx):
-    return f"审批未通过，已关闭退款单并告知用户。{suggestion}"
+    return f"Approval denied; refund closed and the user was notified. {suggestion}"
 
 
 def _default_model():
-    # 离线脚本：先查单，再给建议——和真实模型的两轮行为一致。
+    # Offline script: query the order first, then propose — matches the two
+    # turns a real model would take.
     return ScriptedLlm(
         [
             ToolCall("query_order", {"order_id": "O-1234"}),
-            "订单 O-1234 已超时 3 天未发货，按政策建议退款 88 元。",
+            "Order O-1234 has not shipped for 3 days; per policy I suggest refunding 88.",
         ]
     )
 
@@ -50,19 +54,23 @@ def build_demo(model=None) -> Workflow:
     support = Agent(
         name="support",
         model=model,
-        instruction="你是售后客服。先用 query_order 查订单，再判断是否应退款，"
-        "用一句话给出建议和金额，不要自行决定退款。",
+        instruction="You are an after-sales support agent. First check the order with "
+        "query_order, then judge whether a refund is due. State your suggestion and "
+        "the amount in one sentence; never execute a refund on your own.",
         tools=[query_order],
         bus=wf.bus,
-    )  # 子 Agent 事件汇入同一总线
+    )  # the child agent's events feed the same bus
 
     async def approve(suggestion, ctx):
         if ctx.resume_value is None:
-            # 第一次到这里：还没问过人，先真正停下来，把建议交出去等审批。
-            return wait_human("该订单建议退款，是否批准？", {"suggestion": suggestion})
+            # First time here: nobody has been asked yet — really stop and hand
+            # the suggestion out for approval.
+            return wait_human(
+                "This order is eligible for a refund. Approve?", {"suggestion": suggestion}
+            )
         if ctx.resume_value.get("approved"):
-            return go("refund", suggestion, decision="批准")
-        return go("deny", suggestion, decision="拒绝")
+            return go("refund", suggestion, decision="approved")
+        return go("deny", suggestion, decision="denied")
 
     wf.add("support", support)
     wf.add("approve", approve)

@@ -1,11 +1,14 @@
-"""05 代码侦探 —— MCP 工具在边界拉平、技能从磁盘目录加载、失败再改直到通过。
+"""05 Code detective — MCP tools normalized at the boundary, skills loaded
+from a directory on disk, fix-fail-rerun until green.
 
-- 代码仓库能力（读文件、grep、打补丁、跑测试）由一个进程内 MCP Server 提供，
-  在边界被拉平成普通工具，走同一条调度管线；
-- “怎么排障”的技能不写死在代码里，而是从 builtin_skills 目录的 SKILL.md 加载，
-  技能因此可以独立增删、渐进披露，而框架一行都不用改。
+- The repo capabilities (read files, grep, patch, run tests) are provided by
+  an in-process MCP server, normalized at the boundary into ordinary tools
+  that go through one scheduling pipeline;
+- the "how to debug" skill is not hard-coded — it loads from a SKILL.md in
+  the builtin_skills directory, so skills can be added and removed
+  independently and disclosed progressively, with zero framework change.
 
-跑法：PYTHONPATH=. python3 examples/05_code_detective.py
+Run: PYTHONPATH=. python3 examples/05_code_detective.py
 """
 
 import asyncio
@@ -21,30 +24,34 @@ from src.runtime.tools import ToolRegistry
 
 
 async def main():
-    # 1) 进程内 MCP Server 扮演“代码仓库”这套外部工具，在边界拉平进统一注册表。
+    # 1) An in-process MCP server plays the external "code repo" toolset,
+    #    normalized at the boundary into the unified registry.
     repo = InProcessMCPServer("repo")
-    repo.define("read_file", lambda a: f"【{a['file']} 的内容】", description="读文件")
-    repo.define("grep", lambda a: f"在 {a['pattern']} 处命中", description="全文检索")
-    repo.define("apply_patch", lambda a: "补丁已应用", description="修改代码")
+    repo.define("read_file", lambda a: f"[contents of {a['file']}]", description="read a file")
+    repo.define("grep", lambda a: f"hits at {a['pattern']}", description="full-text search")
+    repo.define("apply_patch", lambda a: "patch applied", description="modify code")
     runs = {"n": 0}
 
     def run_test(a):
         runs["n"] += 1
-        return "测试通过" if runs["n"] >= 2 else "1 个测试仍失败：边界没处理"
+        return "tests pass" if runs["n"] >= 2 else "1 test still failing: boundary not handled"
 
-    repo.define("run_test", run_test, description="运行测试")
+    repo.define("run_test", run_test, description="run the tests")
 
     registry = ToolRegistry()
     await load_mcp_tools(registry, repo)
 
-    # 2) 从磁盘目录加载技能：每个子目录一份 SKILL.md，就是一个可插拔的专长。
+    # 2) Load skills from a directory on disk: each subdirectory with a
+    #    SKILL.md is one pluggable expertise. (The query stays Chinese — word
+    #    matching against the bundled Chinese SKILL.md.)
     skills_dir = os.path.join(os.path.dirname(runtime_pkg.__file__), "builtin_skills")
     skills = SkillRegistry()
     skills.load_dir(skills_dir)
     skill = skills.match("测试失败 排障 补丁 重跑")
-    system = skills.apply_to_system(skill, "你是代码排障助手。")
+    system = skills.apply_to_system(skill, "You are a code-debugging assistant.")
 
-    # 3) 模型剧本：第一轮补丁没修好，看到测试反馈后再改，第二次转绿。
+    # 3) Model script: the first patch doesn't fix it; after seeing the test
+    #    feedback it patches again; the second run goes green.
     agent = Agent(
         name="detective",
         model=env_llm(
@@ -53,11 +60,11 @@ async def main():
                     ToolCall("read_file", {"file": "test_x.py"}),
                     ToolCall("grep", {"pattern": "func_x"}),
                     ToolCall("read_file", {"file": "x.py"}),
-                    ToolCall("apply_patch", {"change": "补边界"}),
+                    ToolCall("apply_patch", {"change": "guard the boundary"}),
                     ToolCall("run_test", {}),
-                    ToolCall("apply_patch", {"change": "再补空值"}),
+                    ToolCall("apply_patch", {"change": "also guard the None case"}),
                     ToolCall("run_test", {}),
-                    "定位到空值边界问题，两次修改后测试全部通过。",
+                    "Found a None-boundary bug; after two fixes all tests pass.",
                 ]
             )
         ),
@@ -65,10 +72,11 @@ async def main():
         registry=registry,
     )
 
-    result = await agent.run("test_x 一直红，帮我修好")
-    print("结论：", result.output)
+    result = await agent.run("test_x keeps failing; fix it for me")
+    print("Conclusion:", result.output)
     print(
-        f"加载技能：{skill.name}｜工具调用 {result.metrics['tool_calls']} 次（跑测试 {runs['n']} 次）"
+        f"skill loaded: {skill.name} | tool calls: {result.metrics['tool_calls']} "
+        f"(test runs: {runs['n']})"
     )
 
 

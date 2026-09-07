@@ -8,12 +8,12 @@ async def test_react_is_assembled_from_primitives():
     plan = build_react_plan()
     llm, tools = FakeLlm(), FakeTools()
     sch = Scheduler(llm=llm, tools=tools)
-    run = Run.start(plan, task="北京天气怎么样？")
+    run = Run.start(plan, task="What's the weather in Beijing?")
     run.shared["messages"] = [{"role": "user", "content": run.task}]
     await sch.drive(plan, run)
 
     assert run.state == RunState.COMPLETED
-    assert run.final_output == "北京今天晴，26℃。"
+    assert run.final_output == "Beijing is sunny today, 26°C."
     # think -> tools -> think -> final
     assert run.metrics["waves"] == 4
     assert run.metrics["llm_calls"] == 2
