@@ -1,4 +1,4 @@
-"""确保无论从哪里启动 pytest，都能 import 到工作区里的 src 包。"""
+"""Make sure the workspace's src package is importable no matter where pytest is launched from."""
 
 import pathlib
 import sys

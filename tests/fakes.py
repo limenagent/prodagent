@@ -1,10 +1,10 @@
-"""测试夹具：脚本化的假模型 / 假工具，让用例离线、确定性地运行。"""
+"""Test fixtures: scripted fake model / fake tools, so tests run offline and deterministically."""
 
 from src.kernel import LlmReply, ToolCall, ToolResult
 
 
 class FakeLlm:
-    """按给定脚本依次返回 LlmReply；不传脚本时默认返回一段文本。"""
+    """Returns LlmReply values from a given script in order; falls back to a default text reply."""
 
     def __init__(self, scripted=None, default_text="好的"):
         self.scripted = list(scripted or [])

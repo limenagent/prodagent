@@ -59,10 +59,6 @@ class Interrupt:
     node_id: str = ""  # filled in by Run when parking
 
 
-class AmbiguousPark(RuntimeError):  # noqa: N818
-    pass
-
-
 class Run:
     """One execution instance of a Plan. The same Plan can have many Runs at
     once that never interfere with each other."""
@@ -102,9 +98,8 @@ class Run:
         self.activated: set[str] = set()
 
         self.state: RunState = RunState.RUNNING
-        self.interrupt: Interrupt | None = None
-        self.resume_value: Any = None
-        self.resume_target: str | None = None
+        self.interrupts: dict[str, Interrupt] = {}  # node id -> why it parked
+        self.resume_values: dict[str, Any] = {}  # node id -> external value fed back on resume
         self.final_output: Any = None
         self.metrics: dict[str, int] = {"waves": 0, "llm_calls": 0, "tool_calls": 0}
 
@@ -129,23 +124,19 @@ class Run:
         self.final_output = reason
         self._transition(RunState.FAILED)
 
-    def suspend(self, interrupt: Interrupt) -> None:
-        self.interrupt = interrupt
+    def suspend(self, interrupts: dict[str, Interrupt]) -> None:
+        """Park as a whole: every node that asked to park this wave, keyed by node id."""
+        self.interrupts = interrupts
         self._transition(RunState.SUSPENDED)
 
-    def resume(self, value: Any = None) -> None:
-        self.resume_value = value
-        self.resume_target = self.interrupt.node_id if self.interrupt is not None else None
-        self.interrupt = None
+    def resume(self, values: dict[str, Any] | None = None) -> None:
+        """Feed back one external value per parked node id."""
+        self.resume_values = dict(values or {})
+        self.interrupts = {}
         self._transition(RunState.RUNNING)
 
     def take_resume(self, key: str) -> Any:
-        if key != self.resume_target:
-            return None
-        self.resume_target = None
-        value = self.resume_value
-        self.resume_value = None
-        return value
+        return self.resume_values.pop(key, None)
 
     @property
     def running(self) -> bool:
@@ -184,6 +175,10 @@ class Run:
     # — node state changes —
     def mark_running(self, key: str) -> None:
         self.node_states[key].mark_running()
+        # Consume the immediate-activation pass now: without this, a node
+        # that was ever Goto(immediate=True)'d would stay in `activated`
+        # forever, bypassing predecessor/join gating on every future rearm.
+        self.activated.discard(key)
 
     def mark_completed(self, key: str, output: Any) -> None:
         self.node_states[key].mark_completed(output)
@@ -265,7 +260,7 @@ class Run:
             "deliveries": self.deliveries,
             "instance_seq": self._instance_seq,
             "activated": list(self.activated),
-            "interrupt": None if self.interrupt is None else self.interrupt.__dict__,
+            "interrupts": {k: v.__dict__ for k, v in self.interrupts.items()},
             "final_output": self.final_output,
             "metrics": self.metrics,
             "event_seq": self.event_seq,
@@ -295,9 +290,8 @@ class Run:
         run.event_seq = snap.get("event_seq", 0)
         # Restore lands directly on the saved state, bypassing construction-time RUNNING.
         run.state = RunState(snap["state"])
-        if snap.get("interrupt"):
-            d = snap["interrupt"]
-            run.interrupt = Interrupt(
-                d["kind"], d.get("payload"), d.get("question", ""), d.get("node_id", "")
-            )
+        run.interrupts = {
+            k: Interrupt(d["kind"], d.get("payload"), d.get("question", ""), d.get("node_id", ""))
+            for k, d in snap.get("interrupts", {}).items()
+        }
         return run

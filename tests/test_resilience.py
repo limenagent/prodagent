@@ -1,4 +1,4 @@
-"""步骤级弹性：超时、重试退避、取消不重试。"""
+"""Step-level resilience: timeout, retry with backoff, cancellation is never retried."""
 
 import asyncio
 
@@ -36,7 +36,7 @@ async def test_retry_exhausted_fails_run():
     wf.entry("n")
     r = await wf.run("")
     assert r.status == "failed"
-    assert calls["n"] == 2  # 首次 + 一次重试，然后放弃
+    assert calls["n"] == 2  # first attempt + one retry, then give up
 
 
 async def test_timeout_counts_as_one_attempt():
@@ -54,8 +54,8 @@ async def test_timeout_counts_as_one_attempt():
     t0 = loop.time()
     r = await wf.run("")
     assert r.status == "failed"
-    assert calls["n"] == 2  # 每次超时都算一次失败并重试
-    assert loop.time() - t0 < 0.25  # 两次 0.05 超时，远短于 0.3
+    assert calls["n"] == 2  # each timeout counts as one failure and triggers a retry
+    assert loop.time() - t0 < 0.25  # two 0.05s timeouts, far less than 0.3
 
 
 async def test_cancellation_is_never_retried():
@@ -70,4 +70,4 @@ async def test_cancellation_is_never_retried():
     wf.entry("n")
     r = await wf.run("")
     assert r.status == "failed"
-    assert calls["n"] == 1  # 外部取消必须原样传播，不重试
+    assert calls["n"] == 1  # external cancellation must propagate unchanged, never retried

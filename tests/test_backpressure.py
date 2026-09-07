@@ -1,4 +1,4 @@
-"""事件总线的完整背压：block 把压力传回生产端，drop 丢帧记账，关闭即注销。"""
+"""End-to-end bus backpressure: block propagates pressure to the producer, drop counts dropped frames, close unregisters."""
 
 import asyncio
 
@@ -10,13 +10,13 @@ from src.kernel import Bus
 async def test_block_subscription_pushes_back_producer():
     bus = Bus()
     sub = bus.subscribe("token", maxsize=1, on_full="block")
-    await bus.fire("token", i=0)  # 第一帧入队，队列满
-    # 没人取走时，第二帧的投递必须在生产端阻塞——这就是反压。
+    await bus.fire("token", i=0)  # first frame enqueued, queue now full
+    # with nobody consuming, delivering the second frame must block the producer — that's backpressure.
     with pytest.raises(asyncio.TimeoutError):
         await asyncio.wait_for(bus.fire("token", i=1), timeout=0.1)
-    item = await sub.get()  # 消费一帧腾出位置
+    item = await sub.get()  # consume one frame to free a slot
     assert item["i"] == 0
-    await asyncio.wait_for(bus.fire("token", i=2), timeout=0.1)  # 现在不再阻塞
+    await asyncio.wait_for(bus.fire("token", i=2), timeout=0.1)  # no longer blocks
 
 
 async def test_drop_subscription_never_blocks_and_counts():
@@ -24,7 +24,7 @@ async def test_drop_subscription_never_blocks_and_counts():
     sub = bus.subscribe("token", maxsize=1, on_full="drop")
     for i in range(4):
         await asyncio.wait_for(bus.fire("token", i=i), timeout=0.1)
-    assert sub.dropped == 3  # 只保住第一帧，其余丢帧记账
+    assert sub.dropped == 3  # only the first frame survives, the rest are counted as dropped
     assert (await sub.get())["i"] == 0
 
 
@@ -33,11 +33,11 @@ async def test_close_unregisters_subscription():
     sub = bus.subscribe("x")
     assert sub in bus._subscriptions
     sub.close()
-    assert sub not in bus._subscriptions  # 关闭即从总线摘除，不泄漏
+    assert sub not in bus._subscriptions  # closing removes it from the bus, no leak
 
 
 async def test_node_can_stream_events_through_context():
-    """节点执行中用 ctx.emit 逐块吐事件，订阅者按顺序收到（流式的最小闭环）。"""
+    """A node streams events chunk by chunk via ctx.emit, subscriber receives them in order (minimal streaming loop)."""
     from src import Workflow
 
     bus = Bus()

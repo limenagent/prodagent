@@ -1,7 +1,8 @@
-"""纯净度守卫：kernel 只能依赖 Python 标准库和 src 自身。
+"""Purity guard: the kernel may depend only on the Python stdlib and src itself.
 
-这条测试把“机制在内、策略在外、内核不认识任何厂商 SDK”变成可执行的约束：
-谁不小心在 kernel 里 import 了 openai/httpx/第三方库，CI 立刻变红。
+This test turns "mechanism inside, policy outside, the kernel knows no vendor SDK"
+into an executable constraint: import openai/httpx/any third-party lib in kernel
+and CI turns red immediately.
 """
 
 import ast
@@ -31,4 +32,4 @@ def test_kernel_has_no_third_party_imports():
         third_party = {r for r in imported_roots(path) if r not in STDLIB and r != "src"}
         if third_party:
             offenders[path.name] = sorted(third_party)
-    assert not offenders, f"kernel 出现第三方依赖：{offenders}"
+    assert not offenders, f"kernel has third-party dependencies: {offenders}"

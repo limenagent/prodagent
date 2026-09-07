@@ -1,4 +1,4 @@
-"""门面层测试：Agent / Workflow 好用的高层 API，底层仍是同一套 BSP 内核。"""
+"""Facade-layer tests: Agent / Workflow's ergonomic high-level API, still backed by the same BSP kernel underneath."""
 
 from src import Agent, Workflow, go, send, wait_human
 from src.kernel import ToolCall, append
@@ -33,7 +33,7 @@ async def test_agent_multi_turn_tools():
 
 
 async def test_teammates_run_with_their_own_models():
-    # 主管派活给两个队友；每个队友用自己的模型，不会消耗主管的脚本。
+    # the boss delegates to two teammates; each uses its own model, without consuming the boss's script.
     researcher = Agent("researcher", model=ScriptedLlm(["资料 X"]))
     writer = Agent("writer", model=ScriptedLlm(["成稿 Y"]))
     boss = Agent(
@@ -59,7 +59,7 @@ async def test_workflow_static_graph_and_auto_state():
     wf.add("c", lambda x, ctx: ctx.shared["v"], terminal=True)
     wf.edge("a", "b").edge("b", "c").entry("a")
     result = await wf.run()
-    assert result.output == 11  # 未声明的 v 自动补了 last 通道
+    assert result.output == 11  # an undeclared v channel is auto-filled as a last channel
 
 
 async def test_workflow_branch():
@@ -79,7 +79,7 @@ async def test_workflow_dynamic_fan_out():
     wf.channel("logs", append())
 
     async def dispatch(x, ctx):
-        # 要几份就发几个 Send（数量运行时才知道），引擎把它们放进同一波并行。
+        # send one Send per item (the count is only known at runtime); the engine runs them all in one wave.
         return [send("worker", {"i": i}) for i in (1, 2, 3)]
 
     async def worker(item, ctx):
@@ -100,7 +100,9 @@ async def test_workflow_dynamic_fan_out():
 async def test_workflow_agent_as_node():
     worker = Agent("worker", model=ScriptedLlm(["子 Agent 结果"]))
     wf = Workflow()
-    wf.add("call_agent", worker, terminal=True)  # 节点直接放 Agent，自包含跑
+    wf.add(
+        "call_agent", worker, terminal=True
+    )  # a node can hold an Agent directly, runs self-contained
     wf.entry("call_agent")
     assert (await wf.run("任务")).output == "子 Agent 结果"
 
@@ -123,12 +125,12 @@ async def test_workflow_wait_human_and_resume():
 
 
 async def test_workflow_goto_agent_is_transfer():
-    # 交接（transfer）= 同图里 go 到另一个 Agent 节点、且不画回边：
-    # relay 把输入转交给 repairer，repairer 用自己的模型接手并直接收尾。
+    # transfer = a go to another Agent node within the same graph, with no back-edge drawn:
+    # relay hands its input to repairer, which takes over with its own model and finishes.
     repairer = Agent("repairer", model=ScriptedLlm(["已扩容，恢复"]))
     wf = Workflow()
     wf.add("relay", lambda x, ctx: go("repairer", x))
     wf.add("repairer", repairer, terminal=True)
     wf.entry("relay")
     result = await wf.run("故障=连接池耗尽")
-    assert result.output == "已扩容，恢复"  # 没有回边，控制权一去不返
+    assert result.output == "已扩容，恢复"  # no back-edge, control never returns

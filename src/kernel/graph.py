@@ -42,19 +42,25 @@ class RetryPolicy:
     - max_attempts: maximum attempts including the first;
     - base_delay/factor: exponential backoff; after the n-th failure wait
       base_delay * factor**n;
-    - retry_on: retry only these exceptions; external cancellation
+    - retry_on: retry only these exceptions, or a predicate for finer control
+      (e.g. retry a 503 but not a 400); external cancellation
       (CancelledError) is never retried.
     """
 
     max_attempts: int = 3
     base_delay: float = 0.05
     factor: float = 2.0
-    retry_on: tuple[type, ...] = (Exception,)
+    retry_on: tuple[type, ...] | Callable[[BaseException], bool] = (Exception,)
 
     def delay_for(self, failed_attempt: int) -> float:
         # failed_attempt starts at 0: after the first failure wait base_delay,
         # after the second base_delay*factor.
         return self.base_delay * (self.factor**failed_attempt)
+
+    def matches(self, exc: BaseException) -> bool:
+        if isinstance(self.retry_on, tuple):
+            return isinstance(exc, self.retry_on)
+        return bool(self.retry_on(exc))
 
 
 @dataclass(frozen=True)
@@ -63,8 +69,10 @@ class Node:
 
     - body: the composable unit that does the work (see body.py); the blueprint
       does not care what is inside it;
-    - join: with multiple predecessors, all = ready when all are done,
-      any = ready when any one is done;
+    - join: with multiple predecessors, "all" = ready when all live edges are
+      done, "any" = ready when any one is done; a callable ``(done, total) ->
+      bool`` is an escape hatch for custom quorum policies. Plan.validate()
+      rejects anything else (typos included) at build time;
     - template: it is a "dynamic fan-out template", instantiated multiple times
       at runtime via Send;
     - terminal: marks the convergence node that produces the final result;
@@ -74,7 +82,7 @@ class Node:
 
     id: str
     body: Any
-    join: str = "all"
+    join: str | Callable[[int, int], bool] = "all"
     template: bool = False
     terminal: bool = False
     timeout: float | None = None
@@ -109,8 +117,8 @@ class Plan:
         return self
 
     def validate(self) -> Plan:
-        """Compile-time health check: dangling edges and unknown entries fail
-        here, not halfway through a run."""
+        """Compile-time health check: dangling edges, unknown entries, and
+        malformed join policies fail here, not halfway through a run."""
         known = set(self._nodes)
         for src, outs in self._outgoing.items():
             if src not in known:
@@ -121,6 +129,12 @@ class Plan:
         for en in self.entry:
             if en not in known:
                 raise ValueError(f"entry node {en!r} does not exist")
+        for nid, node in self._nodes.items():
+            if not callable(node.join) and node.join not in ("all", "any"):
+                raise ValueError(
+                    f"node {nid!r} has invalid join {node.join!r}; "
+                    "expected 'all', 'any', or a callable(done, total) -> bool"
+                )
         if not self.entry:
             # With no explicit entry, treat nodes that have no incoming edge as entries.
             self.entry = tuple(nid for nid in known if not self._incoming[nid])
@@ -210,22 +224,35 @@ class Plan:
                 # source on the first wave.
                 continue
 
-            live, has_open_pred = False, False
-            for e in preds:
-                if not self._predecessor_terminal(run, e.source, empty_fanout=empty_fanout):
-                    has_open_pred = True  # predecessor still running, wait another wave
-                    continue
-                if self._predecessor_done(
-                    run, e.source, empty_fanout=empty_fanout
-                ) and self._edge_live(e, run.shared):
-                    live = True  # any: one live edge means ready; all: no unfinished predecessor remains now
+            has_open_pred = any(
+                not self._predecessor_terminal(run, e.source, empty_fanout=empty_fanout)
+                for e in preds
+            )
             if has_open_pred:
+                continue  # a predecessor is still running, wait another wave
+
+            live_edges = [e for e in preds if self._edge_live(e, run.shared)]
+            if not live_edges:
+                continue  # no live edge; sweep_skipped cleans this up once the graph stalls
+            done = sum(
+                1
+                for e in live_edges
+                if self._predecessor_done(run, e.source, empty_fanout=empty_fanout)
+            )
+            if done == 0:
                 continue
-            if live:
-                ready.append(key)
-            # All predecessors terminal but still no live edge: stay pending;
-            # sweep_skipped cleans up when the graph stalls.
+            if not self._join_satisfied(key, done, len(live_edges)):
+                continue
+            ready.append(key)
         return ready
+
+    def _join_satisfied(self, key: str, done: int, total: int) -> bool:
+        """any: the first live-and-done edge is enough; all: every live edge
+        must be; a callable gets (done, total) for a custom quorum policy."""
+        join = self._nodes[key].join
+        if callable(join):
+            return bool(join(done, total))
+        return done >= total if join == "all" else True
 
     def sweep_skipped(self, run: Any) -> None:
         """Dead-branch cleanup: mark pending nodes whose predecessors are all

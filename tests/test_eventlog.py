@@ -1,4 +1,4 @@
-"""事件溯源：状态是事件流折叠出的投影；快照可序列化、可还原。"""
+"""Event sourcing: state is a projection folded from the event stream; snapshots are serializable and restorable."""
 
 from src.kernel import (
     FnBody,
@@ -24,9 +24,9 @@ async def test_state_equals_fold_of_event_stream():
 
     events = await sch.eventlog.events(run.run_id)
     deltas = [e for e in events if e.kind == "state_delta"]
-    assert deltas, "应当记录状态增量事件"
+    assert deltas, "state-delta events should have been recorded"
 
-    # 从空状态重放整条增量事件流，必须得到与运行结果一致的共享状态。
+    # replaying the whole delta stream from empty state must reproduce the run's shared state.
     rebuilt = fold_events(deltas, p.channels, p.initial_shared())
     assert rebuilt == run.shared
 
@@ -38,7 +38,7 @@ async def test_snapshot_roundtrip():
     snap = run.snapshot()
     import json
 
-    blob = json.dumps(snap, ensure_ascii=False)  # 快照必须可 JSON 序列化
+    blob = json.dumps(snap, ensure_ascii=False)  # a snapshot must be JSON-serializable
     restored = type(run).restore(p, json.loads(blob))
     assert restored.state == run.state
     assert restored.shared == run.shared

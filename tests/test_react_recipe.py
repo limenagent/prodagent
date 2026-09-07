@@ -1,4 +1,4 @@
-"""用内核原语拼出 ReAct：内核没有任何模式枚举，think⇄tools 只是图。"""
+"""ReAct assembled from kernel primitives: the kernel has no pattern enum, think<->tools is just a graph."""
 
 from examples.react_demo import FakeLlm, FakeTools, build_react_plan
 from src.kernel import Run, RunState, Scheduler
@@ -18,5 +18,5 @@ async def test_react_is_assembled_from_primitives():
     assert run.metrics["waves"] == 4
     assert run.metrics["llm_calls"] == 2
     assert run.metrics["tool_calls"] == 1
-    # 工具结果被喂回了消息历史，模型正是据此给出最终答案。
+    # the tool result is fed back into the message history, and the model answers based on it.
     assert any(m.get("role") == "tool" for m in run.shared["messages"])

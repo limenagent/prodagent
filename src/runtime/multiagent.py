@@ -143,8 +143,8 @@ def build_blackboard(
     - moderator is a body that reads ctx.shared to adjudicate: on consensus it
       Outcome.goto("final", verdict=...), otherwise Outcome.goto("fanout",
       round=r+1) to trigger the next round;
-    - multi-round works because fanout each round uses Goto(node, immediate=False)
-      to "re-arm" experts and moderator: experts run in parallel once fanout
+    - multi-round works because fanout each round uses Goto.rejoin(node) to
+      "re-arm" experts and moderator: experts run in parallel once fanout
       completes, and the moderator still waits for every expert of that round.
     """
     expert_names: list[str] = []
@@ -153,7 +153,7 @@ def build_blackboard(
         # Re-arm without immediate activation: parallel timing is still set by
         # the fanout→expert edges, and join timing by expert→moderator join=all,
         # so this judgment repeats every round.
-        return Outcome(control=[Goto(n, immediate=False) for n in (*expert_names, "moderator")])
+        return Outcome(control=[Goto.rejoin(n) for n in (*expert_names, "moderator")])
 
     plan = Plan(channels={board_key: append(), "round": last(0), "verdict": last(None)})
     plan.add(Node("fanout", FnBody(fanout)))

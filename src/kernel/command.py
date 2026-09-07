@@ -51,11 +51,24 @@ class Goto(Command):
     with Send.payload: static edges pass values via upstream output, while
     dynamic transitions pass values via command payload (multi-agent handover
     uses it to carry the summary).
+
+    ``Goto.now``/``Goto.rejoin`` are named constructors for the two modes
+    above; they change nothing but how the call site reads.
     """
 
     target: str
     immediate: bool = True
     payload: Any = None
+
+    @classmethod
+    def now(cls, target: str, payload: Any = None) -> Goto:
+        """Re-arm and release immediately (back-edge/jump/handover)."""
+        return cls(target, immediate=True, payload=payload)
+
+    @classmethod
+    def rejoin(cls, target: str, payload: Any = None) -> Goto:
+        """Re-arm only; wait for this wave's predecessors/join like any other edge."""
+        return cls(target, immediate=False, payload=payload)
 
 
 @dataclass(frozen=True)

@@ -44,7 +44,7 @@ from src.kernel.eventlog import (
     InMemoryEventLog,
     InMemoryStore,
 )
-from src.kernel.run import AmbiguousPark, Run
+from src.kernel.run import Run
 from src.kernel.types import NodeStatus, RunState
 
 
@@ -116,7 +116,10 @@ class Scheduler:
         max_waves: int = 64,
         concurrency: int = 8,
         max_depth: int = 8,
+        durability: str = "sync",
     ):
+        if durability not in ("sync", "exit"):
+            raise ValueError("durability must be 'sync' or 'exit'")
         self.llm = llm
         self.tools = tools
         self.bus = bus or Bus()
@@ -124,6 +127,8 @@ class Scheduler:
         self.store = store or InMemoryStore()
         self.max_waves = max_waves
         self.max_depth = max_depth  # max Run-tree depth: blocks A→B→A cycles
+        # sync: checkpoint after every wave; exit: only when suspended (cheaper, less durable).
+        self.durability = durability
         self._sem = asyncio.Semaphore(concurrency)
         self.subagent = InProcessActivator(self)
 
@@ -134,17 +139,33 @@ class Scheduler:
         return run
 
     async def resume(self, plan: Any, run_id: str, value: Any = None) -> Run:
-        """Resume from a checkpoint: fetch the parked node, feed back the
-        external value, re-run only it, then continue."""
+        """Resume from a checkpoint: feed back one value per parked node, then
+        re-run just those nodes and continue.
+
+        ``value`` is normally the bare payload for the one parked node. If
+        several nodes parked in the same wave, pass a ``{node_id: value}``
+        dict whose keys exactly match the parked set.
+        """
         snap = await self.store.load(run_id)
         if snap is None:
             raise KeyError(f"no checkpoint for {run_id}; cannot resume")
-        parked_node = (snap.get("interrupt") or {}).get("node_id", "")
         run = Run.restore(plan, snap)
-        run.resume(value)
-        if parked_node:
-            run.reset_pending(parked_node)
-        await self._emit(run, RESUMED, {"node": parked_node})
+        parked = list(run.interrupts)
+        if not parked:
+            raise RuntimeError(f"run {run_id} is not suspended; nothing to resume")
+        # A dict is only a {node_id: value} mapping if its keys are exactly the
+        # parked set; otherwise (including a single parked node whose own
+        # payload happens to be a dict) it is the bare value for that one node.
+        if isinstance(value, dict) and set(value) == set(parked):
+            values = value
+        elif len(parked) == 1:
+            values = {parked[0]: value}
+        else:
+            raise KeyError(f"resume value(s) must cover every parked node: {parked}")
+        run.resume(values)
+        for node_id in parked:
+            run.reset_pending(node_id)
+        await self._emit(run, RESUMED, {"nodes": parked})
         await self.drive(plan, run)
         return run
 
@@ -179,7 +200,7 @@ class Scheduler:
 
             # 3) Barrier: handle results together. If any node fails, default to
             # fail-fast and stop the whole Run.
-            parked: tuple[str, Any] | None = None
+            parked: dict[str, Any] = {}
             controls: list[tuple[str, Any]] = []
             writes = WaveWrites(plan.channels)
 
@@ -190,12 +211,7 @@ class Scheduler:
                     await self._emit(run, RUN_FAILED, {"node": key, "reason": repr(error)})
                     break
                 if outcome.suspend is not None:
-                    if parked is not None:
-                        raise AmbiguousPark(
-                            f"nodes {parked[0]!r} and {key!r} both requested suspension "
-                            "in the same wave; converge them (join) or park once per wave"
-                        )
-                    parked = (key, outcome.suspend)
+                    parked[key] = dataclasses.replace(outcome.suspend, node_id=key)
                     continue
                 run.mark_completed(key, outcome.value)
                 for k, v in outcome.state_delta.items():
@@ -221,15 +237,14 @@ class Scheduler:
 
             await self._apply_controls(plan, run, controls)
 
-            if parked is not None:
-                key, interrupt = parked
-                interrupt = dataclasses.replace(interrupt, node_id=key)
-                run.suspend(interrupt)
-                await self._emit(run, INTERRUPTED, {"node": key, "question": interrupt.question})
-                await self._checkpoint(run)
+            if parked:
+                run.suspend(parked)
+                await self._emit(run, INTERRUPTED, {"nodes": list(parked)})
+                await self._checkpoint(run)  # a suspended run must always be durable
                 break
 
-            await self._checkpoint(run)
+            if self.durability == "sync":
+                await self._checkpoint(run)
 
     # — executing a single node —
     async def _run_node(
@@ -280,11 +295,7 @@ class Scheduler:
                 raise  # cancelled externally: stop now, no retry
             except BaseException as exc:
                 last_exc = exc
-                can_retry = (
-                    policy is not None
-                    and attempt + 1 < attempts
-                    and isinstance(exc, policy.retry_on)
-                )
+                can_retry = policy is not None and attempt + 1 < attempts and policy.matches(exc)
                 if not can_retry:
                     raise
                 backoff = policy.delay_for(attempt)

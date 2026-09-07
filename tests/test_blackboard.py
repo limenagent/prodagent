@@ -1,4 +1,4 @@
-"""黑板模式：异构专家并行写共享通道，主持人 join=all 汇聚，多轮趋同。"""
+"""Blackboard pattern: heterogeneous experts write a shared channel in parallel, a join=all moderator converges over multiple rounds."""
 
 from src.kernel import (
     Bus,
@@ -16,7 +16,7 @@ NAMES = ["alice", "bob", "carol"]
 def make_expert(name):
     async def body(_, ctx):
         r = ctx.shared["round"]
-        # 教学确定性：第一轮 carol 反对，第二轮被说服，用来验证“多轮趋同”。
+        # deterministic for teaching: carol objects in round 0, is convinced in round 1 — verifies "converges over rounds".
         vote = "agree" if (name != "carol" or r >= 1) else "object"
         return Outcome.ok(name, board=[f"{name}:{vote}"])
 
@@ -28,7 +28,7 @@ async def moderator(_, ctx):
     last_votes = [b.split(":", 1)[1] for b in ctx.shared["board"][-len(NAMES) :]]
     if all(v == "agree" for v in last_votes):
         return Outcome.goto("final", verdict="consensus")
-    return Outcome.goto("fanout", round=r + 1)  # 未达成：回边再来一轮
+    return Outcome.goto("fanout", round=r + 1)  # not yet reached: back-edge for another round
 
 
 async def test_blackboard_converges_after_two_rounds():
@@ -40,8 +40,10 @@ async def test_blackboard_converges_after_two_rounds():
     run = await sch.run(plan, task="评审")
     assert run.state.name == "COMPLETED"
     assert run.shared["verdict"] == "consensus"
-    assert run.shared["round"] == 1  # 确实转了两圈，不是第一轮空过
-    assert len(run.shared["board"]) == 6  # 三个专家 × 两轮，意见都留在黑板上
+    assert run.shared["round"] == 1  # confirms it actually took two rounds, not a no-op first round
+    assert (
+        len(run.shared["board"]) == 6
+    )  # three experts x two rounds, every vote stays on the board
 
 
 async def test_blackboard_single_round_when_all_agree():

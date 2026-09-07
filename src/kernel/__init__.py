@@ -31,7 +31,7 @@ from src.kernel.eventlog import (
 )
 from src.kernel.graph import Edge, Node, Plan, RetryPolicy
 from src.kernel.ports import LlmPort, LlmReply, SubagentPort, ToolPort
-from src.kernel.run import AmbiguousPark, Interrupt, NodeRuntimeState, Run
+from src.kernel.run import Interrupt, NodeRuntimeState, Run
 from src.kernel.scheduler import InProcessActivator, Scheduler
 from src.kernel.types import (
     NodeStatus,
@@ -41,7 +41,6 @@ from src.kernel.types import (
 )
 
 __all__ = [
-    "AmbiguousPark",
     "AmbiguousWrite",
     "BlockingResult",
     # bus / port types

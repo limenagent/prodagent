@@ -1,4 +1,4 @@
-"""多 Agent：子 Agent 是某个 body 递归跑起的子 Run，用的还是同一个内核。"""
+"""Multi-agent: a sub-agent is a child Run recursively driven by some body, using the very same kernel."""
 
 from src.kernel import (
     FnBody,
@@ -26,15 +26,15 @@ async def test_subrun_call_returns_output_to_parent():
     sch.bus.on("run_started", lambda evt: started.append(evt))
     run = await sch.run(parent, task="给子Agent的任务")
     assert run.state == RunState.COMPLETED
-    # call 语义：默认只把子 Run 的最终产出交回父节点。
+    # call semantics: by default only the child Run's final output is handed back to the parent node.
     assert run.final_output == "child-result"
-    # 子 Run 的 run_started 事件带着 parent_id，Run 树可重建。
+    # the child Run's run_started event carries parent_id, so the Run tree can be rebuilt.
     child_starts = [e for e in started if e.parent_id == run.run_id]
     assert len(child_starts) == 1
 
 
 async def test_nested_subruns_build_a_run_tree():
-    # 祖父 -> 父(body 是子 Run) -> 子，逐层只回传 output。
+    # grandparent -> parent (body is a child Run) -> child, only output flows back up each level.
     grandchild = child_plan()
     middle = Plan()
     middle.add(Node("m", SubPlanBody(grandchild), terminal=True))

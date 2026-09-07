@@ -1,4 +1,4 @@
-"""图与调度器：顺序、菱形并发、条件分支、回边循环、动态扇出汇聚、停滞与空转。"""
+"""Graph and scheduler: sequential, diamond concurrency, conditional branches, back-edge loops, dynamic fan-out/fan-in, stagnation and spinning."""
 
 import pytest
 
@@ -7,6 +7,7 @@ from src.kernel import (
     Node,
     Outcome,
     Plan,
+    Run,
     RunState,
     Scheduler,
     Send,
@@ -20,7 +21,7 @@ async def run_plan(plan, task="t"):
     return await Scheduler().run(plan, task=task)
 
 
-# —— 顺序执行 ——
+# —— sequential execution ——
 async def test_linear():
     p = Plan(channels={"log": append()})
     p.add(
@@ -37,7 +38,7 @@ async def test_linear():
     assert run.metrics["waves"] == 3
 
 
-# —— 菱形并发：append 不丢、add 求和 ——
+# —— diamond concurrency: append loses nothing, add sums ——
 async def test_diamond_parallel_reducers():
     p = Plan(channels={"items": append(), "n": add(0)})
     p.add(
@@ -56,7 +57,7 @@ async def test_diamond_parallel_reducers():
     assert run.shared["n"] == 3
 
 
-# —— 条件分支：走左支，右支被结构性跳过 ——
+# —— conditional branch: takes the left path, the right path is structurally skipped ——
 async def test_conditional_branch_skips_dead_path():
     p = Plan(channels={"go_left": last(False)})
     p.add(
@@ -71,7 +72,7 @@ async def test_conditional_branch_skips_dead_path():
     assert run.state_of("right").status.value == "skipped"
 
 
-# —— 回边循环（Goto 重置目标）——
+# —— back-edge loop (Goto re-arms its target) ——
 async def test_goto_loop():
     p = Plan(channels={"c": add(0)})
 
@@ -84,7 +85,7 @@ async def test_goto_loop():
     assert run.shared["c"] == 3
 
 
-# —— 动态扇出 + 汇聚 ——
+# —— dynamic fan-out + fan-in ——
 async def test_dynamic_fanout_fanin():
     p = Plan(channels={"outs": append()})
     p.add(
@@ -105,7 +106,7 @@ async def test_dynamic_fanout_fanin():
     assert sorted(run.instances["worker"]) == ["worker#w1", "worker#w2"]
 
 
-# —— 无入口的环：互相等待、谁都起不来，要明确失败而不是静默成功 ——
+# —— an entry-less cycle: both wait on each other, neither can start; must fail loudly, not silently succeed ——
 async def test_stagnation_fails():
     p = Plan()
     p.add(
@@ -129,10 +130,84 @@ async def test_max_waves_guards_spin():
     assert "max waves" in run.final_output
 
 
-# —— 状态机：非法转移直接拒绝 ——
+# —— state machine: an illegal transition is rejected outright ——
 async def test_illegal_transition_rejected():
     p = Plan()
     p.add(Node("a", FnBody(lambda x, ctx: Outcome.ok("A")), terminal=True))
     run = await run_plan(p)
     with pytest.raises(RuntimeError):
-        run.complete("again")  # 已完成不能再完成
+        run.complete("again")  # already completed, cannot complete again
+
+
+# —— join policy is validated at build time, not discovered mid-run ——
+async def test_invalid_join_rejected_at_validate():
+    p = Plan()
+    p.add(Node("a", FnBody(lambda x, ctx: Outcome.ok("A")), join="most"))
+    with pytest.raises(ValueError, match="invalid join"):
+        p.validate()
+
+
+# —— join="any": one live sibling completing is enough, the skipped one is not waited on ——
+async def test_join_any_fires_when_a_sibling_was_structurally_skipped():
+    p = Plan(channels={"go_a": last(True)})
+    p.add(
+        Node("start", FnBody(lambda x, ctx: Outcome.ok(None, go_a=True))),
+        Node("a", FnBody(lambda x, ctx: Outcome.ok("A"))),
+        Node("b", FnBody(lambda x, ctx: Outcome.ok("B"))),
+        Node("c", FnBody(lambda x, ctx: Outcome.ok("C")), join="any", terminal=True),
+    )
+    p.edge("start", "a", when=lambda s: s["go_a"])
+    p.edge("start", "b", when=lambda s: not s["go_a"])
+    p.edge("a", "c")
+    p.edge("b", "c")
+    run = await run_plan(p)
+    assert run.state == RunState.COMPLETED
+    assert run.final_output == "C"
+    assert run.state_of("b").status.value == "skipped"
+
+
+# —— join as a callable: a custom (done, total) -> bool quorum, not just all/any ——
+async def test_join_callable_quorum_escape_hatch():
+    def quorum2(done, total):
+        return done >= 2
+
+    p = Plan()
+    p.add(
+        Node("start", FnBody(lambda x, ctx: Outcome.ok(None))),
+        Node("a", FnBody(lambda x, ctx: Outcome.ok("A"))),
+        Node("b", FnBody(lambda x, ctx: Outcome.ok("B"))),
+        Node("c", FnBody(lambda x, ctx: Outcome.ok("C"))),
+        Node(
+            "done", FnBody(lambda x, ctx: Outcome.ok("quorum-reached")), join=quorum2, terminal=True
+        ),
+    )
+    p.edge("start", "a")
+    p.edge("start", "b", when=lambda s: False)
+    p.edge("start", "c")
+    p.edge("a", "done")
+    p.edge("b", "done")
+    p.edge("c", "done")
+    run = await run_plan(p)
+    assert run.state == RunState.COMPLETED
+    assert run.final_output == "quorum-reached"
+    assert run.state_of("b").status.value == "skipped"
+
+
+# —— Goto's immediate-activation bypass is one-shot: it must not survive a later rearm ——
+async def test_activated_bypass_is_one_shot_not_permanent():
+    p = Plan()
+    p.add(
+        Node("slow", FnBody(lambda x, ctx: Outcome.ok("S"))),
+        Node("gate", FnBody(lambda x, ctx: Outcome.ok("G")), join="all"),
+    )
+    p.edge("slow", "gate")
+    run = Run.start(p)
+    run.reset_pending("gate")
+    assert "gate" in p.ready(run)
+    run.mark_running("gate")
+    run.mark_completed("gate", "G-first")
+    run.rearm("gate")
+    assert "gate" not in p.ready(run)  # activated was consumed; slow hasn't finished yet
+    run.mark_running("slow")
+    run.mark_completed("slow", "S")
+    assert "gate" in p.ready(run)

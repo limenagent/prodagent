@@ -1,4 +1,4 @@
-"""配方层测试：ReAct 多轮工具、工具治理、plan-first、多 Agent 协作。"""
+"""Recipe-layer tests: ReAct multi-round tools, tool governance, plan-first, multi-agent collaboration."""
 
 from src.kernel import (
     FnBody,
@@ -25,7 +25,7 @@ def simple_plan(text):
 
 
 async def test_react_multiple_tool_rounds():
-    # 连续两次工具调用后才出答案，验证环上节点能被 Goto 反复重入。
+    # the answer only comes after two tool calls, verifying a cycle node can be re-entered via Goto repeatedly.
     reg = ToolRegistry()
 
     async def search(query, ctx):
@@ -58,7 +58,7 @@ async def test_tool_schema_and_missing_arg_feedback():
     reg.function(add_numbers, description="相加")
 
     schema = reg.schemas()[0]["function"]
-    assert set(schema["parameters"]["required"]) == {"a", "b"}  # ctx 不进 schema
+    assert set(schema["parameters"]["required"]) == {"a", "b"}  # ctx does not enter the schema
 
     # Missing argument: returns failure feedback rather than raising.
     result = await reg.dispatch(ToolCall("add_numbers", {"a": 1}))
@@ -119,12 +119,12 @@ async def test_supervisor_delegates_to_workers():
 
 
 async def test_goto_carries_payload_to_target():
-    # Goto 转场时携带的 payload，就是目标节点这一次的输入（交接靠它带摘要）。
+    # the payload a Goto transition carries becomes the target node's input this time (a handoff carries a summary this way).
     plan = Plan()
     plan.add(Node("a", FnBody(lambda x, ctx: Outcome.goto("b", "交接物"))))
     plan.add(Node("b", FnBody(lambda x, ctx: Outcome.ok(f"b收到:{x}")), terminal=True))
     sch = Scheduler()
     run = await sch.run(plan, task="起点")
     assert run.final_output == "b收到:交接物"
-    # b 没有静态入边，是被 Goto 激活的；没有回边，a 不会再跑第二遍。
+    # b has no static incoming edge, it was activated by Goto; with no back-edge, a never runs a second time.
     assert run.state_of("a").attempts == 1

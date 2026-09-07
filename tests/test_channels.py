@@ -1,4 +1,4 @@
-"""通道与 reducer：并发写入不丢数，last 通道同波多写要明确报错。"""
+"""Channels and reducers: concurrent writes lose no data; a last channel written by several nodes in one wave must fail loudly."""
 
 import pytest
 

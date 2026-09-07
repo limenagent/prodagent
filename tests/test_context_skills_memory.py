@@ -1,4 +1,4 @@
-"""五级压缩、技能目录加载、长期记忆召回的测试。"""
+"""Tests for the five compaction levels, skill directory loading, and long-term memory recall."""
 
 from src import Agent
 from src.kernel import LlmReply, ToolCall
@@ -8,7 +8,7 @@ from src.runtime.skills import SkillRegistry
 
 
 class FixedSummarizer:
-    """统计被调用次数的摘要器。"""
+    """A summarizer that counts how many times it was called."""
 
     def __init__(self):
         self.calls = 0
@@ -36,10 +36,10 @@ async def test_tiered_no_compression_when_fits():
 async def test_tiered_tool_compress_spends_no_llm():
     summ = FixedSummarizer()
     ctx = TieredCompactionContext(summ, capacity=8)
-    msgs = _chat(5)  # 11 条，ratio≈1.4 → 工具压缩级
+    msgs = _chat(5)  # 11 messages, ratio~1.4 -> tool-compress level
     out = await ctx.assemble(msgs)
     assert ctx.last_level == CompressionLevel.TOOL_COMPRESS
-    assert summ.calls == 0  # 机械级不花模型钱
+    assert summ.calls == 0  # mechanical level, spends no model calls
     assert len(out) <= 8
 
 
@@ -56,7 +56,7 @@ async def test_tiered_history_summary_spends_one_llm():
 async def test_tiered_emergency_keeps_only_tail():
     summ = FixedSummarizer()
     ctx = TieredCompactionContext(summ, capacity=8)
-    out = await ctx.assemble(_chat(20))  # 41 条，ratio≈5 → 紧急级
+    out = await ctx.assemble(_chat(20))  # 41 messages, ratio~5 -> emergency level
     assert ctx.last_level == CompressionLevel.EMERGENCY
     assert len(out) <= 8
 
@@ -69,7 +69,7 @@ async def test_tiered_never_orphans_tool_result():
         msgs.append({"role": "assistant", "content": "", "tool_calls": [ToolCall("t", {"i": i})]})
         msgs.append({"role": "tool", "name": "t", "content": f"结果{i}" * 40})
     out = await ctx.assemble(msgs)
-    # 任何保留下来的 tool 结果，前面都必须能找到携带 tool_calls 的 assistant。
+    # any tool result that survives must have a preceding assistant message carrying tool_calls.
     for i, m in enumerate(out):
         if m.get("role") == "tool":
             assert any(x.get("tool_calls") for x in out[:i])

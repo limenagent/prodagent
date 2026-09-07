@@ -59,9 +59,9 @@ def build_plan_execute(*, make_steps: MakeSteps, worker: Any, synth: Any = None)
         # workers to finish instead of reusing the previous round's "done" state.
         return Outcome(
             state_delta={"steps": steps},
-            # immediate=False: only re-arm synth; it still waits for this wave of
+            # Goto.rejoin: only re-arm synth; it still waits for this wave of
             # workers to finish before synthesizing.
-            control=[*sends, Goto("synth", immediate=False)],
+            control=[*sends, Goto.rejoin("synth")],
         )
 
     async def default_synth(inputs, ctx):

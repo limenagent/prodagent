@@ -1,4 +1,4 @@
-"""策略层测试：上下文压缩、记忆、技能、MCP 归一、背压、文件级断点续跑。"""
+"""Strategy-layer tests: context compaction, memory, skills, MCP normalization, backpressure, file-level checkpoint resume."""
 
 from src.backends.file_store import FileCheckpointStore
 from src.kernel import (
@@ -34,7 +34,7 @@ async def test_summarizing_context_compresses_old_messages():
     msgs = [{"role": "user", "content": f"m{i}"} for i in range(6)]
     out = await ctx.assemble(msgs)
     assert out[0]["role"] == "system" and "X、Y" in out[0]["content"]
-    assert len(out) == 3  # 一条摘要 + 最近两条
+    assert len(out) == 3  # one summary + the last two messages
 
 
 async def test_memory_remember_and_recall():
@@ -66,21 +66,25 @@ async def test_mcp_tools_share_same_pipeline():
     names = await load_mcp_tools(reg, server)
     assert names == ["echo"]
     result = await reg.dispatch(ToolCall("echo", {"x": 42}))
-    assert result.ok and result.output == 42  # MCP 工具与本地函数走同一条路
+    assert (
+        result.ok and result.output == 42
+    )  # MCP tools go through the same path as local functions
 
 
 async def test_bus_backpressure_drop():
     bus = Bus()
     sub = bus.subscribe("tick", maxsize=1, on_full="drop")
     for i in range(5):
-        await bus.fire("tick", i=i)  # 没人消费，队列满后丢帧不阻塞
+        await bus.fire(
+            "tick", i=i
+        )  # nobody consumes; once the queue is full, frames drop without blocking
     assert sub.dropped == 4
     first = await sub.get()
     assert first["i"] == 0
 
 
 async def test_file_store_resume_across_schedulers(tmp_path):
-    # 模拟进程重启：两个 Scheduler 实例共享同一个文件目录，挂起后能接着跑。
+    # simulates a process restart: two Scheduler instances share the same file directory, and can continue after suspending.
     def build():
         p = Plan()
 
