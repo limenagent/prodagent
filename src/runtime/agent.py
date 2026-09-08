@@ -119,6 +119,10 @@ class Agent:
         # transfer, that is graph orchestration: go to another Agent node in the same graph.
         self.teammates = list(teammates or [])
         for mate in self.teammates:
+            # Assembly, not mechanism: the whole delegation tree (any depth)
+            # shares this bus, so events and approval gates land on one
+            # observable stream even when nobody passed a bus explicitly.
+            mate.share_bus(self.bus)
             self._registry.add(
                 ToolSpec(
                     name=mate.name,
@@ -129,8 +133,10 @@ class Agent:
                 )
             )
 
+        # The agent's name is its blueprint's name: every Run of this plan
+        # derives it, and run_started carries it for observers.
         self._plan = build_react_plan(
-            self._registry, system=instruction, context=context, memory=memory
+            self._registry, name=self.name, system=instruction, context=context, memory=memory
         )
 
     @staticmethod
@@ -160,6 +166,20 @@ class Agent:
             return await self._run_standalone(str(input or ""))
 
         return _task
+
+    def share_bus(self, bus: Any, _seen: set | None = None) -> None:
+        """Assembly-time wiring: point this agent and every teammate,
+        recursively, at one bus — a whole delegation tree lands on one
+        observable stream (and one approval gate). The _seen guard keeps
+        mutual-teammate cycles from recursing forever."""
+        _seen = _seen if _seen is not None else set()
+        if id(self) in _seen:
+            return
+        _seen.add(id(self))
+        self.bus = bus
+        self._registry.attach_bus(bus)
+        for mate in self.teammates:
+            mate.share_bus(bus, _seen)
 
     def _scheduler(self) -> Scheduler:
         return Scheduler(

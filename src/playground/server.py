@@ -52,7 +52,13 @@ def _serialize(item: dict) -> dict:
             "kind": item.get("event"),
             "data": {k: v for k, v in item.items() if k != "event"},
         }
-    return {"seq": evt.seq, "kind": evt.kind, "data": evt.data or {}, "parent": evt.parent_id}
+    return {
+        "seq": evt.seq,
+        "kind": evt.kind,
+        "data": evt.data or {},
+        "run_id": evt.run_id,
+        "parent": evt.parent_id,
+    }
 
 
 async def _pump(sess: dict):
@@ -240,7 +246,7 @@ def serve(host: str = "127.0.0.1", port: int = 8000):
         pass
     httpd = ThreadingHTTPServer((host, port), _Handler)
     url = f"http://{host}:{port}"
-    print(f"src playground running at: {url}  (Ctrl+C to stop)")
+    print(f"prodagent playground running at: {url}  (Ctrl+C to stop)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -248,7 +254,7 @@ def serve(host: str = "127.0.0.1", port: int = 8000):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="src playground")
+    parser = argparse.ArgumentParser(description="prodagent playground")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()

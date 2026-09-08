@@ -47,21 +47,32 @@ watch for in the code.
   conditional branch carries a failing review back for revision while a passing
   one goes straight to finalize. Watch quality iteration be an ordinary loop
   with a back edge, agents sitting in the nodes.
+- **09_orchestrator.py**: orchestrator-worker. The graph has ONE reviewer node:
+  a planner agent calls a live catalog tool, writes a numbered plan, and each
+  line becomes a `Send` that stamps out one template copy — all copies run in
+  one wave, a `join="all"` synth waits for them all. Watch the fan-out width be
+  runtime data, not graph shape.
+- **10_blackboard.py**: multi-round consensus. Experts never call each other —
+  each only appends its opinion to one shared channel; a `join="all"` moderator
+  reads the whole board and, short of consensus, `Goto.rejoin` re-arms everyone
+  for another round. Watch opinions accumulate, nothing overwritten.
 
 ## Finally, three "production capability" examples
 
-- **09_persistence.py**: after checkpoints hit disk, a brand-new process resumes
+- **11_persistence.py**: after checkpoints hit disk, a brand-new process resumes
   from the breakpoint. Watch what a Run snapshot stores and which live objects
   (connections, credentials) are never serialized.
-- **10_retry_timeout.py**: per-node timeout and exponential-backoff retry. Watch
+- **12_retry_timeout.py**: per-node timeout and exponential-backoff retry. Watch
   "a timeout counts as one failure; whether to retry is a replaceable policy".
-- **11_backpressure.py**: a node streams high-frequency events through the Bus;
+- **13_backpressure.py**: a node streams high-frequency events through the Bus;
   the subscriber uses a bounded queue with block/drop backpressure. Watch how
   pressure is pushed all the way back to the producer.
 
 ## See it all at once: the Playground
 
-`make play` starts a UI where you switch scenarios on the left and see the event
-timeline from the same Bus on the right — parallelism, suspended approvals,
-delegation and handoff are all visible. It runs the very same kernel as these
-examples; it just draws the process.
+`make play` starts a UI where you switch scenarios on the left (the business
+scenarios 01-10 in browser form, plus a cross-session-memory bonus; run the
+mechanism demos 11-13 in a terminal) and see the event timeline from the same
+Bus on the right — parallelism, suspended approvals, delegation and handoff are
+all visible. It runs the very same kernel as these examples; it just draws the
+process.

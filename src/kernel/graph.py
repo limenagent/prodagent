@@ -94,6 +94,7 @@ class Plan:
     """A static execution blueprint = node table + edges + declared state
     channels + entry."""
 
+    name: str = ""  # blueprint identity: who this graph is. Empty = anonymous. Observers read it (run_started carries it); no engine code does.
     channels: dict[str, Channel] = field(default_factory=dict)
     entry: tuple[str, ...] = ()
     _nodes: dict[str, Node] = field(default_factory=dict, init=False)

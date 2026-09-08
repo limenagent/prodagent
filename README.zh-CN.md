@@ -153,14 +153,17 @@ PYTHONPATH=. python examples/graph_demo.py         # 波次怎么推进（纯内
 PYTHONPATH=. python examples/react_demo.py         # 手工拼出 ReAct（纯内核）
 PYTHONPATH=. python examples/01_greeter.py         # 最小 Agent：一个工具的 ReAct
 PYTHONPATH=. python examples/03_deep_research.py   # 连查多轮 + 五级上下文压缩
+PYTHONPATH=. python examples/06_after_sales.py     # 主管的"工具"是别的 Agent
 PYTHONPATH=. python examples/07_aiops.py           # 诊断 call 要返回 + 修复 transfer 接力
-PYTHONPATH=. python examples/09_persistence.py     # 检查点落盘，换新实例也能断点恢复
-PYTHONPATH=. python examples/11_backpressure.py    # 流式吐事件，有界订阅 block/drop 背压
+PYTHONPATH=. python examples/09_orchestrator.py    # Send 运行时压出 N 份模板拷贝
+PYTHONPATH=. python examples/10_blackboard.py      # 黑板多轮共识直到收敛
+PYTHONPATH=. python examples/11_persistence.py     # 检查点落盘，换新实例也能断点恢复
+PYTHONPATH=. python examples/13_backpressure.py    # 流式吐事件，有界订阅 block/drop 背压
 ```
 
 其余示例见 `examples/` 目录，编号即推荐阅读顺序。
 
-## Playground：一个命令，在网页里跑全部示例
+## Playground：一个命令，在网页里跑全部业务场景
 
 ```bash
 make play                 # 等价：PYTHONPATH=. python3 -m src.playground

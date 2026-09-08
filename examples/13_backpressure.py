@@ -1,4 +1,4 @@
-"""11 Streaming and backpressure — nodes emit events while computing; a slow
+"""13 Streaming and backpressure — nodes emit events while computing; a slow
 consumer must not stall the kernel.
 
 Inside a node, ctx.emit sends events out chunk by chunk (tokens, progress —
@@ -14,7 +14,7 @@ queue holds 2 and nobody drains it in time — only the earliest 2 frames
 survive, the other 6 go on the dropped ledger, and the main flow is never
 blocked for a moment.
 
-Run: PYTHONPATH=. python3 examples/11_backpressure.py
+Run: PYTHONPATH=. python3 examples/13_backpressure.py
 """
 
 import asyncio

@@ -169,13 +169,15 @@ PYTHONPATH=. python examples/01_greeter.py         # smallest agent: a one-tool 
 PYTHONPATH=. python examples/03_deep_research.py   # multi-round lookup + five-level compression
 PYTHONPATH=. python examples/06_after_sales.py     # a supervisor whose tools are other agents
 PYTHONPATH=. python examples/07_aiops.py           # diagnose via call + repair via transfer
-PYTHONPATH=. python examples/09_persistence.py     # checkpoint to disk, resume in a fresh process
-PYTHONPATH=. python examples/11_backpressure.py    # streaming events, bounded block/drop backpressure
+PYTHONPATH=. python examples/09_orchestrator.py    # Send stamps out N template copies at runtime
+PYTHONPATH=. python examples/10_blackboard.py      # multi-round board consensus until it converges
+PYTHONPATH=. python examples/11_persistence.py     # checkpoint to disk, resume in a fresh process
+PYTHONPATH=. python examples/13_backpressure.py    # streaming events, bounded block/drop backpressure
 ```
 
 The rest live under `examples/`; the numbering is the suggested order.
 
-## Playground: one command, every example in the browser
+## Playground: one command, every business scenario in the browser
 
 ```bash
 make play                 # equivalent to: PYTHONPATH=. python3 -m src.playground

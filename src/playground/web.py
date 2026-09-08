@@ -9,7 +9,7 @@ PAGE = r"""<!doctype html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>src playground</title>
+<title>prodagent playground</title>
 <style>
   :root{--bd:#e5e7eb;--mut:#6b7280;--bg:#f7f8fa;--ink:#1f2937;--brand:#2563eb;}
   *{box-sizing:border-box}
@@ -72,7 +72,7 @@ PAGE = r"""<!doctype html>
 </style>
 </head>
 <body>
-<header><h1>src playground</h1>
+<header><h1>prodagent playground</h1>
   <span id="tagline"></span>
   <button id="langbtn" class="langbtn"></button></header>
 <div class="wrap">
@@ -111,7 +111,7 @@ PAGE = r"""<!doctype html>
 </div></div></div>
 
 <script>
-let current = null, sid = null, since = 0, timer = null, streams = {}, chat = false;
+let current = null, sid = null, since = 0, timer = null, streams = {}, runs = {}, chat = false;
 const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const ICON = {run_started:"▶", node_started:"▸", node_completed:"✔", state_delta:"∆",
               interrupted:"⏸", resumed:"↺", run_completed:"🏁", run_failed:"✖",
@@ -181,7 +181,7 @@ async function loadScenes(){
 }
 function select(s, el){
   const prev=current;
-  current=s; since=0; sid=null; clearInterval(timer); streams={}; chat=false;
+  current=s; since=0; sid=null; clearInterval(timer); streams={}; runs={}; chat=false;
   document.getElementById("run").textContent=t("run");
   document.querySelectorAll(".scene").forEach(x=>x.classList.remove("active"));
   if(el) el.classList.add("active");
@@ -205,8 +205,18 @@ function render(ev){
   const stick=box.scrollHeight-box.scrollTop-box.clientHeight<48;  // don't yank the view when the user scrolled up to read history
   if(box.firstChild && box.firstChild.classList && box.firstChild.classList.contains("muted")) box.innerHTML="";
   const d=document.createElement("div"); d.className="ev "+ev.kind;
+  // run_id -> name index, filled from run_started: which agent this run is.
+  // Events stay structured (node is the bare node name); composing the
+  // display is the subscriber's business, not the emitter's. Anonymous
+  // blueprints carry no name — show them bare.
+  if(ev.kind==="run_started" && ev.data && ev.data.name)
+    runs[ev.run_id]=ev.data.name;
+  const who=runs[ev.run_id];
   let detail="";
-  if(ev.data && ev.data.node) detail=`node <code>${esc(ev.data.node)}</code>`;
+  if(ev.data && ev.data.node)
+    detail = who ? `<code>${esc(who)} / ${esc(ev.data.node)}</code>`
+                 : `node <code>${esc(ev.data.node)}</code>`;
+  else if(who) detail=`<code>${esc(who)}</code>`;  // a sub-agent's run
   if(ev.kind==="user_turn" && ev.data.text) detail=esc(ev.data.text);
   if(ev.kind==="interrupted" && ev.data.question) detail=esc(ev.data.question);
   if(ev.kind==="run_failed" && ev.data.reason) detail=esc(ev.data.reason);
@@ -223,7 +233,8 @@ function render(ev){
 function onDelta(ev){
   // Token stream: group into one chunk per "run · node"; the reasoning
   // channel renders gray-italic, the body text normal.
-  const key=`${(ev.data.run_id||"?").slice(0,8)} · ${ev.data.node_id||"?"}`;
+  const who=runs[ev.data.run_id];
+  const key=`${who?who+" · ":""}${(ev.data.run_id||"?").slice(0,8)} · ${ev.data.node_id||"?"}`;
   const s=streams[key]||(streams[key]={r:"",c:""});
   if(ev.data.kind==="reasoning") s.r+=ev.data.text||""; else s.c+=ev.data.text||"";
   const st=document.getElementById("stream");
@@ -260,7 +271,7 @@ document.getElementById("run").onclick=async()=>{
       body:JSON.stringify({sid,input:text})});
     box.value="";
   } else {                                         // a fresh run
-    streams={}; chat=false;
+    streams={}; runs={}; chat=false;
     document.getElementById("run").textContent=t("run");
     document.getElementById("timeline").innerHTML="";
     document.getElementById("streamH").style.display="none";

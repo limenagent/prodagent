@@ -37,7 +37,7 @@ def _last_user_text(messages: list[dict]) -> str:
 
 
 def build_react_plan(
-    tools: Any, *, system: str = "", context: Any = None, memory: Any = None
+    tools: Any, *, name: str = "", system: str = "", context: Any = None, memory: Any = None
 ) -> Plan:
     """tools is a ToolPort-compatible tool registry (see runtime.tools.ToolRegistry)."""
 
@@ -86,7 +86,9 @@ def build_react_plan(
         # ReAct "loop" is exactly this back-edge.
         return Outcome.goto("think", messages=outputs, pending=[])
 
-    plan = Plan(channels={"messages": append(), "pending": last(None), "answer": last(None)})
+    plan = Plan(
+        name=name, channels={"messages": append(), "pending": last(None), "answer": last(None)}
+    )
     plan.add(
         Node("think", FnBody(think)),
         Node("tools", FnBody(run_tools)),

@@ -1,4 +1,4 @@
-"""09 Resume from checkpoint — state lands on disk, and a brand-new instance
+"""11 Resume from checkpoint — state lands on disk, and a brand-new instance
 resumes from the suspension point.
 
 The first run suspends at "waiting for a human"; the checkpoint and the event
@@ -7,7 +7,7 @@ log are already written to the directory. We then **rebuild** a Workflow
 directory): it holds no reference to the previous object's memory and
 continues from the on-disk checkpoint alone.
 
-Run: PYTHONPATH=. python3 examples/09_persistence.py
+Run: PYTHONPATH=. python3 examples/11_persistence.py
 """
 
 import asyncio

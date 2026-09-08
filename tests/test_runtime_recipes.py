@@ -128,3 +128,25 @@ async def test_goto_carries_payload_to_target():
     assert run.final_output == "b收到:交接物"
     # b has no static incoming edge, it was activated by Goto; with no back-edge, a never runs a second time.
     assert run.state_of("a").attempts == 1
+
+
+async def test_supervisor_worker_runs_are_named():
+    researcher = simple_plan("调研")
+    assert researcher.name == ""  # precondition: the worker blueprint starts anonymous
+    reg = ToolRegistry()
+    plan = build_supervisor({"researcher": (researcher, "查资料")}, registry=reg)
+    llm = ScriptedLlm([ToolCall("researcher", {"task": "查 X"}), "汇总完成"])
+    sch = Scheduler(llm=llm, tools=reg)
+    started = []
+    sch.bus.on("run_started", lambda evt: started.append(evt))
+
+    run = start_react_run(plan, "做课题")
+    await sch.drive(plan, run)
+
+    assert run.final_output == "汇总完成"
+    # Registration lends the anonymous blueprint the delegation-tool name, and
+    # the spawned worker Run really carries it on run_started — not just the
+    # field, the observable event.
+    assert researcher.name == "researcher"
+    names = [e.data.get("name") for e in started]
+    assert "researcher" in names

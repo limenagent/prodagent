@@ -67,6 +67,11 @@ def register_agent_tool(
     registry: ToolRegistry, name: str, child_plan: Plan, description: str
 ) -> None:
     """Register one sub-agent as a "delegation tool" the supervisor can call."""
+    if not child_plan.name:
+        # The delegation-tool name doubles as the child blueprint's display
+        # identity, so the spawned worker Run is named on any timeline; an
+        # explicitly named plan is left alone.
+        child_plan.name = name
 
     async def delegate(task: str, ctx: Any):
         result = await ctx.spawn(

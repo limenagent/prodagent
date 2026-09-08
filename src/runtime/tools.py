@@ -66,6 +66,10 @@ class ToolRegistry:
         self.bus = bus
         self.write_needs_approval = write_needs_approval
 
+    def attach_bus(self, bus: Any) -> None:
+        """Point the approval gate at a (shared) bus after construction."""
+        self.bus = bus
+
     # ---- registration ----
     def add(self, spec: ToolSpec) -> ToolRegistry:
         if spec.name in self._tools:

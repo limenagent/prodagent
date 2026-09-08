@@ -103,6 +103,13 @@ class Run:
         self.final_output: Any = None
         self.metrics: dict[str, int] = {"waves": 0, "llm_calls": 0, "tool_calls": 0}
 
+    @property
+    def name(self) -> str:
+        """The blueprint's name — static identity derived from the plan, never
+        run state: it does not change per execution and never enters a
+        snapshot; restore(plan, snap) always has the plan at hand."""
+        return self.plan.name
+
     # — convenient construction —
     @classmethod
     def start(cls, plan: Any, **kw: Any) -> Run:

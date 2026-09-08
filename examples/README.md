@@ -10,8 +10,9 @@ PYTHONPATH=. python examples/01_greeter.py
 
 The numbering is the suggested reading order; `graph_demo.py` and
 `react_demo.py` are the two raw-kernel demos that precede the numbered series.
-The same scenarios also run in the browser via `make play` (see the
-[playground](../README.md#playground-one-command-every-example-in-the-browser)).
+Scenarios 01-10 (the business ones) also run in the browser via `make play`
+(see the [playground](../README.md#playground-one-command-every-business-scenario-in-the-browser));
+11-13 are mechanism demos whose point lands best in a terminal.
 
 | File | What it demonstrates |
 |---|---|
@@ -25,6 +26,8 @@ The same scenarios also run in the browser via `make play` (see the
 | `06_after_sales.py` | The supervisor pattern: a supervisor agent whose "tools" are other agents — dispatch a specialist, its answer comes back, dispatch the next, then decide. The risk specialist delegates further, growing a three-level delegation tree where every level runs the same loop. |
 | `07_aiops.py` | Both multi-agent semantics in one workflow: parallel diagnosis via delegation (*call*), then a no-return-edge `go` hands off to the repair agent (*transfer*). |
 | `08_write_review.py` | Generator–critic: a writer drafts, a critic reviews, and a conditional branch carries a failing review back for revision — quality iteration as an ordinary loop with agents in the nodes. |
-| `09_persistence.py` | Checkpoints and the event log on disk: a **freshly built** Workflow (simulating a process restart) resumes from the exact suspension point. |
-| `10_retry_timeout.py` | Per-node resilience: a `RetryPolicy` with exponential backoff plus a timeout — mechanism in the kernel, policy fully replaceable. |
-| `11_backpressure.py` | Streaming from inside a node via `ctx.emit`; a bounded subscription with `block` vs `drop` overflow policies — the demo drops 6 of 8 frames, counted, while the main flow never stalls. |
+| `09_orchestrator.py` | Orchestrator-worker: the graph has ONE reviewer node. A planner agent reads a live catalog tool and writes a numbered plan; each line becomes a `Send` that stamps out a template copy — all copies run concurrently in one wave, and a `join="all"` synth waits for every one. Fan-out width is data, not graph shape. |
+| `10_blackboard.py` | Multi-round consensus: experts never call each other — each appends its opinion to one shared append channel; a `join="all"` moderator reads the board and, if not converged, `Goto.rejoin` re-arms everyone for another round. Opinions accumulate; nobody is overwritten. |
+| `11_persistence.py` | Checkpoints and the event log on disk: a **freshly built** Workflow (simulating a process restart) resumes from the exact suspension point. |
+| `12_retry_timeout.py` | Per-node resilience: a `RetryPolicy` with exponential backoff plus a timeout — mechanism in the kernel, policy fully replaceable. |
+| `13_backpressure.py` | Streaming from inside a node via `ctx.emit`; a bounded subscription with `block` vs `drop` overflow policies — the demo drops 6 of 8 frames, counted, while the main flow never stalls. |

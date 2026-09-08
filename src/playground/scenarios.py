@@ -20,12 +20,13 @@ import asyncio
 import os
 
 import src.runtime as _runtime_pkg
-from src import Agent, Bus, Workflow, go, wait_human
-from src.kernel import LlmReply, ToolCall
+from src import Agent, Bus, Workflow, append, go, last, send, wait_human
+from src.kernel import Goto, LlmReply, Outcome, ToolCall
 from src.runtime.context import TieredCompactionContext
 from src.runtime.llm import ScriptedLlm, env_llm
 from src.runtime.mcp import InProcessMCPServer, load_mcp_tools
 from src.runtime.memory import InMemoryMemory
+from src.runtime.plan_first import parse_numbered_list
 from src.runtime.skills import SkillRegistry
 from src.runtime.tools import ToolRegistry
 
@@ -363,13 +364,14 @@ def _after_sales(lang: str = "en"):
         )
 
     def expert(name, *script, instruction, tools=None, teammates=None):
+        # No bus passed: assembly shares the supervisor's bus down the whole
+        # delegation tree, so every level lands on the timeline.
         return Agent(
             name,
             model=_model(*script),
             instruction=instruction,
             tools=tools or [],
             teammates=teammates,
-            bus=bus,
         )
 
     if lang == "en":
@@ -588,7 +590,180 @@ def _review_team(lang: str = "en"):
     return wf
 
 
-# ---------------------------------------------------------------- 09 long-term memory: cross-session recall
+# ---------------------------------------------------------------- 09 service audit: orchestrator-worker, runtime fan-out
+def _orchestrator(lang: str = "en"):
+    async def catalog(ctx=None):
+        """List the services deployed in this environment."""
+        return (
+            "deployed services: auth, payment, search, notification"
+            if lang == "en"
+            else "已部署服务：auth、payment、search、notification"
+        )
+
+    if lang == "en":
+        plan_text = "1. audit auth\n2. audit payment\n3. audit search\n4. audit notification"
+        plan_instruction = (
+            "You plan a service audit: call the catalog, then output one "
+            "numbered line per service, 'N. audit <service>'."
+        )
+        findings = {
+            "auth": "p95 41ms, errors 0.0% — pass",
+            "payment": "p95 188ms, errors 0.3% — pass, watch item",
+            "search": "p95 320ms, errors 2.1% — FAIL: retry storm from a cold cache",
+            "notification": "p95 65ms, errors 0.1% — pass",
+        }
+        synth_line = (
+            "3 of 4 services pass; search fails on a retry storm — "
+            "roll back the cache change before the release."
+        )
+        synth_instruction = "You write the audit summary in two sentences."
+    else:
+        plan_text = "1. 审计 auth\n2. 审计 payment\n3. 审计 search\n4. 审计 notification"
+        plan_instruction = (
+            "你规划一次服务巡检：先调目录工具，再按「N. 审计 <服务>」每服务一行编号输出。"
+        )
+        findings = {
+            "auth": "p95 41ms，错误率 0.0% —— 通过",
+            "payment": "p95 188ms，错误率 0.3% —— 通过，需关注",
+            "search": "p95 320ms，错误率 2.1% —— 不通过：冷缓存引发重试风暴",
+            "notification": "p95 65ms，错误率 0.1% —— 通过",
+        }
+        synth_line = "4 个服务 3 个通过；search 因重试风暴不通过——发布前先回滚缓存变更。"
+        synth_instruction = "你用两句话写出巡检结论。"
+
+    wf = Workflow()
+    planner = Agent(
+        "planner",
+        model=_model(ToolCall("catalog", {}), plan_text),
+        instruction=plan_instruction,
+        tools=[catalog],
+        bus=wf.bus,
+    )
+    synth = Agent("synth", model=_model(synth_line), instruction=synth_instruction, bus=wf.bus)
+
+    async def dispatch(plan, ctx):
+        # Each plan line becomes one Send: a fresh copy of the reviewer
+        # template, keyed so results map back to their service.
+        steps = parse_numbered_list(plan)
+        return [send("reviewer", step, key=step["id"]) for step in steps]
+
+    async def reviewer(step, ctx):
+        service = step["instruction"].split(maxsplit=1)[1]
+        return f"{service}: {findings[service]}"
+
+    wf.add("planner", planner)
+    wf.add("dispatch", dispatch)
+    wf.add("reviewer", reviewer, template=True)  # copies stamped at runtime
+    wf.add("synth", synth, terminal=True)  # join="all": waits for every copy
+    wf.edge("planner", "dispatch")
+    wf.edge("reviewer", "synth")
+    wf.entry("planner")
+    return wf
+
+
+# ---------------------------------------------------------------- 10 proposal review: blackboard, multi-round consensus
+def _blackboard(lang: str = "en"):
+    if lang == "en":
+        scripts = {
+            "finance": [
+                "Objection: the budget doubles this quarter's cap — needs a phased rollout.",
+                "Agreed: phased rollout keeps spend inside this quarter's cap.",
+            ],
+            "legal": [
+                "Objection: the EU data-processing clause is missing from the contract.",
+                "Agreed: the updated contract adds the EU data-processing clause.",
+            ],
+            "ops": [
+                "Concern: no maintenance window is scheduled for the rollout.",
+                "Agreed: the Sunday 02:00 window works for operations.",
+            ],
+        }
+        agree = "Agreed"
+        verdict_ok = "Consensus: proceed with the phased rollout."
+        verdict_cap = (
+            "Round cap reached without full consensus; proceeding with the phased rollout."
+        )
+        final_note = "{n} opinions were written along the way."
+    else:
+        scripts = {
+            "finance": [
+                "反对：预算翻倍超出本季度上限——需要分期上线。",
+                "同意：分期上线后预算控制在本季度上限内。",
+            ],
+            "legal": [
+                "反对：合同缺少欧盟数据处理条款。",
+                "同意：更新后的合同已补充欧盟数据处理条款。",
+            ],
+            "ops": [
+                "顾虑：上线没有安排维护窗口。",
+                "同意：周日凌晨 2 点的窗口运维可接受。",
+            ],
+        }
+        agree = "同意"
+        verdict_ok = "达成共识：按分期方案上线。"
+        verdict_cap = "到达轮次上限仍未完全收敛，按分期方案上线。"
+        final_note = "板上先后留下了 {n} 条意见。"
+
+    experts = ("finance", "legal", "ops")
+    wf = Workflow()
+    wf.channel("board", append())  # opinions accumulate across rounds
+    wf.channel("round", last(0))
+
+    def expert_node(name):
+        agent = Agent(
+            name,
+            model=_model(*scripts[name]),
+            instruction=(
+                f"You are the {name} reviewer; state your position on the proposal."
+                if lang == "en"
+                else f"你是{name}评审，对方案给出你的立场。"
+            ),
+            bus=wf.bus,
+        )
+
+        async def run(_, ctx):
+            # The expert thinks on its own; only its verdict lands on the board.
+            # Earlier opinions travel with the task, so a real model can
+            # actually respond to them (the scripted one plays the arc).
+            digest = " | ".join(f"{op['by']}: {op['view']}" for op in ctx.shared["board"])
+            task = f"round {ctx.shared['round'] + 1}: review the proposal"
+            if digest:
+                task += f". Board so far: {digest}"
+            view = await agent.delegate(task)
+            return {"board": [{"by": name, "round": ctx.shared["round"], "view": view}]}
+
+        return run
+
+    async def fanout(_, ctx):
+        # Re-arm the experts and the moderator; the edges still decide that
+        # experts run in parallel first and the moderator waits for them all.
+        return Outcome(control=[Goto.rejoin(n) for n in (*experts, "moderate")])
+
+    async def moderate(_, ctx):
+        board, rnd = ctx.shared["board"], ctx.shared["round"]
+        this_round = [op for op in board if op["round"] == rnd]
+        converged = bool(this_round) and all(op["view"].startswith(agree) for op in this_round)
+        # Round cap: the debate ends in a verdict even if consensus never forms
+        # (e.g. a real model never says the scripted word for "agree").
+        if converged or rnd + 1 >= 3:
+            return go("final", verdict_ok if converged else verdict_cap)
+        return go("fanout", round=rnd + 1)  # another round, objections stay on the board
+
+    async def final(text, ctx):
+        return f"{text} ({final_note.format(n=len(ctx.shared['board']))})"
+
+    for name in experts:
+        wf.add(name, expert_node(name))
+        wf.edge("fanout", name)
+        wf.edge(name, "moderate")
+    wf.add("fanout", fanout)
+    wf.add("moderate", moderate, join="all")  # every expert of this round, every round
+    wf.add("final", final, terminal=True)
+    wf.entry("fanout")
+    return wf
+
+
+# ---------------------------------------------------------------- memory (playground-only bonus): cross-session recall
 async def _memory_regular(lang: str = "en"):
     mem = InMemoryMemory()
     # Long-term memory sedimented from earlier chats — it exists independently
@@ -713,10 +888,35 @@ SCENARIOS = [
     },
     {
         "key": "09",
-        "title": "09 Long-term memory · cross-session recall",
+        "title": "09 Service audit · orchestrator-worker",
+        "desc": "How many reviewers? The planner reads the live catalog; Send stamps one template copy per service, all in one wave.",
+        "default": "Audit every deployed service before the release",
+        "title_zh": "09 服务巡检·编排者-工人",
+        "desc_zh": "几个审查员？规划者读线上目录，Send 按服务压出模板拷贝，同一波并发。",
+        "default_zh": "发布前把已部署的服务都巡检一遍",
+        "build": _orchestrator,
+        "is_async": False,
+    },
+    {
+        "key": "10",
+        "title": "10 Proposal review · blackboard",
+        "desc": "Experts only write to a shared board; the moderator reads it — not converged, re-arm everyone for another round.",
+        "default": "Should we roll out the new pricing engine next week?",
+        "title_zh": "10 方案评审·黑板",
+        "desc_zh": "专家只往共享黑板写意见，裁判读板裁决；未收敛就重开一轮。",
+        "default_zh": "新定价引擎下周上线，行吗？",
+        "build": _blackboard,
+        "is_async": False,
+    },
+    {
+        # Playground-only bonus (no numbered counterpart in examples/): the
+        # numbered scenarios 01-10 mirror the business examples exactly; this
+        # one needs the page's chat continuation to feel real.
+        "key": "memory",
+        "title": "＋ Long-term memory · cross-session recall",
         "desc": "Memory outlives the chat; retrieved and injected before think — the model remembers you.",
         "default": "Order me a bubble tea",
-        "title_zh": "09 长期记忆·跨会话召回",
+        "title_zh": "＋ 长期记忆·跨会话召回",
         "desc_zh": "记忆独立于本次对话存在，think 前检索并注入，模型像记得你。",
         "default_zh": "帮我点杯奶茶",
         "build": _memory_regular,

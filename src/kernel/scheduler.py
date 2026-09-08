@@ -173,7 +173,7 @@ class Scheduler:
     # — engine main loop —
     async def drive(self, plan: Any, run: Run) -> None:
         if run.metrics["waves"] == 0 and run.state == RunState.RUNNING:
-            await self._emit(run, RUN_STARTED, {"task": run.task})
+            await self._emit(run, RUN_STARTED, {"task": run.task, "name": run.name})
 
         while run.running:
             ready = plan.ready(run)

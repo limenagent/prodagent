@@ -5,6 +5,7 @@ from src.kernel import (
     Node,
     Outcome,
     Plan,
+    Run,
     RunState,
     Scheduler,
     SubPlanBody,
@@ -54,3 +55,28 @@ async def test_mutual_delegation_loop_is_capped():
     run = await Scheduler(max_depth=3).run(plan_a, task="mutual delegation")
     assert run.state == RunState.FAILED
     assert "depth" in str(run.final_output)
+
+
+async def test_run_name_is_blueprint_identity_not_state():
+    child = Plan(name="child-expert", channels={"trace": append()})
+    child.add(
+        Node("work", FnBody(lambda x, ctx: Outcome.ok("child-result", trace=[x])), terminal=True)
+    )
+    parent = Plan()
+    parent.add(Node("delegate", SubPlanBody(child), terminal=True))
+    sch = Scheduler()
+    started = []
+    sch.bus.on("run_started", lambda evt: started.append(evt))
+
+    run = await sch.run(parent, task="给子Agent的任务")
+
+    # Both spawn paths (SubPlanBody here, Agent delegation in the facade)
+    # create Runs whose name derives from the plan — no per-run assignment.
+    names = [e.data.get("name") for e in started]
+    assert "child-expert" in names and "" in names  # the anonymous parent stays nameless
+    assert run.name == ""
+    # Static identity is never run state: it rides the blueprint, not the
+    # snapshot; restore always has the plan at hand.
+    snap = run.snapshot()
+    assert "name" not in snap
+    assert Run.restore(parent, snap).name == ""

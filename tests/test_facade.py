@@ -134,3 +134,53 @@ async def test_workflow_goto_agent_is_transfer():
     wf.entry("relay")
     result = await wf.run("故障=连接池耗尽")
     assert result.output == "已扩容，恢复"  # no back-edge, control never returns
+
+
+async def test_teammate_events_flow_on_parent_bus_without_explicit_wiring():
+    child = Agent("child", model=ScriptedLlm(["子任务完成"]), instruction="你是子专家。")
+    parent = Agent(
+        "parent",
+        model=ScriptedLlm([ToolCall("child", {"task": "去办"}), "汇总完成"]),
+        instruction="你是主管。",
+        teammates=[child],
+    )
+    seen = []
+    parent.bus.on("run_started", lambda evt: seen.append(("run_started", evt.data.get("name"))))
+    parent.bus.on("node_started", lambda evt: seen.append(("node_started", evt.data.get("node"))))
+
+    result = await parent.run("请委派")
+
+    assert result.output == "汇总完成"
+    # The teammate was never handed a bus: assembly injects the parent's, so
+    # its run lands on the same observable stream, named after its blueprint.
+    assert ("run_started", "child") in seen
+    assert ("run_started", "parent") in seen
+    # Node names stay clean — no agent prefix baked into the event.
+    assert ("node_started", "think") in seen
+
+
+async def test_teammate_bus_sharing_reaches_any_depth():
+    grand = Agent("grand", model=ScriptedLlm(["孙完成"]), instruction="你是孙。")
+    mid = Agent(
+        "mid",
+        model=ScriptedLlm([ToolCall("grand", {"task": "去"}), "子汇总"]),
+        teammates=[grand],
+    )
+    top = Agent(
+        "top",
+        model=ScriptedLlm([ToolCall("mid", {"task": "去"}), "总汇总"]),
+        teammates=[mid],
+    )
+    started, nodes = [], []
+    top.bus.on("run_started", lambda evt: started.append(evt))
+    top.bus.on("node_started", lambda evt: nodes.append(evt))
+
+    result = await top.run("三层委派")
+
+    assert result.output == "总汇总"
+    names = [e.data.get("name") for e in started]
+    assert "mid" in names and "grand" in names
+    # The innermost run's node events land on the ROOT bus: one-level
+    # injection would have left `grand` on mid's stale private bus.
+    grand_ids = {e.run_id for e in started if e.data.get("name") == "grand"}
+    assert any(e.run_id in grand_ids for e in nodes)
