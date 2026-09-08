@@ -37,6 +37,7 @@ from src.kernel.eventlog import (
     NODE_RETRY,
     NODE_STARTED,
     RESUMED,
+    RUN_COMPLETED,
     RUN_FAILED,
     RUN_STARTED,
     STATE_DELTA,
@@ -184,7 +185,7 @@ class Scheduler:
             if not ready:
                 ready = plan.ready(run, empty_fanout=True)
             if not ready:
-                self._settle(plan, run)
+                await self._settle(plan, run)
                 break
 
             run.metrics["waves"] += 1
@@ -361,9 +362,12 @@ class Scheduler:
                     raise TypeError(f"unknown control command: {cmd!r}")
 
     # — settle —
-    def _settle(self, plan: Any, run: Run) -> None:
+    async def _settle(self, plan: Any, run: Run) -> None:
+        # The terminal fact goes into the event stream too: a replay must be
+        # able to tell that — and how — the run ended, not just how it went.
         if plan.is_done(run):
             run.complete(self._final_output(plan, run))
+            await self._emit(run, RUN_COMPLETED, {"output": run.final_output})
         else:
             pending = [
                 k
@@ -374,6 +378,7 @@ class Scheduler:
             run.fail(
                 f"graph stalled: no ready node but unfinished nodes remain {pending} (an edge is likely mis-wired)"
             )
+            await self._emit(run, RUN_FAILED, {"reason": run.final_output})
 
     def _final_output(self, plan: Any, run: Run) -> Any:
         # Take only convergence nodes that actually completed; branches

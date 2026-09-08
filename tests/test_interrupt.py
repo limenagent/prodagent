@@ -64,3 +64,20 @@ async def test_resume_with_a_fresh_scheduler_shared_store():
     run2 = await sch2.resume(build_plan(), run.run_id, "ok")
     assert run2.state == RunState.COMPLETED
     assert run2.final_output == "ok"
+
+
+async def test_resume_does_not_rewrite_stored_history():
+    """The suspended checkpoint is history: the resumed run executes on copies,
+    so after it completes the store still holds the suspension-time snapshot
+    (compare serializations — a shallow load copy would hide in-place mutation)."""
+    import json
+
+    store = InMemoryStore()
+    sch = Scheduler(store=store, durability="exit")
+    run = await sch.run(build_plan())
+    assert run.state == RunState.SUSPENDED
+    frozen = json.dumps(await store.load(run.run_id))
+
+    resumed = await sch.resume(build_plan(), run.run_id, "ok")
+    assert resumed.state == RunState.COMPLETED
+    assert json.dumps(await store.load(run.run_id)) == frozen

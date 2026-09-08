@@ -244,25 +244,30 @@ class Run:
 
     # — snapshot and restore: store only data, not the blueprint or live ports —
     def snapshot(self) -> dict[str, Any]:
+        # A snapshot is detached history: every mutable container is copied
+        # here (shallow is enough — reducers never mutate channel values in
+        # place), so a run's later writes cannot silently rewrite what a
+        # checkpoint store already holds. restore() copies again on its side
+        # for the same reason: the resumed run must not alias the store's copy.
         return {
             "run_id": self.run_id,
             "parent_id": self.parent_id,
             "depth": self.depth,
             "task": self.task,
             "state": str(self.state),
-            "shared": self.shared,
+            "shared": dict(self.shared),
             "node_states": {
                 k: {"status": str(v.status), "output": v.output, "attempts": v.attempts}
                 for k, v in self.node_states.items()
             },
-            "instances": self.instances,
-            "instance_inputs": self.instance_inputs,
-            "deliveries": self.deliveries,
+            "instances": {k: list(v) for k, v in self.instances.items()},
+            "instance_inputs": dict(self.instance_inputs),
+            "deliveries": dict(self.deliveries),
             "instance_seq": self._instance_seq,
             "activated": list(self.activated),
             "interrupts": {k: v.__dict__ for k, v in self.interrupts.items()},
             "final_output": self.final_output,
-            "metrics": self.metrics,
+            "metrics": dict(self.metrics),
             "event_seq": self.event_seq,
         }
 
@@ -275,18 +280,18 @@ class Run:
             depth=snap.get("depth", 0),
             task=snap.get("task", ""),
         )
-        run.shared = snap["shared"]
+        run.shared = dict(snap["shared"])
         run.node_states = {
             k: NodeRuntimeState(NodeStatus(v["status"]), v.get("output"), v.get("attempts", 0))
             for k, v in snap["node_states"].items()
         }
-        run.instances = snap.get("instances", {})
-        run.instance_inputs = snap.get("instance_inputs", {})
-        run.deliveries = snap.get("deliveries", {})
+        run.instances = {k: list(v) for k, v in snap.get("instances", {}).items()}
+        run.instance_inputs = dict(snap.get("instance_inputs", {}))
+        run.deliveries = dict(snap.get("deliveries", {}))
         run._instance_seq = snap.get("instance_seq", 0)
         run.activated = set(snap.get("activated", ()))
         run.final_output = snap.get("final_output")
-        run.metrics = snap.get("metrics", run.metrics)
+        run.metrics = dict(snap.get("metrics", run.metrics))
         run.event_seq = snap.get("event_seq", 0)
         # Restore lands directly on the saved state, bypassing construction-time RUNNING.
         run.state = RunState(snap["state"])
