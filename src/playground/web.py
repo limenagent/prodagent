@@ -180,13 +180,18 @@ async function loadScenes(){
   else if(list.length) select(list[0], box.firstChild);
 }
 function select(s, el){
+  const prev=current;
   current=s; since=0; sid=null; clearInterval(timer); streams={}; chat=false;
   document.getElementById("run").textContent=t("run");
   document.querySelectorAll(".scene").forEach(x=>x.classList.remove("active"));
   if(el) el.classList.add("active");
-  // Refill the input with the new-language default unless the user typed something custom.
+  // Refill the input with this scenario's default unless the user typed
+  // something custom. The defaults of the scenario being left count as stock
+  // too, so switching scenarios swaps the prefilled text instead of leaving
+  // the old one behind.
   const msg=document.getElementById("msg"), v=msg.value;
-  if(!v || v===s.default || v===s.default_zh) msg.value=L(s,"default");
+  const stock = prev ? [prev.default, prev.default_zh] : [];
+  if(!v || v===s.default || v===s.default_zh || stock.includes(v)) msg.value=L(s,"default");
   document.getElementById("desc").textContent=L(s,"desc");
   document.getElementById("timeline").innerHTML=`<div class="muted">${esc(t("press"))}</div>`;
   document.getElementById("streamH").style.display="none";

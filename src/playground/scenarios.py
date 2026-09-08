@@ -20,7 +20,7 @@ import asyncio
 import os
 
 import src.runtime as _runtime_pkg
-from src import Agent, Workflow, go, wait_human
+from src import Agent, Bus, Workflow, go, wait_human
 from src.kernel import LlmReply, ToolCall
 from src.runtime.context import TieredCompactionContext
 from src.runtime.llm import ScriptedLlm, env_llm
@@ -333,36 +333,118 @@ async def _detective(lang: str = "en"):
     )
 
 
-# ---------------------------------------------------------------- 06 trip planning: parallel sub-agents
-def _trip(lang: str = "en"):
-    wf = Workflow()
+# ---------------------------------------------------------------- 06 after-sales refund: supervisor + specialist delegation
+def _after_sales(lang: str = "en"):
+    # One bus for the whole delegation tree, so the page shows every level.
+    bus = Bus()
 
-    def specialist(name, line):
-        instruction = f"You handle {name}." if lang == "en" else f"你负责{name}"
-        return Agent(name, model=_model(line), instruction=instruction, bus=wf.bus)
+    async def query_invoice(order_id, ctx):
+        """Read the invoice and payment status of an order."""
+        return (
+            f"{order_id}: charged ¥399 on Sep 2, shipment never dispatched"
+            if lang == "en"
+            else f"{order_id}: 9 月 2 日已扣款 399 元，商品始终未发货"
+        )
+
+    async def query_blacklist(order_id, ctx):
+        """Check whether an order touches any blacklisted account."""
+        return (
+            f"{order_id}: buyer clean, no blacklist hits"
+            if lang == "en"
+            else f"{order_id}: 买家干净，无黑名单命中"
+        )
+
+    async def query_related(order_id, ctx):
+        """List accounts related to the buyer of an order."""
+        return (
+            f"{order_id}: 1 related account, dormant, no fraud record"
+            if lang == "en"
+            else f"{order_id}: 关联账号 1 个，长期沉寂，无欺诈记录"
+        )
+
+    def expert(name, *script, instruction, tools=None, teammates=None):
+        return Agent(
+            name,
+            model=_model(*script),
+            instruction=instruction,
+            tools=tools or [],
+            teammates=teammates,
+            bus=bus,
+        )
 
     if lang == "en":
-        itinerary = specialist("itinerary", "Day 1 the Bund, Day 2 Disneyland")
-        dining = specialist("dining", "local-cuisine dinner reserved")
-        traffic = specialist("traffic", "Metro Line 2 connection, taxi as backup")
+        related = expert(
+            "related",
+            ToolCall("query_related", {"order_id": "O-1234"}),
+            "One related account, dormant for 2 years, no fraud record.",
+            instruction="You analyze accounts related to a buyer; answer in one sentence.",
+            tools=[query_related],
+        )
+        risk = expert(
+            "risk",
+            ToolCall("query_blacklist", {"order_id": "O-1234"}),
+            ToolCall("related", {"task": "check accounts related to order O-1234"}),
+            "Blacklist clean; the one related account is dormant — risk is low.",
+            instruction="You judge fraud and credit risk; check the data before concluding.",
+            tools=[query_blacklist],
+            teammates=[related],
+        )
+        billing = expert(
+            "billing",
+            ToolCall("query_invoice", {"order_id": "O-1234"}),
+            "Charged ¥399 on Sep 2 and the shipment never went out; refund due in full.",
+            instruction="You answer billing facts only: invoices, payments, refunds.",
+            tools=[query_invoice],
+        )
+        sup_script = [
+            ToolCall("billing", {"task": "gather the billing facts of order O-1234"}),
+            ToolCall("risk", {"task": "assess the fraud risk of order O-1234"}),
+            "Billing confirms charged-but-unshipped and risk is low: approve a full ¥399 refund.",
+        ]
+        sup_instruction = (
+            "You are the after-sales supervisor. You never execute yourself: "
+            "dispatch the right specialist, wait for the answer, then decide."
+        )
     else:
-        itinerary = specialist("itinerary", "第一天外滩、第二天迪士尼")
-        dining = specialist("dining", "本帮菜晚餐已预留")
-        traffic = specialist("traffic", "地铁 2 号线接驳，备打车方案")
+        related = expert(
+            "related",
+            ToolCall("query_related", {"order_id": "O-1234"}),
+            "关联账号仅 1 个，已沉寂 2 年，无欺诈记录。",
+            instruction="你分析买家的关联账号，一句话给出结论。",
+            tools=[query_related],
+        )
+        risk = expert(
+            "risk",
+            ToolCall("query_blacklist", {"order_id": "O-1234"}),
+            ToolCall("related", {"task": "核查订单 O-1234 买家的关联账号"}),
+            "黑名单干净，唯一关联账号已沉寂——风险低。",
+            instruction="你判断欺诈与信用风险，先查数据再下结论。",
+            tools=[query_blacklist],
+            teammates=[related],
+        )
+        billing = expert(
+            "billing",
+            ToolCall("query_invoice", {"order_id": "O-1234"}),
+            "9 月 2 日扣款 399 元且始终未发货，应全额退款。",
+            instruction="你只回答账单事实：发票、支付、退款。",
+            tools=[query_invoice],
+        )
+        sup_script = [
+            ToolCall("billing", {"task": "查订单 O-1234 的账单事实"}),
+            ToolCall("risk", {"task": "评估订单 O-1234 的欺诈风险"}),
+            "账单确认扣款未发货、风险低：批准全额退款 399 元。",
+        ]
+        sup_instruction = "你是售后主管，自己不执行：挑对专家、等结果、再做决定。"
 
-    async def synth(parts, ctx):
-        head = "Itinerary ready:" if lang == "en" else "行程书已生成："
-        return head + "\n- " + "\n- ".join(parts.values())
-
-    wf.add("synth", synth, join="all", terminal=True)
-    wf.add("itinerary", itinerary)
-    wf.add("dining", dining)
-    wf.add("traffic", traffic)
-    wf.entry("itinerary", "dining", "traffic")
-    wf.edge("itinerary", "synth")
-    wf.edge("dining", "synth")
-    wf.edge("traffic", "synth")
-    return wf
+    # The supervisor's "tools" are the specialists above — dispatch, answer
+    # comes back, dispatch the next, then decide.
+    return Agent(
+        "supervisor",
+        model=_model(*sup_script),
+        instruction=sup_instruction,
+        teammates=[billing, risk],
+        bus=bus,
+    )
 
 
 # ---------------------------------------------------------------- 07 incident response: parallel delegation + handoff
@@ -598,13 +680,13 @@ SCENARIOS = [
     },
     {
         "key": "06",
-        "title": "06 Trip planning · parallel sub-agents",
-        "desc": "One wave fans out three specialist agents, then converges into one itinerary.",
-        "default": "A two-day trip to Shanghai",
-        "title_zh": "06 行程规划·并行子 Agent",
-        "desc_zh": "同一波并行派三个专业 Agent，再汇合合成。",
-        "default_zh": "上海两日游",
-        "build": _trip,
+        "title": "06 After-sales refund · supervisor & specialists",
+        "desc": 'The supervisor\'s "tools" are other agents: dispatch billing/risk and answers come back; risk delegates again — three levels.',
+        "default": "Order O-1234: customer charged but nothing shipped. Refund?",
+        "title_zh": "06 售后退款·主管与专家",
+        "desc_zh": "主管的“工具”是别的 Agent：派账单/风控专家拿回结论；风控再往下委派，长出三层。",
+        "default_zh": "订单 O-1234：扣了款一直没发货，该不该退款？",
+        "build": _after_sales,
         "is_async": False,
     },
     {

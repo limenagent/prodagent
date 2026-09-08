@@ -35,13 +35,18 @@ watch for in the code.
 - **05_code_detective.py**: wires in an MCP tool, loads a Skill from disk, and has
   the model correct itself after a tool failure. Watch how an MCP tool is
   normalized to an ordinary tool at the boundary.
-- **06_trip_planner.py**: the main agent fans out three parallel child agents
-  (flights/weather/route) and synthesizes. Watch `Send` fan-out and call
-  (delegation that returns).
+- **06_after_sales.py**: the supervisor agent's "tools" are other agents:
+  dispatch the billing specialist for facts, the risk specialist for a verdict,
+  then decide itself. Watch each delegation go out and come back (call), and
+  the three-level tree that grows when risk delegates further.
 - **07_aiops.py**: the diagnose node uses call to get a result back; when it
   decides to hand over to repair it uses transfer — a same-graph `go` with no
   return edge, control leaving for good. Compare the two multi-agent convergence
   semantics.
+- **08_write_review.py**: a writer agent drafts, a critic agent reviews, and a
+  conditional branch carries a failing review back for revision while a passing
+  one goes straight to finalize. Watch quality iteration be an ordinary loop
+  with a back edge, agents sitting in the nodes.
 
 ## Finally, three "production capability" examples
 

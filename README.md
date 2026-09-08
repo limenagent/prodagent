@@ -167,6 +167,7 @@ PYTHONPATH=. python examples/graph_demo.py         # how waves advance (raw kern
 PYTHONPATH=. python examples/react_demo.py         # hand-assemble ReAct (raw kernel)
 PYTHONPATH=. python examples/01_greeter.py         # smallest agent: a one-tool ReAct
 PYTHONPATH=. python examples/03_deep_research.py   # multi-round lookup + five-level compression
+PYTHONPATH=. python examples/06_after_sales.py     # a supervisor whose tools are other agents
 PYTHONPATH=. python examples/07_aiops.py           # diagnose via call + repair via transfer
 PYTHONPATH=. python examples/09_persistence.py     # checkpoint to disk, resume in a fresh process
 PYTHONPATH=. python examples/11_backpressure.py    # streaming events, bounded block/drop backpressure
