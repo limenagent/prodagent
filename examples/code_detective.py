@@ -1,4 +1,4 @@
-"""05 Code detective — MCP tools normalized at the boundary, skills loaded
+"""Code detective — MCP tools normalized at the boundary, skills loaded
 from a directory on disk, fix-fail-rerun until green.
 
 - The repo capabilities (read files, grep, patch, run tests) are provided by
@@ -8,7 +8,7 @@ from a directory on disk, fix-fail-rerun until green.
   the builtin_skills directory, so skills can be added and removed
   independently and disclosed progressively, with zero framework change.
 
-Run: PYTHONPATH=. python3 examples/05_code_detective.py
+Run: PYTHONPATH=. python3 examples/code_detective.py
 """
 
 import asyncio

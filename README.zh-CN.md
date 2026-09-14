@@ -151,17 +151,18 @@ result = await wf.run("故障")
 # 跑单个示例（在仓库根目录执行）
 PYTHONPATH=. python examples/graph_demo.py         # 波次怎么推进（纯内核）
 PYTHONPATH=. python examples/react_demo.py         # 手工拼出 ReAct（纯内核）
-PYTHONPATH=. python examples/01_greeter.py         # 最小 Agent：一个工具的 ReAct
-PYTHONPATH=. python examples/03_deep_research.py   # 连查多轮 + 五级上下文压缩
-PYTHONPATH=. python examples/06_after_sales.py     # 主管的"工具"是别的 Agent
-PYTHONPATH=. python examples/07_aiops.py           # 诊断 call 要返回 + 修复 transfer 接力
-PYTHONPATH=. python examples/09_orchestrator.py    # Send 运行时压出 N 份模板拷贝
-PYTHONPATH=. python examples/10_blackboard.py      # 黑板多轮共识直到收敛
-PYTHONPATH=. python examples/11_persistence.py     # 检查点落盘，换新实例也能断点恢复
-PYTHONPATH=. python examples/13_backpressure.py    # 流式吐事件，有界订阅 block/drop 背压
+PYTHONPATH=. python examples/greeter.py            # 最小 Agent：一个工具的 ReAct
+PYTHONPATH=. python examples/deep_research.py      # 连查多轮 + 五级上下文压缩
+PYTHONPATH=. python examples/after_sales.py        # 主管的"工具"是别的 Agent
+PYTHONPATH=. python examples/aiops.py              # 诊断 call 要返回 + 修复 transfer 接力
+PYTHONPATH=. python examples/orchestrator.py       # Send 运行时压出 N 份模板拷贝
+PYTHONPATH=. python examples/blackboard.py         # 黑板多轮共识直到收敛
+PYTHONPATH=. python examples/dating_chat.py        # 记忆+压缩 对照 手搓截断
+PYTHONPATH=. python examples/persistence.py        # 检查点落盘，换新实例也能断点恢复
+PYTHONPATH=. python examples/backpressure.py       # 流式吐事件，有界订阅 block/drop 背压
 ```
 
-其余示例见 `examples/` 目录，编号即推荐阅读顺序。
+其余示例见 `examples/` 目录，`examples/README.md` 的表格即推荐阅读顺序。
 
 ## Playground：一个命令，在网页里跑全部业务场景
 

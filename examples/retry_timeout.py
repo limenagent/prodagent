@@ -1,4 +1,4 @@
-"""12 Per-step resilience — timeout and retry backoff are replaceable policies
+"""Per-step resilience — timeout and retry backoff are replaceable policies
 attached to the node.
 
 Transient node failures (network jitter, downstream throttling) are common.
@@ -8,7 +8,7 @@ failure and enters the same retry. The mechanism lives in the kernel; how
 many times to try, how long to wait, and which errors are worth retrying are
 all decided by this policy — replaceable as a whole.
 
-Run: PYTHONPATH=. python3 examples/12_retry_timeout.py
+Run: PYTHONPATH=. python3 examples/retry_timeout.py
 """
 
 import asyncio

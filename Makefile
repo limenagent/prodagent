@@ -6,7 +6,6 @@ PYTHON ?= .venv/bin/python3
 help:
 	@echo "make play        启动网页 playground（默认 127.0.0.1:8000）"
 	@echo "make test        跑全部测试"
-	@echo "make examples    依次运行 examples 下的示例"
 	@echo "make lint        ruff 检查代码规范（含格式校验，不改文件）"
 	@echo "make format      ruff 自动格式化并修复可修复的 lint 问题"
 
@@ -15,9 +14,6 @@ play playground:
 
 test:
 	PYTHONPATH=. $(PYTHON) -m pytest tests/ -q
-
-examples:
-	@for f in examples/0*.py; do echo "--- $$f ---"; PYTHONPATH=. $(PYTHON) $$f; done
 
 # 只管代码目录，README/文档里的代码块不交给 formatter。
 lint:

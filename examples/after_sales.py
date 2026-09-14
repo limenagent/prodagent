@@ -1,4 +1,4 @@
-"""06 After-sales refund — a supervisor agent whose "tools" are other agents.
+"""After-sales refund — a supervisor agent whose "tools" are other agents.
 
 The supervisor never executes anything itself. Each teammate is registered as
 a delegation tool: calling it runs that agent's own loop — its instruction,
@@ -10,7 +10,7 @@ tree; every level runs the same loop, there is no multi-agent engine.
 Each specialist sees only its own read-only tools: the tool set is the
 permission boundary between roles.
 
-Run: PYTHONPATH=. python3 examples/06_after_sales.py
+Run: PYTHONPATH=. python3 examples/after_sales.py
 """
 
 import asyncio

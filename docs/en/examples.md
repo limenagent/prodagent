@@ -7,8 +7,8 @@ Every example uses `ScriptedLlm`, which plays the model from a script —
 PYTHONPATH=. python examples/file_name.py
 ```
 
-Read them in number order; they form a gentle ramp. The parenthetical is what to
-watch for in the code.
+Read them in the order listed; they form a gentle ramp. The parenthetical is
+what to watch for in the code.
 
 ## Start with two "raw kernel" examples
 
@@ -21,50 +21,59 @@ watch for in the code.
 
 ## Then the graduated business examples
 
-- **01_greeter.py**: the smallest facade usage, one Agent + one tool. Watch how
+- **greeter.py**: the smallest facade usage, one Agent + one tool. Watch how
   `Agent.run()` is still that same graph underneath.
-- **02_trader.py**: multi-round bargaining, a human approval gate before a write,
+- **trader.py**: multi-round bargaining, a human approval gate before a write,
   and cross-turn memory. Watch how `wait_human` really suspends the run and
   `resume` continues from the breakpoint.
-- **03_deep_research.py**: consecutive retrieval rounds that trigger five-level
+- **deep_research.py**: consecutive retrieval rounds that trigger five-level
   context compression. Watch how context isn't memory but a projection assembled
   fresh each time.
-- **04_compliance_audit.py**: several checks run in parallel; when one is rejected
+- **compliance_audit.py**: several checks run in parallel; when one is rejected
   at approval, the other conclusions aren't discarded. Watch wave concurrency and
   "error is feedback, you can fix it".
-- **05_code_detective.py**: wires in an MCP tool, loads a Skill from disk, and has
+- **code_detective.py**: wires in an MCP tool, loads a Skill from disk, and has
   the model correct itself after a tool failure. Watch how an MCP tool is
   normalized to an ordinary tool at the boundary.
-- **06_after_sales.py**: the supervisor agent's "tools" are other agents:
+- **after_sales.py**: the supervisor agent's "tools" are other agents:
   dispatch the billing specialist for facts, the risk specialist for a verdict,
   then decide itself. Watch each delegation go out and come back (call), and
   the three-level tree that grows when risk delegates further.
-- **07_aiops.py**: the diagnose node uses call to get a result back; when it
+- **aiops.py**: the diagnose node uses call to get a result back; when it
   decides to hand over to repair it uses transfer — a same-graph `go` with no
   return edge, control leaving for good. Compare the two multi-agent convergence
   semantics.
-- **08_write_review.py**: a writer agent drafts, a critic agent reviews, and a
+- **write_review.py**: a writer agent drafts, a critic agent reviews, and a
   conditional branch carries a failing review back for revision while a passing
   one goes straight to finalize. Watch quality iteration be an ordinary loop
   with a back edge, agents sitting in the nodes.
-- **09_orchestrator.py**: orchestrator-worker. The graph has ONE reviewer node:
+- **orchestrator.py**: orchestrator-worker. The graph has ONE reviewer node:
   a planner agent calls a live catalog tool, writes a numbered plan, and each
   line becomes a `Send` that stamps out one template copy — all copies run in
   one wave, a `join="all"` synth waits for them all. Watch the fan-out width be
   runtime data, not graph shape.
-- **10_blackboard.py**: multi-round consensus. Experts never call each other —
+- **blackboard.py**: multi-round consensus. Experts never call each other —
   each only appends its opinion to one shared channel; a `join="all"` moderator
   reads the whole board and, short of consensus, `Goto.rejoin` re-arms everyone
   for another round. Watch opinions accumulate, nothing overwritten.
+- **dating_chat.py** (the capstone verification scenario): an agent blind
+  date — two context strategies in one shared conversation. Daniu hand-rolls
+  his messages list, forwards a raw tool dump, and runs `del messages[:-4]`
+  once past the threshold; Xiaomei runs on the framework: seeded long-term
+  memory (recalled and injected before think) plus five-level compaction over
+  a six-message budget. Her review check catches the trap — the compressed
+  result keeps the seafood evidence at the head and the noise level at the
+  tail — and the closing verdict shows who still remembered: her summary
+  carries the allergy line, his truncated window lost it.
 
 ## Finally, three "production capability" examples
 
-- **11_persistence.py**: after checkpoints hit disk, a brand-new process resumes
+- **persistence.py**: after checkpoints hit disk, a brand-new process resumes
   from the breakpoint. Watch what a Run snapshot stores and which live objects
   (connections, credentials) are never serialized.
-- **12_retry_timeout.py**: per-node timeout and exponential-backoff retry. Watch
+- **retry_timeout.py**: per-node timeout and exponential-backoff retry. Watch
   "a timeout counts as one failure; whether to retry is a replaceable policy".
-- **13_backpressure.py**: a node streams high-frequency events through the Bus;
+- **backpressure.py**: a node streams high-frequency events through the Bus;
   the subscriber uses a bounded queue with block/drop backpressure. Watch how
   pressure is pushed all the way back to the producer.
 

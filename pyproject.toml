@@ -1,10 +1,43 @@
 [project]
 name = "prodagent"
-version = "0.1.0"
 description = "A teaching-grade agent framework kernel in ~1800 lines: small enough to read in a weekend, structured like a production runtime"
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Haoshuang Li" }]
+keywords = [
+  "agent",
+  "agent-framework",
+  "agent-runtime",
+  "langgraph",
+  "adk",
+  "multi-agent",
+  "event-sourcing",
+  "build-your-own",
+  "teaching",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries :: Application Frameworks",
+  "Topic :: Education",
+]
 dependencies = []
+# Version lives in src/__init__.py (single source of truth), read via
+# [tool.setuptools.dynamic] — a release can never drift between repo and PyPI.
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/limenagent/prodagent"
+Documentation = "https://limenagent.github.io/prodagent/"
+Repository = "https://github.com/limenagent/prodagent"
+Issues = "https://github.com/limenagent/prodagent/issues"
+Changelog = "https://github.com/limenagent/prodagent/releases"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.8"]
@@ -33,8 +66,12 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 
 [build-system]
-requires = ["setuptools>=68"]
+# setuptools>=77: PEP 639 SPDX license-expression support.
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+version = { attr = "src.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["src*"]

@@ -1,4 +1,4 @@
-"""03 Deep research — search for many rounds without blowing the window:
+"""Deep research — search for many rounds without blowing the window:
 five-level compaction is a replaceable strategy.
 
 The context window is not memory; it is assembled fresh before every model
@@ -8,7 +8,7 @@ then summarized level by level — only the summary levels spend one call to
 the compression model. Swap in a different strategy by swapping this one
 injected object; neither the kernel nor the Agent changes.
 
-Run: PYTHONPATH=. python3 examples/03_deep_research.py
+Run: PYTHONPATH=. python3 examples/deep_research.py
 """
 
 import asyncio

@@ -1,4 +1,4 @@
-"""08 Write, review, revise — a generator and a critic agent iterate until
+"""Write, review, revise — a generator and a critic agent iterate until
 the draft passes.
 
 Three agents on one graph: the writer drafts, the critic reviews, and a
@@ -10,7 +10,7 @@ join="any": the two routes are mutually exclusive, exactly one runs.
 No new mechanism: two agents, a conditional branch, and one back edge —
 quality iteration is a loop like any other, with agents in the nodes.
 
-Run: PYTHONPATH=. python3 examples/08_write_review.py
+Run: PYTHONPATH=. python3 examples/write_review.py
 """
 
 import asyncio

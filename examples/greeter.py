@@ -1,6 +1,6 @@
-"""01 Greet & order — the smallest agent: one model + one tool, just run it.
+"""Greet & order — the smallest agent: one model + one tool, just run it.
 
-Run: PYTHONPATH=. python3 examples/01_greeter.py
+Run: PYTHONPATH=. python3 examples/greeter.py
 ScriptedLlm plays the model from a script, so offline you can watch the full
 loop of "think once, call one tool, answer".
 """

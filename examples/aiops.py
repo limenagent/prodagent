@@ -1,4 +1,4 @@
-"""07 Incident response — parallel diagnosis sub-agents pin down the root
+"""Incident response — parallel diagnosis sub-agents pin down the root
 cause (call), then hand off to the repair agent (transfer).
 
 Both multi-agent semantics appear in the same Workflow:
@@ -9,7 +9,7 @@ Both multi-agent semantics appear in the same Workflow:
   graph; the repairer takes over with its own model and finishes the run,
   never returning to the diagnosis flow.
 
-Run: PYTHONPATH=. python3 examples/07_aiops.py
+Run: PYTHONPATH=. python3 examples/aiops.py
 """
 
 import asyncio

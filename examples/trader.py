@@ -1,4 +1,4 @@
-"""02 Bubble-tea proxy buy — multi-round haggling, writes through an approval
+"""Bubble-tea proxy buy — multi-round haggling, writes through an approval
 gate, long-term memory remembering preferences.
 
 - quote is a read-only tool, callable repeatedly (it plays the back-and-forth
@@ -10,7 +10,7 @@ gate, long-term memory remembering preferences.
 - memory remembers "no sugar by default" and is spliced into the system
   prompt before every think.
 
-Run: PYTHONPATH=. python3 examples/02_trader.py
+Run: PYTHONPATH=. python3 examples/trader.py
 """
 
 import asyncio

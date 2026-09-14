@@ -1,4 +1,4 @@
-"""09 Service audit, orchestrator-worker — how many workers? The graph doesn't
+"""Service audit, orchestrator-worker — how many workers? The graph doesn't
 know; the planner reads the live catalog and the runtime stamps out copies.
 
 The graph has ONE reviewer node. How many times it runs is decided at runtime:
@@ -11,7 +11,7 @@ A static graph fans out a fixed shape; here the fan-out width is data. Add a
 fifth service to the catalog tomorrow and the same graph runs five reviewers
 without touching a line.
 
-Run: PYTHONPATH=. python3 examples/09_orchestrator.py
+Run: PYTHONPATH=. python3 examples/orchestrator.py
 """
 
 import asyncio

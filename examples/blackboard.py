@@ -1,4 +1,4 @@
-"""10 Proposal review, blackboard — nobody calls anybody; every expert only
+"""Proposal review, blackboard — nobody calls anybody; every expert only
 writes to a shared board, and a moderator reads it to decide.
 
 Three experts (finance / legal / ops) review a rollout proposal in parallel,
@@ -15,7 +15,7 @@ cap (debate must terminate in a verdict), and the kernel's max_waves behind
 it. With a real model behind env_llm the experts may never say the magic
 word — the round cap is what keeps this runnable, not luck.
 
-Run: PYTHONPATH=. python3 examples/10_blackboard.py
+Run: PYTHONPATH=. python3 examples/blackboard.py
 """
 
 import asyncio

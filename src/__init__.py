@@ -52,6 +52,9 @@ from src.runtime.workflow import (
     wait_human,
 )
 
+# Version single source of truth: pyproject reads it dynamically for releases.
+__version__ = "2.0.1"
+
 __all__ = [
     # facade
     "Agent",

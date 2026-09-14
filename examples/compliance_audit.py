@@ -1,4 +1,4 @@
-"""04 Compliance audit — parallel checks + human approval on the write; a
+"""Compliance audit — parallel checks + human approval on the write; a
 denial changes only the action, not the whole rerun.
 
 Two audit branches run in parallel and converge into a conclusion; "freeze
@@ -6,7 +6,7 @@ accounts" truly stops and waits for a human (wait_human). If denied, the flow
 does not re-run the checks — it takes the other edge to the report,
 annotated "not approved".
 
-Run: PYTHONPATH=. python3 examples/04_compliance_audit.py
+Run: PYTHONPATH=. python3 examples/compliance_audit.py
 """
 
 import asyncio
