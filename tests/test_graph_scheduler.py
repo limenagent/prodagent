@@ -202,7 +202,7 @@ async def test_activated_bypass_is_one_shot_not_permanent():
     )
     p.edge("slow", "gate")
     run = Run.start(p)
-    run.reset_pending("gate")
+    run.rearm("gate", immediate=True)
     assert "gate" in p.ready(run)
     run.mark_running("gate")
     run.mark_completed("gate", "G-first")

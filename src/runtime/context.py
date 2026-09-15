@@ -2,18 +2,16 @@
 
 The context window is not memory; before every model call it is a projection
 "assembled on the spot" from the full conversation history. How to assemble it,
-how much to keep, and what to do when it overflows are all strategy:
-
-- WindowContext: keep only the first-turn request plus the most recent few
-  messages, the simplest option;
-- SummarizingContext: when over budget, compress older messages into a summary
-  via a model, then splice on the recent messages — neither hard-dropping early
-  key facts nor overflowing the window.
+how much to keep, and what to do when it overflows are all strategy. The
+teaching build ships one strategy, five-level escalation: within the window
+leave it untouched; past capacity, shorten tool results mechanically first (no
+model spend), then summarize level by level — only the summary levels spend a
+model call.
 
 Here "message count" is used as the budget for teaching; in production swap the
 counter for a tokenizer's token count and the assembly flow is identical. The
-kernel doesn't know these classes; they're only invoked before "think" in the
-ReAct recipe.
+kernel doesn't know this class; it's only invoked before "think" in the ReAct
+recipe.
 """
 
 from __future__ import annotations
@@ -23,46 +21,6 @@ from typing import Any, ClassVar, Protocol
 
 class ContextManager(Protocol):
     async def assemble(self, messages: list[dict]) -> list[dict]: ...
-
-
-class WindowContext:
-    """Keep the first-turn user request, then the most recent keep_last messages."""
-
-    def __init__(self, keep_last: int = 8):
-        self.keep_last = keep_last
-
-    async def assemble(self, messages: list[dict]) -> list[dict]:
-        if len(messages) <= self.keep_last + 1:
-            return messages
-        head = next((m for m in messages if m.get("role") == "user"), None)
-        tail = messages[-self.keep_last :]
-        return ([head] if head else []) + tail
-
-
-class SummarizingContext:
-    """When old messages exceed budget, summarize them and splice on recent ones (the summarizer uses LlmPort, replaceable)."""
-
-    def __init__(self, llm: Any, max_messages: int = 10, keep_last: int = 4):
-        self.llm = llm
-        self.max_messages = max_messages
-        self.keep_last = keep_last
-
-    async def assemble(self, messages: list[dict]) -> list[dict]:
-        if len(messages) <= self.max_messages:
-            return messages
-        pivot = len(messages) - self.keep_last
-        old, recent = messages[:pivot], messages[pivot:]
-        reply = await self.llm.chat(
-            [
-                {
-                    "role": "user",
-                    "content": "Compress the conversation below into a bullet-point summary, "
-                    "keeping key facts, numbers, and open items; do not expand:\n" + _render(old),
-                }
-            ]
-        )
-        summary = {"role": "system", "content": f"Summary of earlier conversation: {reply.text}"}
-        return [summary, *recent]
 
 
 def _render(messages: list[dict]) -> str:

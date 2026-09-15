@@ -168,26 +168,31 @@ class Plan:
     def _edge_live(e: Edge, shared: dict[str, Any]) -> bool:
         return e.when is None or bool(e.when(shared))
 
+    def _instance_keys(self, run: Any, source: str) -> list[str] | None:
+        """The keys whose states stand for predecessor ``source``: the node
+        itself, or — for a template — all its fan-out instances. None when it
+        is a template that produced no instances (the caller answers that case
+        with its empty_fanout flag)."""
+        if not self._nodes[source].template:
+            return [source]
+        keys = run.instances.get(source, ())
+        return list(keys) if keys else None
+
     def _predecessor_done(self, run: Any, source: str, *, empty_fanout: bool = False) -> bool:
         """A predecessor "completed successfully": a normal node is COMPLETED;
         a template needs all its instances in a terminal state."""
-        node = self._nodes[source]
-        if not node.template:
-            return run.is_completed(source)
-        instances = run.instances.get(source, ())
-        if not instances:
+        keys = self._instance_keys(run, source)
+        if keys is None:
             return empty_fanout
-        return all(run.is_terminal(k) for k in instances)
+        done = run.is_completed if not self._nodes[source].template else run.is_terminal
+        return all(done(k) for k in keys)
 
     def _predecessor_terminal(self, run: Any, source: str, *, empty_fanout: bool = False) -> bool:
         """Whether the predecessor reached any terminal state (done/skipped/failed)."""
-        node = self._nodes[source]
-        if not node.template:
-            return run.is_terminal(source)
-        instances = run.instances.get(source, ())
-        if not instances:
+        keys = self._instance_keys(run, source)
+        if keys is None:
             return empty_fanout
-        return all(run.is_terminal(k) for k in instances)
+        return all(run.is_terminal(k) for k in keys)
 
     # — core: who is ready this wave —
     def ready(self, run: Any, *, empty_fanout: bool = False) -> list[str]:

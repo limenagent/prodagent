@@ -290,7 +290,7 @@ async function decide(approved){
   document.getElementById("approve").style.display="none";
   await api("/api/resume",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({sid,approved})});
-  since = since; timer=setInterval(poll,400); poll();
+  timer=setInterval(poll,400); poll();
 }
 document.getElementById("yes").onclick=()=>decide(true);
 document.getElementById("no").onclick=()=>decide(false);

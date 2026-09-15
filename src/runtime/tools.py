@@ -97,12 +97,6 @@ class ToolRegistry:
         )
         return self.add(spec)
 
-    def get(self, name: str) -> ToolSpec | None:
-        return self._tools.get(name)
-
-    def names(self) -> list[str]:
-        return list(self._tools)
-
     def schemas(self) -> list[dict]:
         """The function-calling tool list shown to the model."""
         return [
@@ -151,21 +145,19 @@ class ToolRegistry:
         #   arguments/args/payload parameter receives the whole dict.
         # A parameter named ctx is filled by the framework, not the model.
         sig = inspect.signature(fn)
-        data_params = [n for n in sig.parameters if n not in ("ctx", "_ctx", "context")]
-        kwargs: dict[str, Any] = {}
+        ctx_name = next((n for n in sig.parameters if n in ("ctx", "_ctx", "context")), None)
+        kwargs: dict[str, Any] = {ctx_name: ctx} if ctx_name else {}
+        data_params = [n for n in sig.parameters if n != ctx_name]
         if len(data_params) == 1 and data_params[0] in ("arguments", "args", "payload"):
             kwargs[data_params[0]] = arguments
         else:
             for name, p in sig.parameters.items():
-                if name in ("ctx", "_ctx", "context"):
-                    kwargs[name] = ctx
-                elif name in arguments:
+                if name == ctx_name:
+                    continue
+                if name in arguments:
                     kwargs[name] = arguments[name]
                 elif p.default is inspect.Parameter.empty:
                     raise TypeError(f"missing argument: {name}")
                 else:
                     kwargs[name] = p.default
-        if any(n in ("ctx", "_ctx", "context") for n in sig.parameters):
-            ctx_name = next(n for n in sig.parameters if n in ("ctx", "_ctx", "context"))
-            kwargs[ctx_name] = ctx
         return fn(**kwargs)

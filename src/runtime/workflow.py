@@ -4,8 +4,8 @@ Use Workflow when you don't want "an agent that thinks on its own" but "a flow
 chart you can see clearly":
 
     wf = Workflow()
-    wf.add_node("fetch", fetch_fn)
-    wf.add_node("write", writer_agent)        # a node can also be an Agent directly
+    wf.add("fetch", fetch_fn)
+    wf.add("write", writer_agent)        # a node can also be an Agent directly
     wf.edge("fetch", "write")
     wf.entry("fetch")
     result = await wf.run("task")
@@ -69,9 +69,8 @@ def wait_human(question: str = "", payload: Any = None, *, kind: str = "approval
 class _FacadeBody:
     """Wrap a user function: normalize its permissive return into an Outcome and auto-add channels for new state keys."""
 
-    def __init__(self, fn: Callable, workflow: Workflow, plan_ref: list):
+    def __init__(self, fn: Callable, plan_ref: list):
         self.fn = fn
-        self.workflow = workflow
         self.plan_ref = plan_ref
 
     async def run(self, input: Any, ctx) -> Outcome:
@@ -141,7 +140,7 @@ class Workflow:
         self._channels[name] = reducer
         return self
 
-    def add_node(
+    def add(
         self,
         name: str,
         body: Any,
@@ -152,6 +151,7 @@ class Workflow:
         timeout: float | None = None,
         retry: Any = None,
     ) -> Workflow:
+        """Declare a node; the body may be a function, an Agent, a bare Plan, or a kernel body."""
         self._nodes[name] = (
             body,
             {
@@ -163,10 +163,6 @@ class Workflow:
             },
         )
         return self
-
-    # Short alias for smoother chaining.
-    def add(self, name: str, body: Any, **opts) -> Workflow:
-        return self.add_node(name, body, **opts)
 
     def edge(self, src: str, dst: str, *, when: Callable | None = None) -> Workflow:
         self._edges.append((src, dst, when))
@@ -185,11 +181,11 @@ class Workflow:
     # ---- compile ----
     def _as_body(self, body: Any, plan_ref: list) -> NodeBody:
         if isinstance(body, Agent):  # an Agent runs its own model self-contained
-            return _FacadeBody(body.as_task(), self, plan_ref)
+            return _FacadeBody(body.as_task(), plan_ref)
         if isinstance(body, Plan):  # only a bare Plan is recursed by the same scheduler
             return SubPlanBody(body)
         if callable(body):  # ordinary function -> permissive wrapper
-            return _FacadeBody(body, self, plan_ref)
+            return _FacadeBody(body, plan_ref)
         return body  # already a kernel body, use as-is
 
     def _compile(self) -> Plan:

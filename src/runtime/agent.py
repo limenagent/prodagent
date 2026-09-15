@@ -194,7 +194,6 @@ class Agent:
         scheduler = self._scheduler()
         run = start_react_run(self._plan, task, history)
         await scheduler.drive(self._plan, run)
-        self._last_scheduler = scheduler
         return run
 
     async def _run_standalone(self, task: str) -> Any:

@@ -76,7 +76,7 @@ flowchart TB
 | Outcome / body | `kernel/body.py` | 唯一可组合接口 + 函数/工具/模型/子图四种 body |
 | Command | `kernel/command.py` | Goto / Send：只改“下一波就绪集合”；Goto 可带 payload 作为转场输入 |
 | EventLog / Store | `kernel/eventlog.py` | 事件是事实源，状态是折叠投影 |
-| Bus | `kernel/bus.py` | 旁观 fire / 裁决 check / 收集 collect + 有界订阅背压 |
+| Bus | `kernel/bus.py` | 旁观 fire / 裁决 check + 有界订阅背压 |
 | Scheduler | `kernel/scheduler.py` | BSP 波次主循环，把所有部件装成一台机器 |
 | ports | `kernel/ports.py` | LLM / 工具 / 子 Agent 的依赖倒置端口 |
 

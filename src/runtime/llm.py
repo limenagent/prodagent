@@ -56,11 +56,3 @@ def env_llm(fallback: Any):
     if os.getenv("OPENAI_API_KEY"):
         return OpenAICompatibleLlm()
     return fallback
-
-
-def user_message(text: str) -> dict:
-    return {"role": "user", "content": text}
-
-
-def tool_message(name: str, content: Any) -> dict:
-    return {"role": "tool", "name": name, "content": content}

@@ -1,4 +1,4 @@
-"""Bus's three protocols: observing never affects the main flow, checking is fail-closed, collecting aggregates."""
+"""Bus's two protocols: observing never affects the main flow, checking is fail-closed."""
 
 from src.kernel import Bus
 
@@ -33,11 +33,3 @@ async def test_check_fail_closed_when_checker_raises():
     bus.checker("gate", broken)
     verdict = await bus.check("gate")
     assert not verdict.allowed  # an error must not let it through
-
-
-async def test_collect_skips_none():
-    bus = Bus()
-    bus.provider("ctx", lambda **_: "a")
-    bus.provider("ctx", lambda **_: None)
-    bus.provider("ctx", lambda **_: "b")
-    assert await bus.collect("ctx") == ["a", "b"]

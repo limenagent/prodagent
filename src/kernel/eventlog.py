@@ -65,7 +65,6 @@ def fold_events(
 class EventLog(Protocol):
     async def append(self, event: Event) -> int: ...
     async def events(self, run_id: str) -> list[Event]: ...
-    async def after(self, run_id: str, since_seq: int) -> list[Event]: ...
 
 
 class CheckpointStore(Protocol):
@@ -89,9 +88,6 @@ class InMemoryEventLog:
 
     async def events(self, run_id: str) -> list[Event]:
         return list(self._streams.get(run_id, ()))
-
-    async def after(self, run_id: str, since_seq: int) -> list[Event]:
-        return [e for e in self._streams.get(run_id, ()) if e.seq > since_seq]
 
 
 class InMemoryStore:
@@ -117,6 +113,3 @@ class InMemoryStore:
     async def load(self, run_id: str) -> dict | None:
         snap = self._snapshots.get(run_id)
         return None if snap is None else dict(snap)
-
-    def version_of(self, run_id: str) -> int:
-        return self._version.get(run_id, 0)

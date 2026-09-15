@@ -26,12 +26,11 @@ from src.kernel import (
     Node,
     Outcome,
     Plan,
-    Run,
     SubPlanBody,
     append,
     last,
 )
-from src.runtime.react import build_react_plan, start_react_run
+from src.runtime.react import build_react_plan
 from src.runtime.tools import ToolRegistry, ToolSpec
 
 DEFAULT_SUPERVISOR_SYSTEM = (
@@ -111,12 +110,6 @@ def build_supervisor(
     return build_react_plan(
         registry, system=system or DEFAULT_SUPERVISOR_SYSTEM, context=context, memory=memory
     )
-
-
-async def run_supervisor(plan: Plan, task: str, scheduler: Any) -> Run:
-    run = start_react_run(plan, task)
-    await scheduler.drive(plan, run)
-    return run
 
 
 # Note: multi-agent "transfer" (handoff, no return) needs no dedicated controller —

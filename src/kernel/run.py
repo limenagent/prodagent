@@ -23,30 +23,12 @@ def _new_id(prefix: str = "run") -> str:
 
 @dataclass
 class NodeRuntimeState:
-    """Runtime state of a node (or dynamic instance) within this Run."""
+    """Runtime state of a node (or dynamic instance) within this Run: a pure
+    record — every change goes through Run's mark_*/rearm methods."""
 
     status: NodeStatus = NodeStatus.PENDING
     output: Any = None
     attempts: int = 0
-
-    def mark_running(self) -> None:
-        self.status = NodeStatus.RUNNING
-        self.attempts += 1
-
-    def mark_completed(self, output: Any) -> None:
-        self.status = NodeStatus.COMPLETED
-        self.output = output
-
-    def mark_skipped(self) -> None:
-        self.status = NodeStatus.SKIPPED
-
-    def mark_failed(self, error: str) -> None:
-        self.status = NodeStatus.FAILED
-        self.output = error
-
-    def reset_pending(self) -> None:
-        """On a Goto back-edge, return the node to pending for the next wave."""
-        self.status = NodeStatus.PENDING
 
 
 @dataclass(frozen=True)
@@ -179,36 +161,42 @@ class Run:
             NodeStatus.FAILED,
         )
 
-    # — node state changes —
+    # — node state changes (the single throat; the scheduler only calls these) —
     def mark_running(self, key: str) -> None:
-        self.node_states[key].mark_running()
+        st = self.node_states[key]
+        st.status = NodeStatus.RUNNING
+        st.attempts += 1
         # Consume the immediate-activation pass now: without this, a node
         # that was ever Goto(immediate=True)'d would stay in `activated`
         # forever, bypassing predecessor/join gating on every future rearm.
         self.activated.discard(key)
 
     def mark_completed(self, key: str, output: Any) -> None:
-        self.node_states[key].mark_completed(output)
+        st = self.node_states[key]
+        st.status = NodeStatus.COMPLETED
+        st.output = output
 
     def mark_skipped(self, key: str) -> None:
-        self.node_states[key].mark_skipped()
+        self.node_states[key].status = NodeStatus.SKIPPED
 
     def mark_failed(self, key: str, error: str) -> None:
-        self.node_states[key].mark_failed(error)
+        st = self.node_states[key]
+        st.status = NodeStatus.FAILED
+        st.output = error
 
-    def rearm(self, key: str) -> None:
-        """Re-arm: move a (possibly COMPLETED) node back to PENDING.
+    def rearm(self, key: str, *, immediate: bool = False) -> None:
+        """Re-arm: move a (possibly COMPLETED) node back to PENDING — the one
+        low-level action that lets a node run again.
 
-        This is the one low-level action that lets a node run again. It only
-        changes state; it does not decide whether to release it immediately.
-        """
-        self.node_states.setdefault(key, NodeRuntimeState()).reset_pending()
-
-    def reset_pending(self, key: str) -> None:
-        """Used by Goto: re-arm and add to activated — next wave it bypasses
-        predecessors and becomes ready immediately."""
-        self.rearm(key)
-        self.activated.add(key)  # record "command-activated now" for the readiness check
+        immediate=True also adds it to ``activated``, so next wave it bypasses
+        its predecessors and becomes ready right away (sequential back-edges,
+        runtime jumps, handovers). immediate=False lets incoming edges and join
+        decide when it runs again (an iterative convergence point waits for
+        this wave's predecessors)."""
+        st = self.node_states.setdefault(key, NodeRuntimeState())
+        st.status = NodeStatus.PENDING
+        if immediate:
+            self.activated.add(key)
 
     # — dynamic instances (Send fan-out) —
     def add_instance(self, template: str, payload: Any, key: str | None = None) -> str:

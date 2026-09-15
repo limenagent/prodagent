@@ -9,7 +9,9 @@ full chain reproduces. Every place a human must decide uses wait_human, so the
 page suspends there and continues after Approve/Reject.
 
 Every builder takes a `lang` ("en" | "zh") so the scripted dialog, the model
-instruction, and the approval question all follow the UI language. The one
+instruction, and the approval question all follow the UI language. Each builder
+picks its per-language copy from a small `t = {"en": {...}, "zh": {...}}[lang]`
+table up top, so the assembly logic below it is written once. The one
 exception: the skill-match query in scenario 05 stays Chinese in both
 languages — it word-matches the bundled Chinese SKILL.md.
 """
@@ -38,84 +40,87 @@ def _model(*script):
 
 # ---------------------------------------------------------------- 01 greet & order
 def _greeter(lang: str = "en"):
-    if lang == "zh":
-
-        async def menu(drink, ctx):
-            """查询某款饮品是否在售。"""
-            return {"芋泥啵啵": "在售，18 元", "美式": "在售，12 元"}.get(drink, "菜单里没有")
-
-        return Agent(
-            name="greeter",
-            model=_model(
+    t = {
+        "en": {
+            "instruction": "You are a bubble-tea shop assistant; keep answers short.",
+            "menu": {"taro-bubble-tea": "in stock, ¥18", "americano": "in stock, ¥12"},
+            "missing": "not on the menu",
+            "script": [
+                ToolCall("menu", {"drink": "taro-bubble-tea"}),
+                "Yes — taro bubble tea is in stock, ¥18 a cup. Want me to order one?",
+                "Done! One taro bubble tea for you, no sugar, less ice, as usual.",
+            ],
+        },
+        "zh": {
+            "instruction": "你是奶茶店助手，回答简洁。",
+            "menu": {"芋泥啵啵": "在售，18 元", "美式": "在售，12 元"},
+            "missing": "菜单里没有",
+            "script": [
                 ToolCall("menu", {"drink": "芋泥啵啵"}),
                 "有的，芋泥啵啵在售，18 元一杯，需要帮你下单吗？",
                 "好嘞，已帮你下一杯芋泥啵啵，按你的偏好无糖去冰。",
-            ),
-            instruction="你是奶茶店助手，回答简洁。",
-            tools=[menu],
-        )
+            ],
+        },
+    }[lang]
 
     async def menu(drink, ctx):
         """Check whether a drink is on the menu."""
-        return {
-            "taro-bubble-tea": "in stock, ¥18",
-            "americano": "in stock, ¥12",
-        }.get(drink, "not on the menu")
+        return t["menu"].get(drink, t["missing"])
 
     return Agent(
         name="greeter",
-        model=_model(
-            ToolCall("menu", {"drink": "taro-bubble-tea"}),
-            "Yes — taro bubble tea is in stock, ¥18 a cup. Want me to order one?",
-            "Done! One taro bubble tea for you, no sugar, less ice, as usual.",
-        ),
-        instruction="You are a bubble-tea shop assistant; keep answers short.",
+        model=_model(*t["script"]),
+        instruction=t["instruction"],
         tools=[menu],
     )
 
 
 # ---------------------------------------------------------------- 02 haggle + order approval
 def _trader(lang: str = "en"):
+    t = {
+        "en": {
+            "instruction": "You are a purchasing agent: haggle first, then request order approval.",
+            "quote_fmt": "current quote: ¥{v}",
+            "order_fmt": "Order placed: {plan}",
+            "cancel_fmt": "No deal on price; order abandoned: {plan}",
+            "question": "Haggled down to ¥14, self pickup. Approve the order?",
+            "script": [
+                ToolCall("quote", {}),
+                ToolCall("quote", {}),
+                "After two rounds of haggling: ¥14, self pickup. Ready to order.",
+            ],
+        },
+        "zh": {
+            "instruction": "你是代购助手，先砍价再申请下单。",
+            "quote_fmt": "当前报价 {v} 元",
+            "order_fmt": "订单已下：{plan}",
+            "cancel_fmt": "价格没谈拢，已放弃下单：{plan}",
+            "question": "代购谈到 14 元自取，批准下单吗？",
+            "script": [
+                ToolCall("quote", {}),
+                ToolCall("quote", {}),
+                "两轮砍价后谈到 14 元自取，准备下单。",
+            ],
+        },
+    }[lang]
     price = {"v": 20}
 
     async def quote(ctx):
         """Ask the seller for the current price."""
         price["v"] -= 2
-        return f"current quote: ¥{price['v']}" if lang == "en" else f"当前报价 {price['v']} 元"
+        return t["quote_fmt"].format(v=price["v"])
 
     async def place_order(plan, ctx):
-        return f"Order placed: {plan}" if lang == "en" else f"订单已下：{plan}"
+        return t["order_fmt"].format(plan=plan)
 
     async def cancel(plan, ctx):
-        return (
-            f"No deal on price; order abandoned: {plan}"
-            if lang == "en"
-            else f"价格没谈拢，已放弃下单：{plan}"
-        )
+        return t["cancel_fmt"].format(plan=plan)
 
     wf = Workflow()
     buyer = Agent(
         name="buyer",
-        model=_model(
-            *(
-                [
-                    ToolCall("quote", {}),
-                    ToolCall("quote", {}),
-                    "After two rounds of haggling: ¥14, self pickup. Ready to order.",
-                ]
-                if lang == "en"
-                else [
-                    ToolCall("quote", {}),
-                    ToolCall("quote", {}),
-                    "两轮砍价后谈到 14 元自取，准备下单。",
-                ]
-            )
-        ),
-        instruction=(
-            "You are a purchasing agent: haggle first, then request order approval."
-            if lang == "en"
-            else "你是代购助手，先砍价再申请下单。"
-        ),
+        model=_model(*t["script"]),
+        instruction=t["instruction"],
         tools=[quote],
         memory=InMemoryMemory(),
         bus=wf.bus,
@@ -123,12 +128,7 @@ def _trader(lang: str = "en"):
 
     async def approve(plan, ctx):
         if ctx.resume_value is None:
-            question = (
-                "Haggled down to ¥14, self pickup. Approve the order?"
-                if lang == "en"
-                else "代购谈到 14 元自取，批准下单吗？"
-            )
-            return wait_human(question, {"plan": plan})
+            return wait_human(t["question"], {"plan": plan})
         target = "place_order" if ctx.resume_value.get("approved") else "cancel"
         # Record the decision + carry the value to the chosen terminal node.
         return go(target, plan, decision=target)
@@ -152,50 +152,38 @@ def _trader(lang: str = "en"):
 
 # ---------------------------------------------------------------- 03 deep research + context compaction
 def _research(lang: str = "en"):
+    t = {
+        "en": {
+            "instruction": "You are an industry researcher.",
+            "search_fmt": "Search results for '{query}': one data-rich source…",
+            "summary": "(early searches compacted: market size, growth rate, key players)",
+            "queries": ["market size", "growth rate", "top players", "policy outlook"],
+            "final": (
+                "Report: across four rounds of search, the market grows steadily, "
+                "the top players concentrate, and policy is friendly…"
+            ),
+        },
+        "zh": {
+            "instruction": "你是行业研究员。",
+            "search_fmt": "关于「{query}」的检索结果：一条带数字的资料……",
+            "summary": "（早期检索要点已压缩：市场规模、增速、主要玩家）",
+            "queries": ["市场规模", "年增速", "头部玩家", "政策风向"],
+            "final": "报告：综合四轮检索，市场规模稳步增长，头部集中，政策友好……",
+        },
+    }[lang]
+
     async def search(query, ctx):
         """Search for material."""
-        return (
-            f"Search results for '{query}': one data-rich source…"
-            if lang == "en"
-            else f"关于「{query}」的检索结果：一条带数字的资料……"
-        )
+        return t["search_fmt"].format(query=query)
 
     class ConstSummarizer:
-        def __init__(self):
-            self.times = 0
-
         async def chat(self, messages, tools=None, system=None):
-            self.times += 1
-            return LlmReply(
-                text=(
-                    "(early searches compacted: market size, growth rate, key players)"
-                    if lang == "en"
-                    else "（早期检索要点已压缩：市场规模、增速、主要玩家）"
-                )
-            )
-
-    queries = (
-        ["market size", "growth rate", "top players", "policy outlook"]
-        if lang == "en"
-        else ["市场规模", "年增速", "头部玩家", "政策风向"]
-    )
-    final = (
-        "Report: across four rounds of search, the market grows steadily, "
-        "the top players concentrate, and policy is friendly…"
-        if lang == "en"
-        else "报告：综合四轮检索，市场规模稳步增长，头部集中，政策友好……"
-    )
+            return LlmReply(text=t["summary"])
 
     return Agent(
         name="researcher",
-        model=_model(
-            ToolCall("search", {"query": queries[0]}),
-            ToolCall("search", {"query": queries[1]}),
-            ToolCall("search", {"query": queries[2]}),
-            ToolCall("search", {"query": queries[3]}),
-            final,
-        ),
-        instruction="You are an industry researcher." if lang == "en" else "你是行业研究员。",
+        model=_model(*[ToolCall("search", {"query": q}) for q in t["queries"]], t["final"]),
+        instruction=t["instruction"],
         tools=[search],
         # Five-level compaction: untouched while it fits; past capacity, tool
         # results are mechanically shortened first, then summarized level by
@@ -207,52 +195,46 @@ def _research(lang: str = "en"):
 
 # ---------------------------------------------------------------- 04 compliance audit: parallel checks + freeze approval
 def _compliance(lang: str = "en"):
+    t = {
+        "en": {
+            "flags": "fast-in fast-out transfers detected",
+            "links": "linked to 3 accounts of the same origin",
+            "synth_fmt": "Synthesis: {flags}; {links}. Recommend freezing.",
+            "question": "Freeze accounts A1 and A2?",
+            "approved": "froze A1 & A2",
+            "denied": "freeze recommended but not approved this time",
+            "report_fmt": "{summary} | action taken: {decision}",
+        },
+        "zh": {
+            "flags": "发现快进快出交易",
+            "links": "关联到 3 个同源账户",
+            "synth_fmt": "综合判断：{flags}；{links}，建议冻结。",
+            "question": "批准冻结 A1、A2 两个账户吗？",
+            "approved": "已冻结 A1、A2",
+            "denied": "建议冻结，但本次未获批准",
+            "report_fmt": "{summary}｜处置：{decision}",
+        },
+    }[lang]
     wf = Workflow()
 
     async def screen_suspicious(x, ctx):
-        return (
-            {"flags": "fast-in fast-out transfers detected"}
-            if lang == "en"
-            else {"flags": "发现快进快出交易"}
-        )
+        return {"flags": t["flags"]}
 
     async def screen_accounts(x, ctx):
-        return (
-            {"links": "linked to 3 accounts of the same origin"}
-            if lang == "en"
-            else {"links": "关联到 3 个同源账户"}
-        )
+        return {"links": t["links"]}
 
     async def synthesize(x, ctx):
         s = ctx.shared
-        return (
-            f"Synthesis: {s['flags']}; {s['links']}. Recommend freezing."
-            if lang == "en"
-            else f"综合判断：{s['flags']}；{s['links']}，建议冻结。"
-        )
+        return t["synth_fmt"].format(flags=s["flags"], links=s["links"])
 
     async def freeze(summary, ctx):
         if ctx.resume_value is None:
-            question = (
-                "Freeze accounts A1 and A2?" if lang == "en" else "批准冻结 A1、A2 两个账户吗？"
-            )
-            return wait_human(question, {"accounts": ["A1", "A2"]})
-        if ctx.resume_value.get("approved"):
-            decision = "froze A1 & A2" if lang == "en" else "已冻结 A1、A2"
-        else:
-            decision = (
-                "freeze recommended but not approved this time"
-                if lang == "en"
-                else "建议冻结，但本次未获批准"
-            )
+            return wait_human(t["question"], {"accounts": ["A1", "A2"]})
+        decision = t["approved"] if ctx.resume_value.get("approved") else t["denied"]
         return go("report", summary, decision=decision)
 
     async def report(summary, ctx):
-        return (
-            f"{summary} | action taken: {ctx.shared['decision']}"
-            if lang == "en"
-            else f"{summary}｜处置：{ctx.shared['decision']}"
-        )
+        return t["report_fmt"].format(summary=summary, decision=ctx.shared["decision"])
 
     wf.add("screen_suspicious", screen_suspicious)
     wf.add("screen_accounts", screen_accounts)
@@ -269,25 +251,68 @@ def _compliance(lang: str = "en"):
 
 # ---------------------------------------------------------------- 05 code detective: MCP tools + skills
 async def _detective(lang: str = "en"):
+    t = {
+        "en": {
+            "read_fmt": "[contents of {file}]",
+            "grep_fmt": "hits at {pattern}",
+            "patch_out": "patch applied",
+            "read_desc": "read a file",
+            "grep_desc": "full-text search",
+            "patch_desc": "modify code",
+            "test_desc": "run the tests",
+            "tests_pass": "tests pass",
+            "tests_fail": "1 test still failing: boundary not handled",
+            "base_system": "You are a code-debugging assistant.",
+            "script": [
+                ToolCall("read_file", {"file": "test_x.py"}),
+                ToolCall("grep", {"pattern": "func_x"}),
+                ToolCall("read_file", {"file": "x.py"}),
+                ToolCall("apply_patch", {"change": "guard the boundary"}),
+                ToolCall("run_test", {}),
+                ToolCall("apply_patch", {"change": "also guard the None case"}),
+                ToolCall("run_test", {}),
+                "Found a None-boundary bug; after two fixes all tests pass.",
+            ],
+        },
+        "zh": {
+            "read_fmt": "【{file} 的内容】",
+            "grep_fmt": "在 {pattern} 处命中",
+            "patch_out": "补丁已应用",
+            "read_desc": "读文件",
+            "grep_desc": "全文检索",
+            "patch_desc": "修改代码",
+            "test_desc": "运行测试",
+            "tests_pass": "测试通过",
+            "tests_fail": "1 个测试仍失败：边界没处理",
+            "base_system": "你是代码排障助手。",
+            "script": [
+                ToolCall("read_file", {"file": "test_x.py"}),
+                ToolCall("grep", {"pattern": "func_x"}),
+                ToolCall("read_file", {"file": "x.py"}),
+                ToolCall("apply_patch", {"change": "补边界"}),
+                ToolCall("run_test", {}),
+                ToolCall("apply_patch", {"change": "再补空值"}),
+                ToolCall("run_test", {}),
+                "定位到空值边界问题，两次修改后测试全部通过。",
+            ],
+        },
+    }[lang]
+
     repo = InProcessMCPServer("repo")
-    if lang == "en":
-        repo.define("read_file", lambda a: f"[contents of {a['file']}]", description="read a file")
-        repo.define("grep", lambda a: f"hits at {a['pattern']}", description="full-text search")
-        repo.define("apply_patch", lambda a: "patch applied", description="modify code")
-    else:
-        repo.define("read_file", lambda a: f"【{a['file']} 的内容】", description="读文件")
-        repo.define("grep", lambda a: f"在 {a['pattern']} 处命中", description="全文检索")
-        repo.define("apply_patch", lambda a: "补丁已应用", description="修改代码")
+    repo.define(
+        "read_file", lambda a: t["read_fmt"].format(file=a["file"]), description=t["read_desc"]
+    )
+    repo.define(
+        "grep", lambda a: t["grep_fmt"].format(pattern=a["pattern"]), description=t["grep_desc"]
+    )
+    repo.define("apply_patch", lambda a: t["patch_out"], description=t["patch_desc"])
     runs = {"n": 0}
 
     def run_test(a):
         runs["n"] += 1
-        if lang == "en":
-            return "tests pass" if runs["n"] >= 2 else "1 test still failing: boundary not handled"
-        return "测试通过" if runs["n"] >= 2 else "1 个测试仍失败：边界没处理"
+        return t["tests_pass"] if runs["n"] >= 2 else t["tests_fail"]
 
-    desc_test = "run the tests" if lang == "en" else "运行测试"
-    repo.define("run_test", run_test, description=desc_test)
+    repo.define("run_test", run_test, description=t["test_desc"])
 
     registry = ToolRegistry()
     await load_mcp_tools(registry, repo)
@@ -300,35 +325,11 @@ async def _detective(lang: str = "en"):
     skills = SkillRegistry()
     skills.load_dir(skills_dir)
     skill = skills.match("测试失败 排障 补丁 重跑")
-    base_system = "You are a code-debugging assistant." if lang == "en" else "你是代码排障助手。"
-    system = skills.apply_to_system(skill, base_system)
-
-    if lang == "en":
-        script = [
-            ToolCall("read_file", {"file": "test_x.py"}),
-            ToolCall("grep", {"pattern": "func_x"}),
-            ToolCall("read_file", {"file": "x.py"}),
-            ToolCall("apply_patch", {"change": "guard the boundary"}),
-            ToolCall("run_test", {}),
-            ToolCall("apply_patch", {"change": "also guard the None case"}),
-            ToolCall("run_test", {}),
-            "Found a None-boundary bug; after two fixes all tests pass.",
-        ]
-    else:
-        script = [
-            ToolCall("read_file", {"file": "test_x.py"}),
-            ToolCall("grep", {"pattern": "func_x"}),
-            ToolCall("read_file", {"file": "x.py"}),
-            ToolCall("apply_patch", {"change": "补边界"}),
-            ToolCall("run_test", {}),
-            ToolCall("apply_patch", {"change": "再补空值"}),
-            ToolCall("run_test", {}),
-            "定位到空值边界问题，两次修改后测试全部通过。",
-        ]
+    system = skills.apply_to_system(skill, t["base_system"])
 
     return Agent(
         name="detective",
-        model=_model(*script),
+        model=_model(*t["script"]),
         instruction=system,
         registry=registry,
     )
@@ -336,114 +337,118 @@ async def _detective(lang: str = "en"):
 
 # ---------------------------------------------------------------- 06 after-sales refund: supervisor + specialist delegation
 def _after_sales(lang: str = "en"):
+    t = {
+        "en": {
+            "invoice_fmt": "{order_id}: charged ¥399 on Sep 2, shipment never dispatched",
+            "blacklist_fmt": "{order_id}: buyer clean, no blacklist hits",
+            "related_fmt": "{order_id}: 1 related account, dormant, no fraud record",
+            "related": {
+                "script": [
+                    ToolCall("query_related", {"order_id": "O-1234"}),
+                    "One related account, dormant for 2 years, no fraud record.",
+                ],
+                "instruction": "You analyze accounts related to a buyer; answer in one sentence.",
+            },
+            "risk": {
+                "script": [
+                    ToolCall("query_blacklist", {"order_id": "O-1234"}),
+                    ToolCall("related", {"task": "check accounts related to order O-1234"}),
+                    "Blacklist clean; the one related account is dormant — risk is low.",
+                ],
+                "instruction": "You judge fraud and credit risk; check the data before concluding.",
+            },
+            "billing": {
+                "script": [
+                    ToolCall("query_invoice", {"order_id": "O-1234"}),
+                    "Charged ¥399 on Sep 2 and the shipment never went out; refund due in full.",
+                ],
+                "instruction": "You answer billing facts only: invoices, payments, refunds.",
+            },
+            "sup": {
+                "script": [
+                    ToolCall("billing", {"task": "gather the billing facts of order O-1234"}),
+                    ToolCall("risk", {"task": "assess the fraud risk of order O-1234"}),
+                    "Billing confirms charged-but-unshipped and risk is low: "
+                    "approve a full ¥399 refund.",
+                ],
+                "instruction": (
+                    "You are the after-sales supervisor. You never execute yourself: "
+                    "dispatch the right specialist, wait for the answer, then decide."
+                ),
+            },
+        },
+        "zh": {
+            "invoice_fmt": "{order_id}: 9 月 2 日已扣款 399 元，商品始终未发货",
+            "blacklist_fmt": "{order_id}: 买家干净，无黑名单命中",
+            "related_fmt": "{order_id}: 关联账号 1 个，长期沉寂，无欺诈记录",
+            "related": {
+                "script": [
+                    ToolCall("query_related", {"order_id": "O-1234"}),
+                    "关联账号仅 1 个，已沉寂 2 年，无欺诈记录。",
+                ],
+                "instruction": "你分析买家的关联账号，一句话给出结论。",
+            },
+            "risk": {
+                "script": [
+                    ToolCall("query_blacklist", {"order_id": "O-1234"}),
+                    ToolCall("related", {"task": "核查订单 O-1234 买家的关联账号"}),
+                    "黑名单干净，唯一关联账号已沉寂——风险低。",
+                ],
+                "instruction": "你判断欺诈与信用风险，先查数据再下结论。",
+            },
+            "billing": {
+                "script": [
+                    ToolCall("query_invoice", {"order_id": "O-1234"}),
+                    "9 月 2 日扣款 399 元且始终未发货，应全额退款。",
+                ],
+                "instruction": "你只回答账单事实：发票、支付、退款。",
+            },
+            "sup": {
+                "script": [
+                    ToolCall("billing", {"task": "查订单 O-1234 的账单事实"}),
+                    ToolCall("risk", {"task": "评估订单 O-1234 的欺诈风险"}),
+                    "账单确认扣款未发货、风险低：批准全额退款 399 元。",
+                ],
+                "instruction": "你是售后主管，自己不执行：挑对专家、等结果、再做决定。",
+            },
+        },
+    }[lang]
     # One bus for the whole delegation tree, so the page shows every level.
     bus = Bus()
 
     async def query_invoice(order_id, ctx):
         """Read the invoice and payment status of an order."""
-        return (
-            f"{order_id}: charged ¥399 on Sep 2, shipment never dispatched"
-            if lang == "en"
-            else f"{order_id}: 9 月 2 日已扣款 399 元，商品始终未发货"
-        )
+        return t["invoice_fmt"].format(order_id=order_id)
 
     async def query_blacklist(order_id, ctx):
         """Check whether an order touches any blacklisted account."""
-        return (
-            f"{order_id}: buyer clean, no blacklist hits"
-            if lang == "en"
-            else f"{order_id}: 买家干净，无黑名单命中"
-        )
+        return t["blacklist_fmt"].format(order_id=order_id)
 
     async def query_related(order_id, ctx):
         """List accounts related to the buyer of an order."""
-        return (
-            f"{order_id}: 1 related account, dormant, no fraud record"
-            if lang == "en"
-            else f"{order_id}: 关联账号 1 个，长期沉寂，无欺诈记录"
-        )
+        return t["related_fmt"].format(order_id=order_id)
 
-    def expert(name, *script, instruction, tools=None, teammates=None):
+    def expert(name, spec, tools=None, teammates=None):
         # No bus passed: assembly shares the supervisor's bus down the whole
         # delegation tree, so every level lands on the timeline.
         return Agent(
             name,
-            model=_model(*script),
-            instruction=instruction,
+            model=_model(*spec["script"]),
+            instruction=spec["instruction"],
             tools=tools or [],
             teammates=teammates,
         )
 
-    if lang == "en":
-        related = expert(
-            "related",
-            ToolCall("query_related", {"order_id": "O-1234"}),
-            "One related account, dormant for 2 years, no fraud record.",
-            instruction="You analyze accounts related to a buyer; answer in one sentence.",
-            tools=[query_related],
-        )
-        risk = expert(
-            "risk",
-            ToolCall("query_blacklist", {"order_id": "O-1234"}),
-            ToolCall("related", {"task": "check accounts related to order O-1234"}),
-            "Blacklist clean; the one related account is dormant — risk is low.",
-            instruction="You judge fraud and credit risk; check the data before concluding.",
-            tools=[query_blacklist],
-            teammates=[related],
-        )
-        billing = expert(
-            "billing",
-            ToolCall("query_invoice", {"order_id": "O-1234"}),
-            "Charged ¥399 on Sep 2 and the shipment never went out; refund due in full.",
-            instruction="You answer billing facts only: invoices, payments, refunds.",
-            tools=[query_invoice],
-        )
-        sup_script = [
-            ToolCall("billing", {"task": "gather the billing facts of order O-1234"}),
-            ToolCall("risk", {"task": "assess the fraud risk of order O-1234"}),
-            "Billing confirms charged-but-unshipped and risk is low: approve a full ¥399 refund.",
-        ]
-        sup_instruction = (
-            "You are the after-sales supervisor. You never execute yourself: "
-            "dispatch the right specialist, wait for the answer, then decide."
-        )
-    else:
-        related = expert(
-            "related",
-            ToolCall("query_related", {"order_id": "O-1234"}),
-            "关联账号仅 1 个，已沉寂 2 年，无欺诈记录。",
-            instruction="你分析买家的关联账号，一句话给出结论。",
-            tools=[query_related],
-        )
-        risk = expert(
-            "risk",
-            ToolCall("query_blacklist", {"order_id": "O-1234"}),
-            ToolCall("related", {"task": "核查订单 O-1234 买家的关联账号"}),
-            "黑名单干净，唯一关联账号已沉寂——风险低。",
-            instruction="你判断欺诈与信用风险，先查数据再下结论。",
-            tools=[query_blacklist],
-            teammates=[related],
-        )
-        billing = expert(
-            "billing",
-            ToolCall("query_invoice", {"order_id": "O-1234"}),
-            "9 月 2 日扣款 399 元且始终未发货，应全额退款。",
-            instruction="你只回答账单事实：发票、支付、退款。",
-            tools=[query_invoice],
-        )
-        sup_script = [
-            ToolCall("billing", {"task": "查订单 O-1234 的账单事实"}),
-            ToolCall("risk", {"task": "评估订单 O-1234 的欺诈风险"}),
-            "账单确认扣款未发货、风险低：批准全额退款 399 元。",
-        ]
-        sup_instruction = "你是售后主管，自己不执行：挑对专家、等结果、再做决定。"
+    related = expert("related", t["related"], tools=[query_related])
+    risk = expert("risk", t["risk"], tools=[query_blacklist], teammates=[related])
+    billing = expert("billing", t["billing"], tools=[query_invoice])
 
     # The supervisor's "tools" are the specialists above — dispatch, answer
     # comes back, dispatch the next, then decide.
     return Agent(
         "supervisor",
-        model=_model(*sup_script),
-        instruction=sup_instruction,
+        model=_model(*t["sup"]["script"]),
+        instruction=t["sup"]["instruction"],
         teammates=[billing, risk],
         bus=bus,
     )
@@ -451,78 +456,74 @@ def _after_sales(lang: str = "en"):
 
 # ---------------------------------------------------------------- 07 incident response: parallel delegation + handoff
 def _aiops(lang: str = "en"):
+    t = {
+        "en": {
+            "cpu": "12:00 35% → 12:10 92% → 12:20 93% → 12:30 91% (spiking every ten minutes)",
+            "log": "ERROR pool exhausted: connection wait timed out (5000ms), "
+            "37 times in the last hour",
+            "instruction_fmt": "You are {name}: check the data with tools before "
+            "concluding, in two sentences.",
+            "diag_cpu": [
+                ToolCall("cpu_metrics", {}),
+                "CPU saturates periodically every ten minutes; suspect queuing downstream.",
+            ],
+            "diag_log": [
+                ToolCall("error_log", {}),
+                "Error log shows connection-wait timeouts; the pool is exhausted.",
+            ],
+            "repairer": "Connection pool enlarged and upstream throttled; service recovered.",
+            "ask_cpu": "check the CPU curve",
+            "ask_log": "check the error log",
+            "root_fmt": "root cause = pool exhaustion ({cpu}; {log})",
+        },
+        "zh": {
+            "cpu": "12:00 35% → 12:10 92% → 12:20 93% → 12:30 91%（每十分钟打满一次）",
+            "log": "ERROR pool exhausted: 获取连接超时（等待 5000ms），近 1 小时共 37 次",
+            "instruction_fmt": "你是{name}，先用工具查数据再下结论，两句话内给出结论。",
+            "diag_cpu": [
+                ToolCall("cpu_metrics", {}),
+                "CPU 每十分钟周期性打满，疑似下游排队。",
+            ],
+            "diag_log": [
+                ToolCall("error_log", {}),
+                "错误日志显示获取连接超时，连接池已耗尽。",
+            ],
+            "repairer": "已扩容连接池并对上游限流，服务恢复。",
+            "ask_cpu": "看 CPU 曲线",
+            "ask_log": "看错误日志",
+            "root_fmt": "根因=连接池耗尽（{cpu}；{log}）",
+        },
+    }[lang]
     wf = Workflow()
 
     # Read-only observability tools: the diagnosing agents have data to check,
     # instead of guessing from a vague "look at the CPU curve".
     async def cpu_metrics(ctx=None):
         """Read the last hour's CPU curve."""
-        return (
-            "12:00 35% → 12:10 92% → 12:20 93% → 12:30 91% (spiking every ten minutes)"
-            if lang == "en"
-            else "12:00 35% → 12:10 92% → 12:20 93% → 12:30 91%（每十分钟打满一次）"
-        )
+        return t["cpu"]
 
     async def error_log(ctx=None):
         """Read the recent error log."""
-        return (
-            "ERROR pool exhausted: connection wait timed out (5000ms), 37 times in the last hour"
-            if lang == "en"
-            else "ERROR pool exhausted: 获取连接超时（等待 5000ms），近 1 小时共 37 次"
-        )
+        return t["log"]
 
     def engineer(name, *script, tools=None):
-        instruction = (
-            f"You are {name}: check the data with tools before concluding, in two sentences."
-            if lang == "en"
-            else f"你是{name}，先用工具查数据再下结论，两句话内给出结论。"
-        )
         return Agent(
             name,
             model=_model(*script),
-            instruction=instruction,
+            instruction=t["instruction_fmt"].format(name=name),
             tools=tools or [],
             bus=wf.bus,
         )
 
-    if lang == "en":
-        diag_cpu = engineer(
-            "diag_cpu",
-            ToolCall("cpu_metrics", {}),
-            "CPU saturates periodically every ten minutes; suspect queuing downstream.",
-            tools=[cpu_metrics],
-        )
-        diag_log = engineer(
-            "diag_log",
-            ToolCall("error_log", {}),
-            "Error log shows connection-wait timeouts; the pool is exhausted.",
-            tools=[error_log],
-        )
-        repairer = engineer(
-            "repairer", "Connection pool enlarged and upstream throttled; service recovered."
-        )
-        ask_cpu, ask_log = "check the CPU curve", "check the error log"
-        root_fmt = "root cause = pool exhaustion ({cpu}; {log})"
-    else:
-        diag_cpu = engineer(
-            "diag_cpu",
-            ToolCall("cpu_metrics", {}),
-            "CPU 每十分钟周期性打满，疑似下游排队。",
-            tools=[cpu_metrics],
-        )
-        diag_log = engineer(
-            "diag_log",
-            ToolCall("error_log", {}),
-            "错误日志显示获取连接超时，连接池已耗尽。",
-            tools=[error_log],
-        )
-        repairer = engineer("repairer", "已扩容连接池并对上游限流，服务恢复。")
-        ask_cpu, ask_log = "看 CPU 曲线", "看错误日志"
-        root_fmt = "根因=连接池耗尽（{cpu}；{log}）"
+    diag_cpu = engineer("diag_cpu", *t["diag_cpu"], tools=[cpu_metrics])
+    diag_log = engineer("diag_log", *t["diag_log"], tools=[error_log])
+    repairer = engineer("repairer", t["repairer"])
 
     async def diagnose(x, ctx):
-        cpu, log = await asyncio.gather(diag_cpu.delegate(ask_cpu), diag_log.delegate(ask_log))
-        return go("decide", root_fmt.format(cpu=cpu, log=log))
+        cpu, log = await asyncio.gather(
+            diag_cpu.delegate(t["ask_cpu"]), diag_log.delegate(t["ask_log"])
+        )
+        return go("decide", t["root_fmt"].format(cpu=cpu, log=log))
 
     async def decide(root, ctx):
         # transfer: `go` to the repair agent in the same graph; no return edge
@@ -539,37 +540,49 @@ def _aiops(lang: str = "en"):
 
 # ---------------------------------------------------------------- 08 write-review-revise: multi-agent + conditional branch
 def _review_team(lang: str = "en"):
+    t = {
+        "en": {
+            "instruction_fmt": "You are {name}.",
+            "writer": "Draft: revenue grew this quarter; recommend expanding.",
+            "critic": "Review: lacks data sources — revise before finalizing.",
+            "reviser": "Revision: added the source for +18% YoY revenue; conclusion unchanged.",
+            "fail_kw": "lacks",
+            "finalize_fmt": "Finalized: {text}",
+        },
+        "zh": {
+            "instruction_fmt": "你是{name}",
+            "writer": "初稿：本季度营收增长，建议扩张。",
+            "critic": "审阅意见：缺少数据来源，需要补充后再定稿。",
+            "reviser": "修订稿：补充营收同比 +18% 的来源，结论不变。",
+            "fail_kw": "补充",
+            "finalize_fmt": "定稿完成：{text}",
+        },
+    }[lang]
     wf = Workflow()
 
     def author(name, line):
-        instruction = f"You are {name}." if lang == "en" else f"你是{name}"
-        return Agent(name, model=_model(line), instruction=instruction, bus=wf.bus)
-
-    if lang == "en":
-        writer = author("writer", "Draft: revenue grew this quarter; recommend expanding.")
-        critic = author("critic", "Review: lacks data sources — revise before finalizing.")
-        reviser = author(
-            "reviser", "Revision: added the source for +18% YoY revenue; conclusion unchanged."
+        return Agent(
+            name,
+            model=_model(line),
+            instruction=t["instruction_fmt"].format(name=name),
+            bus=wf.bus,
         )
-    else:
-        writer = author("writer", "初稿：本季度营收增长，建议扩张。")
-        critic = author("critic", "审阅意见：缺少数据来源，需要补充后再定稿。")
-        reviser = author("reviser", "修订稿：补充营收同比 +18% 的来源，结论不变。")
+
+    writer = author("writer", t["writer"])
+    critic = author("critic", t["critic"])
+    reviser = author("reviser", t["reviser"])
 
     async def judge(review, ctx):
         # A failing review goes to revision, a passing one straight to finalize
         # — the runtime picks the side by content. (The keyword matches the
         # critic's scripted line in the current language.)
-        if lang == "en":
-            target = "revise" if "lacks" in str(review).lower() else "finalize"
-        else:
-            target = "revise" if "补充" in str(review) else "finalize"
+        target = "revise" if t["fail_kw"] in str(review).lower() else "finalize"
         return go(target, review, verdict=target, review=review)
 
     async def finalize(text, ctx):
         # Input here: the review comment when finalized directly, or the
         # revised draft when it went through revision.
-        return f"Finalized: {text}" if lang == "en" else f"定稿完成：{text}"
+        return t["finalize_fmt"].format(text=text)
 
     wf.add("writer", writer)
     wf.add("critic", critic)
@@ -592,54 +605,58 @@ def _review_team(lang: str = "en"):
 
 # ---------------------------------------------------------------- 09 service audit: orchestrator-worker, runtime fan-out
 def _orchestrator(lang: str = "en"):
+    t = {
+        "en": {
+            "catalog": "deployed services: auth, payment, search, notification",
+            "plan_text": "1. audit auth\n2. audit payment\n3. audit search\n4. audit notification",
+            "plan_instruction": (
+                "You plan a service audit: call the catalog, then output one "
+                "numbered line per service, 'N. audit <service>'."
+            ),
+            "findings": {
+                "auth": "p95 41ms, errors 0.0% — pass",
+                "payment": "p95 188ms, errors 0.3% — pass, watch item",
+                "search": "p95 320ms, errors 2.1% — FAIL: retry storm from a cold cache",
+                "notification": "p95 65ms, errors 0.1% — pass",
+            },
+            "synth_line": (
+                "3 of 4 services pass; search fails on a retry storm — "
+                "roll back the cache change before the release."
+            ),
+            "synth_instruction": "You write the audit summary in two sentences.",
+        },
+        "zh": {
+            "catalog": "已部署服务：auth、payment、search、notification",
+            "plan_text": "1. 审计 auth\n2. 审计 payment\n3. 审计 search\n4. 审计 notification",
+            "plan_instruction": (
+                "你规划一次服务巡检：先调目录工具，再按「N. 审计 <服务>」每服务一行编号输出。"
+            ),
+            "findings": {
+                "auth": "p95 41ms，错误率 0.0% —— 通过",
+                "payment": "p95 188ms，错误率 0.3% —— 通过，需关注",
+                "search": "p95 320ms，错误率 2.1% —— 不通过：冷缓存引发重试风暴",
+                "notification": "p95 65ms，错误率 0.1% —— 通过",
+            },
+            "synth_line": "4 个服务 3 个通过；search 因重试风暴不通过——发布前先回滚缓存变更。",
+            "synth_instruction": "你用两句话写出巡检结论。",
+        },
+    }[lang]
+
     async def catalog(ctx=None):
         """List the services deployed in this environment."""
-        return (
-            "deployed services: auth, payment, search, notification"
-            if lang == "en"
-            else "已部署服务：auth、payment、search、notification"
-        )
-
-    if lang == "en":
-        plan_text = "1. audit auth\n2. audit payment\n3. audit search\n4. audit notification"
-        plan_instruction = (
-            "You plan a service audit: call the catalog, then output one "
-            "numbered line per service, 'N. audit <service>'."
-        )
-        findings = {
-            "auth": "p95 41ms, errors 0.0% — pass",
-            "payment": "p95 188ms, errors 0.3% — pass, watch item",
-            "search": "p95 320ms, errors 2.1% — FAIL: retry storm from a cold cache",
-            "notification": "p95 65ms, errors 0.1% — pass",
-        }
-        synth_line = (
-            "3 of 4 services pass; search fails on a retry storm — "
-            "roll back the cache change before the release."
-        )
-        synth_instruction = "You write the audit summary in two sentences."
-    else:
-        plan_text = "1. 审计 auth\n2. 审计 payment\n3. 审计 search\n4. 审计 notification"
-        plan_instruction = (
-            "你规划一次服务巡检：先调目录工具，再按「N. 审计 <服务>」每服务一行编号输出。"
-        )
-        findings = {
-            "auth": "p95 41ms，错误率 0.0% —— 通过",
-            "payment": "p95 188ms，错误率 0.3% —— 通过，需关注",
-            "search": "p95 320ms，错误率 2.1% —— 不通过：冷缓存引发重试风暴",
-            "notification": "p95 65ms，错误率 0.1% —— 通过",
-        }
-        synth_line = "4 个服务 3 个通过；search 因重试风暴不通过——发布前先回滚缓存变更。"
-        synth_instruction = "你用两句话写出巡检结论。"
+        return t["catalog"]
 
     wf = Workflow()
     planner = Agent(
         "planner",
-        model=_model(ToolCall("catalog", {}), plan_text),
-        instruction=plan_instruction,
+        model=_model(ToolCall("catalog", {}), t["plan_text"]),
+        instruction=t["plan_instruction"],
         tools=[catalog],
         bus=wf.bus,
     )
-    synth = Agent("synth", model=_model(synth_line), instruction=synth_instruction, bus=wf.bus)
+    synth = Agent(
+        "synth", model=_model(t["synth_line"]), instruction=t["synth_instruction"], bus=wf.bus
+    )
 
     async def dispatch(plan, ctx):
         # Each plan line becomes one Send: a fresh copy of the reviewer
@@ -649,7 +666,8 @@ def _orchestrator(lang: str = "en"):
 
     async def reviewer(step, ctx):
         service = step["instruction"].split(maxsplit=1)[1]
-        return f"{service}: {findings[service]}"
+        finding = t["findings"][service]
+        return f"{service}: {finding}"
 
     wf.add("planner", planner)
     wf.add("dispatch", dispatch)
@@ -663,46 +681,52 @@ def _orchestrator(lang: str = "en"):
 
 # ---------------------------------------------------------------- 10 proposal review: blackboard, multi-round consensus
 def _blackboard(lang: str = "en"):
-    if lang == "en":
-        scripts = {
-            "finance": [
-                "Objection: the budget doubles this quarter's cap — needs a phased rollout.",
-                "Agreed: phased rollout keeps spend inside this quarter's cap.",
-            ],
-            "legal": [
-                "Objection: the EU data-processing clause is missing from the contract.",
-                "Agreed: the updated contract adds the EU data-processing clause.",
-            ],
-            "ops": [
-                "Concern: no maintenance window is scheduled for the rollout.",
-                "Agreed: the Sunday 02:00 window works for operations.",
-            ],
-        }
-        agree = "Agreed"
-        verdict_ok = "Consensus: proceed with the phased rollout."
-        verdict_cap = (
-            "Round cap reached without full consensus; proceeding with the phased rollout."
-        )
-        final_note = "{n} opinions were written along the way."
-    else:
-        scripts = {
-            "finance": [
-                "反对：预算翻倍超出本季度上限——需要分期上线。",
-                "同意：分期上线后预算控制在本季度上限内。",
-            ],
-            "legal": [
-                "反对：合同缺少欧盟数据处理条款。",
-                "同意：更新后的合同已补充欧盟数据处理条款。",
-            ],
-            "ops": [
-                "顾虑：上线没有安排维护窗口。",
-                "同意：周日凌晨 2 点的窗口运维可接受。",
-            ],
-        }
-        agree = "同意"
-        verdict_ok = "达成共识：按分期方案上线。"
-        verdict_cap = "到达轮次上限仍未完全收敛，按分期方案上线。"
-        final_note = "板上先后留下了 {n} 条意见。"
+    t = {
+        "en": {
+            "scripts": {
+                "finance": [
+                    "Objection: the budget doubles this quarter's cap — needs a phased rollout.",
+                    "Agreed: phased rollout keeps spend inside this quarter's cap.",
+                ],
+                "legal": [
+                    "Objection: the EU data-processing clause is missing from the contract.",
+                    "Agreed: the updated contract adds the EU data-processing clause.",
+                ],
+                "ops": [
+                    "Concern: no maintenance window is scheduled for the rollout.",
+                    "Agreed: the Sunday 02:00 window works for operations.",
+                ],
+            },
+            "agree": "Agreed",
+            "verdict_ok": "Consensus: proceed with the phased rollout.",
+            "verdict_cap": (
+                "Round cap reached without full consensus; proceeding with the phased rollout."
+            ),
+            "final_note": "{n} opinions were written along the way.",
+            "instruction_fmt": "You are the {name} reviewer; state your position on the proposal.",
+        },
+        "zh": {
+            "scripts": {
+                "finance": [
+                    "反对：预算翻倍超出本季度上限——需要分期上线。",
+                    "同意：分期上线后预算控制在本季度上限内。",
+                ],
+                "legal": [
+                    "反对：合同缺少欧盟数据处理条款。",
+                    "同意：更新后的合同已补充欧盟数据处理条款。",
+                ],
+                "ops": [
+                    "顾虑：上线没有安排维护窗口。",
+                    "同意：周日凌晨 2 点的窗口运维可接受。",
+                ],
+            },
+            "agree": "同意",
+            "verdict_ok": "达成共识：按分期方案上线。",
+            "verdict_cap": "到达轮次上限仍未完全收敛，按分期方案上线。",
+            "final_note": "板上先后留下了 {n} 条意见。",
+            "instruction_fmt": "你是{name}评审，对方案给出你的立场。",
+        },
+    }[lang]
 
     experts = ("finance", "legal", "ops")
     wf = Workflow()
@@ -712,12 +736,8 @@ def _blackboard(lang: str = "en"):
     def expert_node(name):
         agent = Agent(
             name,
-            model=_model(*scripts[name]),
-            instruction=(
-                f"You are the {name} reviewer; state your position on the proposal."
-                if lang == "en"
-                else f"你是{name}评审，对方案给出你的立场。"
-            ),
+            model=_model(*t["scripts"][name]),
+            instruction=t["instruction_fmt"].format(name=name),
             bus=wf.bus,
         )
 
@@ -742,15 +762,16 @@ def _blackboard(lang: str = "en"):
     async def moderate(_, ctx):
         board, rnd = ctx.shared["board"], ctx.shared["round"]
         this_round = [op for op in board if op["round"] == rnd]
-        converged = bool(this_round) and all(op["view"].startswith(agree) for op in this_round)
+        converged = bool(this_round) and all(op["view"].startswith(t["agree"]) for op in this_round)
         # Round cap: the debate ends in a verdict even if consensus never forms
         # (e.g. a real model never says the scripted word for "agree").
         if converged or rnd + 1 >= 3:
-            return go("final", verdict_ok if converged else verdict_cap)
+            return go("final", t["verdict_ok"] if converged else t["verdict_cap"])
         return go("fanout", round=rnd + 1)  # another round, objections stay on the board
 
     async def final(text, ctx):
-        return f"{text} ({final_note.format(n=len(ctx.shared['board']))})"
+        note = t["final_note"].format(n=len(ctx.shared["board"]))
+        return f"{text} ({note})"
 
     for name in experts:
         wf.add(name, expert_node(name))

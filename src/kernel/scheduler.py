@@ -165,7 +165,7 @@ class Scheduler:
             raise KeyError(f"resume value(s) must cover every parked node: {parked}")
         run.resume(values)
         for node_id in parked:
-            run.reset_pending(node_id)
+            run.rearm(node_id, immediate=True)
         await self._emit(run, RESUMED, {"nodes": parked})
         await self.drive(plan, run)
         return run
@@ -344,14 +344,11 @@ class Scheduler:
             commands = control if isinstance(control, list) else [control]
             for cmd in commands:
                 if isinstance(cmd, Goto):
-                    if cmd.immediate:
-                        run.reset_pending(
-                            cmd.target
-                        )  # re-arm + release now (back-edge/jump/handover)
-                    else:
-                        # Only re-arm: readiness is still decided by incoming edges
-                        # and join (an iterative convergence point waits for preds).
-                        run.rearm(cmd.target)
+                    # immediate: re-arm + release now (back-edge/jump/handover);
+                    # otherwise only re-arm — readiness is still decided by
+                    # incoming edges and join (an iterative convergence point
+                    # waits for preds).
+                    run.rearm(cmd.target, immediate=cmd.immediate)
                     if cmd.payload is not None:
                         run.deliveries[cmd.target] = (
                             cmd.payload

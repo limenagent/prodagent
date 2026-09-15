@@ -81,7 +81,7 @@ flowchart TB
 | Outcome / body | `kernel/body.py` | the single composable interface + four bodies: fn/tool/LLM/sub-plan |
 | Command | `kernel/command.py` | Goto / Send change only "the next ready set"; Goto may carry a payload |
 | EventLog / Store | `kernel/eventlog.py` | events are the source of truth, state is a folded projection |
-| Bus | `kernel/bus.py` | observe `fire` / adjudicate `check` / collect `collect`, plus bounded-subscription backpressure |
+| Bus | `kernel/bus.py` | observe `fire` / adjudicate `check`, plus bounded-subscription backpressure |
 | Scheduler | `kernel/scheduler.py` | the BSP wave loop that assembles every part into an engine |
 | ports | `kernel/ports.py` | dependency-inversion ports for the LLM, tools, and sub-agent |
 

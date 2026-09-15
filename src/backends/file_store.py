@@ -88,7 +88,10 @@ class FileEventLog:
         if not path.exists():
             return []
         events = []
-        for line in path.read_text(encoding="utf-8").splitlines():
+        # Split on "\n" only: splitlines() would also cut on U+0085/U+2028/U+2029,
+        # which json.dumps(ensure_ascii=False) writes raw — a record boundary must
+        # never fall inside a JSON string.
+        for line in path.read_text(encoding="utf-8").split("\n"):
             if not line.strip():
                 continue
             d = json.loads(line)
@@ -99,6 +102,3 @@ class FileEventLog:
 
     async def events(self, run_id: str) -> list[Event]:
         return self._read(run_id)
-
-    async def after(self, run_id: str, since_seq: int) -> list[Event]:
-        return [e for e in self._read(run_id) if e.seq > since_seq]

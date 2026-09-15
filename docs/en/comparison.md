@@ -18,7 +18,7 @@ they handle the same set of problems.
 | `Goto` | `Command(goto=...)` | routing / transfer_to_agent | runtime edge choice, back-edge, handoff |
 | `Send` | `Send(node, arg)` | dynamic sub-task | fan-out whose count is known only at runtime |
 | Interrupt / resume | `interrupt()` + `Command(resume=)` | built from external state yourself | pause for a human, resume from checkpoint |
-| Bus (fire/check/collect) | callbacks/middleware, LangSmith observability | callbacks and events | mount point for observability, approval, budget |
+| Bus (fire/check) | callbacks/middleware, LangSmith observability | callbacks and events | mount point for observability, approval, budget |
 | child Run / SubPlanBody | subgraph | sub_agents / AgentTool | recursively run another graph inside a node |
 | call (delegation, returns) | subgraph-as-node, returns a result | AgentTool / task mode | parent stays in control |
 | transfer (handoff, no return) | in-graph `goto` to another agent | transfer_to_agent | control leaves and never returns |

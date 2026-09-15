@@ -1,4 +1,4 @@
-"""Strategy-layer tests: context compaction, memory, skills, MCP normalization, backpressure, file-level checkpoint resume."""
+"""Strategy-layer tests: memory, skills, MCP normalization, backpressure, file-level checkpoint resume."""
 
 from src.backends.file_store import FileCheckpointStore
 from src.kernel import (
@@ -10,31 +10,10 @@ from src.kernel import (
     Scheduler,
     ToolCall,
 )
-from src.runtime.context import SummarizingContext, WindowContext
-from src.runtime.llm import ScriptedLlm
 from src.runtime.mcp import InProcessMCPServer, load_mcp_tools
 from src.runtime.memory import InMemoryMemory
 from src.runtime.skills import Skill, SkillRegistry
 from src.runtime.tools import ToolRegistry
-
-
-async def test_window_context_keeps_head_and_tail():
-    ctx = WindowContext(keep_last=2)
-    msgs = [{"role": "user", "content": "首问"}] + [
-        {"role": "assistant", "content": str(i)} for i in range(6)
-    ]
-    out = await ctx.assemble(msgs)
-    assert out[0]["content"] == "首问"
-    assert [m["content"] for m in out[1:]] == ["4", "5"]
-
-
-async def test_summarizing_context_compresses_old_messages():
-    llm = ScriptedLlm(["旧消息要点：X、Y"])
-    ctx = SummarizingContext(llm, max_messages=3, keep_last=2)
-    msgs = [{"role": "user", "content": f"m{i}"} for i in range(6)]
-    out = await ctx.assemble(msgs)
-    assert out[0]["role"] == "system" and "X、Y" in out[0]["content"]
-    assert len(out) == 3  # one summary + the last two messages
 
 
 async def test_memory_remember_and_recall():

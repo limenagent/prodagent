@@ -14,6 +14,7 @@ To re-plan, have a node Goto back to planner — no new engine needed.
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
 from typing import Any
 
@@ -23,7 +24,6 @@ from src.kernel import (
     Node,
     Outcome,
     Plan,
-    Run,
     Send,
     last,
 )
@@ -79,13 +79,7 @@ def build_plan_execute(*, make_steps: MakeSteps, worker: Any, synth: Any = None)
     return plan
 
 
-def start_plan_run(plan: Plan, task: str) -> Run:
-    return Run.start(plan, task=task)
-
-
 async def _maybe_await(value):
-    import inspect
-
     if inspect.isawaitable(value):
         return await value
     return value

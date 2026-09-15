@@ -2,14 +2,12 @@
 
 Two usage styles for two kinds of consumers:
 
-1. Cross-cutting plugins use the "three callback protocols":
+1. Cross-cutting plugins use the "two callback protocols":
    - fire: observe. Observability, metering, and audit attach here. An
      observer's error never affects the main flow.
    - check: adjudicate. Approval, permission, and budget gates attach here;
      any one veto blocks. Safe default is fail-closed: if a checker itself
      raises, that counts as a veto, never as approval.
-   - collect: gather. When assembling a prompt, collect extra fragments each
-     plugin wants to inject.
 
 2. Streaming consumers use "subscription queue + backpressure":
    subscribe() returns a bounded queue that receives high-frequency events
@@ -85,7 +83,6 @@ class Bus:
     def __init__(self) -> None:
         self._observers: dict[str, list[Handler]] = {}
         self._checkers: dict[str, list[Handler]] = {}
-        self._providers: dict[str, list[Handler]] = {}
         self._subscriptions: list[Subscription] = []
 
     # — callback registration —
@@ -94,9 +91,6 @@ class Bus:
 
     def checker(self, gate: str, handler: Handler) -> None:
         self._checkers.setdefault(gate, []).append(handler)
-
-    def provider(self, point: str, handler: Handler) -> None:
-        self._providers.setdefault(point, []).append(handler)
 
     # — streaming subscription (backpressure) —
     def subscribe(self, *kinds: str, maxsize: int = 0, on_full: str = "block") -> Subscription:
@@ -146,12 +140,3 @@ class Bus:
                 )
                 return BlockingResult(False, reason)
         return BlockingResult(True)
-
-    async def collect(self, point: str, **data: Any) -> list[Any]:
-        """Collect: aggregate the non-empty outputs of every provider."""
-        out: list[Any] = []
-        for h in self._providers.get(point, ()):
-            value = await self._run(h, **data)
-            if value is not None:
-                out.append(value)
-        return out
