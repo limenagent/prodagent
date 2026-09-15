@@ -75,6 +75,24 @@ async def test_tiered_never_orphans_tool_result():
             assert any(x.get("tool_calls") for x in out[:i])
 
 
+async def test_tiered_never_loses_the_originating_request():
+    """A single-turn tool loop pushes every user message out of the tail fit
+    (tool rounds crowd out the lone head request); the window must still carry
+    the original ask — strict gateways reject a payload with no user message
+    at all (GLM 400 "messages invalid")."""
+    summ = FixedSummarizer()
+    ctx = TieredCompactionContext(summ, capacity=6)
+    msgs = [{"role": "user", "content": "研究新能源赛道"}]
+    for i in range(3):
+        msgs.append(
+            {"role": "assistant", "content": "", "tool_calls": [ToolCall("search", {"q": i})]}
+        )
+        msgs.append({"role": "tool", "name": "search", "content": f"检索结果{i}" * 30})
+    out = await ctx.assemble(msgs)
+    assert ctx.last_level == CompressionLevel.TOOL_COMPRESS
+    assert any(m.get("role") == "user" for m in out)
+
+
 def test_skill_load_from_dir(tmp_path):
     skill_dir = tmp_path / "demo"
     skill_dir.mkdir()

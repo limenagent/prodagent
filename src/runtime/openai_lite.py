@@ -101,7 +101,17 @@ class OpenAICompatibleLlm:
 
     # ---- request construction and sending (shared by both paths) ----
     def _payload(self, messages, tools, system) -> dict:
-        msgs = ([{"role": "system", "content": system}] if system else []) + _wire(messages)
+        wire = _wire(messages)
+        # Context strategies may inject summary messages with role=system
+        # mid-window. Strict gateways (GLM et al.) reject a payload carrying
+        # more than one system message (400 "messages invalid"), so fold every
+        # window system message into the single leading one — hoisted out of
+        # its original position, relative order among the summaries kept.
+        summaries = [m["content"] for m in wire if m.get("role") == "system"]
+        if summaries:  # rare; the common call scans once and rebuilds nothing
+            system = "\n\n".join([s for s in (system, *summaries) if s])
+            wire = [m for m in wire if m.get("role") != "system"]
+        msgs = ([{"role": "system", "content": system}] if system else []) + wire
         payload = {
             "model": self.model,
             "messages": msgs,

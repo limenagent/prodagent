@@ -43,7 +43,7 @@ class CompressionLevel:
     TOPIC_SUMMARY = (
         3  # more aggressive: keep very little recent verbatim, summarize the rest by topic
     )
-    EMERGENCY = 4  # fallback: keep only the latest two messages + the latest prior summary
+    EMERGENCY = 4  # fallback: keep only the latest two messages
 
     NAME: ClassVar[dict[int, str]] = {
         0: "NONE",
@@ -149,6 +149,11 @@ class TieredCompactionContext:
         return {"role": "system", "content": f"[{title}] {reply.text}"}
 
     async def assemble(self, messages: list[dict]) -> list[dict]:
+        """Compress to the level the fill ratio picks, then anchor: one exit,
+        both guarantees — no compression path can forget either."""
+        return self._anchored(await self._compress(messages), messages)
+
+    async def _compress(self, messages: list[dict]) -> list[dict]:
         size = self._size(messages)
         if size <= self.capacity:  # level 0: window is sufficient, return as-is
             self.last_level = CompressionLevel.NONE
@@ -174,19 +179,21 @@ class TieredCompactionContext:
         if level == CompressionLevel.TOPIC_SUMMARY:
             return await self._summary_level(messages, self.topic_recent, "Topic summary")
 
-        # Level 4 emergency: keep only the latest two verbatim messages plus the
-        # latest existing summary, then fall back to atomic trimming.
-        tail = _fit_tail(messages, 2)
-        last_summary = next(
-            (
-                m
-                for m in reversed(messages)
-                if str(m.get("content", "")).startswith(("[History summary]", "[Topic summary]"))
-            ),
-            None,
-        )
-        out = ([last_summary] if last_summary else []) + tail
-        return _fit_tail(out, self.capacity)
+        # Level 4 emergency: keep only the most recent complete atomic group
+        # (about the last two messages); everything older is gone, no model call.
+        return _fit_tail(messages, 2)
+
+    @staticmethod
+    def _anchored(window: list[dict], messages: list[dict]) -> list[dict]:
+        """The compressed window still says who asked what: a single-turn tool
+        loop crowds the lone head request out of the tail fit, and strict
+        gateways reject a payload with no user message at all (GLM 400). Put
+        the first user message back at the head; overshooting the budget by
+        this one message is the accepted price."""
+        if any(m.get("role") == "user" for m in window):
+            return window
+        head = next((m for m in messages if m.get("role") == "user"), None)
+        return [head, *window] if head else window
 
     async def _summary_level(self, messages: list[dict], recent_n: int, title: str):
         # The recent-window cut must not land on an orphan tool result: walk back
