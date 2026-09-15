@@ -1,6 +1,6 @@
 # prodagent
 
-**A minimal, readable agent-framework kernel in about 1800 lines, with zero
+**A minimal, readable agent-framework kernel in under 2000 lines, with zero
 runtime dependencies.** Start from a six-line agent loop and see how a complete
 machine is derived, one part at a time — graph, state, scheduler, event log, bus,
 and interrupt. Read this once and the internals of LangGraph, Google ADK, and

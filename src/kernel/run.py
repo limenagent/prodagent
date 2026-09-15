@@ -83,7 +83,12 @@ class Run:
         self.interrupts: dict[str, Interrupt] = {}  # node id -> why it parked
         self.resume_values: dict[str, Any] = {}  # node id -> external value fed back on resume
         self.final_output: Any = None
-        self.metrics: dict[str, int] = {"waves": 0, "llm_calls": 0, "tool_calls": 0}
+        self.metrics: dict[str, int] = {
+            "waves": 0,
+            "llm_calls": 0,
+            "tool_calls": 0,
+            "tokens": 0,
+        }
 
     @property
     def name(self) -> str:

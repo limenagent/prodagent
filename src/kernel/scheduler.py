@@ -176,14 +176,7 @@ class Scheduler:
             await self._emit(run, RUN_STARTED, {"task": run.task, "name": run.name})
 
         while run.running:
-            ready = plan.ready(run)
-            if not ready:
-                # First clean up dead branches that can't be reached (may cascade),
-                # then confirm once more whether it really stalled.
-                plan.sweep_skipped(run)
-                ready = plan.ready(run)
-            if not ready:
-                ready = plan.ready(run, empty_fanout=True)
+            ready = self._next_ready(plan, run)
             if not ready:
                 await self._settle(plan, run)
                 break
@@ -246,6 +239,17 @@ class Scheduler:
 
             if self.durability == "sync":
                 await self._checkpoint(run)
+
+    def _next_ready(self, plan: Any, run: Run) -> list[str]:
+        """Who can run now. If nobody is ready, first sweep dead branches (an
+        untaken conditional edge structurally skips a branch, and the sweep
+        cascades), recompute, then finally let an empty fan-out converge."""
+        ready = plan.ready(run)
+        if ready:
+            return ready
+        plan.sweep_skipped(run)
+        ready = plan.ready(run)
+        return ready or plan.ready(run, empty_fanout=True)
 
     # — executing a single node —
     async def _run_node(

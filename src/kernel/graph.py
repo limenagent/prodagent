@@ -163,6 +163,13 @@ class Plan:
         # With no terminal marked, nodes without an outgoing edge are the end.
         return [nid for nid in self._nodes if not self._outgoing[nid]]
 
+    # — key sets: static (non-template) nodes, plus every fan-out instance —
+    def _static_keys(self) -> list[str]:
+        return [nid for nid, n in self._nodes.items() if not n.template]
+
+    def _all_keys(self, run: Any) -> list[str]:
+        return self._static_keys() + [k for ks in run.instances.values() for k in ks]
+
     # — predecessor checks —
     @staticmethod
     def _edge_live(e: Edge, shared: dict[str, Any]) -> bool:
@@ -207,9 +214,7 @@ class Plan:
         ready: list[str] = []
         # A template node itself is never scheduled; it only runs through the
         # instances produced by Send.
-        static_keys = [nid for nid, n in self._nodes.items() if not n.template]
-        all_keys = static_keys + [k for ks in run.instances.values() for k in ks]
-        for key in all_keys:
+        for key in self._all_keys(run):
             if not run.is_pending(key):
                 continue
             if run.is_instance(
@@ -265,11 +270,10 @@ class Plan:
         terminal but which have no live edge as skipped. Cascades to a fixed
         point. Called only when "no node is ready this wave", so it cannot kill
         a branch that may be activated later (e.g. one driven by a back-edge)."""
-        static_keys = [nid for nid, n in self._nodes.items() if not n.template]
         changed = True
         while changed:
             changed = False
-            for key in static_keys:
+            for key in self._static_keys():
                 if not run.is_pending(key) or key in self.entry:
                     continue
                 preds = self._incoming.get(key, ())
@@ -287,6 +291,4 @@ class Plan:
     def is_done(self, run: Any) -> bool:
         """All (non-template) static nodes and dynamic instances reached a
         terminal state (done/skipped/failed)."""
-        static_keys = [nid for nid, n in self._nodes.items() if not n.template]
-        keys = static_keys + [k for ks in run.instances.values() for k in ks]
-        return all(run.is_terminal(k) for k in keys)
+        return all(run.is_terminal(k) for k in self._all_keys(run))

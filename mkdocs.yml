@@ -3,7 +3,7 @@
 # Local preview:  pip install mkdocs-material && mkdocs serve
 
 site_name: prodagent
-site_description: A minimal, readable agent-framework kernel in ~1800 lines — understand how LangGraph/ADK work under the hood.
+site_description: A minimal, readable agent-framework kernel in under 2000 lines — understand how LangGraph/ADK work under the hood.
 site_author: Haoshuang Li
 repo_url: https://github.com/limenagent/prodagent
 repo_name: limenagent/prodagent
@@ -48,6 +48,7 @@ nav:
   - 中文文档:
       - 导读: zh/README.md
       - 架构总览: zh/architecture.md
+      - 动手：30 分钟手写最小内核: zh/build-a-minimal-kernel.md
       - 设计说明:
           - 01 蓝图与一次执行为什么分开: zh/design/01-plan-and-run.md
           - 02 状态为什么是事件折叠出来的: zh/design/02-state-from-events.md
@@ -62,6 +63,7 @@ nav:
   - English:
       - Guide: en/README.md
       - Architecture: en/architecture.md
+      - Hands-on, build a minimal kernel: en/build-a-minimal-kernel.md
       - Design notes:
           - 01 Blueprint vs execution: en/design/01-plan-and-run.md
           - 02 State folded from events: en/design/02-state-from-events.md

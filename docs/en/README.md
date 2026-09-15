@@ -15,7 +15,12 @@ in plain language the first time it appears.
 **Step 1 — get the whole picture (~15 min)**
 
 1. [Architecture: from a six-line loop to a machine](architecture.md) — one
-   figure for the seven parts and why each is needed.
+   figure for the six parts and why each is needed.
+
+**Then make it stick by hand (~30 min, strongly recommended):**
+[Build a minimal kernel](build-a-minimal-kernel.md) — about 80 lines using only
+the standard library, nothing to install. Type out the wave loop once yourself,
+and the design notes below read like a recap instead of new abstractions.
 
 **Step 2 — the five key design trade-offs (5–8 min each)**
 

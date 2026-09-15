@@ -45,35 +45,40 @@ persistable — this is the `Run`.
 
 **Second, make the relations between steps an explicit graph.** A while loop
 hard-codes "what comes after what"; changing the orchestration means rewriting
-the loop. A framework pulls the steps (`Node`) and their links (`Edge`) out into
-a data graph (`Plan`). Changing orchestration means swapping the graph; the
-engine that runs it stays the same.
+the loop. A framework pulls the steps (`Node`), their links (`Edge`), and the
+channels that say where data lives and how concurrent writes merge (`Channel`)
+into one data blueprint (`Plan`) — nodes, edges, and channels are the parts
+inside it. Changing orchestration means swapping the graph; the engine that
+runs it stays the same.
 
 **Third, write one generic engine that reads both.** It doesn't care whether a
 node calls a model or adds numbers. It repeatedly computes one thing: "which
 steps now have all their prerequisites and can run?" It runs them concurrently,
 merges when they finish, and computes the next round. This is the `Scheduler`.
 
-## Seven parts, assembled into a machine
+## Six parts, assembled into a machine
 
-On top of those three moves, four more parts make recovery, concurrency,
-suspension, and visibility solid. Here is the whole figure:
+The three moves already give us `Plan`, `Run`, and `Scheduler`. To make
+recovery/audit, suspension, and outward visibility solid, three more join them:
+`EventLog`, `Bus`, and `Interrupt` — six in total. Here is the whole figure:
 
 ```mermaid
 flowchart TB
   subgraph APP["Application layer (strategy)"]
     A["ReAct · plan-first · multi-agent · your business"]
   end
-  subgraph K["Kernel (mechanism)"]
+  subgraph K["Kernel (mechanism) · six parts"]
     direction TB
-    P["Plan: Node / Edge / Channel"]
+    P["Plan blueprint: Node / Edge / Channel"]
     R["Run: state and lifecycle of one execution"]
-    S["Scheduler: ready-set → concurrent wave → barrier fold → checkpoint"]
+    S["Scheduler: ready-set → concurrent wave → barrier fold"]
     L["EventLog: events are the truth; state is a folded projection"]
-    B["Bus broadcasts every move; Interrupt pauses for a human"]
+    B["Bus: broadcasts every move; observability/approval/backpressure attach here"]
+    I["Interrupt: pause at any point for a human, persist and let go, then resume"]
     P --> R --> S
     S --> L
     S --> B
+    S --> I
   end
   A -->|assembled from the same primitives| K
 ```
@@ -82,8 +87,7 @@ Each in one plain sentence:
 
 | Part | The problem it solves |
 |---|---|
-| **Plan** | which steps exist, how they connect, what state looks like — a reusable static blueprint |
-| **Node / Edge / Channel** | a node is a step, an edge is a dependency, a channel says how concurrent state writes merge |
+| **Plan** (Node / Edge / Channel inside) | a reusable static blueprint: which steps exist, how they connect, how concurrent state writes merge |
 | **Run** | how far *this* execution got — dynamic, one-shot, persistable and resumable |
 | **Scheduler** | the single engine that repeatedly computes "who is ready now", wave by wave |
 | **EventLog** | append-only facts; state isn't stored, it's folded out of the event stream |
@@ -104,12 +108,13 @@ lines cover so many forms.
 
 ## The intuition you should leave with
 
-An agent engine sounds complex, but at the bottom it is seven parts, derived one
-after another by the same problem: to recover you need explicit state; to
-orchestrate flexibly you need an explicit graph; to drive the graph you need a
-scheduler; to be correct under concurrency, to suspend, and to be visible, you
-grow channels, an event log, a bus, and interrupts in that order. **No one
-invented seven concepts on a whim — the problems themselves demanded them.**
+An agent engine sounds complex, but at the bottom it is six parts, derived one
+after another by the same problem: to recover you need an explicit Run; to
+orchestrate flexibly you need an explicit Plan (nodes, edges, channels inside);
+to drive the blueprint you need a scheduler; to audit and travel back, to pause
+at any point, and to be visible and interceptable from outside, you grow an
+event log, an interrupt, and a bus in that order. **No one invented six concepts
+on a whim — the problems themselves demanded them.**
 
 The next five [design notes](README.md)
 walk through the key trade-off behind each: why it has to be this way, and what

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -120,7 +121,7 @@ class Bus:
         )
         for r in results:
             if isinstance(r, Exception):
-                print(f"[bus] observer error ignored: {r!r}")
+                print(f"[bus] observer error ignored: {r!r}", file=sys.stderr)
         # Backpressure delivery: a blocking subscription is awaited here, which
         # pushes pressure back to the event producer.
         await asyncio.gather(

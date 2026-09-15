@@ -28,6 +28,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from src.kernel.command import Command, Goto, Send
 from src.kernel.run import Interrupt
+from src.kernel.types import ToolCall
 
 
 @dataclass(frozen=True)
@@ -165,15 +166,13 @@ class NodeContext:
             raise RuntimeError("no LlmPort injected; cannot call the model")
         reply = await self._llm.chat(messages, tools=tools, system=system, on_delta=on_delta)
         self.run.metrics["llm_calls"] += 1
-        self.run.metrics["tokens"] = self.run.metrics.get("tokens", 0) + reply.tokens
+        self.run.metrics["tokens"] += reply.tokens
         return reply
 
     async def call_tool(self, name: str, arguments: dict | None = None) -> Any:
         """Make one governed call through the tool port, returning a ToolResult."""
         if self._tools is None:
             raise RuntimeError("no ToolPort injected; cannot call a tool")
-        from src.kernel.types import ToolCall
-
         self.run.metrics["tool_calls"] += 1
         # Stable idempotency key: unchanged when the same attempt of a node retries.
         attempt = self.run.state_of(self.node_id).attempts
