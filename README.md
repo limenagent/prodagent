@@ -1,4 +1,4 @@
-# prodagent: an agent-framework kernel in under 2000 lines
+# prodagent: an agent-framework kernel in 1800 lines
 
 [![CI](https://github.com/limenagent/prodagent/actions/workflows/ci.yml/badge.svg)](https://github.com/limenagent/prodagent/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
