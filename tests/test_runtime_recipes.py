@@ -41,6 +41,9 @@ async def test_react_multiple_tool_rounds():
         ]
     )
     plan = build_react_plan(reg)
+    # routing is derived from the last assistant message, so the recipe stores
+    # only the history — no mirrored pending/answer slots to keep in sync.
+    assert set(plan.channels) == {"messages"}
     sch = Scheduler(llm=llm, tools=reg)
     run = start_react_run(plan, "查两轮")
     await sch.drive(plan, run)

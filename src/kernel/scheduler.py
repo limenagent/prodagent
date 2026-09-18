@@ -32,9 +32,11 @@ from src.kernel.bus import Bus
 from src.kernel.channels import WaveWrites
 from src.kernel.command import Goto, Send
 from src.kernel.eventlog import (
+    CONTROL,
     INTERRUPTED,
     NODE_COMPLETED,
     NODE_RETRY,
+    NODE_SKIPPED,
     NODE_STARTED,
     RESUMED,
     RUN_COMPLETED,
@@ -174,9 +176,19 @@ class Scheduler:
     async def drive(self, plan: Any, run: Run) -> None:
         if run.metrics["waves"] == 0 and run.state == RunState.RUNNING:
             await self._emit(run, RUN_STARTED, {"task": run.task, "name": run.name})
+            if run.seed:  # fold initial input through the same reducers and log it as a fact
+                seed_writes = WaveWrites(plan.channels)
+                for key, value in run.seed.items():
+                    seed_writes.buffer(key, value, "<seed>")
+                folded = run.fold_writes(seed_writes.drain(), plan.channels)
+                run.seed = {}
+                if folded:
+                    await self._emit(run, STATE_DELTA, {"delta": folded})
 
         while run.running:
-            ready = self._next_ready(plan, run)
+            ready, swept = self._next_ready(plan, run)
+            for key in swept:  # record each structurally-skipped branch as a fact
+                await self._emit(run, NODE_SKIPPED, {"node": key})
             if not ready:
                 await self._settle(plan, run)
                 break
@@ -212,7 +224,7 @@ class Scheduler:
                     writes.buffer(k, v, key)
                 if outcome.control is not None:
                     controls.append((key, outcome.control))
-                await self._emit(run, NODE_COMPLETED, {"node": key})
+                await self._emit(run, NODE_COMPLETED, {"node": key, "output": outcome.value})
 
             if run.state == RunState.FAILED:
                 break
@@ -220,8 +232,11 @@ class Scheduler:
             invalid = _invalid_control(plan, controls)
             if invalid is not None:
                 writer, reason = invalid
-                run.fail(reason)
-                await self._emit(run, RUN_FAILED, {"node": writer, "reason": reason})
+                # A run-level failure: the writer node itself completed, it only
+                # emitted an illegal command, so the event carries no failed node
+                # (unlike a node that raised, which is marked failed).
+                run.fail(f"{reason} (from node {writer!r})")
+                await self._emit(run, RUN_FAILED, {"reason": run.final_output})
                 break
 
             writes.check_ambiguous()
@@ -233,23 +248,39 @@ class Scheduler:
 
             if parked:
                 run.suspend(parked)
-                await self._emit(run, INTERRUPTED, {"nodes": list(parked)})
+                await self._emit(
+                    run,
+                    INTERRUPTED,
+                    {
+                        "nodes": list(parked),
+                        # full parked facts, so the stream alone rebuilds the
+                        # suspension (question/payload), not just node names
+                        "parked": {
+                            key: {
+                                "kind": it.kind,
+                                "question": it.question,
+                                "payload": it.payload,
+                            }
+                            for key, it in parked.items()
+                        },
+                    },
+                )
                 await self._checkpoint(run)  # a suspended run must always be durable
                 break
 
             if self.durability == "sync":
                 await self._checkpoint(run)
 
-    def _next_ready(self, plan: Any, run: Run) -> list[str]:
-        """Who can run now. If nobody is ready, first sweep dead branches (an
-        untaken conditional edge structurally skips a branch, and the sweep
+    def _next_ready(self, plan: Any, run: Run) -> tuple[list[str], list[str]]:
+        """Who can run now, plus any nodes newly swept as dead branches. If
+        nobody is ready, first sweep untaken conditional edges (the sweep
         cascades), recompute, then finally let an empty fan-out converge."""
         ready = plan.ready(run)
         if ready:
-            return ready
-        plan.sweep_skipped(run)
+            return ready, []
+        swept = plan.sweep_skipped(run)
         ready = plan.ready(run)
-        return ready or plan.ready(run, empty_fanout=True)
+        return (ready or plan.ready(run, empty_fanout=True)), swept
 
     # — executing a single node —
     async def _run_node(
@@ -357,8 +388,28 @@ class Scheduler:
                         run.deliveries[cmd.target] = (
                             cmd.payload
                         )  # transition input, symmetric with Send
+                    await self._emit(
+                        run,
+                        CONTROL,
+                        {
+                            "op": "goto",
+                            "target": cmd.target,
+                            "immediate": cmd.immediate,
+                            **({"payload": cmd.payload} if cmd.payload is not None else {}),
+                        },
+                    )
                 elif isinstance(cmd, Send):
                     run.add_instance(cmd.template, cmd.payload, cmd.key)
+                    await self._emit(
+                        run,
+                        CONTROL,
+                        {
+                            "op": "send",
+                            "template": cmd.template,
+                            **({"key": cmd.key} if cmd.key is not None else {}),
+                            "payload": cmd.payload,
+                        },
+                    )
                 else:
                     raise TypeError(f"unknown control command: {cmd!r}")
 

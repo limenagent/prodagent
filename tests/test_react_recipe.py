@@ -6,6 +6,7 @@ from src.kernel import Run, RunState, Scheduler
 
 async def test_react_is_assembled_from_primitives():
     plan = build_react_plan()
+    assert set(plan.channels) == {"messages"}  # one history channel; routing reads its last message
     llm, tools = FakeLlm(), FakeTools()
     sch = Scheduler(llm=llm, tools=tools)
     run = Run.start(plan, task="What's the weather in Beijing?")

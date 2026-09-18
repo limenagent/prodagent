@@ -265,11 +265,14 @@ class Plan:
             return bool(join(done, total))
         return done >= total if join == "all" else True
 
-    def sweep_skipped(self, run: Any) -> None:
+    def sweep_skipped(self, run: Any) -> list[str]:
         """Dead-branch cleanup: mark pending nodes whose predecessors are all
         terminal but which have no live edge as skipped. Cascades to a fixed
         point. Called only when "no node is ready this wave", so it cannot kill
-        a branch that may be activated later (e.g. one driven by a back-edge)."""
+        a branch that may be activated later (e.g. one driven by a back-edge).
+        Returns the nodes newly skipped, in order, so the scheduler can record
+        each as a fact (a node_skipped event)."""
+        swept: list[str] = []
         changed = True
         while changed:
             changed = False
@@ -286,7 +289,9 @@ class Plan:
                 )
                 if all_terminal and not any_live:
                     run.mark_skipped(key)
+                    swept.append(key)
                     changed = True
+        return swept
 
     def is_done(self, run: Any) -> bool:
         """All (non-template) static nodes and dynamic instances reached a

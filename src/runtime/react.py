@@ -1,11 +1,16 @@
-"""react — recipe one: assemble ReAct from kernel primitives.
+"""react — recipe one: the classic ReAct agent, assembled from kernel primitives.
 
 There is no ReAct in the kernel. Here it is assembled from three nodes, two
 conditional edges, and one back-edge:
 
-    think ──tool calls?──▶ tools ──Goto back-edge──▶ think
+    think ──last assistant message carries tool calls?──▶ tools ──Goto back-edge──▶ think
       │
-      └──no tool calls, answer ready?──▶ final
+      └──last assistant message is plain text?──▶ final
+
+It keeps a single state channel: ``messages``, the append-only chat history an
+OpenAI-style API expects. Nothing else is stored — whether to call tools or to
+finish is *derived* from the last assistant message, so there is no second copy
+of the pending calls or the answer to keep in sync.
 
 Context compression and long-term memory are both **optionally injected
 strategies**: pass them in and they take effect before "think"; leave them out
@@ -25,7 +30,6 @@ from src.kernel import (
     Plan,
     Run,
     append,
-    last,
 )
 
 
@@ -34,6 +38,27 @@ def _last_user_text(messages: list[dict]) -> str:
         if m.get("role") == "user":
             return str(m.get("content", ""))
     return ""
+
+
+def _last_assistant(state: dict) -> dict:
+    """The last assistant message, or {} when the history ends in a user/tool
+    message (or is empty). Routing reads only this: the next step is a pure
+    function of where the conversation has got to."""
+    messages = state.get("messages") or []
+    if messages and messages[-1].get("role") == "assistant":
+        return messages[-1]
+    return {}
+
+
+def _wants_tools(state: dict) -> bool:
+    """think→tools is live when the model just requested one or more tools."""
+    return bool(_last_assistant(state).get("tool_calls"))
+
+
+def _has_answer(state: dict) -> bool:
+    """think→final is live when the last assistant message is plain text."""
+    last = _last_assistant(state)
+    return bool(last) and not last.get("tool_calls")
 
 
 def build_react_plan(
@@ -59,65 +84,76 @@ def build_react_plan(
         reply = await ctx.llm_chat(
             messages, tools=tools.schemas(), system=sys_text or None, on_delta=_delta
         )
+        # Write exactly one fact: the assistant message. Where to go next is
+        # derived from its shape by the conditional edges; the Goto below is what
+        # re-arms tools on later rounds (a static edge never re-enters a completed
+        # node). state_delta carries the message, Goto moves control.
         if reply.tool_calls:
-            # Tools requested: use Goto to explicitly make tools ready again (it
-            # is re-entered repeatedly across multi-round calls).
             return Outcome(
-                state_delta={
-                    "messages": [{"role": "assistant", "tool_calls": reply.tool_calls}],
-                    "pending": list(reply.tool_calls),
-                },
+                state_delta={"messages": [{"role": "assistant", "tool_calls": reply.tool_calls}]},
                 control=Goto("tools"),
             )
-        return Outcome(
-            state_delta={
-                "messages": [{"role": "assistant", "text": reply.text}],
-                "answer": reply.text,
-            }
-        )
+        return Outcome(state_delta={"messages": [{"role": "assistant", "text": reply.text}]})
 
     async def run_tools(_input, ctx):
+        # The calls the model just asked for live in the last assistant message;
+        # run each and append its result, then Goto think so it can observe.
         outputs = []
-        for call in ctx.shared["pending"]:
+        for call in _last_assistant(ctx.shared).get("tool_calls", []):
             result = await ctx.call_tool(call.name, call.arguments)
+            # A tool failure is fed back as a tool message, not raised into the
+            # graph: the model sees it and can correct itself on the next think.
             content = result.output if result.ok else f"[tool error] {result.error}"
-            outputs.append({"role": "tool", "name": call.name, "content": content})
-        # Clear the pending list and use Goto to make think ready again — the
-        # ReAct "loop" is exactly this back-edge.
-        return Outcome.goto("think", messages=outputs, pending=[])
+            # tool_call_id pairs this result with the model's own call id
+            # (the provider protocol id), never with the tool name.
+            outputs.append(
+                {
+                    "role": "tool",
+                    "name": call.name,
+                    "tool_call_id": call.call_id,
+                    "content": content,
+                }
+            )
+        # The ReAct "loop" is exactly this Goto back-edge to think.
+        return Outcome.goto("think", messages=outputs)
 
-    plan = Plan(
-        name=name, channels={"messages": append(), "pending": last(None), "answer": last(None)}
-    )
+    plan = Plan(name=name, channels={"messages": append()})
     plan.add(
         Node("think", FnBody(think)),
         Node("tools", FnBody(run_tools)),
-        Node("final", FnBody(lambda x, ctx: Outcome.ok(ctx.shared["answer"])), terminal=True),
+        # The answer is the final assistant text, read from history rather than
+        # mirrored into a separate slot.
+        Node(
+            "final",
+            FnBody(lambda x, ctx: Outcome.ok(_last_assistant(ctx.shared).get("text"))),
+            terminal=True,
+        ),
     )
     # think⇄tools forms a cycle:
-    # - think→tools is a conditional edge (only when pending is non-empty), so a
-    #   direct answer never accidentally activates the tools;
-    # - across multi-round calls tools is already COMPLETED, and the Goto("tools")
-    #   returned by think re-arms it to ready;
-    # - tools Gotos back to think; only the "answer ready" conditional edge reaches final.
-    plan.edge("think", "tools", when=lambda s: bool(s.get("pending")))
+    # - think→tools is a conditional edge (only when the last assistant message
+    #   requests tools), so a direct answer never activates the tools node;
+    # - across rounds tools is already COMPLETED, and the Goto("tools") returned
+    #   by think re-arms it to ready;
+    # - tools Gotos back to think; only the "plain text answer" edge reaches final.
+    plan.edge("think", "tools", when=_wants_tools)
     plan.edge("tools", "think")
-    plan.edge("think", "final", when=lambda s: bool(s.get("answer")))
+    plan.edge("think", "final", when=_has_answer)
     plan.entry = ("think",)
     return plan
 
 
 def start_react_run(plan: Plan, task: str, history: list | None = None) -> Run:
-    """Create a ReAct run and seed it with this turn's user message (then Scheduler.drive).
+    """Create a ReAct run seeded with this turn's user message (then Scheduler.drive).
 
-    history holds prior dialogue messages: pass it for multi-turn continuation
-    (the new Run thinks with the old context), omit it for a fresh conversation —
-    session state is held by the caller, and the Agent itself stays stateless.
+    history holds prior dialogue messages for multi-turn continuation; omit it
+    for a fresh conversation. The seed is folded through the messages channel and
+    logged on the first drive, so even the opening message is in the event log and
+    survives replay — session state is held by the caller, the Agent stays
+    stateless.
     """
-    run = Run.start(plan, task=task)
-    run.shared["messages"] = (
+    opening = (
         [*history, {"role": "user", "content": task}]
         if history
         else [{"role": "user", "content": task}]
     )
-    return run
+    return Run.start(plan, task=task, seed={"messages": opening})

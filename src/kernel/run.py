@@ -53,12 +53,18 @@ class Run:
         parent_id: str | None = None,
         depth: int = 0,
         task: str = "",
+        seed: dict[str, Any] | None = None,
     ):
         self.plan = plan
         self.run_id = run_id or _new_id()
         self.parent_id = parent_id
         self.depth = depth
         self.task = task
+        # Initial input to fold into shared state on the first drive, emitted as
+        # a state_delta event so the event log is the complete truth (a replay
+        # reconstructs the opening user message too). Applied exactly once and
+        # never snapshotted on its own — after the first wave it lives in shared.
+        self.seed: dict[str, Any] = dict(seed or {})
         self.event_seq = 0
 
         self.shared: dict[str, Any] = plan.initial_shared()

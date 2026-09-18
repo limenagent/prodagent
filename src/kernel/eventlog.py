@@ -25,8 +25,13 @@ from src.kernel.channels import Channel
 RUN_STARTED = "run_started"
 NODE_STARTED = "node_started"
 NODE_COMPLETED = "node_completed"
+NODE_SKIPPED = "node_skipped"
 NODE_RETRY = "node_retry"
 STATE_DELTA = "state_delta"
+# A control command that actually happened: data = {"op": "goto"|"send", ...}.
+# Commands express intent; once applied they are recorded as this fact, so the
+# stream alone — not the live scheduler — can rebuild where control went.
+CONTROL = "control"
 INTERRUPTED = "interrupted"
 RESUMED = "resumed"
 RUN_COMPLETED = "run_completed"

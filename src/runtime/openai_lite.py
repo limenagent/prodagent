@@ -30,16 +30,24 @@ def _wire(messages: list) -> list[dict]:
     """Internal messages -> OpenAI wire format.
 
     Runtime messages store kernel ToolCall objects (plain json would fail); here
-    we assemble the tool_calls array and match later tool messages by tool_call_id.
+    we assemble the tool_calls array and pair each tool result with its call.
+
+    Pairing is by identity (the model-assigned call id), never by tool name: the
+    model may call the same tool twice in one round with different arguments, and
+    matching by name would swap their ids. Tool messages produced by the ReAct
+    recipe already carry ``tool_call_id``. A legacy/scripted message without one
+    falls back to consuming ids in the order the assistant declared them, which
+    also stays correct for repeated same-name calls.
     """
-    out, ids = [], {}  # name -> call_id assigned in the previous round
+    out = []
+    pending_ids: dict[str, list[str]] = {}  # name -> call ids declared, in order
     for i, m in enumerate(messages):
         role = m.get("role")
         if role == "assistant" and m.get("tool_calls"):
             calls = []
             for j, tc in enumerate(m["tool_calls"]):
                 cid = getattr(tc, "call_id", "") or f"call_{i}_{j}"
-                ids[tc.name] = cid
+                pending_ids.setdefault(tc.name, []).append(cid)
                 calls.append(
                     {
                         "id": cid,
@@ -60,10 +68,14 @@ def _wire(messages: list) -> list[dict]:
             )
         elif role == "tool":
             name = m.get("name", "")
+            cid = m.get("tool_call_id")
+            if not cid:  # none carried: consume the next declared id for this name
+                queue = pending_ids.get(name)
+                cid = queue.pop(0) if queue else f"call_{name}"
             out.append(
                 {
                     "role": "tool",
-                    "tool_call_id": ids.pop(name, f"call_{name}"),
+                    "tool_call_id": cid,
                     "content": str(m.get("content", "")),
                 }
             )

@@ -1,12 +1,16 @@
 """Assemble a ReAct out of kernel primitives (run: PYTHONPATH=. python examples/react_demo.py).
 
-The kernel contains no ReAct and no loop pattern. With two nodes, a
-conditional edge, and one back edge, "think -> call tool -> feed the result
+The kernel contains no ReAct and no loop pattern. With three nodes, two
+conditional edges, and one back edge, "think -> call tool -> feed the result
 back -> think again -> answer" is assembled:
 
     user ─▶ think ──has tool calls?──▶ tools ──Goto back edge──▶ think
               │
-              └──no tool calls, answer in hand?──▶ final
+              └──plain text answer?──▶ final
+
+A single append-only ``messages`` channel holds the whole conversation; whether
+to call tools or to finish is read from the shape of the last assistant message,
+so no separate "pending"/"answer" state is needed.
 
 The model and the tools are scripted fakes, so the whole example runs offline
 and deterministically, no API key needed.
@@ -25,8 +29,14 @@ from src.kernel import (
     ToolCall,
     ToolResult,
     append,
-    last,
 )
+
+
+def _last_assistant(state):
+    # Routing is a pure function of the conversation: the last assistant message
+    # either requests tool calls or carries the final text.
+    messages = state.get("messages") or []
+    return messages[-1] if messages and messages[-1].get("role") == "assistant" else {}
 
 
 class FakeLlm:
@@ -53,44 +63,46 @@ class FakeTools:
 async def think(_input, ctx):
     reply = await ctx.llm_chat(ctx.shared["messages"])
     if reply.tool_calls:
-        # Tool calls wanted: Goto makes tools ready (on multi-round loops it
-        # gets re-entered repeatedly), and this step is recorded.
+        # Record the assistant message, then Goto tools: on a multi-round loop a
+        # completed node is re-entered only via Goto, never via a static edge.
         return Outcome(
-            state_delta={
-                "messages": [{"role": "assistant", "calls": reply.tool_calls}],
-                "pending": reply.tool_calls,
-            },
+            state_delta={"messages": [{"role": "assistant", "tool_calls": reply.tool_calls}]},
             control=Goto("tools"),
         )
     # No tool calls = the final answer is out; the static conditional edge
-    # routes to final on exactly this.
-    return Outcome(
-        state_delta={"messages": [{"role": "assistant", "text": reply.text}], "answer": reply.text}
-    )
+    # routes to final on exactly this message shape.
+    return Outcome(state_delta={"messages": [{"role": "assistant", "text": reply.text}]})
 
 
 async def tools(_input, ctx):
     results = []
-    for call in ctx.shared["pending"]:
+    for call in _last_assistant(ctx.shared).get("tool_calls", []):
         r = await ctx.call_tool(call.name, call.arguments)
         results.append({"role": "tool", "name": call.name, "content": r.output})
-    # Clear the pending list and Goto think back to ready — that is where the
-    # back edge comes from.
-    return Outcome.goto("think", messages=results, pending=[])
+    # Append the tool results and Goto think — that Goto is the back edge.
+    return Outcome.goto("think", messages=results)
 
 
 def build_react_plan() -> Plan:
-    p = Plan(channels={"messages": append(), "pending": last(None), "answer": last(None)})
+    p = Plan(channels={"messages": append()})
     p.add(
         Node("think", FnBody(think)),
         Node("tools", FnBody(tools)),
-        Node("final", FnBody(lambda x, ctx: Outcome.ok(ctx.shared["answer"])), terminal=True),
+        Node(
+            "final",
+            FnBody(lambda x, ctx: Outcome.ok(_last_assistant(ctx.shared).get("text"))),
+            terminal=True,
+        ),
     )
-    # think→tools is a conditional edge (taken only with pending items);
-    # multi-round re-entry rides on think's Goto; after tools, Goto back to think.
-    p.edge("think", "tools", when=lambda s: bool(s.get("pending")))
+    # think→tools / think→final are conditional on the last assistant message;
+    # after tools, a Goto back to think drives each new round.
+    p.edge("think", "tools", when=lambda s: bool(_last_assistant(s).get("tool_calls")))
     p.edge("tools", "think")
-    p.edge("think", "final", when=lambda s: bool(s.get("answer")))
+    p.edge(
+        "think",
+        "final",
+        when=lambda s: bool(_last_assistant(s)) and not _last_assistant(s).get("tool_calls"),
+    )
     p.entry = ("think",)
     return p
 

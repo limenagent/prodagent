@@ -10,6 +10,13 @@ The planner asks the model to break the task into N steps written to state and
 Sends one worker instance per step; worker is a template node whose body can be
 a plain function or a small tool-using ReAct; synth summarizes once all finish.
 To re-plan, have a node Goto back to planner — no new engine needed.
+
+Re-planning identity: a worker is Sended with key=step id, so a given logical
+step is instantiated at most once. Going back to the planner therefore runs only
+the *new* steps and leaves finished steps (and their side effects) alone — the
+usual plan-and-execute meaning of "refine the remaining plan". To deliberately
+re-run a step, give it a fresh key (e.g. suffix the round), modelling it as a new
+piece of work rather than the same step twice.
 """
 
 from __future__ import annotations

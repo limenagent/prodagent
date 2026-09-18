@@ -103,7 +103,16 @@ def build_supervisor(
     memory: Any = None,
     registry: ToolRegistry | None = None,
 ) -> Plan:
-    """workers: {tool name: (child Plan, capability description for the supervisor)}. The supervisor is a ReAct."""
+    """workers: {tool name: (child Plan, capability description for the supervisor)}. The supervisor is a ReAct.
+
+    Service scope: a spawned child Run is driven by the *same* Scheduler, so it is
+    injected with that Scheduler's model, tool registry and bus. Build every child
+    plan against the one ``registry`` passed in here (register the tools they call
+    on it too) — a child plan that closes over a different registry advertises
+    tools the model can see but the shared executor cannot dispatch. For
+    self-contained specialists that each own their model/tools, use the high-level
+    Agent(teammates=[...]) facade instead; each Agent runs its own Scheduler.
+    """
     registry = registry or ToolRegistry()
     for name, (child_plan, desc) in workers.items():
         register_agent_tool(registry, name, child_plan, desc)
@@ -135,9 +144,12 @@ def build_blackboard(
                      └──────▶ expert3 ┘            │ not reached
                                                   └─ Goto back to fanout for another round
 
-    - experts is [(name, body or sub-Plan), ...]; each expert is a different role
-      (different prompt/tools), appending only its opinion to the shared append
-      channel board_key, never talking to each other directly;
+    - experts is [(name, body), ...]; each expert is a different role (different
+      prompt/tools) whose body appends only its opinion to the shared append
+      channel board_key, never talking to another expert directly. A bare sub-Plan
+      does not qualify: SubPlanBody just returns the child's output and never
+      writes the board. To put an Agent on the board, wrap it in a thin body that
+      delegates and returns {board_key: [opinion]} (see examples/blackboard.py);
     - moderator is a body that reads ctx.shared to adjudicate: on consensus it
       Outcome.goto("final", verdict=...), otherwise Outcome.goto("fanout",
       round=r+1) to trigger the next round;
