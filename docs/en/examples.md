@@ -43,6 +43,12 @@ what to watch for in the code.
   decides to hand over to repair it uses transfer — a same-graph `go` with no
   return edge, control leaving for good. Compare the two multi-agent convergence
   semantics.
+- **handoff.py**: pure *transfer* with no supervisor in the flow, in two
+  shapes — a fixed handoff **chain** (triage → billing → risk → close) and a
+  **swarm net** where peers can hand the case back (billing ↔ risk) before
+  settling. The graph registers the Agent nodes but draws no edges between
+  them: the next holder is a runtime `go` named in the specialist's own verdict.
+  Watch control leave for good while only a one-line summary travels forward.
 - **write_review.py**: a writer agent drafts, a critic agent reviews, and a
   conditional branch carries a failing review back for revision while a passing
   one goes straight to finalize. Watch quality iteration be an ordinary loop

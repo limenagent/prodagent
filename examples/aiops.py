@@ -72,10 +72,10 @@ async def main():
         # handed over, it finishes there and never comes back.
         return go("repairer", root)
 
-    wf.add("diagnose", diagnose)
-    wf.add("decide", decide)
-    wf.add("repairer", repairer, terminal=True)  # an Agent can be a graph node directly
-    wf.edge("diagnose", "decide")
+    wf.add_node("diagnose", diagnose)
+    wf.add_node("decide", decide)
+    wf.add_node("repairer", repairer, terminal=True)  # an Agent can be a graph node directly
+    wf.add_edge("diagnose", "decide")
     wf.entry("diagnose")
     # Who you can hand to is exactly which Agent nodes were added to the
     # graph; repairer has no out-edge, so the handoff ends there.

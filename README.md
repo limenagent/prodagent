@@ -77,9 +77,9 @@ await agent.run("look up X")
 
 # a deterministic graph / handoff — a node is a function or a whole Agent
 wf = Workflow()
-wf.add("diagnose", diagnose_fn)
-wf.add("repair", repair_agent, terminal=True)
-wf.edge("diagnose", "repair")
+wf.add_node("diagnose", diagnose_fn)
+wf.add_node("repair", repair_agent, terminal=True)
+wf.add_edge("diagnose", "repair")
 wf.entry("diagnose")
 await wf.run("incident")
 ```

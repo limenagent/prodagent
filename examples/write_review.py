@@ -42,17 +42,17 @@ async def main():
         return f"Finalized: {text}"
 
     wf = Workflow()
-    wf.add("writer", writer)
-    wf.add("critic", critic)
-    wf.add("judge", judge)
-    wf.add("revise", reviser)
+    wf.add_node("writer", writer)
+    wf.add_node("critic", critic)
+    wf.add_node("judge", judge)
+    wf.add_node("revise", reviser)
     # Convergence point: either judge finalizes directly or revise does after
     # rewriting — exactly one of the two arrives.
-    wf.add("finalize", finalize, join="any", terminal=True)
+    wf.add_node("finalize", finalize, join="any", terminal=True)
 
-    wf.edge("writer", "critic")
-    wf.edge("critic", "judge")
-    wf.edge("revise", "finalize")
+    wf.add_edge("writer", "critic")
+    wf.add_edge("critic", "judge")
+    wf.add_edge("revise", "finalize")
     wf.branch(
         "judge", {"revise": "revise", "finalize": "finalize"}, decide=lambda s: s.get("verdict")
     )

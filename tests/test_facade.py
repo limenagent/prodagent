@@ -54,21 +54,21 @@ async def test_teammates_run_with_their_own_models():
 
 async def test_workflow_static_graph_and_auto_state():
     wf = Workflow()
-    wf.add("a", lambda x, ctx: {"v": 1})
-    wf.add("b", lambda x, ctx: go("c", v=ctx.shared["v"] + 10))
-    wf.add("c", lambda x, ctx: ctx.shared["v"], terminal=True)
-    wf.edge("a", "b").edge("b", "c").entry("a")
+    wf.add_node("a", lambda x, ctx: {"v": 1})
+    wf.add_node("b", lambda x, ctx: go("c", v=ctx.shared["v"] + 10))
+    wf.add_node("c", lambda x, ctx: ctx.shared["v"], terminal=True)
+    wf.add_edge("a", "b").add_edge("b", "c").entry("a")
     result = await wf.run()
     assert result.output == 11  # an undeclared v channel is auto-filled as a last channel
 
 
 async def test_workflow_branch():
     wf = Workflow()
-    wf.add("decide", lambda x, ctx: {"kind": x})
-    wf.add("yes", lambda x, ctx: "走了 yes", terminal=True)
-    wf.add("no", lambda x, ctx: "走了 no", terminal=True)
-    wf.edge("decide", "yes", when=lambda s: s["kind"] == "yes")
-    wf.edge("decide", "no", when=lambda s: s["kind"] == "no")
+    wf.add_node("decide", lambda x, ctx: {"kind": x})
+    wf.add_node("yes", lambda x, ctx: "走了 yes", terminal=True)
+    wf.add_node("no", lambda x, ctx: "走了 no", terminal=True)
+    wf.add_edge("decide", "yes", when=lambda s: s["kind"] == "yes")
+    wf.add_edge("decide", "no", when=lambda s: s["kind"] == "no")
     wf.entry("decide")
     assert (await wf.run("yes")).output == "走了 yes"
     assert (await wf.run("no")).output == "走了 no"
@@ -88,11 +88,11 @@ async def test_workflow_dynamic_fan_out():
     async def merge(x, ctx):
         return sorted(ctx.shared["logs"])
 
-    wf.add("dispatch", dispatch)
-    wf.add("worker", worker, template=True)
-    wf.add("merge", merge, terminal=True, join="all")
-    wf.edge("dispatch", "worker")
-    wf.edge("worker", "merge")
+    wf.add_node("dispatch", dispatch)
+    wf.add_node("worker", worker, template=True)
+    wf.add_node("merge", merge, terminal=True, join="all")
+    wf.add_edge("dispatch", "worker")
+    wf.add_edge("worker", "merge")
     wf.entry("dispatch")
     assert (await wf.run()).output == [10, 20, 30]
 
@@ -100,7 +100,7 @@ async def test_workflow_dynamic_fan_out():
 async def test_workflow_agent_as_node():
     worker = Agent("worker", model=ScriptedLlm(["子 Agent 结果"]))
     wf = Workflow()
-    wf.add(
+    wf.add_node(
         "call_agent", worker, terminal=True
     )  # a node can hold an Agent directly, runs self-contained
     wf.entry("call_agent")
@@ -115,7 +115,7 @@ async def test_workflow_wait_human_and_resume():
             return wait_human("确认执行吗？", {"amount": 100})
         return f"按你的选择执行：{ctx.resume_value}"
 
-    wf.add("approve", approve, terminal=True)
+    wf.add_node("approve", approve, terminal=True)
     wf.entry("approve")
 
     first = await wf.run("付款")
@@ -129,8 +129,8 @@ async def test_workflow_goto_agent_is_transfer():
     # relay hands its input to repairer, which takes over with its own model and finishes.
     repairer = Agent("repairer", model=ScriptedLlm(["已扩容，恢复"]))
     wf = Workflow()
-    wf.add("relay", lambda x, ctx: go("repairer", x))
-    wf.add("repairer", repairer, terminal=True)
+    wf.add_node("relay", lambda x, ctx: go("repairer", x))
+    wf.add_node("repairer", repairer, terminal=True)
     wf.entry("relay")
     result = await wf.run("故障=连接池耗尽")
     assert result.output == "已扩容，恢复"  # no back-edge, control never returns

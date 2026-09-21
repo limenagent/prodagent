@@ -29,7 +29,7 @@ async def main():
         return "Third attempt succeeded, result in hand"
 
     wf = Workflow()
-    wf.add(
+    wf.add_node(
         "call",
         flaky_api,
         terminal=True,

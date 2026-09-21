@@ -112,6 +112,23 @@ def build_supervisor(
     tools the model can see but the shared executor cannot dispatch. For
     self-contained specialists that each own their model/tools, use the high-level
     Agent(teammates=[...]) facade instead; each Agent runs its own Scheduler.
+
+    Examples:
+        # OK — self-contained specialists owning their own model and tools:
+        boss = Agent("boss", model=boss_llm, teammates=[billing_agent, risk_agent])
+
+        # OK — bare child Plans that deliberately share THIS registry/model:
+        plan = build_supervisor(
+            {"billing": (billing_plan, "handles invoices and refunds")},
+            registry=registry,  # every tool the child calls is registered here
+        )
+
+        # WRONG — handing in the Plan of a self-contained Agent: it was built
+        # against that Agent's private model/registry, but the shared Scheduler
+        # drives it with the supervisor's — the specialist's own model and tools
+        # are then silently ignored (its scripted/real model never gets a turn).
+        # Either pass a bare Plan built for the shared registry, or use the
+        # Agent(teammates=[...]) facade above — do not mix the two topologies.
     """
     registry = registry or ToolRegistry()
     for name, (child_plan, desc) in workers.items():

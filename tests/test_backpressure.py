@@ -49,7 +49,7 @@ async def test_node_can_stream_events_through_context():
         return "完成"
 
     wf = Workflow(bus=bus)
-    wf.add("s", streamer, terminal=True)
+    wf.add_node("s", streamer, terminal=True)
     wf.entry("s")
     sub = bus.subscribe("token")
     r = await wf.run("")

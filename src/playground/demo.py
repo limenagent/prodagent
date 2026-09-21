@@ -72,12 +72,16 @@ def build_demo(model=None) -> Workflow:
             return go("refund", suggestion, decision="approved")
         return go("deny", suggestion, decision="denied")
 
-    wf.add("support", support)
-    wf.add("approve", approve)
-    wf.add("refund", _refund, terminal=True)
-    wf.add("deny", _deny, terminal=True)
-    wf.edge("support", "approve")
-    wf.edge("approve", "refund")
-    wf.edge("approve", "deny")
+    wf.add_node("support", support)
+    wf.add_node("approve", approve)
+    wf.add_node("refund", _refund, terminal=True)
+    wf.add_node("deny", _deny, terminal=True)
+    wf.add_edge("support", "approve")
+    # Mutually exclusive terminals, gated by the resume decision. As plain
+    # static edges both would fire the moment `approve` completes, so refund AND
+    # deny would run; the `when` guards light up only the branch the human chose
+    # (the unchosen terminal is swept as skipped). Same shape as the trader demo.
+    wf.add_edge("approve", "refund", when=lambda s: s.get("decision") == "approved")
+    wf.add_edge("approve", "deny", when=lambda s: s.get("decision") == "denied")
     wf.entry("support")
     return wf

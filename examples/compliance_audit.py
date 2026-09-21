@@ -39,16 +39,16 @@ def build_audit_workflow():
     async def report(summary, ctx):
         return f"{summary} | action taken: {ctx.shared['decision']}"
 
-    wf.add("screen_suspicious", screen_suspicious)
-    wf.add("screen_accounts", screen_accounts)
-    wf.add("synthesize", synthesize, join="all")
-    wf.add("freeze", freeze)
-    wf.add("report", report, terminal=True)
+    wf.add_node("screen_suspicious", screen_suspicious)
+    wf.add_node("screen_accounts", screen_accounts)
+    wf.add_node("synthesize", synthesize, join="all")
+    wf.add_node("freeze", freeze)
+    wf.add_node("report", report, terminal=True)
     wf.entry("screen_suspicious", "screen_accounts")  # two entries run in parallel in one wave
-    wf.edge("screen_suspicious", "synthesize")
-    wf.edge("screen_accounts", "synthesize")  # join="all": converge only when both arrive
-    wf.edge("synthesize", "freeze")
-    wf.edge("freeze", "report")
+    wf.add_edge("screen_suspicious", "synthesize")
+    wf.add_edge("screen_accounts", "synthesize")  # join="all": converge only when both arrive
+    wf.add_edge("synthesize", "freeze")
+    wf.add_edge("freeze", "report")
     return wf
 
 

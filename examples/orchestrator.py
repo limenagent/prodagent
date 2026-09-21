@@ -82,12 +82,12 @@ async def main():
     )
 
     wf = Workflow()
-    wf.add("planner", planner)
-    wf.add("dispatch", dispatch)
-    wf.add("reviewer", reviewer, template=True)  # copies stamped at runtime
-    wf.add("synth", synth, terminal=True)  # join="all": waits for every copy
-    wf.edge("planner", "dispatch")
-    wf.edge("reviewer", "synth")
+    wf.add_node("planner", planner)
+    wf.add_node("dispatch", dispatch)
+    wf.add_node("reviewer", reviewer, template=True)  # copies stamped at runtime
+    wf.add_node("synth", synth, terminal=True)  # join="all": waits for every copy
+    wf.add_edge("planner", "dispatch")
+    wf.add_edge("reviewer", "synth")
     wf.entry("planner")
 
     result = await wf.run("Audit every deployed service before the release")

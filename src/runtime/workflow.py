@@ -4,9 +4,9 @@ Use Workflow when you don't want "an agent that thinks on its own" but "a flow
 chart you can see clearly":
 
     wf = Workflow()
-    wf.add("fetch", fetch_fn)
-    wf.add("write", writer_agent)        # a node can also be an Agent directly
-    wf.edge("fetch", "write")
+    wf.add_node("fetch", fetch_fn)
+    wf.add_node("write", writer_agent)   # a node can also be an Agent directly
+    wf.add_edge("fetch", "write")
     wf.entry("fetch")
     result = await wf.run("task")
 
@@ -140,7 +140,7 @@ class Workflow:
         self._channels[name] = reducer
         return self
 
-    def add(
+    def add_node(
         self,
         name: str,
         body: Any,
@@ -164,7 +164,7 @@ class Workflow:
         )
         return self
 
-    def edge(self, src: str, dst: str, *, when: Callable | None = None) -> Workflow:
+    def add_edge(self, src: str, dst: str, *, when: Callable | None = None) -> Workflow:
         self._edges.append((src, dst, when))
         return self
 

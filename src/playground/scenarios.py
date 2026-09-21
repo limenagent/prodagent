@@ -133,11 +133,11 @@ def _trader(lang: str = "en"):
         # Record the decision + carry the value to the chosen terminal node.
         return go(target, plan, decision=target)
 
-    wf.add("buyer", buyer)
-    wf.add("approve", approve)
-    wf.add("place_order", place_order, terminal=True)
-    wf.add("cancel", cancel, terminal=True)
-    wf.edge("buyer", "approve")
+    wf.add_node("buyer", buyer)
+    wf.add_node("approve", approve)
+    wf.add_node("place_order", place_order, terminal=True)
+    wf.add_node("cancel", cancel, terminal=True)
+    wf.add_edge("buyer", "approve")
     # Mutually exclusive branches declared as conditional edges: the runtime
     # activates only the one `decision` points at; the other predecessor is
     # already terminal but its edge is inactive, so sweep_skipped skips it clean.
@@ -236,16 +236,16 @@ def _compliance(lang: str = "en"):
     async def report(summary, ctx):
         return t["report_fmt"].format(summary=summary, decision=ctx.shared["decision"])
 
-    wf.add("screen_suspicious", screen_suspicious)
-    wf.add("screen_accounts", screen_accounts)
-    wf.add("synthesize", synthesize, join="all")
-    wf.add("freeze", freeze)
-    wf.add("report", report, terminal=True)
+    wf.add_node("screen_suspicious", screen_suspicious)
+    wf.add_node("screen_accounts", screen_accounts)
+    wf.add_node("synthesize", synthesize, join="all")
+    wf.add_node("freeze", freeze)
+    wf.add_node("report", report, terminal=True)
     wf.entry("screen_suspicious", "screen_accounts")
-    wf.edge("screen_suspicious", "synthesize")
-    wf.edge("screen_accounts", "synthesize")
-    wf.edge("synthesize", "freeze")
-    wf.edge("freeze", "report")
+    wf.add_edge("screen_suspicious", "synthesize")
+    wf.add_edge("screen_accounts", "synthesize")
+    wf.add_edge("synthesize", "freeze")
+    wf.add_edge("freeze", "report")
     return wf
 
 
@@ -530,10 +530,10 @@ def _aiops(lang: str = "en"):
         # means no coming back — root becomes its input for this run.
         return go("repairer", root)
 
-    wf.add("diagnose", diagnose)
-    wf.add("decide", decide)
-    wf.add("repairer", repairer, terminal=True)
-    wf.edge("diagnose", "decide")
+    wf.add_node("diagnose", diagnose)
+    wf.add_node("decide", decide)
+    wf.add_node("repairer", repairer, terminal=True)
+    wf.add_edge("diagnose", "decide")
     wf.entry("diagnose")
     return wf
 
@@ -584,16 +584,16 @@ def _review_team(lang: str = "en"):
         # revised draft when it went through revision.
         return t["finalize_fmt"].format(text=text)
 
-    wf.add("writer", writer)
-    wf.add("critic", critic)
-    wf.add("judge", judge)
-    wf.add("revise", reviser)
+    wf.add_node("writer", writer)
+    wf.add_node("critic", critic)
+    wf.add_node("judge", judge)
+    wf.add_node("revise", reviser)
     # Convergence point: either judge finalizes directly or revise does after
     # rewriting — whoever arrives supplies the output, hence join="any".
-    wf.add("finalize", finalize, join="any", terminal=True)
-    wf.edge("writer", "critic")
-    wf.edge("critic", "judge")
-    wf.edge("revise", "finalize")
+    wf.add_node("finalize", finalize, join="any", terminal=True)
+    wf.add_edge("writer", "critic")
+    wf.add_edge("critic", "judge")
+    wf.add_edge("revise", "finalize")
     # judge's two destinations are mutually exclusive branches: the runtime
     # activates one; the other is skipped clean.
     wf.branch(
@@ -669,12 +669,12 @@ def _orchestrator(lang: str = "en"):
         finding = t["findings"][service]
         return f"{service}: {finding}"
 
-    wf.add("planner", planner)
-    wf.add("dispatch", dispatch)
-    wf.add("reviewer", reviewer, template=True)  # copies stamped at runtime
-    wf.add("synth", synth, terminal=True)  # join="all": waits for every copy
-    wf.edge("planner", "dispatch")
-    wf.edge("reviewer", "synth")
+    wf.add_node("planner", planner)
+    wf.add_node("dispatch", dispatch)
+    wf.add_node("reviewer", reviewer, template=True)  # copies stamped at runtime
+    wf.add_node("synth", synth, terminal=True)  # join="all": waits for every copy
+    wf.add_edge("planner", "dispatch")
+    wf.add_edge("reviewer", "synth")
     wf.entry("planner")
     return wf
 
@@ -774,12 +774,12 @@ def _blackboard(lang: str = "en"):
         return f"{text} ({note})"
 
     for name in experts:
-        wf.add(name, expert_node(name))
-        wf.edge("fanout", name)
-        wf.edge(name, "moderate")
-    wf.add("fanout", fanout)
-    wf.add("moderate", moderate, join="all")  # every expert of this round, every round
-    wf.add("final", final, terminal=True)
+        wf.add_node(name, expert_node(name))
+        wf.add_edge("fanout", name)
+        wf.add_edge(name, "moderate")
+    wf.add_node("fanout", fanout)
+    wf.add_node("moderate", moderate, join="all")  # every expert of this round, every round
+    wf.add_node("final", final, terminal=True)
     wf.entry("fanout")
     return wf
 
@@ -1060,9 +1060,9 @@ async def _dating(lang: str = "en"):
         )
         return t["verdict"].format(heard=contains(seen[1]), gone=not contains(seen[-1]), kept=kept)
 
-    wf.add("niu_turn", niu_turn)
-    wf.add("mei_turn", mei_turn)
-    wf.add("final", final, terminal=True)
+    wf.add_node("niu_turn", niu_turn)
+    wf.add_node("mei_turn", mei_turn)
+    wf.add_node("final", final, terminal=True)
     wf.entry("niu_turn")
     return wf
 

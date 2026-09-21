@@ -16,7 +16,7 @@ async def test_retry_until_success():
         return f"第{calls['n']}次成功"
 
     wf = Workflow()
-    wf.add("n", flaky, terminal=True, retry=RetryPolicy(max_attempts=3, base_delay=0))
+    wf.add_node("n", flaky, terminal=True, retry=RetryPolicy(max_attempts=3, base_delay=0))
     wf.entry("n")
     r = await wf.run("")
     assert r.status == "completed"
@@ -32,7 +32,7 @@ async def test_retry_exhausted_fails_run():
         raise RuntimeError("一直坏")
 
     wf = Workflow()
-    wf.add("n", always_fail, terminal=True, retry=RetryPolicy(max_attempts=2, base_delay=0))
+    wf.add_node("n", always_fail, terminal=True, retry=RetryPolicy(max_attempts=2, base_delay=0))
     wf.entry("n")
     r = await wf.run("")
     assert r.status == "failed"
@@ -48,7 +48,9 @@ async def test_timeout_counts_as_one_attempt():
         return "不该返回"
 
     wf = Workflow()
-    wf.add("n", slow, terminal=True, timeout=0.05, retry=RetryPolicy(max_attempts=2, base_delay=0))
+    wf.add_node(
+        "n", slow, terminal=True, timeout=0.05, retry=RetryPolicy(max_attempts=2, base_delay=0)
+    )
     wf.entry("n")
     loop = asyncio.get_event_loop()
     t0 = loop.time()
@@ -66,7 +68,7 @@ async def test_cancellation_is_never_retried():
         raise asyncio.CancelledError()
 
     wf = Workflow()
-    wf.add("n", cancelled, terminal=True, retry=RetryPolicy(max_attempts=3, base_delay=0))
+    wf.add_node("n", cancelled, terminal=True, retry=RetryPolicy(max_attempts=3, base_delay=0))
     wf.entry("n")
     r = await wf.run("")
     assert r.status == "failed"

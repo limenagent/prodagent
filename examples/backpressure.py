@@ -35,7 +35,7 @@ async def main():
         return "streaming done"
 
     wf = Workflow(bus=bus)
-    wf.add("stream", streamer, terminal=True)
+    wf.add_node("stream", streamer, terminal=True)
     wf.entry("stream")
 
     result = await wf.run("start")

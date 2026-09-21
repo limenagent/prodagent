@@ -30,6 +30,10 @@ PYTHONPATH=. python examples/文件名.py
   结论，最后自己决定。观察每次委派都是“去了要回来”（call），以及风控再往下委派长出的三层树。
 - **aiops.py**：诊断节点用 call 要返回结果，决定转交给修复节点时用 transfer——同图 `go`、不画
   回边，控制权一去不返。对比这两种多 Agent 汇合语义的差别。
+- **handoff.py**：流程里没有主管的纯 *transfer*，两种形态——固定交接**链**
+  （triage → billing → risk → close），以及同伴可以把案子**退回**（billing ↔ risk）
+  再了结的**蜂群网**。图上只登记 Agent 节点、节点之间一条边都不画：下一任持有者
+  是专家在自己的判决里用运行时 `go` 指定的。观察控制权一去不返、只有一行摘要向前传递。
 - **write_review.py**：撰稿 Agent 出稿、审阅 Agent 挑错，没通过的审阅意见被条件分支带回修订 Agent
   回炉，通过则直接定稿。观察质量迭代就是一条普通的带回边的循环，节点里坐的是 Agent。
 - **orchestrator.py**：编排者-工人。图上只有一个 reviewer 节点，规划 Agent 先调目录工具看现状、

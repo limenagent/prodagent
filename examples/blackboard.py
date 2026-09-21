@@ -93,12 +93,12 @@ async def main():
         return f"{verdict} ({len(ctx.shared['board'])} opinions were written along the way.)"
 
     for name in EXPERTS:
-        wf.add(name, expert_node(name))
-        wf.edge("fanout", name)
-        wf.edge(name, "moderate")
-    wf.add("fanout", fanout)
-    wf.add("moderate", moderate, join="all")  # every expert of this round, every round
-    wf.add("final", final, terminal=True)
+        wf.add_node(name, expert_node(name))
+        wf.add_edge("fanout", name)
+        wf.add_edge(name, "moderate")
+    wf.add_node("fanout", fanout)
+    wf.add_node("moderate", moderate, join="all")  # every expert of this round, every round
+    wf.add_node("final", final, terminal=True)
     wf.entry("fanout")
 
     result = await wf.run("Should we roll out the new pricing engine next week?")

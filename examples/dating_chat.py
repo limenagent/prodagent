@@ -319,9 +319,9 @@ async def build_date(lang: str = "en"):
             kept=kept,
         )
 
-    wf.add("niu_turn", niu_turn)
-    wf.add("mei_turn", mei_turn)
-    wf.add("final", final, terminal=True)
+    wf.add_node("niu_turn", niu_turn)
+    wf.add_node("mei_turn", mei_turn)
+    wf.add_node("final", final, terminal=True)
     wf.entry("niu_turn")
 
     assets = {

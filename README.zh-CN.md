@@ -73,9 +73,9 @@ await agent.run("帮我查 X")
 
 # 确定性流程图 / 交接：节点既能是函数，也能直接是一个 Agent
 wf = Workflow()
-wf.add("diagnose", diagnose_fn)
-wf.add("repair", repair_agent, terminal=True)
-wf.edge("diagnose", "repair")
+wf.add_node("diagnose", diagnose_fn)
+wf.add_node("repair", repair_agent, terminal=True)
+wf.add_edge("diagnose", "repair")
 wf.entry("diagnose")
 await wf.run("故障")
 ```

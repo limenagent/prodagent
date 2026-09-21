@@ -35,11 +35,11 @@ def build(directory: str) -> Workflow:
     async def finish(prep, ctx):
         return f"{prep} | action taken: {ctx.shared['decision']}"
 
-    wf.add("prepare", prepare)
-    wf.add("approve", approve)
-    wf.add("finish", finish, terminal=True)
-    wf.edge("prepare", "approve")
-    wf.edge("approve", "finish")
+    wf.add_node("prepare", prepare)
+    wf.add_node("approve", approve)
+    wf.add_node("finish", finish, terminal=True)
+    wf.add_edge("prepare", "approve")
+    wf.add_edge("approve", "finish")
     wf.entry("prepare")
     return wf
 
