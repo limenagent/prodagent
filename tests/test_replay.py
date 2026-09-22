@@ -132,6 +132,46 @@ async def test_replay_rebuilds_a_suspension():
     assert parked.payload == {"order": "o1"}
 
 
+async def test_replay_marks_every_node_of_a_failed_wave():
+    """Failure settles the whole wave: every failed node is marked from its own
+    node_failed event, not just the one named by run_failed."""
+
+    async def boom(_x, _ctx):
+        raise RuntimeError("boom")
+
+    p = Plan().add(Node("f1", FnBody(boom), terminal=True), Node("f2", FnBody(boom), terminal=True))
+    sch = Scheduler()
+    run = await sch.run(p)
+
+    r2 = replay(p, await sch.eventlog.events(run.run_id))
+    assert r2.state == RunState.FAILED
+    assert r2.state_of("f1").status == NodeStatus.FAILED
+    assert r2.state_of("f2").status == NodeStatus.FAILED
+
+
+async def test_replay_keeps_a_parked_nodes_goto_input():
+    """A parked node's Goto input survives to the re-run; the stream alone
+    rebuilds that too."""
+
+    async def send_over(_x, _ctx):
+        return Outcome.goto("worker", "brief")
+
+    def worker(_x, ctx):
+        if ctx.resume_value is None:
+            return Outcome.park("input", question="more?")
+        return Outcome.ok("kept")
+
+    p = Plan()
+    p.add(Node("start", FnBody(send_over)), Node("worker", FnBody(worker), terminal=True))
+    p.edge("start", "worker")
+
+    sch = Scheduler()
+    run = await sch.run(p)
+    r2 = replay(p, await sch.eventlog.events(run.run_id))
+    assert r2.state == RunState.SUSPENDED
+    assert r2.deliveries == run.deliveries == {"worker": "brief"}
+
+
 async def test_replay_requires_a_run_started_event():
     p = Plan().add(Node("a", FnBody(lambda i, ctx: "x"), terminal=True))
     try:

@@ -25,6 +25,7 @@ from src.kernel.channels import Channel
 RUN_STARTED = "run_started"
 NODE_STARTED = "node_started"
 NODE_COMPLETED = "node_completed"
+NODE_FAILED = "node_failed"
 NODE_SKIPPED = "node_skipped"
 NODE_RETRY = "node_retry"
 STATE_DELTA = "state_delta"
@@ -54,7 +55,7 @@ def apply_event(shared: dict[str, Any], event: Event, channels: dict[str, Channe
         return
     for key, value in event.data.get("delta", {}).items():
         channel = channels[key]
-        shared[key] = channel.fold(shared.get(key), value)
+        shared[key] = channel.reducer(shared.get(key), value)
 
 
 def fold_events(
@@ -68,14 +69,12 @@ def fold_events(
 
 
 class EventLog(Protocol):
-    async def append(self, event: Event) -> int: ...
+    async def append(self, event: Event) -> None: ...
     async def events(self, run_id: str) -> list[Event]: ...
 
 
 class CheckpointStore(Protocol):
-    async def save(
-        self, run_id: str, snapshot: dict, *, expected_version: int | None = None
-    ) -> int: ...
+    async def save(self, run_id: str, snapshot: dict) -> None: ...
     async def load(self, run_id: str) -> dict | None: ...
 
 
@@ -86,10 +85,9 @@ class InMemoryEventLog:
     def __init__(self) -> None:
         self._streams: dict[str, list[Event]] = {}
 
-    async def append(self, event: Event) -> int:
+    async def append(self, event: Event) -> None:
         stream = self._streams.setdefault(event.run_id, [])
         stream.append(event)
-        return event.seq
 
     async def events(self, run_id: str) -> list[Event]:
         return list(self._streams.get(run_id, ()))
@@ -101,19 +99,9 @@ class InMemoryStore:
 
     def __init__(self) -> None:
         self._snapshots: dict[str, dict] = {}
-        self._version: dict[str, int] = {}
 
-    async def save(
-        self, run_id: str, snapshot: dict, *, expected_version: int | None = None
-    ) -> int:
-        # Optimistic concurrency: if an expected version is given it must match,
-        # so two executions cannot overwrite each other.
-        if expected_version is not None and self._version.get(run_id, 0) != expected_version:
-            raise RuntimeError(f"checkpoint version conflict: expected {expected_version}")
-        version = self._version.get(run_id, 0) + 1
+    async def save(self, run_id: str, snapshot: dict) -> None:
         self._snapshots[run_id] = snapshot
-        self._version[run_id] = version
-        return version
 
     async def load(self, run_id: str) -> dict | None:
         snap = self._snapshots.get(run_id)

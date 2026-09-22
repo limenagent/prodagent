@@ -29,9 +29,11 @@ from typing import Any
 
 from src.kernel import (
     Bus,
+    FnBody,
     InMemoryEventLog,
     InMemoryStore,
     Node,
+    NodeBody,
     Outcome,
     Plan,
     Run,
@@ -39,7 +41,6 @@ from src.kernel import (
     SubPlanBody,
     last,
 )
-from src.kernel.body import NodeBody, coerce_outcome
 from src.runtime.agent import Agent
 
 # ---- Convenience helpers for control flow inside a node (no need to import
@@ -70,14 +71,11 @@ class _FacadeBody:
     """Wrap a user function: normalize its permissive return into an Outcome and auto-add channels for new state keys."""
 
     def __init__(self, fn: Callable, plan_ref: list):
-        self.fn = fn
+        self._inner = FnBody(fn)
         self.plan_ref = plan_ref
 
     async def run(self, input: Any, ctx) -> Outcome:
-        result = self.fn(input, ctx)
-        if hasattr(result, "__await__"):
-            result = await result
-        outcome = coerce_outcome(result)
+        outcome = await self._inner.run(input, ctx)
         plan = self.plan_ref[0]
         for k in outcome.state_delta:  # auto-add a last channel for undeclared keys
             if k not in plan.channels:
@@ -104,9 +102,6 @@ class WorkflowResult:
             metrics=dict(run.metrics),
             run=run,
         )
-
-    def __str__(self) -> str:
-        return str(self.output)
 
 
 class Workflow:
@@ -181,7 +176,7 @@ class Workflow:
     # ---- compile ----
     def _as_body(self, body: Any, plan_ref: list) -> NodeBody:
         if isinstance(body, Agent):  # an Agent runs its own model self-contained
-            return _FacadeBody(body.as_task(), plan_ref)
+            return _FacadeBody(body.delegate, plan_ref)
         if isinstance(body, Plan):  # only a bare Plan is recursed by the same scheduler
             return SubPlanBody(body)
         if callable(body):  # ordinary function -> permissive wrapper

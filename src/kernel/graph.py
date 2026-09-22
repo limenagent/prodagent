@@ -146,9 +146,6 @@ class Plan:
     def nodes(self) -> dict[str, Node]:
         return self._nodes
 
-    def get(self, node_id: str) -> Node:
-        return self._nodes[node_id]
-
     def incoming(self, node_id: str) -> list[Edge]:
         return list(self._incoming.get(node_id, ()))
 
@@ -172,7 +169,7 @@ class Plan:
 
     # — predecessor checks —
     @staticmethod
-    def _edge_live(e: Edge, shared: dict[str, Any]) -> bool:
+    def edge_live(e: Edge, shared: dict[str, Any]) -> bool:
         return e.when is None or bool(e.when(shared))
 
     def _instance_keys(self, run: Any, source: str) -> list[str] | None:
@@ -242,7 +239,7 @@ class Plan:
             if has_open_pred:
                 continue  # a predecessor is still running, wait another wave
 
-            live_edges = [e for e in preds if self._edge_live(e, run.shared)]
+            live_edges = [e for e in preds if self.edge_live(e, run.shared)]
             if not live_edges:
                 continue  # no live edge; sweep_skipped cleans this up once the graph stalls
             done = sum(
@@ -284,7 +281,7 @@ class Plan:
                     continue
                 all_terminal = all(self._predecessor_terminal(run, e.source) for e in preds)
                 any_live = any(
-                    self._predecessor_done(run, e.source) and self._edge_live(e, run.shared)
+                    self._predecessor_done(run, e.source) and self.edge_live(e, run.shared)
                     for e in preds
                 )
                 if all_terminal and not any_live:

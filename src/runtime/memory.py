@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Protocol
 
 
 @dataclass
@@ -27,13 +26,6 @@ class MemoryRecord:
     tags: list[str] = field(default_factory=list)
     importance: float = 1.0
     record_id: str = ""
-
-
-class Memory(Protocol):
-    async def remember(
-        self, content: str, *, tags: list[str] | None = ..., importance: float = ...
-    ) -> None: ...
-    async def recall(self, query: str, *, k: int = ...) -> str: ...
 
 
 def _tokens(text: str) -> set[str]:

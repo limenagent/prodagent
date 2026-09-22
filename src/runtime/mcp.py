@@ -7,15 +7,13 @@ uniformly changed to "call through the MCP client". Validation, approval,
 idempotency, and result normalization then all reuse the same tool pipeline; MCP
 is just one more source of tools.
 
-- InProcessMCPServer: an in-process MCP form for offline tests/demos;
-- StdioMCPClient: connects to a real MCP server over a subprocess + JSON-RPC
-  (standard-library implementation).
+InProcessMCPServer is an in-process MCP form for offline tests/demos; a real
+client (stdio/HTTP) only has to offer the same list_tools / call_tool pair.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -80,62 +78,3 @@ async def load_mcp_tools(registry: ToolRegistry, server: Any, *, prefix: str = "
         )
         names.append(full_name)
     return names
-
-
-class StdioMCPClient:
-    """A minimal client to a real MCP server over stdio + JSON-RPC (stdlib only).
-
-    The teaching build covers only initialize / tools/list / tools/call, enough
-    to show "protocol adaptation happens at the boundary". In production swap in
-    the official MCP SDK; the two methods exposed upward stay the same.
-    """
-
-    def __init__(self, command: list[str]):
-        self.command = command
-        self._proc: asyncio.subprocess.Process | None = None
-        self._id = 0
-
-    async def __aenter__(self):
-        self._proc = await asyncio.create_subprocess_exec(
-            *self.command, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE
-        )
-        await self._rpc("initialize", {"protocolVersion": "2024-11-05"})
-        return self
-
-    async def __aexit__(self, *exc):
-        if self._proc:
-            self._proc.terminate()
-            await self._proc.wait()
-
-    async def _rpc(self, method: str, params: dict) -> dict:
-        assert self._proc and self._proc.stdin and self._proc.stdout
-        self._id += 1
-        msg = {"jsonrpc": "2.0", "id": self._id, "method": method, "params": params}
-        self._proc.stdin.write((json.dumps(msg) + "\n").encode())
-        await self._proc.stdin.drain()
-        line = await self._proc.stdout.readline()
-        response = json.loads(line)
-        if "error" in response:
-            raise RuntimeError(f"MCP {method} failed: {response['error']}")
-        return response.get("result", {})
-
-    async def list_tools(self) -> list[McpToolInfo]:
-        result = await self._rpc("tools/list", {})
-        out = []
-        for t in result.get("tools", []):
-            out.append(
-                McpToolInfo(
-                    t["name"],
-                    t.get("description", ""),
-                    t.get("inputSchema", {"type": "object", "properties": {}}),
-                    None,
-                )
-            )
-        return out
-
-    async def call_tool(self, name: str, arguments: dict) -> Any:
-        result = await self._rpc("tools/call", {"name": name, "arguments": arguments})
-        for content in result.get("content", []):
-            if content.get("type") == "text":
-                return content["text"]
-        return result

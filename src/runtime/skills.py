@@ -7,8 +7,8 @@ package selected on demand. Like memory and context, it stays out of the kernel:
 - register: declare the skill's name, description, instructions, and tool names;
 - select: resolve fetches by exact name, match picks the most relevant one for
   the current task description;
-- land: splice the skill's instructions into the system prompt and narrow the
-  tools to the scope the skill declares.
+- land: splice the skill's instructions into the system prompt. ``tools`` names
+  the scope the skill involves; narrowing what is exposed is the caller's call.
 """
 
 from __future__ import annotations

@@ -6,10 +6,10 @@ from src.kernel import AmbiguousWrite, WaveWrites, add, append, last, merge
 
 
 def test_reducers_fold():
-    assert append().fold(["a"], ["b", "c"]) == ["a", "b", "c"]
-    assert add(0).fold(1, 2) == 3
-    assert last().fold("old", "new") == "new"
-    assert merge().fold({"a": 1}, {"b": 2}) == {"a": 1, "b": 2}
+    assert append().reducer(["a"], ["b", "c"]) == ["a", "b", "c"]
+    assert add(0).reducer(1, 2) == 3
+    assert last().reducer("old", "new") == "new"
+    assert merge().reducer({"a": 1}, {"b": 2}) == {"a": 1, "b": 2}
 
 
 def test_wavewrites_collects_in_declared_channels():
@@ -21,7 +21,7 @@ def test_wavewrites_collects_in_declared_channels():
     folded = {}
     for write in w.drain():
         ch = {"items": append(), "n": add(0)}[write.key]
-        folded[write.key] = ch.fold(folded.get(write.key), write.value)
+        folded[write.key] = ch.reducer(folded.get(write.key), write.value)
     assert folded["items"] == [1, 2]
     assert folded["n"] == 1
 

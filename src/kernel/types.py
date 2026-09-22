@@ -45,9 +45,9 @@ _ALLOWED_TRANSITIONS: dict[RunState, frozenset[RunState]] = {
 class ToolCall:
     """A single tool-call request.
 
-    ``call_id`` is a stable idempotency key: it stays the same when the same
-    decision is retried, so the tool side can de-duplicate. Together:
-    "at-least-once delivery + idempotency = exactly-once effect".
+    ``call_id`` is unique per call within the Run (the call counter); it is NOT
+    stable across retries or suspension — redelivery can re-execute a side
+    effect. A stable key needs a persisted call cursor, out of scope here.
     """
 
     name: str

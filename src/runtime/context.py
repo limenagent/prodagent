@@ -16,11 +16,7 @@ recipe.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Protocol
-
-
-class ContextManager(Protocol):
-    async def assemble(self, messages: list[dict]) -> list[dict]: ...
+from typing import Any, ClassVar
 
 
 def _render(messages: list[dict]) -> str:

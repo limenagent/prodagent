@@ -92,6 +92,7 @@ def coerce_outcome(raw: Any) -> Outcome:
             return Outcome(state_delta=delta, control=controls or None)
         return Outcome(value=raw)
     if isinstance(raw, dict):
+        # A bare dict folds into state; return Outcome.ok(d) when the dict itself is the value.
         return Outcome(state_delta=raw)
     return Outcome(value=raw)
 
@@ -174,9 +175,9 @@ class NodeContext:
         if self._tools is None:
             raise RuntimeError("no ToolPort injected; cannot call a tool")
         self.run.metrics["tool_calls"] += 1
-        # Stable idempotency key: unchanged when the same attempt of a node retries.
-        attempt = self.run.state_of(self.node_id).attempts
-        call = ToolCall(name, arguments or {}, call_id=f"{self.run_id}:{self.node_id}:{attempt}")
+        # unique per call (the Run's counter); not retry/park-stable — see ToolCall
+        count = self.run.metrics["tool_calls"]
+        call = ToolCall(name, arguments or {}, call_id=f"{self.run_id}:{self.node_id}:{count}")
         return await self._tools.dispatch(call, ctx=self)
 
     async def spawn(self, spec: Any, task: str, payload: Any = None) -> dict:
