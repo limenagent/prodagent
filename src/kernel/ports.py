@@ -59,8 +59,9 @@ class ToolPort(Protocol):
 @runtime_checkable
 class SubagentPort(Protocol):
     """Sub-agent activation port: recursively run a child Run with the same
-    kernel (call semantics — it returns a result)."""
+    kernel (call semantics — it returns a result). node_id lets the activator
+    attribute the delegation fact to the spawning node."""
 
     async def activate(
-        self, spec: Any, task: str, parent_run: Any, payload: Any = None
+        self, spec: Any, task: str, parent_run: Any, payload: Any = None, node_id: str = ""
     ) -> dict: ...

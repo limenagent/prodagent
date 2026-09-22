@@ -1,5 +1,7 @@
 """Multi-agent: a sub-agent is a child Run recursively driven by some body, using the very same kernel."""
 
+import asyncio
+
 from src.kernel import (
     FnBody,
     Node,
@@ -128,6 +130,38 @@ async def test_sibling_delegations_do_not_accumulate_depth():
     assert "completed" in result.status
     tool_outputs = [m.get("content") for m in result.messages if m.get("role") == "tool"]
     assert "one done" in tool_outputs and "two done" in tool_outputs
+
+
+async def test_same_turn_tool_calls_run_concurrently_and_keep_order():
+    # ping can only finish after pong has started: sequential execution would
+    # deadlock it into the timeout; concurrent execution completes. Results
+    # still land in call order even though pong finishes first.
+    started = asyncio.Event()
+
+    async def ping(task, ctx=None):
+        try:
+            await asyncio.wait_for(started.wait(), 2)
+        except TimeoutError:
+            return "DEADLOCK"
+        return "ping done"
+
+    async def pong(task, ctx=None):
+        started.set()
+        await asyncio.sleep(0.01)
+        return "pong done"
+
+    boss = Agent(
+        "boss",
+        model=ScriptedLlm(
+            [[ToolCall("ping", {"task": "x"}), ToolCall("pong", {"task": "y"})], "fin"]
+        ),
+        instruction="boss",
+        tools=[ping, pong],
+    )
+    result = await boss.run("go")
+    assert "completed" in result.status
+    outs = [m["content"] for m in result.messages if m.get("role") == "tool"]
+    assert outs == ["ping done", "pong done"]
 
 
 async def test_ctxless_delegate_starts_a_fresh_root():

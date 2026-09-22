@@ -57,9 +57,9 @@ kernel additions:
 | generator-critic | call out, result returns, possibly multi-round | isolated |
 | blackboard | whoever has the data acts | shared channels + conditional triggers |
 
-## Two engineering problems that must be structurally covered
+## Three engineering problems that must be structurally covered
 
-Recursive composition is powerful, but two holes must be closed structurally
+Recursive composition is powerful, but three holes must be closed structurally
 rather than trusting the model to "behave":
 
 1. **Cycle prevention and depth limits**: A delegates to B and B back to A, and
@@ -71,6 +71,21 @@ rather than trusting the model to "behave":
    can't be swallowed by the parent as a normal result — failure propagates up
    the Run tree; after a transfer, control (and cancellation authority) has
    already moved. These two semantics must be kept distinct.
+3. **Suspension lift-up and two-step resume**: a called-out child Run that
+   parks parks the caller too (`kind="delegation"`, the payload carrying the
+   child's run_id and the child's question surfacing unchanged — otherwise the
+   question would evaporate at the parent layer). Every spawn records a
+   `delegated` fact on the parent's event stream (node + child_run_id), so
+   after a crash the old child can be re-attached instead of orphaned.
+   Resuming is two steps: resume the child (it has its own run_id), then hand
+   the child's output to the parent as its resume value — the parked node
+   short-circuits and never re-spawns. A re-run interrupted wave is
+   at-least-once: tool side effects may replay; a call id stable across parks
+   needs a persisted call cursor — a production-hardening lesson, kept out
+   of the teaching kernel. So a turn mixing several delegation calls with a
+   suspension is refused outright rather than silently mis-routed
+   (plain-tool siblings still pass: their re-run is honest at-least-once).
+   Teammates delegation (the facade) shares these semantics.
 
 ## In the code
 

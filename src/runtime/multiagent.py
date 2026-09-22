@@ -31,7 +31,7 @@ from src.kernel import (
     last,
 )
 from src.runtime.react import build_react_plan
-from src.runtime.tools import ToolRegistry, ToolSpec
+from src.runtime.tools import DelegationSuspendedError, ToolRegistry, ToolSpec
 
 DEFAULT_SUPERVISOR_SYSTEM = (
     "You are a supervisor and do not perform concrete execution yourself. "
@@ -73,9 +73,15 @@ def register_agent_tool(
         child_plan.name = name
 
     async def delegate(task: str, ctx: Any):
+        if getattr(ctx, "resume_value", None) is not None:
+            return ctx.resume_value  # two-step resume: the child already ran
         result = await ctx.spawn(
             child_plan, task
         )  # recursively start a child Run; call means it returns
+        if result.get("state") == "suspended":
+            # a tool cannot return an Outcome: ride the hard carve-out and let
+            # the recipe's tool loop park this flow (SubPlanBody's twin)
+            raise DelegationSuspendedError(result["run_id"], result.get("question", ""), task)
         return result["output"]
 
     registry.add(
@@ -91,6 +97,7 @@ def register_agent_tool(
                 "required": ["task"],
             },
             side_effect="read",
+            delegation=True,
         )
     )
 

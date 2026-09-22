@@ -29,6 +29,8 @@ NODE_FAILED = "node_failed"
 NODE_SKIPPED = "node_skipped"
 NODE_RETRY = "node_retry"
 STATE_DELTA = "state_delta"
+# a fact, not state: a node spawned a child Run (the crash-reattach anchor)
+DELEGATED = "delegated"
 # A control command that actually happened: data = {"op": "goto"|"send", ...}.
 # Commands express intent; once applied they are recorded as this fact, so the
 # stream alone — not the live scheduler — can rebuild where control went.
