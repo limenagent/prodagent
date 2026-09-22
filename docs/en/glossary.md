@@ -56,9 +56,10 @@ and time travel all work by replaying it.
 **Checkpoint**: a snapshot of a Run taken at a wave boundary for fast recovery;
 it is a disposable cache — the truth still lives in the events.
 
-**Bus (event bus)**: the kernel's single outward seam with two protocols —
-`fire` to observe, `check` to adjudicate; bounded
-subscriptions additionally support streaming and backpressure.
+**Bus (event bus)**: the kernel's single outward seam with three protocols —
+`fire` to observe/broadcast, `check` to adjudicate, and `subscribe` to consume an
+event stream; subscriptions are bounded queues that support streaming and
+backpressure via `block`/`drop` policies.
 
 **backpressure**: when a downstream consumer can't keep up, push pressure back
 upstream (`block` and wait) or drop frames and count them (`drop`), instead of
