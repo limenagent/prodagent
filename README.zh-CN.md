@@ -4,12 +4,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![runtime deps: 0](https://img.shields.io/badge/runtime%20deps-0-brightgreen.svg)]()
-[![tests: 83 offline](https://img.shields.io/badge/tests-83%20offline-blue.svg)]()
+[![tests: offline](https://img.shields.io/badge/tests-offline-blue.svg)]()
 
 **中文** · [English](README.md) · 配套文档：[中文](docs/zh/README.md) · [English](docs/en/README.md)
 
 prodagent 是一个**刻意做小、但保留生产级要点的教学型 Agent 运行时**：六个原子正交部件、净代码
-约 1800 行、运行时**零三方依赖**，83 个测试全部离线可跑。一个周末读完，你会看清 ReAct、先规划
+约 1800 行、运行时**零三方依赖**，测试全部离线可跑。一个周末读完，你会看清 ReAct、先规划
 后执行、多 Agent 协作其实都是用同一小把原语*拼*出来的——再回头看 LangGraph、Google ADK，会
 轻松很多。它也是极客时间专栏[《生产级 Agent 排雷实战》](http://gk.link/a/12L6Q)的配套开源项目。
 
@@ -29,7 +29,7 @@ prodagent 是一个**刻意做小、但保留生产级要点的教学型 Agent �
 | 多 Agent | 子 Run（委派）/ 不回头的 `Goto`（交棒）/ 黑板 | LangGraph 子图 + `Send`；ADK 子 Agent 与 transfer；CrewAI 层级制 |
 | 对外挂能力 | `Bus`：旁观 / 裁决 / 订阅 | LangGraph 的 callbacks 与 stream；ADK 的 EventBus |
 
-没有魔法，也没有藏起来的东西：11 个文件，一个周末就能读完。
+没有魔法，也没有藏起来的东西：12 个文件，一个周末就能读完。
 
 ## 它长什么样
 

@@ -4,13 +4,13 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![runtime deps: 0](https://img.shields.io/badge/runtime%20deps-0-brightgreen.svg)]()
-[![tests: 83 offline](https://img.shields.io/badge/tests-83%20offline-blue.svg)]()
+[![tests: offline](https://img.shields.io/badge/tests-offline-blue.svg)]()
 
 English · [中文](README.zh-CN.md) · Docs: [English](docs/en/README.md) · [中文](docs/zh/README.md)
 
 prodagent is a **teaching-grade agent runtime kept deliberately small**: six
 orthogonal parts, about 1800 net lines, **zero third-party runtime dependencies**,
-and 83 tests that all run offline. Read it in a weekend and you will see how ReAct,
+and a test suite that runs entirely offline. Read it in a weekend and you will see how ReAct,
 plan-then-execute, and multi-agent are all *composed* from the same primitives —
 and going back to LangGraph or Google ADK gets much easier.
 
@@ -30,7 +30,7 @@ different words. Know prodagent's six parts and you know where to look in any of
 | multi-agent | child Run (call) / no-return `Goto` (transfer) / blackboard | LangGraph subgraphs + `Send`; ADK sub-agents & transfer; CrewAI hierarchy |
 | outward hooks | `Bus`: observe / adjudicate / subscribe | LangGraph callbacks & stream; ADK EventBus |
 
-No magic, nothing hidden: 11 files you can read in a weekend.
+No magic, nothing hidden: 12 files you can read in a weekend.
 
 ## The shape
 
