@@ -71,9 +71,6 @@ class AgentResult:
             run=run,
         )
 
-    def __str__(self) -> str:
-        return str(self.output)
-
 
 class Agent:
     def __init__(
@@ -127,7 +124,9 @@ class Agent:
                 ToolSpec(
                     name=mate.name,
                     description=mate.description,
-                    func=self._make_delegate(mate),
+                    # the public delegate is the tool: its (task, ctx) shape is
+                    # exactly the one dispatch injects
+                    func=mate.delegate,
                     parameters=_TASK_PARAM,
                     side_effect="read",
                 )
@@ -138,13 +137,6 @@ class Agent:
         self._plan = build_react_plan(
             self._registry, name=self.name, system=instruction, context=context, memory=memory
         )
-
-    @staticmethod
-    def _make_delegate(mate: Agent):
-        async def delegate(task: str, ctx: Any = None):
-            return await mate._run_standalone(task)
-
-        return delegate
 
     # ---- inward: when used as a subgraph/teammate/node, hand out its compiled Plan and self-contained task ----
     def add_tool(self, fn: Any, *, side_effect: str = "read", **kw) -> Agent:
@@ -158,14 +150,6 @@ class Agent:
     @property
     def plan(self) -> Plan:
         return self._plan
-
-    def as_task(self):
-        """For use as a Workflow node: return a function body that runs this Agent."""
-
-        async def _task(input: Any, ctx: Any = None):
-            return await self._run_standalone(str(input or ""))
-
-        return _task
 
     def share_bus(self, bus: Any, _seen: set | None = None) -> None:
         """Assembly-time wiring: point this agent and every teammate,
@@ -213,5 +197,6 @@ class Agent:
         return AgentResult._from(run)
 
     async def delegate(self, task: str, ctx: Any = None) -> Any:
-        """Call this Agent as a sub-agent from another node/Workflow (call, returns, uses its own model)."""
-        return await self._run_standalone(task)
+        """Call this Agent as a sub-agent (call semantics: returns, own model).
+        Its (task, ctx) shape also plugs directly in as a Workflow node body."""
+        return await self._run_standalone(str(task or ""))

@@ -28,7 +28,7 @@ class NodeRuntimeState:
 
     status: NodeStatus = NodeStatus.PENDING
     output: Any = None
-    attempts: int = 0
+    attempts: int = 0  # executions started; NODE_RETRY events count their own index
 
 
 @dataclass(frozen=True)
@@ -242,10 +242,10 @@ class Run:
         for w in writes:
             channel = channels[w.key]
             base = wave_delta.get(w.key, channel.empty)
-            wave_delta[w.key] = channel.fold(base, w.value)
+            wave_delta[w.key] = channel.reducer(base, w.value)
         for key, delta in wave_delta.items():
             channel = channels[key]
-            self.shared[key] = channel.fold(self.shared.get(key, channel.init), delta)
+            self.shared[key] = channel.reducer(self.shared.get(key, channel.init), delta)
         return wave_delta
 
     # — snapshot and restore: store only data, not the blueprint or live ports —
@@ -291,6 +291,13 @@ class Run:
             k: NodeRuntimeState(NodeStatus(v["status"]), v.get("output"), v.get("attempts", 0))
             for k, v in snap["node_states"].items()
         }
+        # A snapshot belongs to its blueprint: static node ids must match exactly
+        # ("template#3" instance keys are dynamic and exempt), or resume mis-wires.
+        static = {k for k in run.node_states if "#" not in k}
+        if static != set(plan.nodes):
+            raise ValueError(
+                f"checkpoint does not match this Plan: {sorted(static)} vs {sorted(plan.nodes)}"
+            )
         run.instances = {k: list(v) for k, v in snap.get("instances", {}).items()}
         run.instance_inputs = dict(snap.get("instance_inputs", {}))
         run.deliveries = dict(snap.get("deliveries", {}))

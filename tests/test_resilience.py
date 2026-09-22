@@ -2,6 +2,8 @@
 
 import asyncio
 
+import pytest
+
 from src import Workflow
 from src.kernel import RetryPolicy
 
@@ -70,6 +72,6 @@ async def test_cancellation_is_never_retried():
     wf = Workflow()
     wf.add_node("n", cancelled, terminal=True, retry=RetryPolicy(max_attempts=3, base_delay=0))
     wf.entry("n")
-    r = await wf.run("")
-    assert r.status == "failed"
+    with pytest.raises(asyncio.CancelledError):
+        await wf.run("")
     assert calls["n"] == 1  # external cancellation must propagate unchanged, never retried

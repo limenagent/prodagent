@@ -26,6 +26,7 @@ from src.kernel.eventlog import (
     CONTROL,
     INTERRUPTED,
     NODE_COMPLETED,
+    NODE_FAILED,
     NODE_SKIPPED,
     NODE_STARTED,
     RESUMED,
@@ -60,14 +61,13 @@ def replay(plan: Any, events: Iterable[Event]) -> Run:
         d = ev.data
 
         if ev.kind == NODE_STARTED:
-            key = d["node"]
-            # Mirror _node_input: a static node consumes the input a Goto handed
-            # it exactly when it starts; a dynamic instance reads its own input.
-            if key in run.deliveries and not run.is_instance(key):
-                run.deliveries.pop(key)
-            run.mark_running(key)
+            run.mark_running(d["node"])
         elif ev.kind == NODE_COMPLETED:
             run.mark_completed(d["node"], d.get("output"))
+            run.deliveries.pop(d["node"], None)  # a Goto input dies at terminal state
+        elif ev.kind == NODE_FAILED:
+            run.mark_failed(d["node"], d.get("error", ""))
+            run.deliveries.pop(d["node"], None)
         elif ev.kind == NODE_SKIPPED:
             run.mark_skipped(d["node"])
         elif ev.kind == STATE_DELTA:
@@ -98,11 +98,7 @@ def replay(plan: Any, events: Iterable[Event]) -> Run:
         elif ev.kind == RUN_COMPLETED:
             run.complete(d.get("output"))
         elif ev.kind == RUN_FAILED:
-            # "node" is present only when a node's body raised (that node is
-            # marked failed); a run-level failure (stall / illegal control)
-            # carries just a reason and leaves node states untouched.
-            if d.get("node"):
-                run.mark_failed(d["node"], d.get("reason", ""))
+            # node failures were marked at their node_failed events; this is the Run-level end
             run.fail(d.get("reason", ""))
 
     if run is None:

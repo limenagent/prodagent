@@ -16,7 +16,8 @@ Three key properties:
   barrier is naturally a commit point;
 - suspension is "letting go": when a node requests an Interrupt, the wave lets
   the other nodes finish, then persists and pauses as a whole; on resume only
-  that one node re-runs with the external input fed back;
+  that one node re-runs with the external input fed back; failure keeps the
+  same discipline — the wave settles, then the Run stops;
 - multi-agent adds no new engine: SubPlanBody recursively runs a child Run via
   the activation port — still right here.
 """
@@ -35,6 +36,7 @@ from src.kernel.eventlog import (
     CONTROL,
     INTERRUPTED,
     NODE_COMPLETED,
+    NODE_FAILED,
     NODE_RETRY,
     NODE_SKIPPED,
     NODE_STARTED,
@@ -47,11 +49,12 @@ from src.kernel.eventlog import (
     InMemoryEventLog,
     InMemoryStore,
 )
+from src.kernel.graph import Plan
 from src.kernel.run import Run
 from src.kernel.types import NodeStatus, RunState
 
 
-def _invalid_control(plan: Any, controls: list[tuple[str, Any]]) -> tuple[str, str] | None:
+def _invalid_control(plan: Plan, controls: list[tuple[str, Any]]) -> tuple[str, str] | None:
     for writer, control in controls:
         commands = control if isinstance(control, list) else [control]
         for cmd in commands:
@@ -70,6 +73,16 @@ def _invalid_control(plan: Any, controls: list[tuple[str, Any]]) -> tuple[str, s
     return None
 
 
+def _parked_facts(parked: dict[str, Any]) -> dict[str, Any]:
+    # Full parked facts (question/payload): the stream alone rebuilds the suspension.
+    return {
+        "parked": {
+            key: {"kind": it.kind, "question": it.question, "payload": it.payload}
+            for key, it in parked.items()
+        },
+    }
+
+
 class InProcessActivator:
     """Default sub-agent activator: recursively run a child Plan in-process
     with the same scheduler (call semantics).
@@ -82,7 +95,7 @@ class InProcessActivator:
     def __init__(self, scheduler: Scheduler):
         self.scheduler = scheduler
 
-    async def activate(self, spec: Any, task: str, parent_run: Run, payload: Any = None) -> dict:
+    async def activate(self, spec: Plan, task: str, parent_run: Run, payload: Any = None) -> dict:
         child_depth = parent_run.depth + 1
         if child_depth > self.scheduler.max_depth:
             # Depth guard: unbounded mutual delegation (A activates B, B activates
@@ -130,18 +143,18 @@ class Scheduler:
         self.store = store or InMemoryStore()
         self.max_waves = max_waves
         self.max_depth = max_depth  # max Run-tree depth: blocks A→B→A cycles
-        # sync: checkpoint after every wave; exit: only when suspended (cheaper, less durable).
+        self.concurrency = concurrency  # per-Run cap on nodes running at once
+        # sync: checkpoint after every wave; exit: only when suspended or finished.
         self.durability = durability
-        self._sem = asyncio.Semaphore(concurrency)
         self.subagent = InProcessActivator(self)
 
     # — main public entry —
-    async def run(self, plan: Any, *, task: str = "") -> Run:
+    async def run(self, plan: Plan, *, task: str = "") -> Run:
         run = Run.start(plan, task=task)
         await self.drive(plan, run)
         return run
 
-    async def resume(self, plan: Any, run_id: str, value: Any = None) -> Run:
+    async def resume(self, plan: Plan, run_id: str, value: Any = None) -> Run:
         """Resume from a checkpoint: feed back one value per parked node, then
         re-run just those nodes and continue.
 
@@ -153,9 +166,10 @@ class Scheduler:
         if snap is None:
             raise KeyError(f"no checkpoint for {run_id}; cannot resume")
         run = Run.restore(plan, snap)
+        if run.state != RunState.SUSPENDED:
+            # fail-wins waves leave parked facts on a finished Run — history, not to resume
+            raise RuntimeError(f"run {run_id} is {run.state}; only a suspended run can resume")
         parked = list(run.interrupts)
-        if not parked:
-            raise RuntimeError(f"run {run_id} is not suspended; nothing to resume")
         # A dict is only a {node_id: value} mapping if its keys are exactly the
         # parked set; otherwise (including a single parked node whose own
         # payload happens to be a dict) it is the bare value for that one node.
@@ -173,7 +187,9 @@ class Scheduler:
         return run
 
     # — engine main loop —
-    async def drive(self, plan: Any, run: Run) -> None:
+    async def drive(self, plan: Plan, run: Run) -> None:
+        # one pool per Run: a delegation chain never waits on its own slots
+        sem = asyncio.Semaphore(self.concurrency)
         if run.metrics["waves"] == 0 and run.state == RunState.RUNNING:
             await self._emit(run, RUN_STARTED, {"task": run.task, "name": run.name})
             if run.seed:  # fold initial input through the same reducers and log it as a fact
@@ -202,31 +218,46 @@ class Scheduler:
                 break
 
             # 2) Wave concurrency: nodes share no mutable state, each yields an Outcome.
-            results = await asyncio.gather(*[self._run_node(plan, run, key) for key in ready])
+            results = await asyncio.gather(*[self._run_node(plan, run, key, sem) for key in ready])
 
-            # 3) Barrier: handle results together. If any node fails, default to
-            # fail-fast and stop the whole Run.
+            # 3) Barrier: handle results together. Failure is fail-fast: it stops
+            # the Run, not the settlement — every started node still settles.
             parked: dict[str, Any] = {}
             controls: list[tuple[str, Any]] = []
             writes = WaveWrites(plan.channels)
+            failed: tuple[str, str] | None = None
 
             for key, outcome, error in results:
                 if error is not None:
-                    run.mark_failed(key, repr(error))
-                    run.fail(repr(error))
-                    await self._emit(run, RUN_FAILED, {"node": key, "reason": repr(error)})
-                    break
-                if outcome.suspend is not None:
+                    err = repr(error)
+                    run.mark_failed(key, err)
+                    await self._emit(run, NODE_FAILED, {"node": key, "error": err})
+                    failed = failed or (key, err)
+                elif outcome.suspend is not None:
                     parked[key] = dataclasses.replace(outcome.suspend, node_id=key)
-                    continue
-                run.mark_completed(key, outcome.value)
-                for k, v in outcome.state_delta.items():
-                    writes.buffer(k, v, key)
-                if outcome.control is not None:
-                    controls.append((key, outcome.control))
-                await self._emit(run, NODE_COMPLETED, {"node": key, "output": outcome.value})
+                    continue  # a park keeps its Goto input for the re-run
+                else:
+                    run.mark_completed(key, outcome.value)
+                    for k, v in outcome.state_delta.items():
+                        writes.buffer(k, v, key)
+                    if outcome.control is not None:
+                        controls.append((key, outcome.control))
+                    await self._emit(run, NODE_COMPLETED, {"node": key, "output": outcome.value})
+                run.deliveries.pop(key, None)  # a terminal state consumes its Goto input
 
-            if run.state == RunState.FAILED:
+            if failed is None:
+                writes.check_ambiguous()  # an already-failing wave still folds what succeeded
+            folded = run.fold_writes(writes.drain(), plan.channels)
+            if folded:
+                await self._emit(run, STATE_DELTA, {"delta": folded})
+
+            if parked:  # the ask is a fact whether the run then parks or fails
+                run.suspend(parked)
+                await self._emit(run, INTERRUPTED, _parked_facts(parked))
+
+            if failed is not None:
+                run.fail(failed[1])
+                await self._emit(run, RUN_FAILED, {"node": failed[0], "reason": failed[1]})
                 break
 
             invalid = _invalid_control(plan, controls)
@@ -239,42 +270,24 @@ class Scheduler:
                 await self._emit(run, RUN_FAILED, {"reason": run.final_output})
                 break
 
-            writes.check_ambiguous()
-            folded = run.fold_writes(writes.drain(), plan.channels)
-            if folded:
-                await self._emit(run, STATE_DELTA, {"delta": folded})
-
             await self._apply_controls(plan, run, controls)
 
             if parked:
-                run.suspend(parked)
-                await self._emit(
-                    run,
-                    INTERRUPTED,
-                    {
-                        "nodes": list(parked),
-                        # full parked facts, so the stream alone rebuilds the
-                        # suspension (question/payload), not just node names
-                        "parked": {
-                            key: {
-                                "kind": it.kind,
-                                "question": it.question,
-                                "payload": it.payload,
-                            }
-                            for key, it in parked.items()
-                        },
-                    },
-                )
                 await self._checkpoint(run)  # a suspended run must always be durable
                 break
 
             if self.durability == "sync":
                 await self._checkpoint(run)
 
-    def _next_ready(self, plan: Any, run: Run) -> tuple[list[str], list[str]]:
+        if run.state in (RunState.COMPLETED, RunState.FAILED):
+            await self._checkpoint(run)  # the terminal fact is always durable
+
+    def _next_ready(self, plan: Plan, run: Run) -> tuple[list[str], list[str]]:
         """Who can run now, plus any nodes newly swept as dead branches. If
         nobody is ready, first sweep untaken conditional edges (the sweep
         cascades), recompute, then finally let an empty fan-out converge."""
+        # Deliberately simple: recompute readiness from scratch each wave —
+        # O(nodes x preds), up to 3x on the stall path — clarity wins at scale 0.
         ready = plan.ready(run)
         if ready:
             return ready, []
@@ -284,7 +297,7 @@ class Scheduler:
 
     # — executing a single node —
     async def _run_node(
-        self, plan: Any, run: Run, key: str
+        self, plan: Plan, run: Run, key: str, sem: asyncio.Semaphore
     ) -> tuple[str, Outcome | None, BaseException | None]:
         run.mark_running(key)
         await self._emit(run, NODE_STARTED, {"node": key})
@@ -298,12 +311,14 @@ class Scheduler:
             resume_value=run.take_resume(key),
         )
         try:
-            async with self._sem:  # global concurrency cap
-                node = plan.get(run.template_of(key))
+            async with sem:  # this Run's wave concurrency cap
+                node = plan.nodes[run.template_of(key)]
                 outcome = await self._run_body(
                     node, self._node_input(plan, run, key), ctx, run, key
                 )
             return key, outcome, None
+        except asyncio.CancelledError:
+            raise  # external cancellation is not a node failure; propagate unchanged
         except BaseException as exc:  # hand back to the barrier for uniform handling
             return key, None, exc
 
@@ -344,18 +359,20 @@ class Scheduler:
         assert last_exc is not None
         raise last_exc
 
-    def _node_input(self, plan: Any, run: Run, key: str) -> Any:
+    def _node_input(self, plan: Plan, run: Run, key: str) -> Any:
         if run.is_instance(key):
             return run.input_of(key)
         if key in run.deliveries:
-            return run.deliveries.pop(key)  # input carried by a Goto transition, consumed once
+            # Input carried by a Goto transition: read here, consumed when the
+            # node reaches a terminal state — a park keeps it for the re-run.
+            return run.deliveries[key]
         preds = plan.incoming(key)
         if not preds:
             return run.task
         upstream: dict[str, Any] = {}
         for e in preds:
             src = e.source
-            node = plan.get(src)
+            node = plan.nodes[src]
             if node.template:  # template predecessor: aggregate all its instances' outputs
                 vals = [
                     run.state_of(k).output
@@ -363,7 +380,7 @@ class Scheduler:
                     if run.is_completed(k)
                 ]
                 upstream[src] = vals
-            elif run.is_completed(src) and plan._edge_live(e, run.shared):
+            elif run.is_completed(src) and plan.edge_live(e, run.shared):
                 # Take a predecessor's output only along an edge that is "live now":
                 # a branch not selected by a conditional edge feeds no input,
                 # otherwise an untaken predecessor in an exclusive branch would pad
@@ -374,7 +391,7 @@ class Scheduler:
         return upstream
 
     # — control commands: they change "the next wave's ready set" —
-    async def _apply_controls(self, plan: Any, run: Run, controls: list[tuple[str, Any]]) -> None:
+    async def _apply_controls(self, plan: Plan, run: Run, controls: list[tuple[str, Any]]) -> None:
         for _writer, control in controls:
             commands = control if isinstance(control, list) else [control]
             for cmd in commands:
@@ -414,7 +431,7 @@ class Scheduler:
                     raise TypeError(f"unknown control command: {cmd!r}")
 
     # — settle —
-    async def _settle(self, plan: Any, run: Run) -> None:
+    async def _settle(self, plan: Plan, run: Run) -> None:
         # The terminal fact goes into the event stream too: a replay must be
         # able to tell that — and how — the run ended, not just how it went.
         if plan.is_done(run):
@@ -432,7 +449,7 @@ class Scheduler:
             )
             await self._emit(run, RUN_FAILED, {"reason": run.final_output})
 
-    def _final_output(self, plan: Any, run: Run) -> Any:
+    def _final_output(self, plan: Plan, run: Run) -> Any:
         # Take only convergence nodes that actually completed; branches
         # structurally skipped by conditional edges don't enter the final result.
         terms = [t for t in plan.terminal_ids() if run.is_completed(t)]

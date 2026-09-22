@@ -33,30 +33,14 @@ class FileCheckpointStore:
     def _path(self, run_id: str) -> pathlib.Path:
         return self.dir / f"{run_id}.json"
 
-    async def save(
-        self, run_id: str, snapshot: dict, *, expected_version: int | None = None
-    ) -> int:
-        path = self._path(run_id)
-        version = 0
-        if path.exists():
-            version = json.loads(path.read_text(encoding="utf-8")).get("_version", 0)
-        if expected_version is not None and version != expected_version:
-            raise RuntimeError(
-                f"checkpoint version conflict: expected {expected_version}, got {version}"
-            )
-        version += 1
-        record = dict(snapshot)
-        record["_version"] = version
-        _atomic_write_json(path, record)
-        return version
+    async def save(self, run_id: str, snapshot: dict) -> None:
+        _atomic_write_json(self._path(run_id), snapshot)
 
     async def load(self, run_id: str) -> dict | None:
         path = self._path(run_id)
         if not path.exists():
             return None
-        record = json.loads(path.read_text(encoding="utf-8"))
-        record.pop("_version", None)
-        return record
+        return json.loads(path.read_text(encoding="utf-8"))
 
 
 class FileEventLog:
@@ -67,7 +51,7 @@ class FileEventLog:
     def _path(self, run_id: str) -> pathlib.Path:
         return self.dir / f"{run_id}.jsonl"
 
-    async def append(self, event: Event) -> int:
+    async def append(self, event: Event) -> None:
         line = json.dumps(
             {
                 "seq": event.seq,
@@ -81,7 +65,6 @@ class FileEventLog:
         )
         with self._path(event.run_id).open("a", encoding="utf-8") as f:
             f.write(line + "\n")
-        return event.seq
 
     def _read(self, run_id: str) -> list[Event]:
         path = self._path(run_id)

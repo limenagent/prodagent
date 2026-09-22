@@ -70,9 +70,6 @@ class Channel:
     empty: Any = None
     dtype: type | None = None
 
-    def fold(self, old: Any, new: Any) -> Any:
-        return self.reducer(old, new)
-
 
 # — Factories for the four common channels; the name is the semantics. —
 def last(init: Any = None, *, dtype: type | None = None) -> Channel:
