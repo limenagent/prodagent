@@ -96,16 +96,8 @@ class InProcessActivator:
         self.scheduler = scheduler
 
     async def activate(self, spec: Plan, task: str, parent_run: Run, payload: Any = None) -> dict:
-        child_depth = parent_run.depth + 1
-        if child_depth > self.scheduler.max_depth:
-            # Depth guard: unbounded mutual delegation (A activates B, B activates
-            # A) would make the Run tree only grow. Blocking it here is far more
-            # reliable than trusting the model to "remember not to call each other".
-            raise RecursionError(
-                f"child Run depth exceeds the limit {self.scheduler.max_depth}; "
-                "check for a circular delegation between agents"
-            )
-        child = Run.start(spec, parent_id=parent_run.run_id, depth=child_depth, task=task)
+        # the depth limit itself lives at Run birth (run.py), not here
+        child = Run.start(spec, parent_id=parent_run.run_id, depth=parent_run.depth + 1, task=task)
         await self.scheduler.drive(spec, child)
         if child.state == RunState.FAILED:
             # Call semantics: a delegated child Run that failed cannot be swallowed
@@ -131,7 +123,6 @@ class Scheduler:
         store: Any = None,
         max_waves: int = 64,
         concurrency: int = 8,
-        max_depth: int = 8,
         durability: str = "sync",
     ):
         if durability not in ("sync", "exit"):
@@ -142,7 +133,6 @@ class Scheduler:
         self.eventlog = eventlog or InMemoryEventLog()
         self.store = store or InMemoryStore()
         self.max_waves = max_waves
-        self.max_depth = max_depth  # max Run-tree depth: blocks A→B→A cycles
         self.concurrency = concurrency  # per-Run cap on nodes running at once
         # sync: checkpoint after every wave; exit: only when suspended or finished.
         self.durability = durability
@@ -229,7 +219,9 @@ class Scheduler:
 
             for key, outcome, error in results:
                 if error is not None:
-                    err = repr(error)
+                    # str form, not repr: a delegation cascade embeds this text
+                    # again at each level, and repr would re-escape the quotes
+                    err = f"{type(error).__name__}: {error}"
                     run.mark_failed(key, err)
                     await self._emit(run, NODE_FAILED, {"node": key, "error": err})
                     failed = failed or (key, err)

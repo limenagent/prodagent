@@ -142,18 +142,21 @@ def build_react_plan(
     return plan
 
 
-def start_react_run(plan: Plan, task: str, history: list | None = None) -> Run:
+def start_react_run(
+    plan: Plan, task: str, history: list | None = None, depth: int = 0
+) -> Run:
     """Create a ReAct run seeded with this turn's user message (then Scheduler.drive).
 
     history holds prior dialogue messages for multi-turn continuation; omit it
-    for a fresh conversation. The seed is folded through the messages channel and
-    logged on the first drive, so even the opening message is in the event log and
-    survives replay — session state is held by the caller, the Agent stays
-    stateless.
+    for a fresh conversation. depth is the Run-tree depth inherited from a
+    delegating agent, so the birth-line guard sees the true nesting. The seed
+    is folded through the messages channel and logged on the first drive, so
+    even the opening message is in the event log and survives replay — session
+    state is held by the caller, the Agent stays stateless.
     """
     opening = (
         [*history, {"role": "user", "content": task}]
         if history
         else [{"role": "user", "content": task}]
     )
-    return Run.start(plan, task=task, seed={"messages": opening})
+    return Run.start(plan, task=task, seed={"messages": opening}, depth=depth)

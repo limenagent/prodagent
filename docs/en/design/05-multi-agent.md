@@ -63,9 +63,10 @@ Recursive composition is powerful, but two holes must be closed structurally
 rather than trusting the model to "behave":
 
 1. **Cycle prevention and depth limits**: A delegates to B and B back to A, and
-   the Run tree only grows. Nested delegation is capped by a max depth
-   (`max_depth`); same-level ping-pong is capped by a max wave count
-   (`max_waves`); exceeding either fails outright.
+   the Run tree only grows. Nested delegation is capped at Run birth by a max
+   depth (one ledger shared by spawn and teammates chains); same-level
+   ping-pong is capped by a max wave count (`max_waves`); exceeding either
+   fails outright.
 2. **Failure propagation along the tree**: a child Run called out that fails
    can't be swallowed by the parent as a normal result — failure propagates up
    the Run tree; after a transfer, control (and cancellation authority) has

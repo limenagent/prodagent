@@ -31,6 +31,15 @@ _PY_TO_JSON = {
 }
 
 
+class HardToolError(Exception):
+    """Raised by delegation infrastructure (depth guard, failed child Run).
+
+    The single carve-out from "tool exceptions become feedback": these must
+    fail the Run and propagate up the tree. A flaky teammate recovers through
+    node-level retry, not through the model reading an error string.
+    """
+
+
 def infer_schema(fn: Callable) -> dict:
     """Infer a minimal JSON Schema from signature and type hints (teaching build, no third party)."""
     sig = inspect.signature(fn)
@@ -133,6 +142,10 @@ class ToolRegistry:
             if inspect.isawaitable(result):
                 result = await result
             return ToolResult.success(result, call.call_id)
+        except HardToolError:
+            # The one exception to "never blow up the graph": delegation
+            # infrastructure failures must fail the Run, not become feedback.
+            raise
         except Exception as exc:  # tool exceptions also become feedback, never blow up the graph
             return ToolResult.failure(f"{type(exc).__name__}: {exc}", call.call_id)
 

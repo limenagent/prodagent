@@ -35,10 +35,11 @@ from src.kernel import (
     InMemoryEventLog,
     InMemoryStore,
     Plan,
+    RunState,
     Scheduler,
 )
 from src.runtime.react import build_react_plan, start_react_run
-from src.runtime.tools import ToolRegistry, ToolSpec
+from src.runtime.tools import HardToolError, ToolRegistry, ToolSpec
 
 _TASK_PARAM = {
     "type": "object",
@@ -174,15 +175,30 @@ class Agent:
             eventlog=self.eventlog,
         )
 
-    async def _execute(self, task: str, history: list | None = None) -> Any:
+    async def _execute(self, task: str, history: list | None = None, depth: int = 0) -> Any:
         scheduler = self._scheduler()
-        run = start_react_run(self._plan, task, history)
+        run = start_react_run(self._plan, task, history, depth=depth)
         await scheduler.drive(self._plan, run)
         return run
 
-    async def _run_standalone(self, task: str) -> Any:
-        """When acting as someone's sub-agent, run self-contained and return only final output (call semantics)."""
-        run = await self._execute(task)
+    async def _run_standalone(self, task: str, ctx: Any = None) -> Any:
+        """When acting as someone's sub-agent, run self-contained and return only final output (call semantics).
+
+        Depth is inherited from the delegating run via ctx — a teammates tool
+        call or a Workflow node body shares one Run-tree ledger with the spawn
+        path; a ctx-less direct call starts a fresh root. A failed child is
+        never swallowed as normal output (same law as spawn).
+        """
+        depth = getattr(getattr(ctx, "run", None), "depth", None)
+        child_depth = 0 if depth is None else depth + 1
+        try:
+            run = await self._execute(task, depth=child_depth)
+        except RecursionError as exc:
+            # The kernel states the Run-tree invariant at birth in its own
+            # vocabulary; the tool boundary must speak the hard-failure one.
+            raise HardToolError(str(exc)) from exc
+        if run.state == RunState.FAILED:
+            raise HardToolError(f"child Run {run.run_id} failed: {run.final_output}")
         return run.final_output
 
     # ---- main outward entry point ----
@@ -198,5 +214,6 @@ class Agent:
 
     async def delegate(self, task: str, ctx: Any = None) -> Any:
         """Call this Agent as a sub-agent (call semantics: returns, own model).
-        Its (task, ctx) shape also plugs directly in as a Workflow node body."""
-        return await self._run_standalone(str(task or ""))
+        Its (task, ctx) shape also plugs directly in as a Workflow node body;
+        with ctx the child joins the caller's Run-tree depth ledger."""
+        return await self._run_standalone(str(task or ""), ctx)
