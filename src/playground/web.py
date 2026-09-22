@@ -40,8 +40,10 @@ PAGE = r"""<!doctype html>
   .scene b{display:block;font-size:13px}
   .scene small{color:var(--mut)}
   .bar{flex-shrink:0;background:#fff;border-top:1px solid var(--bd)}
-  .bar .in{display:grid;grid-template-columns:260px 1fr;gap:16px;
-           max-width:1100px;margin:0 auto;padding:10px 16px}
+  /* Same column grid as .wrap so the input's left edge tracks the middle
+     column's card edge at every viewport width */
+  .bar .in{display:grid;grid-template-columns:260px 1fr 320px;gap:16px;
+           max-width:1400px;margin:0 auto;padding:10px 16px}
   input[type=text]{flex:1;padding:9px 11px;border:1px solid var(--bd);border-radius:8px;font-size:14px}
   button{padding:9px 16px;border:0;border-radius:8px;background:var(--brand);color:#fff;cursor:pointer;font-size:14px}
   button.ghost{background:#fff;color:var(--ink);border:1px solid var(--bd)}
@@ -108,7 +110,7 @@ PAGE = r"""<!doctype html>
 <div class="bar"><div class="in"><div></div><div style="display:flex;gap:8px">
   <input id="msg" type="text"/>
   <button id="run"></button>
-</div></div></div>
+</div><div></div></div></div>
 
 <script>
 let current = null, sid = null, since = 0, timer = null, streams = {}, runs = {}, chat = false;
