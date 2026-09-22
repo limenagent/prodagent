@@ -21,6 +21,9 @@ def _new_id(prefix: str = "run") -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
 
+_MAX_RUN_DEPTH = 8  # the structural backstop against circular delegation (A→B→A)
+
+
 @dataclass
 class NodeRuntimeState:
     """Runtime state of a node (or dynamic instance) within this Run: a pure
@@ -58,6 +61,11 @@ class Run:
         self.plan = plan
         self.run_id = run_id or _new_id()
         self.parent_id = parent_id
+        if depth > _MAX_RUN_DEPTH:
+            raise RecursionError(
+                f"Run tree depth exceeds {_MAX_RUN_DEPTH}: "
+                "check for a circular delegation between agents"
+            )
         self.depth = depth
         self.task = task
         # Initial input to fold into shared state on the first drive, emitted as
