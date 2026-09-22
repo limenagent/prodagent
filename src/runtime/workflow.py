@@ -42,6 +42,7 @@ from src.kernel import (
     last,
 )
 from src.runtime.agent import Agent
+from src.runtime.tools import DelegationSuspendedError
 
 # ---- Convenience helpers for control flow inside a node (no need to import
 # the kernel's Outcome/Command). ----
@@ -75,7 +76,16 @@ class _FacadeBody:
         self.plan_ref = plan_ref
 
     async def run(self, input: Any, ctx) -> Outcome:
-        outcome = await self._inner.run(input, ctx)
+        try:
+            outcome = await self._inner.run(input, ctx)
+        except DelegationSuspendedError as exc:
+            # a delegated Agent parked: lift the suspension into this graph
+            # too (same law as the ReAct tool turn), instead of failing the node
+            return Outcome.park(
+                "delegation",
+                payload={"child_run_id": exc.child_run_id, "task": exc.task},
+                question=exc.question,
+            )
         plan = self.plan_ref[0]
         for k in outcome.state_delta:  # auto-add a last channel for undeclared keys
             if k not in plan.channels:

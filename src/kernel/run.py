@@ -21,7 +21,11 @@ def _new_id(prefix: str = "run") -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
 
-_MAX_RUN_DEPTH = 8  # the structural backstop against circular delegation (A→B→A)
+# Safety backstop, not a tuning knob: performance limits (max_waves,
+# concurrency) are per-Scheduler params; this one guards tree structure and is
+# pinned. 8 keeps the old max_depth default — Claude Code pins subagent depth
+# at 3, and most frameworks ship no structural cap at all.
+_MAX_RUN_DEPTH = 8
 
 
 @dataclass
@@ -38,7 +42,7 @@ class NodeRuntimeState:
 class Interrupt:
     """A suspension token: at which node, why, and what to ask the outside world."""
 
-    kind: str  # approval / input / external
+    kind: str  # approval / input / external / delegation
     payload: Any = None
     question: str = ""
     node_id: str = ""  # filled in by Run when parking
@@ -61,11 +65,6 @@ class Run:
         self.plan = plan
         self.run_id = run_id or _new_id()
         self.parent_id = parent_id
-        if depth > _MAX_RUN_DEPTH:
-            raise RecursionError(
-                f"Run tree depth exceeds {_MAX_RUN_DEPTH}: "
-                "check for a circular delegation between agents"
-            )
         self.depth = depth
         self.task = task
         # Initial input to fold into shared state on the first drive, emitted as
@@ -116,6 +115,22 @@ class Run:
     def start(cls, plan: Any, **kw: Any) -> Run:
         plan.validate()
         return cls(plan, **kw)
+
+    @classmethod
+    def child_of(cls, parent: Run, plan: Any, **kw: Any) -> Run:
+        """Born from a delegation: depth is computed from the parent object,
+        so the tree invariant (child = parent + 1) cannot be forgotten or
+        forged at a call site — the only way deeper is through the parent."""
+        depth = parent.depth + 1
+        if depth > _MAX_RUN_DEPTH:
+            # Mutual delegation (A activates B, B activates A) would make the
+            # Run tree only grow; blocking it structurally is far more reliable
+            # than trusting the model to "remember not to call each other".
+            raise RecursionError(
+                f"Run tree depth exceeds {_MAX_RUN_DEPTH}: "
+                "check for a circular delegation between agents"
+            )
+        return cls.start(plan, parent_id=parent.run_id, depth=depth, **kw)
 
     # — state machine: the single transition entry —
     def _transition(self, target: RunState) -> None:

@@ -184,7 +184,7 @@ class NodeContext:
         """Activate a child Run (call semantics: it returns its result when done)."""
         if self._subagent is None:
             raise RuntimeError("no SubagentPort injected; cannot activate a sub-agent")
-        return await self._subagent.activate(spec, task, self.run, payload)
+        return await self._subagent.activate(spec, task, self.run, payload, node_id=self.node_id)
 
 
 # ════════════ Four built-in bodies ════════════
@@ -244,7 +244,22 @@ class SubPlanBody:
         self.spec = spec
 
     async def run(self, input: Any, ctx: NodeContext) -> Outcome:
+        if ctx.resume_value is not None:
+            # two-step resume: the child was resumed separately and its output
+            # arrived as this node's resume value; re-spawning here would orphan
+            # the child that already did the work. (A child that legitimately
+            # completes with None output needs a sentinel value from the
+            # operator: None is indistinguishable from "not resumed".)
+            return Outcome.ok(ctx.resume_value)
         result = await ctx.spawn(self.spec, str(input or ""))
+        if result.get("state") == "suspended":
+            # a parked child parks the caller too: the question travels up and
+            # the payload carries the child's run_id so resume can find it
+            return Outcome.park(
+                "delegation",
+                payload={"child_run_id": result["run_id"], "task": str(input or "")},
+                question=result.get("question", ""),
+            )
         # Call semantics: by default return only the child Run's final output; a
         # custom body can pull the full result.
         return Outcome.ok(result.get("output"))

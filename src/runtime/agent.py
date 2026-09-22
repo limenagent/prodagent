@@ -39,7 +39,7 @@ from src.kernel import (
     Scheduler,
 )
 from src.runtime.react import build_react_plan, start_react_run
-from src.runtime.tools import HardToolError, ToolRegistry, ToolSpec
+from src.runtime.tools import DelegationSuspendedError, HardToolError, ToolRegistry, ToolSpec
 
 _TASK_PARAM = {
     "type": "object",
@@ -130,6 +130,7 @@ class Agent:
                     func=mate.delegate,
                     parameters=_TASK_PARAM,
                     side_effect="read",
+                    delegation=True,
                 )
             )
 
@@ -175,30 +176,35 @@ class Agent:
             eventlog=self.eventlog,
         )
 
-    async def _execute(self, task: str, history: list | None = None, depth: int = 0) -> Any:
+    async def _execute(self, task: str, history: list | None = None, parent: Any = None) -> Any:
         scheduler = self._scheduler()
-        run = start_react_run(self._plan, task, history, depth=depth)
+        run = start_react_run(self._plan, task, history, parent=parent)
         await scheduler.drive(self._plan, run)
         return run
 
     async def _run_standalone(self, task: str, ctx: Any = None) -> Any:
         """When acting as someone's sub-agent, run self-contained and return only final output (call semantics).
 
-        Depth is inherited from the delegating run via ctx — a teammates tool
-        call or a Workflow node body shares one Run-tree ledger with the spawn
-        path; a ctx-less direct call starts a fresh root. A failed child is
-        never swallowed as normal output (same law as spawn).
+        The child is born from the delegating run (via ctx, Run.child_of), so
+        a teammates tool call or a Workflow node body shares one Run-tree
+        ledger with the spawn path; a ctx-less direct call starts a fresh
+        root. A failed child is never swallowed as normal output (same law
+        as spawn).
         """
-        depth = getattr(getattr(ctx, "run", None), "depth", None)
-        child_depth = 0 if depth is None else depth + 1
+        parent = getattr(ctx, "run", None)
         try:
-            run = await self._execute(task, depth=child_depth)
+            run = await self._execute(task, parent=parent)
         except RecursionError as exc:
             # The kernel states the Run-tree invariant at birth in its own
             # vocabulary; the tool boundary must speak the hard-failure one.
             raise HardToolError(str(exc)) from exc
         if run.state == RunState.FAILED:
             raise HardToolError(f"child Run {run.run_id} failed: {run.final_output}")
+        if run.state == RunState.SUSPENDED:
+            # lift the child's suspension instead of returning None: the
+            # question must not evaporate at this layer (two-step resume)
+            it = next(iter(run.interrupts.values()), None)
+            raise DelegationSuspendedError(run.run_id, it.question if it else "", task)
         return run.final_output
 
     # ---- main outward entry point ----
@@ -216,4 +222,6 @@ class Agent:
         """Call this Agent as a sub-agent (call semantics: returns, own model).
         Its (task, ctx) shape also plugs directly in as a Workflow node body;
         with ctx the child joins the caller's Run-tree depth ledger."""
+        if ctx is not None and getattr(ctx, "resume_value", None) is not None:
+            return ctx.resume_value  # two-step resume: the child already ran
         return await self._run_standalone(str(task or ""), ctx)

@@ -34,6 +34,7 @@ from src.kernel.channels import WaveWrites
 from src.kernel.command import Goto, Send
 from src.kernel.eventlog import (
     CONTROL,
+    DELEGATED,
     INTERRUPTED,
     NODE_COMPLETED,
     NODE_FAILED,
@@ -95,21 +96,34 @@ class InProcessActivator:
     def __init__(self, scheduler: Scheduler):
         self.scheduler = scheduler
 
-    async def activate(self, spec: Plan, task: str, parent_run: Run, payload: Any = None) -> dict:
-        # the depth limit itself lives at Run birth (run.py), not here
-        child = Run.start(spec, parent_id=parent_run.run_id, depth=parent_run.depth + 1, task=task)
+    async def activate(
+        self, spec: Plan, task: str, parent_run: Run, payload: Any = None, node_id: str = ""
+    ) -> dict:
+        # born through the parent: the depth ledger is computed, never passed in
+        child = Run.child_of(parent_run, spec, task=task)
+        # the delegation fact, on the parent's log: after a crash the child's
+        # run_id lives here, so the child can be re-attached instead of orphaned
+        await self.scheduler._emit(
+            parent_run, DELEGATED, {"node": node_id, "child_run_id": child.run_id}
+        )
         await self.scheduler.drive(spec, child)
         if child.state == RunState.FAILED:
             # Call semantics: a delegated child Run that failed cannot be swallowed
             # as a "normal output" by the parent; failure propagates up the Run tree
             # (the depth-guard RecursionError reaches the root this way too).
             raise RuntimeError(f"child Run {child.run_id} failed: {child.final_output}")
-        return {
+        result = {
             "run_id": child.run_id,
             "state": str(child.state),
             "output": child.final_output,
             "shared": child.shared,
         }
+        if child.state == RunState.SUSPENDED:
+            # the caller parks too (SubPlanBody translates): surface the child's
+            # question so the parent's park can ask the same thing
+            it = next(iter(child.interrupts.values()), None)
+            result["question"] = it.question if it else ""
+        return result
 
 
 class Scheduler:

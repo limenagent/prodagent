@@ -20,6 +20,7 @@ concrete implementation.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from src.kernel import (
@@ -31,6 +32,7 @@ from src.kernel import (
     Run,
     append,
 )
+from src.runtime.tools import DelegationSuspendedError, HardToolError
 
 
 def _last_user_text(messages: list[dict]) -> str:
@@ -96,11 +98,49 @@ def build_react_plan(
         return Outcome(state_delta={"messages": [{"role": "assistant", "text": reply.text}]})
 
     async def run_tools(_input, ctx):
-        # The calls the model just asked for live in the last assistant message;
-        # run each and append its result, then Goto think so it can observe.
+        # The calls the model just asked for live in the last assistant message.
+        # Same-turn calls are the model's own little wave: they start together,
+        # settle together, and the results land in the order they were asked.
+        calls = _last_assistant(ctx.shared).get("tool_calls", [])
+        results = await asyncio.gather(
+            *(ctx.call_tool(call.name, call.arguments) for call in calls),
+            return_exceptions=True,
+        )
+        # Cancellation is never a "result": it propagates unchanged (the law).
+        for r in results:
+            if isinstance(r, asyncio.CancelledError):
+                raise r
+        # Same discipline as the wave barrier one level up: every call settles,
+        # THEN a hard failure fails the turn — and failure wins over a sibling
+        # delegation's suspension, mirroring the fail-wins wave law.
+        for r in results:
+            if isinstance(r, BaseException) and not isinstance(r, DelegationSuspendedError):
+                raise r
+        # A delegated child that parked lifts its suspension to this whole
+        # flow: the turn settles, then the flow parks carrying the child's
+        # run_id and question (two-step resume: resume the child, then this Run
+        # with its output — the re-run turn short-circuits, no re-spawn).
+        suspended = [r for r in results if isinstance(r, DelegationSuspendedError)]
+        if suspended:
+            # Refuse what cannot be resumed honestly: with several delegation
+            # calls in one turn, a completed sibling's output is not folded at
+            # park time and the single resume value cannot route back — that
+            # needs a persisted call cursor, out of the teaching kernel.
+            # Plain-tool siblings re-run honestly at-least-once, so they pass.
+            delegations = sum(1 for c in calls if tools.is_delegation(c.name))
+            if len(suspended) > 1 or delegations > 1:
+                raise HardToolError(
+                    "a turn mixing several delegation calls with a suspension "
+                    "needs a persisted call cursor to route answers"
+                )
+            s = suspended[0]
+            return Outcome.park(
+                "delegation",
+                payload={"child_run_id": s.child_run_id, "task": s.task},
+                question=s.question,
+            )
         outputs = []
-        for call in _last_assistant(ctx.shared).get("tool_calls", []):
-            result = await ctx.call_tool(call.name, call.arguments)
+        for call, result in zip(calls, results, strict=True):
             # A tool failure is fed back as a tool message, not raised into the
             # graph: the model sees it and can correct itself on the next think.
             content = result.output if result.ok else f"[tool error] {result.error}"
@@ -143,20 +183,23 @@ def build_react_plan(
 
 
 def start_react_run(
-    plan: Plan, task: str, history: list | None = None, depth: int = 0
+    plan: Plan, task: str, history: list | None = None, parent: Run | None = None
 ) -> Run:
     """Create a ReAct run seeded with this turn's user message (then Scheduler.drive).
 
     history holds prior dialogue messages for multi-turn continuation; omit it
-    for a fresh conversation. depth is the Run-tree depth inherited from a
-    delegating agent, so the birth-line guard sees the true nesting. The seed
-    is folded through the messages channel and logged on the first drive, so
-    even the opening message is in the event log and survives replay — session
-    state is held by the caller, the Agent stays stateless.
+    for a fresh conversation. parent is the delegating Run when this agent runs
+    as a sub-agent — the child is born through Run.child_of, so the Run-tree
+    depth ledger needs no cooperation from the caller. The seed is folded
+    through the messages channel and logged on the first drive, so even the
+    opening message is in the event log and survives replay — session state is
+    held by the caller, the Agent stays stateless.
     """
     opening = (
         [*history, {"role": "user", "content": task}]
         if history
         else [{"role": "user", "content": task}]
     )
-    return Run.start(plan, task=task, seed={"messages": opening}, depth=depth)
+    if parent is not None:
+        return Run.child_of(parent, plan, task=task, seed={"messages": opening})
+    return Run.start(plan, task=task, seed={"messages": opening})

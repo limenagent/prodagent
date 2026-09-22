@@ -35,9 +35,25 @@ class HardToolError(Exception):
     """Raised by delegation infrastructure (depth guard, failed child Run).
 
     The single carve-out from "tool exceptions become feedback": these must
-    fail the Run and propagate up the tree. A flaky teammate recovers through
-    node-level retry, not through the model reading an error string.
+    reach flow control — fail the Run (and propagate up the tree), or park it
+    (DelegationSuspendedError). A flaky teammate recovers through node-level
+    retry, not through the model reading an error string.
     """
+
+
+class DelegationSuspendedError(HardToolError):
+    """A delegated child Run parked; the caller's flow must park too.
+
+    Tool-shaped delegation cannot return an Outcome, so the suspension rides
+    the HardToolError carve-out (never feedback) and the recipe's tool loop
+    turns it back into Outcome.park. Carries what the parent's park needs.
+    """
+
+    def __init__(self, child_run_id: str, question: str = "", task: str = ""):
+        super().__init__(question or "delegated child is suspended")
+        self.child_run_id = child_run_id
+        self.question = question
+        self.task = task
 
 
 def infer_schema(fn: Callable) -> dict:
@@ -65,6 +81,9 @@ class ToolSpec:
     # read = read-only, safe to parallelize/retry; write = has side effects,
     # passes an approval gate before execution.
     side_effect: str = "read"
+    # calling this tool births a child Run: the two-step-resume short-circuit
+    # applies to it, and a suspension in a multi-delegation turn is refused.
+    delegation: bool = False
 
 
 class ToolRegistry:
@@ -78,6 +97,11 @@ class ToolRegistry:
     def attach_bus(self, bus: Any) -> None:
         """Point the approval gate at a (shared) bus after construction."""
         self.bus = bus
+
+    def is_delegation(self, name: str) -> bool:
+        """Does calling this tool birth a child Run (the resume short-circuit applies)?"""
+        spec = self._tools.get(name)
+        return bool(spec and spec.delegation)
 
     # ---- registration ----
     def add(self, spec: ToolSpec) -> ToolRegistry:
@@ -144,7 +168,8 @@ class ToolRegistry:
             return ToolResult.success(result, call.call_id)
         except HardToolError:
             # The one exception to "never blow up the graph": delegation
-            # infrastructure failures must fail the Run, not become feedback.
+            # infrastructure signals must reach flow control (fail or park),
+            # not become feedback.
             raise
         except Exception as exc:  # tool exceptions also become feedback, never blow up the graph
             return ToolResult.failure(f"{type(exc).__name__}: {exc}", call.call_id)
