@@ -49,7 +49,7 @@
 递归组合很强，但有三个洞要结构性地堵上，而不是指望模型“自觉”：
 
 1. **防环与限深**：A 派 B、B 又派回 A，Run 树会只增不减。嵌套委派在 Run 诞生处按最大深度截断
-   （spawn 与 teammates 链共用一本账），同图平级转来转去用最大波次（`max_waves`）截断，超限直接判失败。
+   （spawn 与 sub_agents 链共用一本账），同图平级转来转去用最大波次（`max_waves`）截断，超限直接判失败。
 2. **失败沿树传播**：call 出去的子 Run 崩了，父不能把它当正常结果吞掉，失败要沿 Run 树向上穿透；
    而 transfer 之后控制权已经交出，取消权也随之转移。这两种语义必须分清楚。
 3. **挂起上浮与两步恢复**：call 出去的子 Run 挂起了，父也随之挂起（`kind="delegation"`，payload
@@ -57,14 +57,14 @@
    记一条 `delegated` 事实（node + child_run_id），崩溃后可循此再接老 child 而非弃孤。恢复两步走：
    先 resume 子（它有自己的 run_id），再把子的输出作为 resume 值还给父——父的被挂节点短路返回、
    不 re-spawn。被中断的波重跑是 at-least-once：工具副作用可能重放；跨挂起稳定的幂等键
-   （persisted call cursor）是"生产加固"一课的现场，不进教学内核——所以同回合多个委派调用混有挂起时，直接显式拒绝而不是静默错路由（普通工具同伴照常放行：它们的重跑是诚实的 at-least-once）。teammates 委派（facade）同享这套语义。
+   （persisted call cursor）是"生产加固"一课的现场，不进教学内核——所以同回合多个委派调用混有挂起时，直接显式拒绝而不是静默错路由（普通工具同伴照常放行：它们的重跑是诚实的 at-least-once）。sub_agents 委派（facade）同享这套语义。
 
 ## 对应代码
 
 - `src/kernel/scheduler.py` 的 `InProcessActivator`：默认在同进程用同一个调度器递归跑子 Run；换成
   远程实现只需满足同一个端口协议，内核不改（位置透明）。
 - `src/kernel/body.py` 的 `SubPlanBody`：“激活一张子图”这种 body。
-- `src/runtime/multiagent.py`：pipeline / supervisor / 黑板这些配方如何用原语拼出。
+- `src/runtime/workflow.py` 与 `Agent.sub_agents`：两个组合面——声明式图（pipeline / 并行 / 黑板 / 接力）与运行时“Agent 即工具”委派；`examples/` 逐个用原语拼出。
 
 > 委派和接力为什么必须显式区分、父子状态映射怎么设计才不会让子图污染父状态、各种协作模式的完整代码
 > 怎么拼，配套专栏会用几节的篇幅逐个落地。到这里，内核五个最关键的取舍就讲完了，建议回到

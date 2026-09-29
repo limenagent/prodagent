@@ -36,15 +36,16 @@ think（调模型）──要工具──▶ act（调工具）──回边 Goto
 ## 代价，以及我们怎么补
 
 诚实地说，纯原语对新手不够友好——让每个人都自己拼 ReAct 也不现实。所以项目在原语之上提供了两层
-“糖”：`runtime/` 里**官方维护**的常用配方（ReAct、plan-first、多 Agent），以及更顺手的门面 API
-（`Agent`、`Workflow`）。九成场景开箱即用，剩下一成需要深度定制时，你随时可以下沉到原语。关键是：
+“糖”：`runtime/` 里**官方维护**的常用配方（ReAct）与更顺手的门面 API（`Agent`、`Workflow`）；
+plan-first 和多 Agent 用原语拼起来行数太少，就作为 `examples/` 保留了。九成场景开箱即用，剩下一成需要深度定制时，你随时可以下沉到原语。关键是：
 **这些糖都在内核之外，可替换、可删除，而不是焊死在引擎里。**
 
 ## 对应代码
 
 - `src/kernel/body.py`：唯一可组合接口，节点执行体可以是函数、工具、模型调用或子图。
 - `src/kernel/command.py`：只有 `Goto / Send` 两种控制命令。
-- `src/runtime/react.py`、`plan_first.py`：看 ReAct、plan-first 如何用原语拼出来。
+- `src/runtime/react.py`：看 ReAct 如何用原语拼出来。
+- `src/runtime/workflow.py`、`examples/orchestrator.py`：plan-first / 扇出作为声明式图。
 
 > 怎么亲手用几行内核代码拼出一个 ReAct、再把它收成好用的门面，是配套专栏里非常有成就感的一段。
 > 最后一篇设计说明，把同样的思路推到多 Agent：[为什么多 Agent 不需要新引擎](05-multi-agent.md)。

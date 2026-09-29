@@ -63,6 +63,24 @@ def _has_answer(state: dict) -> bool:
     return bool(last) and not last.get("tool_calls")
 
 
+def opening(task: str, history: list | None = None) -> dict:
+    """Build the ReAct opening state: the task becomes the first user message,
+    after any prior dialogue, so the very first think already sees it.
+
+    This is the single place that knows the conversation lives on the
+    ``messages`` channel. It is a plain function called by whoever starts a Run
+    (Agent.run, a delegation, a Workflow Agent node) — not a method on the Plan,
+    and its result is folded and logged like any STATE_DELTA, so replay needs no
+    matching special case.
+    """
+    messages = (
+        [*history, {"role": "user", "content": task}]
+        if history
+        else [{"role": "user", "content": task}]
+    )
+    return {"messages": messages}
+
+
 def build_react_plan(
     tools: Any, *, name: str = "", system: str = "", context: Any = None, memory: Any = None
 ) -> Plan:
@@ -95,7 +113,9 @@ def build_react_plan(
                 state_delta={"messages": [{"role": "assistant", "tool_calls": reply.tool_calls}]},
                 control=Goto("tools"),
             )
-        return Outcome(state_delta={"messages": [{"role": "assistant", "text": reply.text}]})
+        # "content", not a bespoke "text" — the messages channel stays one
+        # OpenAI-shaped vocabulary end to end (adapters and UI read it as-is).
+        return Outcome(state_delta={"messages": [{"role": "assistant", "content": reply.text}]})
 
     async def run_tools(_input, ctx):
         # The calls the model just asked for live in the last assistant message.
@@ -165,7 +185,7 @@ def build_react_plan(
         # mirrored into a separate slot.
         Node(
             "final",
-            FnBody(lambda x, ctx: Outcome.ok(_last_assistant(ctx.shared).get("text"))),
+            FnBody(lambda x, ctx: Outcome.ok(_last_assistant(ctx.shared).get("content"))),
             terminal=True,
         ),
     )
@@ -183,23 +203,25 @@ def build_react_plan(
 
 
 def start_react_run(
-    plan: Plan, task: str, history: list | None = None, parent: Run | None = None
+    plan: Plan,
+    task: str,
+    history: list | None = None,
+    parent: Run | None = None,
+    *,
+    llm: Any = None,
+    tools: Any = None,
 ) -> Run:
-    """Create a ReAct run seeded with this turn's user message (then Scheduler.drive).
+    """Create a ReAct run with this turn's opening user message, then drive it.
 
-    history holds prior dialogue messages for multi-turn continuation; omit it
-    for a fresh conversation. parent is the delegating Run when this agent runs
-    as a sub-agent — the child is born through Run.child_of, so the Run-tree
-    depth ledger needs no cooperation from the caller. The seed is folded
-    through the messages channel and logged on the first drive, so even the
-    opening message is in the event log and survives replay — session state is
-    held by the caller, the Agent stays stateless.
+    history holds prior dialogue for multi-turn continuation; omit it for a
+    fresh conversation. parent is the delegating Run when this agent runs as a
+    sub-agent — the child is born through Run.child_of, so the depth ledger
+    needs no caller cooperation. ``llm``/``tools`` bind the run to its Agent
+    identity. The opening state (``opening``) is folded through messages and
+    logged on the first drive, so even the first message is in the event log
+    and survives replay — the host Scheduler holds state, the Agent is pure.
     """
-    opening = (
-        [*history, {"role": "user", "content": task}]
-        if history
-        else [{"role": "user", "content": task}]
-    )
+    initial = opening(task, history) if task else None
     if parent is not None:
-        return Run.child_of(parent, plan, task=task, seed={"messages": opening})
-    return Run.start(plan, task=task, seed={"messages": opening})
+        return Run.child_of(parent, plan, task=task, input=initial, llm=llm, tools=tools)
+    return Run.start(plan, task=task, input=initial, llm=llm, tools=tools)

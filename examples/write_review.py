@@ -1,15 +1,12 @@
-"""Write, review, revise — a generator and a critic agent iterate until
-the draft passes.
+"""Write, review, revise — a generator and a critic iterate until passing.
 
-Three agents on one graph: the writer drafts, the critic reviews, and a
-judge routes by content — a failing review carries the criticism back to a
-reviser (the back edge of the loop), a passing one goes straight to
-finalize. Whoever arrives at finalize supplies the output, hence
-join="any": the two routes are mutually exclusive, exactly one runs.
+Three agents on one graph: the writer drafts, the critic reviews, and a judge
+routes by content. A failing review carries the criticism to a reviser (the loop
+edge), a passing one goes straight to finalize; whoever arrives at finalize
+supplies the output (join="any") — the two routes are mutually exclusive. No new
+mechanism: agents in the nodes, a conditional branch, one back edge.
 
-No new mechanism: two agents, a conditional branch, and one back edge —
-quality iteration is a loop like any other, with agents in the nodes.
-
+``build(lang)`` is the single assembly point (bilingual); ``main`` runs English.
 Run: PYTHONPATH=. python3 examples/write_review.py
 """
 
@@ -19,37 +16,50 @@ from src import Agent, Workflow, go
 from src.runtime.llm import ScriptedLlm, env_llm
 
 
-async def main():
-    def author(name, line):
-        # Scripted so the demo runs offline; swap in a real model when ready.
-        return Agent(name, model=env_llm(ScriptedLlm([line])), instruction=f"You are the {name}.")
+def build(lang: str = "en") -> Workflow:
+    t = {
+        "en": {
+            "instruction_fmt": "You are {name}.",
+            "writer": "Draft: revenue grew this quarter; recommend expanding.",
+            "critic": "Review: lacks data sources — revise before finalizing.",
+            "reviser": "Revision: added the source for +18% YoY revenue; conclusion unchanged.",
+            "fail_kw": "lacks",
+            "finalize_fmt": "Finalized: {text}",
+        },
+        "zh": {
+            "instruction_fmt": "你是{name}",
+            "writer": "初稿：本季度营收增长，建议扩张。",
+            "critic": "审阅意见：缺少数据来源，需要补充后再定稿。",
+            "reviser": "修订稿：补充营收同比 +18% 的来源，结论不变。",
+            "fail_kw": "补充",
+            "finalize_fmt": "定稿完成：{text}",
+        },
+    }[lang]
+    wf = Workflow()
 
-    writer = author("writer", "Draft: revenue grew this quarter; recommend expanding.")
-    critic = author("critic", "Review: lacks data sources — revise before finalizing.")
-    reviser = author(
-        "reviser", "Revision: added the source for +18% YoY revenue; conclusion unchanged."
-    )
+    def author(name, line):
+        return Agent(
+            name,
+            model=env_llm(ScriptedLlm([line])),
+            instruction=t["instruction_fmt"].format(name=name),
+        )
+
+    writer = author("writer", t["writer"])
+    critic = author("critic", t["critic"])
+    reviser = author("reviser", t["reviser"])
 
     async def judge(review, ctx):
-        # Route by content: a failing review goes to revision, a passing one
-        # straight to finalize — the runtime picks the side.
-        target = "revise" if "lacks" in str(review).lower() else "finalize"
+        target = "revise" if t["fail_kw"] in str(review).lower() else "finalize"
         return go(target, review, verdict=target, review=review)
 
     async def finalize(text, ctx):
-        # Input here: the revised draft when it went through revision, or the
-        # critic's review when finalized directly.
-        return f"Finalized: {text}"
+        return t["finalize_fmt"].format(text=text)
 
-    wf = Workflow()
     wf.add_node("writer", writer)
     wf.add_node("critic", critic)
     wf.add_node("judge", judge)
     wf.add_node("revise", reviser)
-    # Convergence point: either judge finalizes directly or revise does after
-    # rewriting — exactly one of the two arrives.
     wf.add_node("finalize", finalize, join="any", terminal=True)
-
     wf.add_edge("writer", "critic")
     wf.add_edge("critic", "judge")
     wf.add_edge("revise", "finalize")
@@ -57,10 +67,13 @@ async def main():
         "judge", {"revise": "revise", "finalize": "finalize"}, decide=lambda s: s.get("verdict")
     )
     wf.entry("writer")
+    return wf
 
-    result = await wf.run("Write a quarterly business summary")
-    print(result.output)
-    print(f"\nwaves: {result.metrics['waves']} — draft, review, then one revision loop")
+
+async def main():
+    r = await build("en").run("Write a quarterly business summary")
+    print(r.output)
+    print(f"\nwaves: {r.metrics['waves']} — draft, review, then one revision loop")
 
 
 if __name__ == "__main__":

@@ -34,9 +34,10 @@ async def main():
             await ctx.emit("token", i=i)  # emit while computing, like token-by-token output
         return "streaming done"
 
-    wf = Workflow(bus=bus)
+    wf = Workflow()
     wf.add_node("stream", streamer, terminal=True)
     wf.entry("stream")
+    wf.host(bus=bus)  # inject the observable, bounded bus; run() reuses it
 
     result = await wf.run("start")
     kept = []

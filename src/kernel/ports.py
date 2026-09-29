@@ -63,5 +63,20 @@ class SubagentPort(Protocol):
     attribute the delegation fact to the spawning node."""
 
     async def activate(
-        self, spec: Any, task: str, parent_run: Any, payload: Any = None, node_id: str = ""
-    ) -> dict: ...
+        self,
+        spec: Any,
+        task: str,
+        parent_run: Any,
+        payload: Any = None,
+        node_id: str = "",
+        *,
+        input: dict | None = None,
+        llm: Any = None,
+        tools: Any = None,
+    ) -> dict:
+        """Run a child Run on the host ledger. ``input`` is the child's opening
+        state update, supplied by the caller (the ReAct layer builds an opening
+        user message from the task); ``llm``/``tools`` bind that child to its own
+        Agent identity (its model/registry). The ledger (event log / stores)
+        stays the host scheduler's — one Run tree."""
+        ...

@@ -20,7 +20,10 @@ from src.backends.file_store import FileCheckpointStore, FileEventLog
 
 def build(directory: str) -> Workflow:
     """Returns a brand-new instance every time; they share one disk directory."""
-    wf = Workflow(store=FileCheckpointStore(directory), eventlog=FileEventLog(directory))
+    wf = Workflow()
+    # A Workflow is a pure definition: the durable ledger (checkpoints + event
+    # log) is injected when it is hosted, not carried by the constructor.
+    wf.host(store=FileCheckpointStore(directory), eventlog=FileEventLog(directory))
 
     async def prepare(x, ctx):
         return "Refund request prepared, amount 88"
@@ -45,7 +48,7 @@ def build(directory: str) -> Workflow:
 
 
 async def main():
-    directory = tempfile.mkdtemp(prefix="src-ckpt-")
+    directory = tempfile.mkdtemp(prefix="prodagent-ckpt-")
 
     first = build(directory)  # the first instance (think: the live process)
     r1 = await first.run("Order O-1 requests a refund")

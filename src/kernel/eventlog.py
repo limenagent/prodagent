@@ -15,6 +15,7 @@ step), and crash recovery (just replay) all at once.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -35,6 +36,10 @@ DELEGATED = "delegated"
 # Commands express intent; once applied they are recorded as this fact, so the
 # stream alone — not the live scheduler — can rebuild where control went.
 CONTROL = "control"
+# A produced file: the bytes live in a BlobStore, this event is only the
+# pointer (filename/version/uri/mime/size). The artifact library is a fold of
+# these pointer events — the same law as state: facts in the stream, views projected.
+ARTIFACT_WRITTEN = "artifact_written"
 INTERRUPTED = "interrupted"
 RESUMED = "resumed"
 RUN_COMPLETED = "run_completed"
@@ -48,6 +53,9 @@ class Event:
     kind: str
     data: dict[str, Any] = field(default_factory=dict)
     parent_id: str | None = None  # child-Run events attach to the parent to rebuild the Run tree
+    ts: float = field(
+        default_factory=time.monotonic
+    )  # wall of record; the trace derives durations by subtraction
 
 
 def apply_event(shared: dict[str, Any], event: Event, channels: dict[str, Channel]) -> None:
@@ -73,6 +81,9 @@ def fold_events(
 class EventLog(Protocol):
     async def append(self, event: Event) -> None: ...
     async def events(self, run_id: str) -> list[Event]: ...
+    async def all_events(self) -> list[Event]:
+        """Every Run's facts — the source for a cross-Run trace projection."""
+        ...
 
 
 class CheckpointStore(Protocol):
@@ -93,6 +104,12 @@ class InMemoryEventLog:
 
     async def events(self, run_id: str) -> list[Event]:
         return list(self._streams.get(run_id, ()))
+
+    async def all_events(self) -> list[Event]:
+        out: list[Event] = []
+        for stream in self._streams.values():
+            out.extend(stream)
+        return out
 
 
 class InMemoryStore:

@@ -27,10 +27,11 @@ different words. Know prodagent's six parts and you know where to look in any of
 | runtime routing & fan-out | `Goto` / `Send` | LangGraph `Command(goto/send)`; ADK transfer; OpenAI handoffs |
 | pause for a human | `Interrupt`, then resume | LangGraph `interrupt()` + `Command(resume)`; ADK human input |
 | truth, replay, time travel | append-only `EventLog`; state is a fold | LangGraph checkpointer + time travel; ADK session replay |
+| trace & output files | `build_trace`; `BlobStore` + pointer events | OpenTelemetry spans; ADK session artifacts |
 | multi-agent | child Run (call) / no-return `Goto` (transfer) / blackboard | LangGraph subgraphs + `Send`; ADK sub-agents & transfer; CrewAI hierarchy |
 | outward hooks | `Bus`: observe / adjudicate / subscribe | LangGraph callbacks & stream; ADK EventBus |
 
-No magic, nothing hidden: 12 files you can read in a weekend.
+No magic, nothing hidden: 14 files you can read in a weekend.
 
 ## The shape
 
@@ -54,10 +55,11 @@ same primitives, and a new orchestration needs no kernel change.
 
 ```bash
 git clone https://github.com/limenagent/prodagent && cd prodagent
+pip install -e .
 
-PYTHONPATH=. python examples/greeter.py       # smallest agent (a one-tool ReAct)
-PYTHONPATH=. python examples/graph_demo.py    # watch the concurrent waves advance
-make play                                      # browser: event timeline + human-approval pause
+prodagent run            # offline end-to-end flow; answer its approval prompt
+prodagent run --trace    # the same run as a tree of parent/child Runs
+make play                # browser playground: trace, events, state, files, graph
 ```
 
 Every example is driven by a *scripted* model that plays back from a script —

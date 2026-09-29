@@ -1,4 +1,4 @@
-.PHONY: help play playground test examples lint format
+.PHONY: help play playground test lint format
 
 # 项目要求 Python >= 3.11（pyproject），显式用 venv 解释器，不依赖 shell 激活。
 PYTHON ?= .venv/bin/python3
@@ -17,9 +17,9 @@ test:
 
 # 只管代码目录，README/文档里的代码块不交给 formatter。
 lint:
-	$(PYTHON) -m ruff check src tests examples
-	$(PYTHON) -m ruff format --check src tests examples
+	$(PYTHON) -m ruff check src tests
+	$(PYTHON) -m ruff format --check src tests
 
 format:
-	$(PYTHON) -m ruff format src tests examples
-	$(PYTHON) -m ruff check --fix src tests examples
+	$(PYTHON) -m ruff format src tests
+	$(PYTHON) -m ruff check --fix src tests

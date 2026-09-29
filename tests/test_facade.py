@@ -32,8 +32,8 @@ async def test_agent_multi_turn_tools():
     assert result.metrics["tool_calls"] == 2
 
 
-async def test_teammates_run_with_their_own_models():
-    # the boss delegates to two teammates; each uses its own model, without consuming the boss's script.
+async def test_sub_agents_run_with_their_own_models():
+    # the boss delegates to two sub-agents; each uses its own model, without consuming the boss's script.
     researcher = Agent("researcher", model=ScriptedLlm(["资料 X"]))
     writer = Agent("writer", model=ScriptedLlm(["成稿 Y"]))
     boss = Agent(
@@ -45,7 +45,7 @@ async def test_teammates_run_with_their_own_models():
                 "汇总完成",
             ]
         ),
-        teammates=[researcher, writer],
+        sub_agents=[researcher, writer],
     )
     result = await boss.run("做个课题")
     assert result.output == "汇总完成"
@@ -136,51 +136,78 @@ async def test_workflow_goto_agent_is_transfer():
     assert result.output == "已扩容，恢复"  # no back-edge, control never returns
 
 
-async def test_teammate_events_flow_on_parent_bus_without_explicit_wiring():
+async def test_sub_agent_events_flow_on_parent_bus_without_explicit_wiring():
     child = Agent("child", model=ScriptedLlm(["子任务完成"]), instruction="你是子专家。")
     parent = Agent(
         "parent",
         model=ScriptedLlm([ToolCall("child", {"task": "去办"}), "汇总完成"]),
         instruction="你是主管。",
-        teammates=[child],
+        sub_agents=[child],
     )
     seen = []
-    parent.bus.on("run_started", lambda evt: seen.append(("run_started", evt.data.get("name"))))
-    parent.bus.on("node_started", lambda evt: seen.append(("node_started", evt.data.get("node"))))
+    # Host explicitly so we can subscribe to the live stream before the run.
+    scheduler = parent.host()
+    scheduler.bus.on("run_started", lambda evt: seen.append(("run_started", evt.data.get("name"))))
+    scheduler.bus.on(
+        "node_started", lambda evt: seen.append(("node_started", evt.data.get("node")))
+    )
 
-    result = await parent.run("请委派")
+    run = await scheduler.run(parent.plan, task="请委派")
 
-    assert result.output == "汇总完成"
-    # The teammate was never handed a bus: assembly injects the parent's, so
-    # its run lands on the same observable stream, named after its blueprint.
+    assert run.final_output == "汇总完成"
+    # The sub-agent runs on the same Scheduler/bus as the parent, named after its
+    # blueprint — no explicit wiring needed (host binds the whole tree).
     assert ("run_started", "child") in seen
     assert ("run_started", "parent") in seen
     # Node names stay clean — no agent prefix baked into the event.
     assert ("node_started", "think") in seen
 
 
-async def test_teammate_bus_sharing_reaches_any_depth():
+async def test_sub_agent_bus_sharing_reaches_any_depth():
     grand = Agent("grand", model=ScriptedLlm(["孙完成"]), instruction="你是孙。")
     mid = Agent(
         "mid",
         model=ScriptedLlm([ToolCall("grand", {"task": "去"}), "子汇总"]),
-        teammates=[grand],
+        sub_agents=[grand],
     )
     top = Agent(
         "top",
         model=ScriptedLlm([ToolCall("mid", {"task": "去"}), "总汇总"]),
-        teammates=[mid],
+        sub_agents=[mid],
     )
     started, nodes = [], []
-    top.bus.on("run_started", lambda evt: started.append(evt))
-    top.bus.on("node_started", lambda evt: nodes.append(evt))
+    scheduler = top.host()
+    scheduler.bus.on("run_started", lambda evt: started.append(evt))
+    scheduler.bus.on("node_started", lambda evt: nodes.append(evt))
 
-    result = await top.run("三层委派")
+    run = await scheduler.run(top.plan, task="三层委派")
 
-    assert result.output == "总汇总"
+    assert run.final_output == "总汇总"
     names = [e.data.get("name") for e in started]
     assert "mid" in names and "grand" in names
-    # The innermost run's node events land on the ROOT bus: one-level
-    # injection would have left `grand` on mid's stale private bus.
+    # The innermost run's node events land on the ROOT bus: the whole tree is
+    # bound to one Scheduler, not left on a stale per-agent private bus.
     grand_ids = {e.run_id for e in started if e.data.get("name") == "grand"}
     assert any(e.run_id in grand_ids for e in nodes)
+
+
+async def test_hosting_before_declaration_does_not_freeze_the_graph():
+    # Law: a Workflow may be hosted (durable stores injected) at any point of
+    # its declaration; hosting compiles nothing. A graph edited after hosting
+    # must run as declared — an early host once silently froze the empty plan
+    # and the run "completed" without executing a single node.
+    import asyncio
+
+    from src import Workflow
+    from src.kernel import InMemoryStore
+
+    async def one(x, ctx):
+        return "ran"
+
+    wf = Workflow()
+    wf.host(store=InMemoryStore())
+    wf.add_node("one", one, terminal=True)
+    wf.entry("one")
+    r = await asyncio.wait_for(wf.run(), timeout=10)
+    assert str(r.status) == "completed"
+    assert r.output == "ran"  # the node actually executed

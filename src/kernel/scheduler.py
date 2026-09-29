@@ -28,6 +28,7 @@ import asyncio
 import dataclasses
 from typing import Any
 
+from src.kernel.blob import InMemoryBlobStore
 from src.kernel.body import NodeContext, Outcome
 from src.kernel.bus import Bus
 from src.kernel.channels import WaveWrites
@@ -97,27 +98,39 @@ class InProcessActivator:
         self.scheduler = scheduler
 
     async def activate(
-        self, spec: Plan, task: str, parent_run: Run, payload: Any = None, node_id: str = ""
+        self,
+        spec: Plan,
+        task: str,
+        parent_run: Run,
+        payload: Any = None,
+        node_id: str = "",
+        *,
+        input: dict | None = None,
+        llm: Any = None,
+        tools: Any = None,
     ) -> dict:
-        # born through the parent: the depth ledger is computed, never passed in
-        child = Run.child_of(parent_run, spec, task=task)
+        # Born through the parent: Run.child_of computes the depth ledger. The
+        # caller supplies the opening state update (``input``) and any explicit
+        # identity (llm/tools); the kernel neither builds the seed nor knows a
+        # conversation channel. drive resolves any unbound ports at its door.
+        child = Run.child_of(parent_run, spec, task=task, input=input, llm=llm, tools=tools)
         # the delegation fact, on the parent's log: after a crash the child's
         # run_id lives here, so the child can be re-attached instead of orphaned
         await self.scheduler._emit(
             parent_run, DELEGATED, {"node": node_id, "child_run_id": child.run_id}
         )
         await self.scheduler.drive(spec, child)
-        if child.state == RunState.FAILED:
-            # Call semantics: a delegated child Run that failed cannot be swallowed
-            # as a "normal output" by the parent; failure propagates up the Run tree
-            # (the depth-guard RecursionError reaches the root this way too).
-            raise RuntimeError(f"child Run {child.run_id} failed: {child.final_output}")
+        # Report the child's terminal state honestly; the caller decides what it
+        # means — SubPlanBody fails its node, an agent-as-tool raises HardToolError.
+        # (The depth-guard RecursionError is a structural error raised above.)
         result = {
             "run_id": child.run_id,
             "state": str(child.state),
             "output": child.final_output,
             "shared": child.shared,
         }
+        if child.state == RunState.FAILED:
+            result["error"] = str(child.final_output)
         if child.state == RunState.SUSPENDED:
             # the caller parks too (SubPlanBody translates): surface the child's
             # question so the parent's park can ask the same thing
@@ -135,6 +148,7 @@ class Scheduler:
         bus: Bus | None = None,
         eventlog: Any = None,
         store: Any = None,
+        blobs: Any = None,
         max_waves: int = 64,
         concurrency: int = 8,
         durability: str = "sync",
@@ -146,6 +160,9 @@ class Scheduler:
         self.bus = bus or Bus()
         self.eventlog = eventlog or InMemoryEventLog()
         self.store = store or InMemoryStore()
+        # Artifact bytes; in-memory by default (zero side effect), swap in a
+        # local-directory store from backends for durable files.
+        self.blobs = blobs if blobs is not None else InMemoryBlobStore()
         self.max_waves = max_waves
         self.concurrency = concurrency  # per-Run cap on nodes running at once
         # sync: checkpoint after every wave; exit: only when suspended or finished.
@@ -153,23 +170,32 @@ class Scheduler:
         self.subagent = InProcessActivator(self)
 
     # — main public entry —
-    async def run(self, plan: Plan, *, task: str = "") -> Run:
-        run = Run.start(plan, task=task)
+    async def run(self, plan: Plan, *, task: str = "", input: dict | None = None) -> Run:
+        # The caller supplies the opening state update (``input``); Scheduler.drive
+        # resolves identity ports once at the engine door, however the Run was born.
+        run = Run.start(plan, task=task, input=input)
         await self.drive(plan, run)
         return run
 
-    async def resume(self, plan: Plan, run_id: str, value: Any = None) -> Run:
+    async def resume(
+        self, plan: Plan, run_id: str, value: Any = None, *, llm: Any = None, tools: Any = None
+    ) -> Run:
         """Resume from a checkpoint: feed back one value per parked node, then
         re-run just those nodes and continue.
 
         ``value`` is normally the bare payload for the one parked node. If
         several nodes parked in the same wave, pass a ``{node_id: value}``
-        dict whose keys exactly match the parked set.
+        dict whose keys exactly match the parked set. ``llm``/``tools`` rebind
+        the restored Run to its Agent identity (ports are wiring, not snapshotted).
         """
         snap = await self.store.load(run_id)
         if snap is None:
             raise KeyError(f"no checkpoint for {run_id}; cannot resume")
         run = Run.restore(plan, snap)
+        # Re-attach explicit identity (the Agent's own model/registry); an
+        # unbound Run inherits the host ports when drive begins — one rule.
+        run.llm = llm
+        run.tools = tools
         if run.state != RunState.SUSPENDED:
             # fail-wins waves leave parked facts on a finished Run — history, not to resume
             raise RuntimeError(f"run {run_id} is {run.state}; only a suspended run can resume")
@@ -192,6 +218,15 @@ class Scheduler:
 
     # — engine main loop —
     async def drive(self, plan: Plan, run: Run) -> None:
+        # The engine door is the one place identity ports are resolved: keep an
+        # explicit binding (an Agent's own model/registry on a child or a
+        # resumed Run); an unbound Run (a bare graph, or one built by hand then
+        # driven) inherits the Scheduler's defaults. Bodies then just read
+        # run.llm / run.tools — no body ever re-checks a fallback again.
+        if run.llm is None:
+            run.llm = self.llm
+        if run.tools is None:
+            run.tools = self.tools
         # one pool per Run: a delegation chain never waits on its own slots
         sem = asyncio.Semaphore(self.concurrency)
         if run.metrics["waves"] == 0 and run.state == RunState.RUNNING:
@@ -307,13 +342,20 @@ class Scheduler:
     ) -> tuple[str, Outcome | None, BaseException | None]:
         run.mark_running(key)
         await self._emit(run, NODE_STARTED, {"node": key})
+
+        async def record(kind: str, data: dict | None = None) -> None:
+            # Record a durable fact on this run's log (used for artifact pointers).
+            await self._emit(run, kind, data)
+
         ctx = NodeContext(
             run,
             key,
-            llm=self.llm,
-            tools=self.tools,
+            llm=run.llm,  # identity ports were resolved once at birth/resume
+            tools=run.tools,
             subagent=self.subagent,
             bus=self.bus,
+            blobs=self.blobs,
+            record=record,
             resume_value=run.take_resume(key),
         )
         try:

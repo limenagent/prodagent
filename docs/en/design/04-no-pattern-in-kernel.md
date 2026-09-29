@@ -49,9 +49,9 @@ primitives.**
 
 Honestly, raw primitives aren't beginner-friendly — having everyone hand-assemble
 ReAct is unrealistic. So above the primitives the project offers two layers of
-"sugar": **officially maintained** common recipes in `runtime/` (ReAct,
-plan-first, multi-agent), and the more ergonomic facade API (`Agent`,
-`Workflow`). Ninety percent of cases work out of the box; the remaining ten
+"sugar": **officially maintained** common recipes in `runtime/` (ReAct) and
+the more ergonomic facade API (`Agent`, `Workflow`) — plan-first and
+multi-agent compose in so few lines that they live on as `examples/`. Ninety percent of cases work out of the box; the remaining ten
 percent that need deep customization can always sink to the primitives. The key:
 **this sugar lives outside the kernel — replaceable, removable — never welded
 into the engine.**
@@ -61,8 +61,8 @@ into the engine.**
 - `src/kernel/body.py`: the single composable interface; a node body can be a
   function, a tool, an LLM call, or a sub-plan.
 - `src/kernel/command.py`: just two commands, `Goto / Send`.
-- `src/runtime/react.py`, `plan_first.py`: see how ReAct and plan-first are
-  assembled from primitives.
+- `src/runtime/react.py`: see how ReAct is assembled from primitives.
+- `src/runtime/workflow.py`, `examples/orchestrator.py`: plan-first / fan-out as a declared graph.
 
 > Hand-assembling a ReAct from a few lines of kernel code and then collecting it
 > into an ergonomic facade is a particularly satisfying part of the companion

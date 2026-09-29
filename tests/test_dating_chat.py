@@ -14,7 +14,8 @@ async def _once(lang: str = "zh"):
     """Run the date once per language and cache everything (scripts are
     consumed on first run)."""
     if lang not in _CACHE:
-        wf, a = await mod.build_date(lang)
+        wf = await mod.build(lang)
+        a = wf._assets
         result = await wf.run(a["t"]["topic"])
         _CACHE[lang] = (result, a)
     return _CACHE[lang]
