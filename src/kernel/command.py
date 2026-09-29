@@ -52,8 +52,9 @@ class Goto(Command):
     dynamic transitions pass values via command payload (multi-agent handover
     uses it to carry the summary).
 
-    ``Goto.now``/``Goto.rejoin`` are named constructors for the two modes
-    above; they change nothing but how the call site reads.
+    ``Goto.now`` / ``Goto.rejoin`` are named constructors for the two modes
+    above, kept symmetric — one per mode; they change nothing but how the call
+    site reads.
     """
 
     target: str
@@ -62,7 +63,7 @@ class Goto(Command):
 
     @classmethod
     def now(cls, target: str, payload: Any = None) -> Goto:
-        """Re-arm and release immediately (back-edge/jump/handover)."""
+        """Re-arm and release immediately (back-edge / jump / handover)."""
         return cls(target, immediate=True, payload=payload)
 
     @classmethod

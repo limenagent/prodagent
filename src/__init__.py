@@ -1,4 +1,4 @@
-"""src — a teaching-grade agent kernel.
+"""src — a teaching-grade agent kernel (the prodagent runtime).
 
 The reading order is the construction order (matching the column's modules):
 

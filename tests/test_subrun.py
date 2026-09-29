@@ -16,7 +16,6 @@ from src.kernel import (
 )
 from src.runtime.agent import Agent
 from src.runtime.llm import ScriptedLlm
-from src.runtime.tools import ToolSpec
 
 _TASK_SCHEMA = {
     "type": "object",
@@ -69,25 +68,17 @@ async def test_mutual_delegation_loop_is_capped():
     assert "depth" in str(run.final_output)
 
 
-async def test_mutual_teammates_loop_fails_at_depth_limit():
-    # Mutual teammates each run on their own Scheduler, so before the shared
-    # ledger every hop reset depth to 0 and the loop never met the guard.
+async def test_mutual_sub_agents_loop_fails_at_depth_limit():
+    # Mutual sub-agents run on one shared Scheduler, so each hop deepens the same
+    # Run tree and the cycle must meet the structural depth guard (not loop forever).
     a = Agent("a", model=ScriptedLlm([ToolCall("b", {"task": "again"})] * 20), instruction="a")
     b = Agent(
         "b",
         model=ScriptedLlm([ToolCall("a", {"task": "again"})] * 20),
         instruction="b",
-        teammates=[a],
+        sub_agents=[a],
     )
-    a.add_tool(
-        ToolSpec(
-            name="b",
-            description="delegate to b",
-            func=b.delegate,
-            parameters=_TASK_SCHEMA,
-            side_effect="read",
-        )
-    )
+    a.add_sub_agent(b)  # wire the back-reference a constructor cannot express
     result = await a.run("start")
     assert "failed" in result.status
     assert "circular delegation" in str(result.output)
@@ -98,7 +89,7 @@ class _ExplodingModel:
         raise RuntimeError("model backend exploded")
 
 
-async def test_teammates_child_failure_propagates():
+async def test_sub_agents_child_failure_propagates():
     # A failed child Run must not come back as a normal tool result: failure
     # propagates up the tree, exactly as with ctx.spawn.
     child = Agent("child", model=_ExplodingModel(), instruction="child")
@@ -106,7 +97,7 @@ async def test_teammates_child_failure_propagates():
         "parent",
         model=ScriptedLlm([ToolCall("child", {"task": "do it"}), "done anyway"]),
         instruction="parent",
-        teammates=[child],
+        sub_agents=[child],
     )
     result = await parent.run("start")
     assert "failed" in result.status
@@ -124,7 +115,7 @@ async def test_sibling_delegations_do_not_accumulate_depth():
             [[ToolCall("one", {"task": "x"}), ToolCall("two", {"task": "y"})], "both done"]
         ),
         instruction="boss",
-        teammates=[one, two],
+        sub_agents=[one, two],
     )
     result = await boss.run("go")
     assert "completed" in result.status
@@ -164,11 +155,11 @@ async def test_same_turn_tool_calls_run_concurrently_and_keep_order():
     assert outs == ["ping done", "pong done"]
 
 
-async def test_ctxless_delegate_starts_a_fresh_root():
-    # handoff/blackboard call delegate() with no ctx: a fresh depth-0 root,
-    # untouched by the ledger.
+async def test_a_fresh_run_starts_at_depth_zero():
+    # running a definition hosts a fresh depth-0 root on its own Scheduler.
     solo = Agent("solo", model=ScriptedLlm(["solo output"]), instruction="solo")
-    assert await solo.delegate("anything") == "solo output"
+    result = await solo.run("anything")
+    assert result.output == "solo output"
 
 
 async def test_run_name_is_blueprint_identity_not_state():

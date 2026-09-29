@@ -58,38 +58,33 @@ class Channel:
     ``empty`` is the reducer's identity element, used to first aggregate the
     multiple writes to a channel within a wave into one "wave delta". The event
     log records the wave delta, so replay does not double-count.
-
-    ``dtype`` is an optional guard: a write of the wrong type is rejected right
-    where it enters the system, naming the offending node — opt-in, since a
-    channel doesn't need to know the shape of what flows through it.
     """
 
     init: Any
     reducer: Reducer
     allow_multi: bool = True
     empty: Any = None
-    dtype: type | None = None
 
 
 # — Factories for the four common channels; the name is the semantics. —
-def last(init: Any = None, *, dtype: type | None = None) -> Channel:
+def last(init: Any = None) -> Channel:
     """Last write wins: single values such as the current phase or verdict."""
-    return Channel(init, _last, allow_multi=False, empty=None, dtype=dtype)
+    return Channel(init, _last, allow_multi=False, empty=None)
 
 
-def append(init: Any = None, *, dtype: type | None = None) -> Channel:
+def append(init: Any = None) -> Channel:
     """Append into a list: message history, retrieved snippets."""
-    return Channel(list(init or []), _append, allow_multi=True, empty=[], dtype=dtype)
+    return Channel(list(init or []), _append, allow_multi=True, empty=[])
 
 
-def add(init: Any = 0, *, dtype: type | None = None) -> Channel:
+def add(init: Any = 0) -> Channel:
     """Numeric accumulation: cost, counters."""
-    return Channel(init, _add, allow_multi=True, empty=0, dtype=dtype)
+    return Channel(init, _add, allow_multi=True, empty=0)
 
 
-def merge(init: Any = None, *, dtype: type | None = None) -> Channel:
+def merge(init: Any = None) -> Channel:
     """Dict merge: combining structured results."""
-    return Channel(dict(init or {}), _merge, allow_multi=True, empty={}, dtype=dtype)
+    return Channel(dict(init or {}), _merge, allow_multi=True, empty={})
 
 
 class AmbiguousWrite(RuntimeError):  # noqa: N818 — the name states the semantics; teaching beats naming convention
@@ -122,11 +117,6 @@ class WaveWrites:
             # Writing a channel that was never declared is almost always a typo
             # or a design omission — failing early beats silently dropping it.
             raise KeyError(f"wrote to undeclared state channel {key!r} (from node {writer!r})")
-        if channel.dtype is not None and not isinstance(value, channel.dtype):
-            raise TypeError(
-                f"node {writer!r} wrote {type(value).__name__} to channel {key!r}, "
-                f"expected {channel.dtype.__name__}"
-            )
         self._buffer.append(_Write(key, value, writer))
 
     def check_ambiguous(self) -> None:

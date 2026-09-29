@@ -61,12 +61,20 @@ class Run:
         depth: int = 0,
         task: str = "",
         seed: dict[str, Any] | None = None,
+        llm: Any = None,
+        tools: Any = None,
     ):
         self.plan = plan
         self.run_id = run_id or _new_id()
         self.parent_id = parent_id
         self.depth = depth
         self.task = task
+        # Port binding = *who* this Run acts as (an Agent's model/tools). It is
+        # live wiring, like NodeContext: never snapshotted. The shared ledger
+        # (event log / stores) instead belongs to the Scheduler that drives it,
+        # so a child Run keeps the parent's ledger with its own identity.
+        self.llm = llm
+        self.tools = tools
         # Initial input to fold into shared state on the first drive, emitted as
         # a state_delta event so the event log is the complete truth (a replay
         # reconstructs the opening user message too). Applied exactly once and
@@ -112,15 +120,35 @@ class Run:
 
     # — convenient construction —
     @classmethod
-    def start(cls, plan: Any, **kw: Any) -> Run:
+    def start(
+        cls,
+        plan: Any,
+        *,
+        task: str = "",
+        input: dict[str, Any] | None = None,
+        llm: Any = None,
+        tools: Any = None,
+    ) -> Run:
         plan.validate()
-        return cls(plan, **kw)
+        # ``input`` is the opening state update, supplied by whoever starts the
+        # Run (the ReAct layer turns a task into the opening user message); the
+        # kernel never derives it from the Plan.
+        return cls(plan, task=task, seed=input, llm=llm, tools=tools)
 
     @classmethod
-    def child_of(cls, parent: Run, plan: Any, **kw: Any) -> Run:
-        """Born from a delegation: depth is computed from the parent object,
-        so the tree invariant (child = parent + 1) cannot be forgotten or
-        forged at a call site — the only way deeper is through the parent."""
+    def child_of(
+        cls,
+        parent: Run,
+        plan: Any,
+        *,
+        task: str = "",
+        input: dict[str, Any] | None = None,
+        llm: Any = None,
+        tools: Any = None,
+    ) -> Run:
+        """Born from a delegation: depth is computed from the parent object, so
+        the tree invariant (child = parent + 1) cannot be forgotten or forged at
+        a call site — the only way deeper is through the parent."""
         depth = parent.depth + 1
         if depth > _MAX_RUN_DEPTH:
             # Mutual delegation (A activates B, B activates A) would make the
@@ -130,7 +158,16 @@ class Run:
                 f"Run tree depth exceeds {_MAX_RUN_DEPTH}: "
                 "check for a circular delegation between agents"
             )
-        return cls.start(plan, parent_id=parent.run_id, depth=depth, **kw)
+        plan.validate()
+        return cls(
+            plan,
+            parent_id=parent.run_id,
+            depth=depth,
+            task=task,
+            seed=input,
+            llm=llm,
+            tools=tools,
+        )
 
     # — state machine: the single transition entry —
     def _transition(self, target: RunState) -> None:

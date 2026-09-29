@@ -1,1247 +1,167 @@
-"""Playground scenario table: the business scenarios from `examples/`, gathered
-into pick-one-and-run-it-in-the-browser form.
+"""Playground scenario catalog — metadata only.
 
-Each scenario returns a fully assembled Agent or Workflow (both have
-run/resume, both carry a bus — the server treats them alike). Models uniformly
-go through env_llm: with OPENAI_API_KEY set a real model is used, otherwise it
-falls back to ScriptedLlm offline scripts — zero config, deterministic, the
-full chain reproduces. Every place a human must decide uses wait_human, so the
-page suspends there and continues after Approve/Reject.
+The runnable graphs live in the root-level :mod:`examples` package; each
+example module exposes a bilingual ``build(lang)``. This file is the single
+table the web UI reads: the human-facing title, description and default input
+in both languages, plus a pointer to the build and whether it is a coroutine.
+There is no graph construction here, so the web UI and the standalone recipes
+can never drift.
 
-Every builder takes a `lang` ("en" | "zh") so the scripted dialog, the model
-instruction, and the approval question all follow the UI language. Each builder
-picks its per-language copy from a small `t = {"en": {...}, "zh": {...}}[lang]`
-table up top, so the assembly logic below it is written once. The one
-exception: the skill-match query in scenario 05 stays Chinese in both
-languages — it word-matches the bundled Chinese SKILL.md.
+Run the playground from the repository root (``python -m src.playground``) so
+``examples`` is importable. It is deliberately not bundled in the wheel: the
+examples are source to read and run, not library code.
 """
 
-from __future__ import annotations
+from examples import (
+    after_sales,
+    aiops,
+    blackboard,
+    code_detective,
+    compliance_audit,
+    dating_chat,
+    deep_research,
+    greeter,
+    long_term_memory,
+    orchestrator,
+    trader,
+    write_review,
+)
 
-import asyncio
-import os
-
-import src.runtime as _runtime_pkg
-from src import Agent, Bus, Workflow, append, go, last, send, wait_human
-from src.kernel import Goto, LlmReply, Outcome, ToolCall
-from src.runtime.context import TieredCompactionContext
-from src.runtime.llm import ScriptedLlm, env_llm
-from src.runtime.mcp import InProcessMCPServer, load_mcp_tools
-from src.runtime.memory import InMemoryMemory
-from src.runtime.plan_first import parse_numbered_list
-from src.runtime.skills import SkillRegistry
-from src.runtime.tools import ToolRegistry
-
-
-def _model(*script):
-    """A scenario's model: real env vars win, otherwise run the offline script."""
-    return env_llm(ScriptedLlm(list(script)))
-
-
-# ---------------------------------------------------------------- 01 greet & order
-def _greeter(lang: str = "en"):
-    t = {
-        "en": {
-            "instruction": "You are a bubble-tea shop assistant; keep answers short.",
-            "menu": {"taro-bubble-tea": "in stock, ¥18", "americano": "in stock, ¥12"},
-            "missing": "not on the menu",
-            "script": [
-                ToolCall("menu", {"drink": "taro-bubble-tea"}),
-                "Yes — taro bubble tea is in stock, ¥18 a cup. Want me to order one?",
-                "Done! One taro bubble tea for you, no sugar, less ice, as usual.",
-            ],
-        },
-        "zh": {
-            "instruction": "你是奶茶店助手，回答简洁。",
-            "menu": {"芋泥啵啵": "在售，18 元", "美式": "在售，12 元"},
-            "missing": "菜单里没有",
-            "script": [
-                ToolCall("menu", {"drink": "芋泥啵啵"}),
-                "有的，芋泥啵啵在售，18 元一杯，需要帮你下单吗？",
-                "好嘞，已帮你下一杯芋泥啵啵，按你的偏好无糖去冰。",
-            ],
-        },
-    }[lang]
-
-    async def menu(drink, ctx):
-        """Check whether a drink is on the menu."""
-        return t["menu"].get(drink, t["missing"])
-
-    return Agent(
-        name="greeter",
-        model=_model(*t["script"]),
-        instruction=t["instruction"],
-        tools=[menu],
-    )
-
-
-# ---------------------------------------------------------------- 02 haggle + order approval
-def _trader(lang: str = "en"):
-    t = {
-        "en": {
-            "instruction": "You are a purchasing agent: haggle first, then request order approval.",
-            "quote_fmt": "current quote: ¥{v}",
-            "order_fmt": "Order placed: {plan}",
-            "cancel_fmt": "No deal on price; order abandoned: {plan}",
-            "question": "Haggled down to ¥14, self pickup. Approve the order?",
-            "script": [
-                ToolCall("quote", {}),
-                ToolCall("quote", {}),
-                "After two rounds of haggling: ¥14, self pickup. Ready to order.",
-            ],
-        },
-        "zh": {
-            "instruction": "你是代购助手，先砍价再申请下单。",
-            "quote_fmt": "当前报价 {v} 元",
-            "order_fmt": "订单已下：{plan}",
-            "cancel_fmt": "价格没谈拢，已放弃下单：{plan}",
-            "question": "代购谈到 14 元自取，批准下单吗？",
-            "script": [
-                ToolCall("quote", {}),
-                ToolCall("quote", {}),
-                "两轮砍价后谈到 14 元自取，准备下单。",
-            ],
-        },
-    }[lang]
-    price = {"v": 20}
-
-    async def quote(ctx):
-        """Ask the seller for the current price."""
-        price["v"] -= 2
-        return t["quote_fmt"].format(v=price["v"])
-
-    async def place_order(plan, ctx):
-        return t["order_fmt"].format(plan=plan)
-
-    async def cancel(plan, ctx):
-        return t["cancel_fmt"].format(plan=plan)
-
-    wf = Workflow()
-    buyer = Agent(
-        name="buyer",
-        model=_model(*t["script"]),
-        instruction=t["instruction"],
-        tools=[quote],
-        memory=InMemoryMemory(),
-        bus=wf.bus,
-    )  # the child agent's events feed the same bus
-
-    async def approve(plan, ctx):
-        if ctx.resume_value is None:
-            return wait_human(t["question"], {"plan": plan})
-        target = "place_order" if ctx.resume_value.get("approved") else "cancel"
-        # Record the decision + carry the value to the chosen terminal node.
-        return go(target, plan, decision=target)
-
-    wf.add_node("buyer", buyer)
-    wf.add_node("approve", approve)
-    wf.add_node("place_order", place_order, terminal=True)
-    wf.add_node("cancel", cancel, terminal=True)
-    wf.add_edge("buyer", "approve")
-    # Mutually exclusive branches declared as conditional edges: the runtime
-    # activates only the one `decision` points at; the other predecessor is
-    # already terminal but its edge is inactive, so sweep_skipped skips it clean.
-    wf.branch(
-        "approve",
-        {"place_order": "place_order", "cancel": "cancel"},
-        decide=lambda s: s.get("decision"),
-    )
-    wf.entry("buyer")
-    return wf
-
-
-# ---------------------------------------------------------------- 03 deep research + context compaction
-def _research(lang: str = "en"):
-    t = {
-        "en": {
-            "instruction": "You are an industry researcher.",
-            "search_fmt": "Search results for '{query}': one data-rich source…",
-            "summary": "(early searches compacted: market size, growth rate, key players)",
-            "queries": ["market size", "growth rate", "top players", "policy outlook"],
-            "final": (
-                "Report: across four rounds of search, the market grows steadily, "
-                "the top players concentrate, and policy is friendly…"
-            ),
-        },
-        "zh": {
-            "instruction": "你是行业研究员。",
-            "search_fmt": "关于「{query}」的检索结果：一条带数字的资料……",
-            "summary": "（早期检索要点已压缩：市场规模、增速、主要玩家）",
-            "queries": ["市场规模", "年增速", "头部玩家", "政策风向"],
-            "final": "报告：综合四轮检索，市场规模稳步增长，头部集中，政策友好……",
-        },
-    }[lang]
-
-    async def search(query, ctx):
-        """Search for material."""
-        return t["search_fmt"].format(query=query)
-
-    class ConstSummarizer:
-        async def chat(self, messages, tools=None, system=None):
-            return LlmReply(text=t["summary"])
-
-    return Agent(
-        name="researcher",
-        model=_model(*[ToolCall("search", {"query": q}) for q in t["queries"]], t["final"]),
-        instruction=t["instruction"],
-        tools=[search],
-        # Five-level compaction: untouched while it fits; past capacity, tool
-        # results are mechanically shortened first, then summarized level by
-        # level — only the summary levels spend model calls. The summarizer
-        # follows env vars to a real model too.
-        context=TieredCompactionContext(env_llm(ConstSummarizer()), capacity=6),
-    )
-
-
-# ---------------------------------------------------------------- 04 compliance audit: parallel checks + freeze approval
-def _compliance(lang: str = "en"):
-    t = {
-        "en": {
-            "flags": "fast-in fast-out transfers detected",
-            "links": "linked to 3 accounts of the same origin",
-            "synth_fmt": "Synthesis: {flags}; {links}. Recommend freezing.",
-            "question": "Freeze accounts A1 and A2?",
-            "approved": "froze A1 & A2",
-            "denied": "freeze recommended but not approved this time",
-            "report_fmt": "{summary} | action taken: {decision}",
-        },
-        "zh": {
-            "flags": "发现快进快出交易",
-            "links": "关联到 3 个同源账户",
-            "synth_fmt": "综合判断：{flags}；{links}，建议冻结。",
-            "question": "批准冻结 A1、A2 两个账户吗？",
-            "approved": "已冻结 A1、A2",
-            "denied": "建议冻结，但本次未获批准",
-            "report_fmt": "{summary}｜处置：{decision}",
-        },
-    }[lang]
-    wf = Workflow()
-
-    async def screen_suspicious(x, ctx):
-        return {"flags": t["flags"]}
-
-    async def screen_accounts(x, ctx):
-        return {"links": t["links"]}
-
-    async def synthesize(x, ctx):
-        s = ctx.shared
-        return t["synth_fmt"].format(flags=s["flags"], links=s["links"])
-
-    async def freeze(summary, ctx):
-        if ctx.resume_value is None:
-            return wait_human(t["question"], {"accounts": ["A1", "A2"]})
-        decision = t["approved"] if ctx.resume_value.get("approved") else t["denied"]
-        return go("report", summary, decision=decision)
-
-    async def report(summary, ctx):
-        return t["report_fmt"].format(summary=summary, decision=ctx.shared["decision"])
-
-    wf.add_node("screen_suspicious", screen_suspicious)
-    wf.add_node("screen_accounts", screen_accounts)
-    wf.add_node("synthesize", synthesize, join="all")
-    wf.add_node("freeze", freeze)
-    wf.add_node("report", report, terminal=True)
-    wf.entry("screen_suspicious", "screen_accounts")
-    wf.add_edge("screen_suspicious", "synthesize")
-    wf.add_edge("screen_accounts", "synthesize")
-    wf.add_edge("synthesize", "freeze")
-    wf.add_edge("freeze", "report")
-    return wf
-
-
-# ---------------------------------------------------------------- 05 code detective: MCP tools + skills
-async def _detective(lang: str = "en"):
-    t = {
-        "en": {
-            "read_fmt": "[contents of {file}]",
-            "grep_fmt": "hits at {pattern}",
-            "patch_out": "patch applied",
-            "read_desc": "read a file",
-            "grep_desc": "full-text search",
-            "patch_desc": "modify code",
-            "test_desc": "run the tests",
-            "tests_pass": "tests pass",
-            "tests_fail": "1 test still failing: boundary not handled",
-            "base_system": "You are a code-debugging assistant.",
-            "script": [
-                ToolCall("read_file", {"file": "test_x.py"}),
-                ToolCall("grep", {"pattern": "func_x"}),
-                ToolCall("read_file", {"file": "x.py"}),
-                ToolCall("apply_patch", {"change": "guard the boundary"}),
-                ToolCall("run_test", {}),
-                ToolCall("apply_patch", {"change": "also guard the None case"}),
-                ToolCall("run_test", {}),
-                "Found a None-boundary bug; after two fixes all tests pass.",
-            ],
-        },
-        "zh": {
-            "read_fmt": "【{file} 的内容】",
-            "grep_fmt": "在 {pattern} 处命中",
-            "patch_out": "补丁已应用",
-            "read_desc": "读文件",
-            "grep_desc": "全文检索",
-            "patch_desc": "修改代码",
-            "test_desc": "运行测试",
-            "tests_pass": "测试通过",
-            "tests_fail": "1 个测试仍失败：边界没处理",
-            "base_system": "你是代码排障助手。",
-            "script": [
-                ToolCall("read_file", {"file": "test_x.py"}),
-                ToolCall("grep", {"pattern": "func_x"}),
-                ToolCall("read_file", {"file": "x.py"}),
-                ToolCall("apply_patch", {"change": "补边界"}),
-                ToolCall("run_test", {}),
-                ToolCall("apply_patch", {"change": "再补空值"}),
-                ToolCall("run_test", {}),
-                "定位到空值边界问题，两次修改后测试全部通过。",
-            ],
-        },
-    }[lang]
-
-    repo = InProcessMCPServer("repo")
-    repo.define(
-        "read_file", lambda a: t["read_fmt"].format(file=a["file"]), description=t["read_desc"]
-    )
-    repo.define(
-        "grep", lambda a: t["grep_fmt"].format(pattern=a["pattern"]), description=t["grep_desc"]
-    )
-    repo.define("apply_patch", lambda a: t["patch_out"], description=t["patch_desc"])
-    runs = {"n": 0}
-
-    def run_test(a):
-        runs["n"] += 1
-        return t["tests_pass"] if runs["n"] >= 2 else t["tests_fail"]
-
-    repo.define("run_test", run_test, description=t["test_desc"])
-
-    registry = ToolRegistry()
-    await load_mcp_tools(registry, repo)
-
-    # Skills are not hard-coded: they load from SKILL.md files on disk
-    # (progressively disclosable, hot-swappable). The bundled skill is written
-    # in Chinese, so the match query stays Chinese in both UI languages —
-    # word-overlap matching would miss it in English.
-    skills_dir = os.path.join(os.path.dirname(_runtime_pkg.__file__), "builtin_skills")
-    skills = SkillRegistry()
-    skills.load_dir(skills_dir)
-    skill = skills.match("测试失败 排障 补丁 重跑")
-    system = skills.apply_to_system(skill, t["base_system"])
-
-    return Agent(
-        name="detective",
-        model=_model(*t["script"]),
-        instruction=system,
-        registry=registry,
-    )
-
-
-# ---------------------------------------------------------------- 06 after-sales refund: supervisor + specialist delegation
-def _after_sales(lang: str = "en"):
-    t = {
-        "en": {
-            "invoice_fmt": "{order_id}: charged ¥399 on Sep 2, shipment never dispatched",
-            "blacklist_fmt": "{order_id}: buyer clean, no blacklist hits",
-            "related_fmt": "{order_id}: 1 related account, dormant, no fraud record",
-            "related": {
-                "script": [
-                    ToolCall("query_related", {"order_id": "O-1234"}),
-                    "One related account, dormant for 2 years, no fraud record.",
-                ],
-                "instruction": "You analyze accounts related to a buyer; answer in one sentence.",
-            },
-            "risk": {
-                "script": [
-                    ToolCall("query_blacklist", {"order_id": "O-1234"}),
-                    ToolCall("related", {"task": "check accounts related to order O-1234"}),
-                    "Blacklist clean; the one related account is dormant — risk is low.",
-                ],
-                "instruction": "You judge fraud and credit risk; check the data before concluding.",
-            },
-            "billing": {
-                "script": [
-                    ToolCall("query_invoice", {"order_id": "O-1234"}),
-                    "Charged ¥399 on Sep 2 and the shipment never went out; refund due in full.",
-                ],
-                "instruction": "You answer billing facts only: invoices, payments, refunds.",
-            },
-            "sup": {
-                "script": [
-                    ToolCall("billing", {"task": "gather the billing facts of order O-1234"}),
-                    ToolCall("risk", {"task": "assess the fraud risk of order O-1234"}),
-                    "Billing confirms charged-but-unshipped and risk is low: "
-                    "approve a full ¥399 refund.",
-                ],
-                "instruction": (
-                    "You are the after-sales supervisor. You never execute yourself: "
-                    "dispatch the right specialist, wait for the answer, then decide."
-                ),
-            },
-        },
-        "zh": {
-            "invoice_fmt": "{order_id}: 9 月 2 日已扣款 399 元，商品始终未发货",
-            "blacklist_fmt": "{order_id}: 买家干净，无黑名单命中",
-            "related_fmt": "{order_id}: 关联账号 1 个，长期沉寂，无欺诈记录",
-            "related": {
-                "script": [
-                    ToolCall("query_related", {"order_id": "O-1234"}),
-                    "关联账号仅 1 个，已沉寂 2 年，无欺诈记录。",
-                ],
-                "instruction": "你分析买家的关联账号，一句话给出结论。",
-            },
-            "risk": {
-                "script": [
-                    ToolCall("query_blacklist", {"order_id": "O-1234"}),
-                    ToolCall("related", {"task": "核查订单 O-1234 买家的关联账号"}),
-                    "黑名单干净，唯一关联账号已沉寂——风险低。",
-                ],
-                "instruction": "你判断欺诈与信用风险，先查数据再下结论。",
-            },
-            "billing": {
-                "script": [
-                    ToolCall("query_invoice", {"order_id": "O-1234"}),
-                    "9 月 2 日扣款 399 元且始终未发货，应全额退款。",
-                ],
-                "instruction": "你只回答账单事实：发票、支付、退款。",
-            },
-            "sup": {
-                "script": [
-                    ToolCall("billing", {"task": "查订单 O-1234 的账单事实"}),
-                    ToolCall("risk", {"task": "评估订单 O-1234 的欺诈风险"}),
-                    "账单确认扣款未发货、风险低：批准全额退款 399 元。",
-                ],
-                "instruction": "你是售后主管，自己不执行：挑对专家、等结果、再做决定。",
-            },
-        },
-    }[lang]
-    # One bus for the whole delegation tree, so the page shows every level.
-    bus = Bus()
-
-    async def query_invoice(order_id, ctx):
-        """Read the invoice and payment status of an order."""
-        return t["invoice_fmt"].format(order_id=order_id)
-
-    async def query_blacklist(order_id, ctx):
-        """Check whether an order touches any blacklisted account."""
-        return t["blacklist_fmt"].format(order_id=order_id)
-
-    async def query_related(order_id, ctx):
-        """List accounts related to the buyer of an order."""
-        return t["related_fmt"].format(order_id=order_id)
-
-    def expert(name, spec, tools=None, teammates=None):
-        # No bus passed: assembly shares the supervisor's bus down the whole
-        # delegation tree, so every level lands on the timeline.
-        return Agent(
-            name,
-            model=_model(*spec["script"]),
-            instruction=spec["instruction"],
-            tools=tools or [],
-            teammates=teammates,
-        )
-
-    related = expert("related", t["related"], tools=[query_related])
-    risk = expert("risk", t["risk"], tools=[query_blacklist], teammates=[related])
-    billing = expert("billing", t["billing"], tools=[query_invoice])
-
-    # The supervisor's "tools" are the specialists above — dispatch, answer
-    # comes back, dispatch the next, then decide.
-    return Agent(
-        "supervisor",
-        model=_model(*t["sup"]["script"]),
-        instruction=t["sup"]["instruction"],
-        teammates=[billing, risk],
-        bus=bus,
-    )
-
-
-# ---------------------------------------------------------------- 07 incident response: parallel delegation + handoff
-def _aiops(lang: str = "en"):
-    t = {
-        "en": {
-            "cpu": "12:00 35% → 12:10 92% → 12:20 93% → 12:30 91% (spiking every ten minutes)",
-            "log": "ERROR pool exhausted: connection wait timed out (5000ms), "
-            "37 times in the last hour",
-            "instruction_fmt": "You are {name}: check the data with tools before "
-            "concluding, in two sentences.",
-            "diag_cpu": [
-                ToolCall("cpu_metrics", {}),
-                "CPU saturates periodically every ten minutes; suspect queuing downstream.",
-            ],
-            "diag_log": [
-                ToolCall("error_log", {}),
-                "Error log shows connection-wait timeouts; the pool is exhausted.",
-            ],
-            "repairer": "Connection pool enlarged and upstream throttled; service recovered.",
-            "ask_cpu": "check the CPU curve",
-            "ask_log": "check the error log",
-            "root_fmt": "root cause = pool exhaustion ({cpu}; {log})",
-        },
-        "zh": {
-            "cpu": "12:00 35% → 12:10 92% → 12:20 93% → 12:30 91%（每十分钟打满一次）",
-            "log": "ERROR pool exhausted: 获取连接超时（等待 5000ms），近 1 小时共 37 次",
-            "instruction_fmt": "你是{name}，先用工具查数据再下结论，两句话内给出结论。",
-            "diag_cpu": [
-                ToolCall("cpu_metrics", {}),
-                "CPU 每十分钟周期性打满，疑似下游排队。",
-            ],
-            "diag_log": [
-                ToolCall("error_log", {}),
-                "错误日志显示获取连接超时，连接池已耗尽。",
-            ],
-            "repairer": "已扩容连接池并对上游限流，服务恢复。",
-            "ask_cpu": "看 CPU 曲线",
-            "ask_log": "看错误日志",
-            "root_fmt": "根因=连接池耗尽（{cpu}；{log}）",
-        },
-    }[lang]
-    wf = Workflow()
-
-    # Read-only observability tools: the diagnosing agents have data to check,
-    # instead of guessing from a vague "look at the CPU curve".
-    async def cpu_metrics(ctx=None):
-        """Read the last hour's CPU curve."""
-        return t["cpu"]
-
-    async def error_log(ctx=None):
-        """Read the recent error log."""
-        return t["log"]
-
-    def engineer(name, *script, tools=None):
-        return Agent(
-            name,
-            model=_model(*script),
-            instruction=t["instruction_fmt"].format(name=name),
-            tools=tools or [],
-            bus=wf.bus,
-        )
-
-    diag_cpu = engineer("diag_cpu", *t["diag_cpu"], tools=[cpu_metrics])
-    diag_log = engineer("diag_log", *t["diag_log"], tools=[error_log])
-    repairer = engineer("repairer", t["repairer"])
-
-    async def diagnose(x, ctx):
-        cpu, log = await asyncio.gather(
-            diag_cpu.delegate(t["ask_cpu"]), diag_log.delegate(t["ask_log"])
-        )
-        return go("decide", t["root_fmt"].format(cpu=cpu, log=log))
-
-    async def decide(root, ctx):
-        # transfer: `go` to the repair agent in the same graph; no return edge
-        # means no coming back — root becomes its input for this run.
-        return go("repairer", root)
-
-    wf.add_node("diagnose", diagnose)
-    wf.add_node("decide", decide)
-    wf.add_node("repairer", repairer, terminal=True)
-    wf.add_edge("diagnose", "decide")
-    wf.entry("diagnose")
-    return wf
-
-
-# ---------------------------------------------------------------- 08 write-review-revise: multi-agent + conditional branch
-def _review_team(lang: str = "en"):
-    t = {
-        "en": {
-            "instruction_fmt": "You are {name}.",
-            "writer": "Draft: revenue grew this quarter; recommend expanding.",
-            "critic": "Review: lacks data sources — revise before finalizing.",
-            "reviser": "Revision: added the source for +18% YoY revenue; conclusion unchanged.",
-            "fail_kw": "lacks",
-            "finalize_fmt": "Finalized: {text}",
-        },
-        "zh": {
-            "instruction_fmt": "你是{name}",
-            "writer": "初稿：本季度营收增长，建议扩张。",
-            "critic": "审阅意见：缺少数据来源，需要补充后再定稿。",
-            "reviser": "修订稿：补充营收同比 +18% 的来源，结论不变。",
-            "fail_kw": "补充",
-            "finalize_fmt": "定稿完成：{text}",
-        },
-    }[lang]
-    wf = Workflow()
-
-    def author(name, line):
-        return Agent(
-            name,
-            model=_model(line),
-            instruction=t["instruction_fmt"].format(name=name),
-            bus=wf.bus,
-        )
-
-    writer = author("writer", t["writer"])
-    critic = author("critic", t["critic"])
-    reviser = author("reviser", t["reviser"])
-
-    async def judge(review, ctx):
-        # A failing review goes to revision, a passing one straight to finalize
-        # — the runtime picks the side by content. (The keyword matches the
-        # critic's scripted line in the current language.)
-        target = "revise" if t["fail_kw"] in str(review).lower() else "finalize"
-        return go(target, review, verdict=target, review=review)
-
-    async def finalize(text, ctx):
-        # Input here: the review comment when finalized directly, or the
-        # revised draft when it went through revision.
-        return t["finalize_fmt"].format(text=text)
-
-    wf.add_node("writer", writer)
-    wf.add_node("critic", critic)
-    wf.add_node("judge", judge)
-    wf.add_node("revise", reviser)
-    # Convergence point: either judge finalizes directly or revise does after
-    # rewriting — whoever arrives supplies the output, hence join="any".
-    wf.add_node("finalize", finalize, join="any", terminal=True)
-    wf.add_edge("writer", "critic")
-    wf.add_edge("critic", "judge")
-    wf.add_edge("revise", "finalize")
-    # judge's two destinations are mutually exclusive branches: the runtime
-    # activates one; the other is skipped clean.
-    wf.branch(
-        "judge", {"revise": "revise", "finalize": "finalize"}, decide=lambda s: s.get("verdict")
-    )
-    wf.entry("writer")
-    return wf
-
-
-# ---------------------------------------------------------------- 09 service audit: orchestrator-worker, runtime fan-out
-def _orchestrator(lang: str = "en"):
-    t = {
-        "en": {
-            "catalog": "deployed services: auth, payment, search, notification",
-            "plan_text": "1. audit auth\n2. audit payment\n3. audit search\n4. audit notification",
-            "plan_instruction": (
-                "You plan a service audit: call the catalog, then output one "
-                "numbered line per service, 'N. audit <service>'."
-            ),
-            "findings": {
-                "auth": "p95 41ms, errors 0.0% — pass",
-                "payment": "p95 188ms, errors 0.3% — pass, watch item",
-                "search": "p95 320ms, errors 2.1% — FAIL: retry storm from a cold cache",
-                "notification": "p95 65ms, errors 0.1% — pass",
-            },
-            "synth_line": (
-                "3 of 4 services pass; search fails on a retry storm — "
-                "roll back the cache change before the release."
-            ),
-            "synth_instruction": "You write the audit summary in two sentences.",
-        },
-        "zh": {
-            "catalog": "已部署服务：auth、payment、search、notification",
-            "plan_text": "1. 审计 auth\n2. 审计 payment\n3. 审计 search\n4. 审计 notification",
-            "plan_instruction": (
-                "你规划一次服务巡检：先调目录工具，再按「N. 审计 <服务>」每服务一行编号输出。"
-            ),
-            "findings": {
-                "auth": "p95 41ms，错误率 0.0% —— 通过",
-                "payment": "p95 188ms，错误率 0.3% —— 通过，需关注",
-                "search": "p95 320ms，错误率 2.1% —— 不通过：冷缓存引发重试风暴",
-                "notification": "p95 65ms，错误率 0.1% —— 通过",
-            },
-            "synth_line": "4 个服务 3 个通过；search 因重试风暴不通过——发布前先回滚缓存变更。",
-            "synth_instruction": "你用两句话写出巡检结论。",
-        },
-    }[lang]
-
-    async def catalog(ctx=None):
-        """List the services deployed in this environment."""
-        return t["catalog"]
-
-    wf = Workflow()
-    planner = Agent(
-        "planner",
-        model=_model(ToolCall("catalog", {}), t["plan_text"]),
-        instruction=t["plan_instruction"],
-        tools=[catalog],
-        bus=wf.bus,
-    )
-    synth = Agent(
-        "synth", model=_model(t["synth_line"]), instruction=t["synth_instruction"], bus=wf.bus
-    )
-
-    async def dispatch(plan, ctx):
-        # Each plan line becomes one Send: a fresh copy of the reviewer
-        # template, keyed so results map back to their service.
-        steps = parse_numbered_list(plan)
-        return [send("reviewer", step, key=step["id"]) for step in steps]
-
-    async def reviewer(step, ctx):
-        service = step["instruction"].split(maxsplit=1)[1]
-        finding = t["findings"][service]
-        return f"{service}: {finding}"
-
-    wf.add_node("planner", planner)
-    wf.add_node("dispatch", dispatch)
-    wf.add_node("reviewer", reviewer, template=True)  # copies stamped at runtime
-    wf.add_node("synth", synth, terminal=True)  # join="all": waits for every copy
-    wf.add_edge("planner", "dispatch")
-    wf.add_edge("reviewer", "synth")
-    wf.entry("planner")
-    return wf
-
-
-# ---------------------------------------------------------------- 10 proposal review: blackboard, multi-round consensus
-def _blackboard(lang: str = "en"):
-    t = {
-        "en": {
-            "scripts": {
-                "finance": [
-                    "Objection: the budget doubles this quarter's cap — needs a phased rollout.",
-                    "Agreed: phased rollout keeps spend inside this quarter's cap.",
-                ],
-                "legal": [
-                    "Objection: the EU data-processing clause is missing from the contract.",
-                    "Agreed: the updated contract adds the EU data-processing clause.",
-                ],
-                "ops": [
-                    "Concern: no maintenance window is scheduled for the rollout.",
-                    "Agreed: the Sunday 02:00 window works for operations.",
-                ],
-            },
-            "agree": "Agreed",
-            "verdict_ok": "Consensus: proceed with the phased rollout.",
-            "verdict_cap": (
-                "Round cap reached without full consensus; proceeding with the phased rollout."
-            ),
-            "final_note": "{n} opinions were written along the way.",
-            "instruction_fmt": "You are the {name} reviewer; state your position on the proposal.",
-        },
-        "zh": {
-            "scripts": {
-                "finance": [
-                    "反对：预算翻倍超出本季度上限——需要分期上线。",
-                    "同意：分期上线后预算控制在本季度上限内。",
-                ],
-                "legal": [
-                    "反对：合同缺少欧盟数据处理条款。",
-                    "同意：更新后的合同已补充欧盟数据处理条款。",
-                ],
-                "ops": [
-                    "顾虑：上线没有安排维护窗口。",
-                    "同意：周日凌晨 2 点的窗口运维可接受。",
-                ],
-            },
-            "agree": "同意",
-            "verdict_ok": "达成共识：按分期方案上线。",
-            "verdict_cap": "到达轮次上限仍未完全收敛，按分期方案上线。",
-            "final_note": "板上先后留下了 {n} 条意见。",
-            "instruction_fmt": "你是{name}评审，对方案给出你的立场。",
-        },
-    }[lang]
-
-    experts = ("finance", "legal", "ops")
-    wf = Workflow()
-    wf.channel("board", append())  # opinions accumulate across rounds
-    wf.channel("round", last(0))
-
-    def expert_node(name):
-        agent = Agent(
-            name,
-            model=_model(*t["scripts"][name]),
-            instruction=t["instruction_fmt"].format(name=name),
-            bus=wf.bus,
-        )
-
-        async def run(_, ctx):
-            # The expert thinks on its own; only its verdict lands on the board.
-            # Earlier opinions travel with the task, so a real model can
-            # actually respond to them (the scripted one plays the arc).
-            digest = " | ".join(f"{op['by']}: {op['view']}" for op in ctx.shared["board"])
-            task = f"round {ctx.shared['round'] + 1}: review the proposal"
-            if digest:
-                task += f". Board so far: {digest}"
-            view = await agent.delegate(task)
-            return {"board": [{"by": name, "round": ctx.shared["round"], "view": view}]}
-
-        return run
-
-    async def fanout(_, ctx):
-        # Re-arm the experts and the moderator; the edges still decide that
-        # experts run in parallel first and the moderator waits for them all.
-        return Outcome(control=[Goto.rejoin(n) for n in (*experts, "moderate")])
-
-    async def moderate(_, ctx):
-        board, rnd = ctx.shared["board"], ctx.shared["round"]
-        this_round = [op for op in board if op["round"] == rnd]
-        converged = bool(this_round) and all(op["view"].startswith(t["agree"]) for op in this_round)
-        # Round cap: the debate ends in a verdict even if consensus never forms
-        # (e.g. a real model never says the scripted word for "agree").
-        if converged or rnd + 1 >= 3:
-            return go("final", t["verdict_ok"] if converged else t["verdict_cap"])
-        return go("fanout", round=rnd + 1)  # another round, objections stay on the board
-
-    async def final(text, ctx):
-        note = t["final_note"].format(n=len(ctx.shared["board"]))
-        return f"{text} ({note})"
-
-    for name in experts:
-        wf.add_node(name, expert_node(name))
-        wf.add_edge("fanout", name)
-        wf.add_edge(name, "moderate")
-    wf.add_node("fanout", fanout)
-    wf.add_node("moderate", moderate, join="all")  # every expert of this round, every round
-    wf.add_node("final", final, terminal=True)
-    wf.entry("fanout")
-    return wf
-
-
-# ---------------------------------------------------------------- 14 agent blind date: memory vs hand-rolled window
-# Mirror of examples/dating_chat.py (the playground never imports examples/
-# — the shipped package is src-only; scenarios 01-10 mirror theirs the same
-# way). Fully scripted in both languages: the arc is deterministic on purpose.
-_DATING_MAX_ROUNDS = 4
-_DATING_NIU_KEEP = 4  # his whole "context strategy": keep the last 4 messages
-_DATING_MEI_CAPACITY = 6  # her budget: five-level compaction manages it
-
-_DATING = {
-    "zh": {
-        "names": {"niu": "大牛", "mei": "小美"},
-        "topic": "第一次相亲聊天：互相认识，商量周末安排。",
-        "niu_system": "你是相亲男嘉宾大牛，说话热情直接，回复控制在两句话内。",
-        "mei_instruction": "你是相亲女嘉宾小美，说话得体但有底线，回复控制在三句话内。",
-        "memory1": "介绍人提醒：大牛大大咧咧，做事欠仔细，丢三落四",
-        "memory1_tags": ["大牛"],
-        "memory2": "小美对海鲜过敏，虾蟹贝类全忌口，选餐厅必须避开海鲜",
-        "memory2_tags": ["小美", "健康"],
-        "allergy_anchor": "海鲜过敏",
-        "niu_greet": "你好呀，今天天气不错，先随便聊聊呗？",
-        "niu_ask": "过敏这么严重呀，那吃饭确实得小心。你周末一般喜欢干嘛？我超爱凑热闹。",
-        "niu_oblivious": "啊？？你什么时候说过自己对海鲜过敏啊……我肯定记得住的呀。要不改看电影？",
-        "forward_template": "查到啦！搜索结果原文发你：\n{raw}\n我挑了评分最高的「老灶台自助」，4.8 分、人均 128，周六走起？",
-        "mei_r0": "很高兴认识你！先说好哦，我对海鲜过敏，虾蟹贝类都不能碰，点菜时要记得避开。",
-        "mei_r1": "我喜欢安静的地方，看看展、喝喝茶就很好，太吵的场合我会头疼。你呢？",
-        "mei_r2_blast": (
-            "停！我查了「老灶台自助」的评价：前排全是“帝王蟹、生蚝随便拿”，"
-            "主打就是虾蟹生蚝，还有人说吵得头疼、排队 40 分钟。"
-            "我一开始就说清楚了我的忌口，你到底有没有放在心上？"
-        ),
-        "mei_r3_farewell": (
-            "我的记忆里写着我的忌口，压缩摘要也留着我说过的话；"
-            "你那四条消息的窗口，怕是早就删没了。这顿饭不必了，再见。"
-        ),
-        "raw_search": (
-            "附近高分餐厅 Top 15（按评分排序）：\n"
-            "1. 老灶台自助｜评分 4.8｜人均 128｜菜品种类多、补菜快、大厅有表演\n"
-            "2. 巷子口川菜馆｜评分 4.7｜人均 85｜招牌毛血旺，微辣也够劲\n"
-            "3. 城南火锅局｜评分 4.6｜人均 110｜牛油锅底正宗，等位 20 分钟\n"
-            "4. 三禾日料｜评分 4.6｜人均 168｜午市定食划算，环境安静\n"
-            "5. 谷仓西餐｜评分 4.5｜人均 140｜惠灵顿牛排要预约\n"
-            "6. 阿婆家砂锅粥｜评分 4.5｜人均 55｜量大实惠，招牌砂锅粥\n"
-            "7. 转角咖啡简餐｜评分 4.4｜人均 60｜安静适合聊天，插座多\n"
-            "8. 蜀香冷锅串串｜评分 4.4｜人均 70｜苍蝇馆子氛围，好吃不贵\n"
-            "9. 湖畔私房菜｜评分 4.3｜人均 190｜预约制，包间有低消\n"
-            "10. 麻辣诱惑｜评分 4.3｜人均 95｜招牌麻婆豆腐下饭\n"
-            "11. 老友记大排档｜评分 4.2｜人均 80｜夜宵圣地，热闹到凌晨\n"
-            "12. 禾绿回转寿司｜评分 4.2｜人均 99｜回转台看着新鲜\n"
-            "13. 湘味小厨｜评分 4.1｜人均 75｜剁椒鱼头做得地道\n"
-            "14. 异国厨房｜评分 4.0｜人均 120｜东南亚口味，咖喱浓\n"
-            "15. 街角披萨屋｜评分 4.0｜人均 88｜窑烤薄底，适合二人"
-        ),
-        "reviews": (
-            "「老灶台自助」食客评价（18 条节选）：\n"
-            "1. 帝王蟹、生蚝、扇贝随便拿，主打就是海鲜，过敏体质千万别来；\n"
-            "2. 排队 40 分钟起，周末更夸张；\n"
-            "3. 菜品种类是真的多，补菜也算快；\n"
-            "4. 人均 128 元，性价比一般；\n"
-            "5. 大厅有现场表演，气氛热闹；\n"
-            "6. 取餐要绕一大圈，动线混乱；\n"
-            "7. 甜品区品类少，排队久；\n"
-            "8. 饮料机经常空，要喊服务员；\n"
-            "9. 隔音差，隔壁桌聊天全听得见；\n"
-            "10. 停车位紧张，晚到只能停路边；\n"
-            "11. 服务员响应慢，收盘不及时；\n"
-            "12. 烤物区烟大，衣服全是味道；\n"
-            "13. 儿童区没人管，跑来跑去；\n"
-            "14. 灯光偏暗，看菜单费劲；\n"
-            "15. 音乐太嗨，说话基本靠喊；\n"
-            "16. 桌距太近，没有隐私感；\n"
-            "17. 周末等位 90 分钟；\n"
-            "18. 环境嘈杂，noise_level=吵闹。"
-        ),
-        "trap_name": "老灶台自助",
-        "search_keyword": "附近高分餐厅",
-        "summary": "早期对话要点：小美开场就自报了对海鲜过敏、虾蟹贝类全忌口；她性格喜静、怕吵，约会要选安静的餐厅。",
-        "verdict": (
-            "复盘：过敏原句大牛第 2 次调用时还看得到：{heard}；"
-            "第 5 次（截断后）已看不到：{gone}；"
-            "小美最终窗口的开头是仍含“海鲜过敏”的摘要：{kept}。"
-        ),
-    },
-    "en": {
-        "names": {"niu": "Daniu", "mei": "Xiaomei"},
-        "topic": "First date small talk: get to know each other, plan the weekend.",
-        "niu_system": "You are Daniu on a first date; enthusiastic and direct, keep replies within two sentences.",
-        "mei_instruction": "You are Xiaomei on a first date; polite but firm on your boundaries, keep replies within three sentences.",
-        "memory1": "Matchmaker's note: Daniu is careless and never double-checks anything",
-        "memory1_tags": ["daniu"],
-        "memory2": "Xiaomei is allergic to seafood — shellfish and crab are a hard no, pick restaurants accordingly",
-        "memory2_tags": ["xiaomei", "health"],
-        "allergy_anchor": "allergic to seafood",
-        "niu_greet": "Hi! Nice weather today, huh? Shall we just chat for now?",
-        "niu_ask": "Whoa, sounds serious — no seafood for you at all? What do you like doing on weekends? I love a buzzing crowd myself.",
-        "niu_oblivious": "Wait, WHAT? When did you ever say you were allergic to seafood?? I would definitely have remembered that... so, movie instead?",
-        "forward_template": "Got the results! Forwarding you the raw list:\n{raw}\nI picked the top-rated one — Laozotai Buffet, 4.8 stars, $16 per head. Saturday?",
-        "mei_r0": "Lovely to meet you! Full disclosure up front: I'm allergic to seafood — shellfish and crab are a hard no, so please keep that in mind.",
-        "mei_r1": "I like quiet corners — exhibitions, tea, long walks. Loud places give me a headache. What about you?",
-        "mei_r2_blast": (
-            "STOP. I just read Laozotai Buffet's reviews: 'king crab, oysters, scallops "
-            "all-you-can-eat' — the menu is a shellfish temple in all but name, and guests say "
-            "it's deafening with 40-minute lines. I stated my dietary rules at the very start. "
-            "Were you even listening?"
-        ),
-        "mei_r3_farewell": (
-            "My memory keeps my dietary rules, and the compaction summary keeps what I said "
-            "at the start. Your hand-truncated window deleted it rounds ago. Dinner is off. Goodbye."
-        ),
-        "raw_search": (
-            "Top-rated restaurants nearby (sorted by rating):\n"
-            "1. Laozotai Buffet | 4.8 | $16/person | huge spread, fast refills, live show\n"
-            "2. Xiangzikou Sichuan | 4.7 | $12 | signature maoxue wang, spicy even on mild\n"
-            "3. Chengnan Hotpot Club | 4.6 | $15 | proper beef-tallow base, 20-min wait\n"
-            "4. Sanhe Japanese | 4.6 | $23 | good lunch sets, quiet room\n"
-            "5. Granary Western | 4.5 | $19 | beef wellington, reservation only\n"
-            "6. Granny's Casserole Congee | 4.5 | $8 | big portions, famous congee\n"
-            "7. Corner Cafe & Deli | 4.4 | $8 | quiet, good for chatting, many sockets\n"
-            "8. Shuxiang Skewers | 4.4 | $10 | hole-in-the-wall vibe, cheap and good\n"
-            "9. Lakeside Private Kitchen | 4.3 | $26 | reservation only, room minimum\n"
-            "10. Mala Temptation | 4.3 | $13 | the mapo tofu rice is the move\n"
-            "11. Old Mates Dai Pai Dong | 4.2 | $11 | late-night legend, rowdy till 2 am\n"
-            "12. Hegreen Sushi | 4.2 | $14 | conveyor belt looks fresh\n"
-            "13. Hunan Kitchen | 4.1 | $10 | proper chopped-pepper fish head\n"
-            "14. Exotic Kitchen | 4.0 | $16 | Southeast Asian, heavy curry\n"
-            "15. Corner Pizza | 4.0 | $12 | thin wood-fired crust, good for two"
-        ),
-        "reviews": (
-            "Laozotai Buffet reviews (18):\n"
-            "1. King crab, oysters, scallops — pure seafood, allergic guests stay away;\n"
-            "2. 40-minute lines on weekdays, worse on weekends;\n"
-            "3. The spread is genuinely huge and refills are fast;\n"
-            "4. $16 per head, value is so-so;\n"
-            "5. Live show in the hall, the vibe is electric;\n"
-            "6. The serving line is a maze, bad flow;\n"
-            "7. Small dessert corner, long queue;\n"
-            "8. Drink machines often empty;\n"
-            "9. Thin partitions, you hear every neighbor;\n"
-            "10. Parking is tight after 7 pm;\n"
-            "11. Slow bussing, tables stay messy;\n"
-            "12. Grill smoke clings to your clothes;\n"
-            "13. Kids running around unsupervised;\n"
-            "14. Dim lighting, hard to read the menu;\n"
-            "15. Music too loud, you shout to talk;\n"
-            "16. Tables packed too close for privacy;\n"
-            "17. Weekend waits hit 90 minutes;\n"
-            "18. The hall is deafening, noise_level=rowdy."
-        ),
-        "trap_name": "Laozotai Buffet",
-        "search_keyword": "top rated nearby",
-        "summary": "Earlier conversation: Xiaomei opened by disclosing she is allergic to seafood — shellfish and crab are a hard no; she also said she prefers quiet places.",
-        "verdict": (
-            "Verdict: the allergy line was visible in Daniu's window at call #2: {heard}; "
-            "gone from his final (truncated) window: {gone}; "
-            "the head of Xiaomei's final window is a summary still carrying it: {kept}."
-        ),
-    },
-}
-
-
-class _ConstSummary:
-    """Her compressor stand-in: the older messages are fixed by the script, so
-    a constant summary keeps the arc deterministic."""
-
-    def __init__(self, text: str):
-        self.text = text
-        self.calls = 0
-
-    async def chat(self, messages, tools=None, system=None):
-        self.calls += 1
-        return LlmReply(text=self.text)
-
-
-async def _dating(lang: str = "en"):
-    t = _DATING[lang]
-    memory = InMemoryMemory()
-    await memory.remember(t["memory1"], tags=t["memory1_tags"])
-    await memory.remember(t["memory2"], tags=t["memory2_tags"], importance=2.0)
-
-    mei_llm = ScriptedLlm(
-        [
-            t["mei_r0"],
-            t["mei_r1"],
-            ToolCall("check_restaurant_reviews", {"name": t["trap_name"]}),
-            t["mei_r2_blast"],
-            t["mei_r3_farewell"],
-        ]
-    )
-    # history_recent=3 (not the default 6): at the HISTORY_SUMMARY level the
-    # summary message plus the recent window must fit the capacity together.
-    mei_context = TieredCompactionContext(
-        _ConstSummary(t["summary"]),
-        capacity=_DATING_MEI_CAPACITY,
-        history_recent=3,
-    )
-
-    async def check_restaurant_reviews(name, ctx):
-        """Pull guest reviews for one restaurant (a large payload on purpose)."""
-        return t["reviews"]
-
-    async def search_restaurant(keyword):
-        """His tool: a plain function he calls himself, outside any framework."""
-        return t["raw_search"]
-
-    niu_llm = ScriptedLlm(
-        [
-            t["niu_greet"],
-            t["niu_ask"],
-            ToolCall("search_restaurant", {"keyword": t["search_keyword"]}),
-            t["forward_template"].format(raw=t["raw_search"]),
-            t["niu_oblivious"],
-        ]
-    )
-
-    wf = Workflow()
-    wf.channel("floor", append())  # the shared conversation, append-only
-    wf.channel("round", last(0))
-    wf.channel("niu_msgs", last(None))  # his only "memory": the truncated list
-    wf.channel("mei_history", last(None))  # her multi-turn state, caller-held
-
-    mei_agent = Agent(
-        name="mei",
-        model=mei_llm,
-        instruction=t["mei_instruction"],
-        tools=[check_restaurant_reviews],
-        memory=memory,
-        context=mei_context,
-        bus=wf.bus,  # the agent's events feed the workflow's bus
-    )
-
-    async def niu_turn(_, ctx):
-        msgs = list(ctx.shared["niu_msgs"] or [])
-        mei_lines = [e for e in ctx.shared["floor"] if e["by"] == "mei"]
-        if mei_lines:
-            msgs.append({"role": "user", "content": mei_lines[-1]["text"]})
-        del msgs[:-_DATING_NIU_KEEP]  # the whole "strategy": hard truncation
-        reply = await niu_llm.chat(msgs, system=t["niu_system"])
-        while reply.tool_calls:  # his loop: run it, paste it verbatim, ask again
-            msgs.append({"role": "assistant", "tool_calls": reply.tool_calls})
-            for call in reply.tool_calls:
-                raw = await search_restaurant(**call.arguments)
-                msgs.append({"role": "tool", "name": call.name, "content": raw})
-            del msgs[:-_DATING_NIU_KEEP]
-            reply = await niu_llm.chat(msgs, system=t["niu_system"])
-        msgs.append({"role": "assistant", "content": reply.text})
-        return go(
-            "mei_turn",
-            floor=[{"by": "niu", "round": ctx.shared["round"], "text": reply.text}],
-            niu_msgs=msgs,
-        )
-
-    async def mei_turn(_, ctx):
-        niu_line = next(e for e in reversed(ctx.shared["floor"]) if e["by"] == "niu")
-        result = await mei_agent.run(niu_line["text"], history=ctx.shared["mei_history"])
-        r = ctx.shared["round"]
-        if r + 1 >= _DATING_MAX_ROUNDS:  # the date has said all it needs to
-            return go("final", floor=[{"by": "mei", "round": r, "text": result.output}])
-        return go(
-            "niu_turn",
-            floor=[{"by": "mei", "round": r, "text": result.output}],
-            mei_history=result.messages,
-            round=r + 1,
-        )
-
-    async def final(_, ctx):
-        seen = niu_llm.messages_seen
-        anchor = t["allergy_anchor"]
-
-        def contains(window):
-            return any(anchor in str(m.get("content") or "") for m in window)
-
-        mei_window = mei_llm.messages_seen[-1]
-        kept = mei_window[0].get("role") == "system" and anchor in str(
-            mei_window[0].get("content", "")
-        )
-        return t["verdict"].format(heard=contains(seen[1]), gone=not contains(seen[-1]), kept=kept)
-
-    wf.add_node("niu_turn", niu_turn)
-    wf.add_node("mei_turn", mei_turn)
-    wf.add_node("final", final, terminal=True)
-    wf.entry("niu_turn")
-    return wf
-
-
-# ---------------------------------------------------------------- memory (playground-only bonus): cross-session recall
-async def _memory_regular(lang: str = "en"):
-    mem = InMemoryMemory()
-    # Long-term memory sedimented from earlier chats — it exists independently
-    # of this conversation's context.
-    if lang == "en":
-        await mem.remember(
-            "user's tea order preference: no sugar, less ice, keep answers short",
-            tags=["preference"],
-        )
-        script = [
-            "Sure — no sugar, less ice per your saved preference; order placed.",
-            "I remember — no sugar, less ice again; placing the order now.",
-        ]
-        instruction = "You are an ordering assistant; honor the preferences in long-term memory."
-    else:
-        await mem.remember("用户点奶茶的偏好：默认无糖、去冰，回答尽量简短", tags=["偏好"])
-        script = [
-            "好的，按你记忆中的偏好做了无糖去冰，已下单。",
-            "记得呢——还是无糖去冰，这就再帮你下一单。",
-        ]
-        instruction = "你是点单助手，要结合长期记忆里的偏好。"
-    # Before think, the current question retrieves memories and splices them
-    # into the system prompt; the model answers as if it remembers you.
-    return Agent(
-        name="regular",
-        model=_model(*script),
-        instruction=instruction,
-        memory=mem,
-    )
-
-
-# The scenario table: key -> titles/blurbs/defaults in both languages, plus a
-# builder (may be async) that takes the UI language.
 SCENARIOS = [
     {
         "key": "01",
-        "title": "01 Greet & order",
+        "title": "Greet & order",
         "desc": "The smallest agent: think once, call one tool, answer.",
         "default": "Do you have taro bubble tea?",
-        "title_zh": "01 问候点单",
+        "title_zh": "问候点单",
         "desc_zh": "最小的 Agent：想一步、调一次工具、再回答。",
         "default_zh": "你们这儿有芋泥啵啵吗？",
-        "build": _greeter,
+        "build": greeter.build,
         "is_async": False,
     },
     {
         "key": "02",
-        "title": "02 Haggle · order approval",
+        "title": "Haggle · order approval",
         "desc": "After multi-round haggling, suspend before spending money and wait for your approval.",
         "default": "Buy me a bubble tea, as cheap as you can",
-        "title_zh": "02 代购砍价·下单审批",
+        "title_zh": "代购砍价·下单审批",
         "desc_zh": "多轮砍价后，动钱前在网页上挂起等你批准。",
         "default_zh": "帮我买杯奶茶，尽量便宜",
-        "build": _trader,
+        "build": trader.build,
         "is_async": False,
     },
     {
         "key": "03",
-        "title": "03 Deep research · context compaction",
+        "title": "Deep research · context compaction",
         "desc": "Multiple search rounds; early results past capacity are compacted into summaries.",
         "default": "Research the new-energy sector for me",
-        "title_zh": "03 深度研究·上下文压缩",
+        "title_zh": "深度研究·上下文压缩",
         "desc_zh": "连查多轮，超预算的早期检索被压成摘要。",
         "default_zh": "帮我研究新能源赛道",
-        "build": _research,
+        "build": deep_research.build,
         "is_async": False,
     },
     {
         "key": "04",
-        "title": "04 Compliance audit · parallel + approval",
+        "title": "Compliance audit · parallel + approval",
         "desc": "Two parallel checks converge; freezing suspends for approval.",
         "default": "Audit account A1",
-        "title_zh": "04 合规审计·并行+审批",
+        "title_zh": "合规审计·并行+审批",
         "desc_zh": "两路并行核查、汇合，冻结前挂起审批。",
         "default_zh": "审计账户 A1",
-        "build": _compliance,
+        "build": compliance_audit.build,
         "is_async": False,
     },
     {
         "key": "05",
-        "title": "05 Code detective · MCP + skills",
+        "title": "Code detective · MCP + skills",
         "desc": "MCP tools normalized at the boundary; a skill guides fail-fix-rerun until green.",
         "default": "test_x keeps failing; fix it for me",
-        "title_zh": "05 代码侦探·MCP+技能",
+        "title_zh": "代码侦探·MCP+技能",
         "desc_zh": "MCP 工具在边界拉平，按技能指引失败再改到转绿。",
         "default_zh": "test_x 一直红，帮我修好",
-        "build": _detective,
+        "build": code_detective.build,
         "is_async": True,
     },
     {
         "key": "06",
-        "title": "06 After-sales refund · supervisor & specialists",
+        "title": "After-sales refund · supervisor & specialists",
         "desc": 'The supervisor\'s "tools" are other agents: dispatch billing/risk and answers come back; risk delegates again — three levels.',
         "default": "Order O-1234: customer charged but nothing shipped. Refund?",
-        "title_zh": "06 售后退款·主管与专家",
+        "title_zh": "售后退款·主管与专家",
         "desc_zh": "主管的“工具”是别的 Agent：派账单/风控专家拿回结论；风控再往下委派，长出三层。",
         "default_zh": "订单 O-1234：扣了款一直没发货，该不该退款？",
-        "build": _after_sales,
+        "build": after_sales.build,
         "is_async": False,
     },
     {
         "key": "07",
-        "title": "07 Incident response · delegate & handoff",
+        "title": "Incident response · delegate & handoff",
         "desc": "Parallel diagnosis via delegation (call), then `go` hands off to the repairer (transfer).",
         "default": "Order-service latency is spiking",
-        "title_zh": "07 故障应急·委派与接力",
+        "title_zh": "故障应急·委派与接力",
         "desc_zh": "并行委派诊断（call），再 go 到修复 Agent 接力（transfer）。",
         "default_zh": "订单服务延迟飙升",
-        "build": _aiops,
+        "build": aiops.build,
         "is_async": False,
     },
     {
         "key": "08",
-        "title": "08 Write-review-revise · multi-agent",
+        "title": "Write-review-revise · multi-agent",
         "desc": "Writer/critic/reviser agents; a conditional branch picks revise or finalize, then converge.",
         "default": "Write a quarterly business summary",
-        "title_zh": "08 撰稿-审阅-修订·多 Agent",
+        "title_zh": "撰稿-审阅-修订·多 Agent",
         "desc_zh": "撰稿/审阅/修订三个 Agent，按审阅结果走条件分支再汇合定稿。",
         "default_zh": "写一份季度经营结论",
-        "build": _review_team,
+        "build": write_review.build,
         "is_async": False,
     },
     {
         "key": "09",
-        "title": "09 Service audit · orchestrator-worker",
+        "title": "Service audit · orchestrator-worker",
         "desc": "How many reviewers? The planner reads the live catalog; Send stamps one template copy per service, all in one wave.",
         "default": "Audit every deployed service before the release",
-        "title_zh": "09 服务巡检·编排者-工人",
+        "title_zh": "服务巡检·编排者-工人",
         "desc_zh": "几个审查员？规划者读线上目录，Send 按服务压出模板拷贝，同一波并发。",
-        "default_zh": "发布前把已部署的服务都巡检一遍",
-        "build": _orchestrator,
+        "default_zh": "发布前把已部署服务都巡检一遍",
+        "build": orchestrator.build,
         "is_async": False,
     },
     {
         "key": "10",
-        "title": "10 Proposal review · blackboard",
+        "title": "Proposal review · blackboard",
         "desc": "Experts only write to a shared board; the moderator reads it — not converged, re-arm everyone for another round.",
         "default": "Should we roll out the new pricing engine next week?",
-        "title_zh": "10 方案评审·黑板",
+        "title_zh": "方案评审·黑板",
         "desc_zh": "专家只往共享黑板写意见，裁判读板裁决；未收敛就重开一轮。",
         "default_zh": "新定价引擎下周上线，行吗？",
-        "build": _blackboard,
+        "build": blackboard.build,
         "is_async": False,
     },
     {
-        "key": "14",
-        "title": "14 Agent blind date · memory vs hand-rolled window",
+        "key": "11",
+        "title": "Agent blind date · memory vs hand-rolled window",
         "desc": "He truncates his own messages list and forwards raw tool dumps; she runs memory + five-level compaction. Same conversation, two context strategies — who still remembers the allergy?",
         "default": "Start the blind date",
-        "title_zh": "14 Agent 相亲·记忆 对 手搓窗口",
+        "title_zh": "Agent 相亲 · 记忆 对 手搓窗口",
         "desc_zh": "大牛手搓截断消息窗口、原文转发工具大结果；小美用长期记忆 + 五级压缩。同一场对话、两种上下文策略——谁还记得海鲜过敏？",
         "default_zh": "开始这场相亲",
-        "build": _dating,
+        "build": dating_chat.build,
         "is_async": True,
     },
     {
-        # Playground-only bonus (no numbered counterpart in examples/): the
-        # numbered scenarios 01-10 mirror the business examples exactly; this
-        # one needs the page's chat continuation to feel real.
-        "key": "memory",
-        "title": "＋ Long-term memory · cross-session recall",
+        "key": "12",
+        "title": "Long-term memory · cross-session recall",
         "desc": "Memory outlives the chat; retrieved and injected before think — the model remembers you.",
         "default": "Order me a bubble tea",
-        "title_zh": "＋ 长期记忆·跨会话召回",
+        "title_zh": "长期记忆 · 跨会话召回",
         "desc_zh": "记忆独立于本次对话存在，think 前检索并注入，模型像记得你。",
         "default_zh": "帮我点杯奶茶",
-        "build": _memory_regular,
+        "build": long_term_memory.build,
         "is_async": True,
     },
 ]
 
 
 def get_scenario(key: str):
-    for s in SCENARIOS:
-        if s["key"] == key:
-            return s
-    return None
+    return next((s for s in SCENARIOS if s["key"] == key), None)

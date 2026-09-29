@@ -22,6 +22,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from src import Agent
+from src.kernel.trace import build_trace, span_to_dict
 from src.playground.scenarios import SCENARIOS, get_scenario
 from src.playground.web import PAGE
 
@@ -42,6 +43,20 @@ def _submit(coro):
     return fut.result()
 
 
+def _jsonable(value):
+    """Keep the wire JSON-shaped: live objects riding inside event data (a
+    ToolCall inside the messages channel) become dicts instead of the repr
+    strings a bare json.dumps(default=str) would leave the browser with."""
+    tc = type(value).__name__
+    if tc == "ToolCall":
+        return {"name": value.name, "arguments": value.arguments, "id": value.call_id}
+    if isinstance(value, dict):
+        return {k: _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    return value
+
+
 def _serialize(item: dict) -> dict:
     evt = item.get("evt")
     if evt is None:
@@ -50,12 +65,12 @@ def _serialize(item: dict) -> dict:
         return {
             "seq": 0,
             "kind": item.get("event"),
-            "data": {k: v for k, v in item.items() if k != "event"},
+            "data": _jsonable({k: v for k, v in item.items() if k != "event"}),
         }
     return {
         "seq": evt.seq,
         "kind": evt.kind,
-        "data": evt.data or {},
+        "data": _jsonable(evt.data or {}),
         "run_id": evt.run_id,
         "parent": evt.parent_id,
     }
@@ -64,12 +79,19 @@ def _serialize(item: dict) -> dict:
 async def _pump(sess: dict):
     async for item in sess["sub"]:
         sess["events"].append(_serialize(item))
+        evt = item.get("evt")
+        if evt is not None:  # keep the raw facts so the trace can fold Runs with timestamps
+            sess["raw_events"].append(evt)
 
 
 async def _drive(sess: dict, user_input: str, resume_value=None):
     sess["status"] = "running"
     runnable = sess["runnable"]
-    sess["sub"] = runnable.bus.subscribe()
+    # Composition root: host the runnable (one shared ledger/bus) and subscribe
+    # before driving; run/resume reuse this same Scheduler.
+    scheduler = runnable.host()
+    sess["scheduler"] = scheduler
+    sess["sub"] = scheduler.bus.subscribe()
     pump = asyncio.create_task(_pump(sess))
     try:
         if resume_value is None:
@@ -95,7 +117,11 @@ async def _drive(sess: dict, user_input: str, resume_value=None):
         await asyncio.sleep(0)
         q = sess["sub"].queue
         while not q.empty():
-            sess["events"].append(_serialize(q.get_nowait()))
+            item = q.get_nowait()
+            sess["events"].append(_serialize(item))
+            evt = item.get("evt")
+            if evt is not None:
+                sess["raw_events"].append(evt)
         sess["sub"].close()
         pump.cancel()
 
@@ -113,6 +139,8 @@ async def _start(scenario_key: str, user_input: str, lang: str = "en") -> str:
     sess = {
         "runnable": runnable,
         "events": [],
+        "raw_events": [],
+        "scheduler": None,
         "status": "created",
         "result": None,
         "run_id": None,
@@ -144,6 +172,22 @@ async def _resume(sid: str, approved: bool):
     return True
 
 
+def _collect_artifacts(events: list[dict]) -> list[dict]:
+    """Project the newest pointer of each produced file (the Files panel).
+
+    Same law as kernel.latest_artifacts, applied to the session's serialized
+    (dict) events — artifacts are a fold of artifact_written facts.
+    """
+    latest: dict[str, dict] = {}
+    for ev in events:
+        if ev.get("kind") == "artifact_written":
+            pointer = ev.get("data", {})
+            name = pointer.get("filename")
+            if name:
+                latest[name] = pointer
+    return list(latest.values())
+
+
 async def _events(sid: str, since: int):
     sess = _SESSIONS[sid]
     await asyncio.sleep(0)  # give drive/pump a chance to advance
@@ -164,8 +208,32 @@ async def _events(sid: str, since: int):
         "question": question,
         "output": sess["output"],
         "error": sess["error"],
+        "artifacts": _collect_artifacts(sess["events"]),
+        "trace": [span_to_dict(s) for s in build_trace(sess["raw_events"])],
         "chat": sess.get("chat", False),
     }
+
+
+async def _artifact(sid: str, uri: str) -> tuple[bytes, str, str]:
+    """Load one artifact's bytes plus its mime and filename (fold the pointer
+    for metadata, the BlobStore for bytes)."""
+    sess = _SESSIONS[sid]
+    scheduler = sess.get("scheduler")
+    if scheduler is None:
+        raise ValueError("scheduler not ready")
+    data = await scheduler.blobs.load(uri)
+    pointer = next(
+        (
+            e.data
+            for e in sess["raw_events"]
+            if e.kind == "artifact_written" and e.data.get("uri") == uri
+        ),
+        {},
+    )
+    return data, pointer.get("mime", "application/octet-stream"), pointer.get("filename", uri)
+
+
+_TEXT_MIMES = ("text/", "application/json", "image/svg+xml")
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -213,6 +281,31 @@ class _Handler(BaseHTTPRequestHandler):
             if sid not in _SESSIONS:
                 return self._send({"error": "session not found"}, code=404)
             return self._send(_submit(_events(sid, since)))
+        if path == "/api/artifact":
+            from urllib.parse import parse_qs
+
+            q = parse_qs(self.path.split("?", 1)[1])
+            sid, uri = q.get("sid", [""])[0], q.get("uri", [""])[0]
+            if sid not in _SESSIONS:
+                return self._send({"error": "session not found"}, code=404)
+            data, mime, filename = _submit(_artifact(sid, uri))
+            if q.get("download"):  # raw bytes with a download header
+                self.send_response(200)
+                self.send_header("Content-Type", mime)
+                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return None
+            if mime.startswith(_TEXT_MIMES):  # inline preview
+                return self._send(
+                    {"mime": mime, "filename": filename, "text": data.decode("utf-8", "replace")}
+                )
+            import base64  # binary: hand the browser data it can show or link
+
+            return self._send(
+                {"mime": mime, "filename": filename, "b64": base64.b64encode(data).decode()}
+            )
         return self._send({"error": "not found"}, code=404)
 
     def do_POST(self):

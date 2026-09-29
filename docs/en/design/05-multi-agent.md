@@ -64,7 +64,7 @@ rather than trusting the model to "behave":
 
 1. **Cycle prevention and depth limits**: A delegates to B and B back to A, and
    the Run tree only grows. Nested delegation is capped at Run birth by a max
-   depth (one ledger shared by spawn and teammates chains); same-level
+   depth (one ledger shared by spawn and sub-agents chains); same-level
    ping-pong is capped by a max wave count (`max_waves`); exceeding either
    fails outright.
 2. **Failure propagation along the tree**: a child Run called out that fails
@@ -94,8 +94,9 @@ rather than trusting the model to "behave":
   has to satisfy the same port protocol, with no kernel change (location
   transparency).
 - `SubPlanBody` in `src/kernel/body.py`: the "activate a sub-plan" body.
-- `src/runtime/multiagent.py`: how pipeline / supervisor / blackboard recipes
-  are assembled from primitives.
+- `src/runtime/workflow.py` and `Agent.sub_agents`: the two composition faces —
+  a declared graph (pipeline / parallel / blackboard / handoff) and runtime
+  agent-as-tool delegation; `examples/` shows each assembled from primitives.
 
 > Why delegation and handoff must be distinguished explicitly, how parent-child
 > state mapping keeps a subgraph from polluting the parent, and how to write the

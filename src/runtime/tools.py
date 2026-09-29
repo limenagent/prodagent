@@ -36,7 +36,7 @@ class HardToolError(Exception):
 
     The single carve-out from "tool exceptions become feedback": these must
     reach flow control — fail the Run (and propagate up the tree), or park it
-    (DelegationSuspendedError). A flaky teammate recovers through node-level
+    (DelegationSuspendedError). A flaky sub-agent recovers through node-level
     retry, not through the model reading an error string.
     """
 
@@ -54,6 +54,46 @@ class DelegationSuspendedError(HardToolError):
         self.child_run_id = child_run_id
         self.question = question
         self.task = task
+
+
+async def delegate_to(
+    ctx: Any,
+    plan: Any,
+    task: Any,
+    *,
+    input: dict | None = None,
+    llm: Any = None,
+    tools: Any = None,
+) -> Any:
+    """Spawn a child plan on the host Scheduler and translate its terminal
+    state across the *tool* boundary — the one rule behind every agent-as-tool:
+
+    - a parked child raises DelegationSuspendedError so the tool turn parks
+      with that same question (two-step resume);
+    - a failed child, and the kernel's depth guard, raise HardToolError — the
+      structural carve-out that fails the parent, never model feedback;
+    - otherwise return the child's final output.
+
+    ``input`` is the child's opening state update, built by the caller (the
+    ReAct ``opening``) and handed straight through — this layer never builds
+    it. This is the runtime twin of the kernel's SubPlanBody; the two live in
+    different layers (this throws tool errors; SubPlanBody returns an Outcome)
+    and are deliberately kept apart rather than merged.
+    """
+    if getattr(ctx, "resume_value", None) is not None:
+        return ctx.resume_value  # two-step resume: the child already ran
+    try:
+        result = await ctx.spawn(plan, str(task or ""), input=input, llm=llm, tools=tools)
+    except RecursionError as exc:  # the depth guard speaks RecursionError; same carve-out
+        raise HardToolError(str(exc)) from exc
+    state = result.get("state")
+    if state == "suspended":
+        raise DelegationSuspendedError(
+            result["run_id"], result.get("question", ""), str(task or "")
+        )
+    if state == "failed":
+        raise HardToolError(str(result.get("error") or result.get("output")))
+    return result.get("output")
 
 
 def infer_schema(fn: Callable) -> dict:

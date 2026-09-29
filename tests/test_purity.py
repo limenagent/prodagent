@@ -1,4 +1,4 @@
-"""Purity guard: the kernel may depend only on the Python stdlib and src itself.
+"""Purity guard: the kernel may depend only on the Python stdlib and prodagent itself.
 
 This test turns "mechanism inside, policy outside, the kernel knows no vendor SDK"
 into an executable constraint: import openai/httpx/any third-party lib in kernel

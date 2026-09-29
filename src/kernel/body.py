@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from src.kernel.command import Command, Goto, Send
+from src.kernel.eventlog import ARTIFACT_WRITTEN
 from src.kernel.run import Interrupt
 from src.kernel.types import ToolCall
 
@@ -120,6 +121,8 @@ class NodeContext:
         tools: Any = None,
         subagent: Any = None,
         bus: Any = None,
+        blobs: Any = None,
+        record: Any = None,
         resume_value: Any = None,
     ):
         self.run = run
@@ -128,6 +131,10 @@ class NodeContext:
         self._tools = tools
         self._subagent = subagent
         self._bus = bus
+        self._blobs = blobs
+        # record(kind, data) appends a durable fact to this run's event log;
+        # the scheduler injects it so a body can record facts other than state.
+        self._record = record
         self.resume_value = resume_value
 
     @property
@@ -180,11 +187,61 @@ class NodeContext:
         call = ToolCall(name, arguments or {}, call_id=f"{self.run_id}:{self.node_id}:{count}")
         return await self._tools.dispatch(call, ctx=self)
 
-    async def spawn(self, spec: Any, task: str, payload: Any = None) -> dict:
-        """Activate a child Run (call semantics: it returns its result when done)."""
+    async def spawn(
+        self,
+        spec: Any,
+        task: str,
+        payload: Any = None,
+        *,
+        input: dict | None = None,
+        llm: Any = None,
+        tools: Any = None,
+    ) -> dict:
+        """Activate a child Run (call semantics: it returns its result when done).
+
+        ``input`` is the child's opening state update — the ReAct layer builds it
+        from the task (an opening user message); the kernel never derives it.
+        ``llm``/``tools`` bind that child to its own Agent identity. Either way
+        the ledger (event log / stores) is the host scheduler's — one Run tree.
+        """
         if self._subagent is None:
             raise RuntimeError("no SubagentPort injected; cannot activate a sub-agent")
-        return await self._subagent.activate(spec, task, self.run, payload, node_id=self.node_id)
+        return await self._subagent.activate(
+            spec,
+            task,
+            self.run,
+            payload,
+            self.node_id,
+            input=input,
+            llm=llm,
+            tools=tools,
+        )
+
+    async def save_artifact(
+        self,
+        filename: str,
+        data: Any,
+        *,
+        mime: str = "",
+        title: str = "",
+    ) -> dict[str, Any]:
+        """Persist a versioned file produced by this run.
+
+        The bytes go to the BlobStore; only a pointer fact is appended to the
+        event log, so the artifact library and its version history survive a
+        replay without bloating the stream. ``data`` may be str/bytes/dict/list.
+        Returns the pointer (filename/version/uri/mime/size).
+        """
+        if self._blobs is None:
+            raise RuntimeError("no BlobStore injected; cannot save an artifact")
+        if self._record is None:
+            raise RuntimeError("no event recorder injected; cannot record an artifact fact")
+        pointer = await self._blobs.save(self.run_id, filename, data, mime)
+        fact = dict(pointer)
+        if title:
+            fact["title"] = title
+        await self._record(ARTIFACT_WRITTEN, fact)
+        return pointer
 
 
 # ════════════ Four built-in bodies ════════════
@@ -240,8 +297,17 @@ class SubPlanBody:
     """L3: activate a sub-plan/sub-agent, run it recursively with the same
     kernel, and fold its terminal state."""
 
-    def __init__(self, spec: Any):
+    def __init__(self, spec: Any, *, llm: Any = None, tools: Any = None, seed: Any = None):
+        # spec is the child Plan; llm/tools optionally bind it to its own Agent
+        # identity (a Workflow node that is a self-contained Agent).
         self.spec = spec
+        self.llm = llm
+        self.tools = tools
+        # seed(task) maps the node's task to the child Plan's opening state
+        # update (ReAct passes its opening-message builder). None -> the child
+        # starts from the raw task. It is node wiring, not a Plan method, so
+        # replay (which folds the already-logged STATE_DELTA) needs no case here.
+        self.seed = seed
 
     async def run(self, input: Any, ctx: NodeContext) -> Outcome:
         if ctx.resume_value is not None:
@@ -251,7 +317,14 @@ class SubPlanBody:
             # completes with None output needs a sentinel value from the
             # operator: None is indistinguishable from "not resumed".)
             return Outcome.ok(ctx.resume_value)
-        result = await ctx.spawn(self.spec, str(input or ""))
+        task = str(input or "")
+        result = await ctx.spawn(
+            self.spec,
+            task,
+            input=self.seed(task) if self.seed else None,
+            llm=self.llm,
+            tools=self.tools,
+        )
         if result.get("state") == "suspended":
             # a parked child parks the caller too: the question travels up and
             # the payload carries the child's run_id so resume can find it
@@ -260,6 +333,10 @@ class SubPlanBody:
                 payload={"child_run_id": result["run_id"], "task": str(input or "")},
                 question=result.get("question", ""),
             )
+        if result.get("state") == "failed":
+            # call semantics: a failed child Run fails this node — it is never
+            # folded as a value (the runtime raises HardToolError for the same fact).
+            raise RuntimeError(str(result.get("error") or result.get("output")))
         # Call semantics: by default return only the child Run's final output; a
         # custom body can pull the full result.
         return Outcome.ok(result.get("output"))

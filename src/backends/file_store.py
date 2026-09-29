@@ -59,6 +59,7 @@ class FileEventLog:
                 "kind": event.kind,
                 "data": event.data,
                 "parent_id": event.parent_id,
+                "ts": event.ts,
             },
             ensure_ascii=False,
             default=str,
@@ -78,10 +79,25 @@ class FileEventLog:
             if not line.strip():
                 continue
             d = json.loads(line)
+            # ts round-trips with the record; a log written before ts existed
+            # reads as 0.0 — an unknown duration, never a fake read-time clock.
             events.append(
-                Event(d["seq"], d["run_id"], d["kind"], d.get("data", {}), d.get("parent_id"))
+                Event(
+                    d["seq"],
+                    d["run_id"],
+                    d["kind"],
+                    d.get("data", {}),
+                    d.get("parent_id"),
+                    ts=d.get("ts", 0.0),
+                )
             )
         return events
 
     async def events(self, run_id: str) -> list[Event]:
         return self._read(run_id)
+
+    async def all_events(self) -> list[Event]:
+        out: list[Event] = []
+        for path in sorted(self.dir.glob("*.jsonl")):
+            out.extend(self._read(path.stem))
+        return out

@@ -46,13 +46,15 @@ from src.kernel.run import Interrupt, Run
 def replay(plan: Any, events: Iterable[Event]) -> Run:
     """Rebuild a Run by folding its event stream. The plan is the same blueprint
     that produced the run (its static nodes/edges/channels are not in the log)."""
+    plan.validate()
     run: Run | None = None
 
     for ev in events:
         if ev.kind == RUN_STARTED:
-            run = Run.start(
-                plan, run_id=ev.run_id, parent_id=ev.parent_id, task=ev.data.get("task", "")
-            )
+            # Reconstruct rather than start fresh: the run_id/parent come from
+            # the fact and the opening state is already a state_delta event in
+            # the stream, so nothing is seeded a second time.
+            run = Run(plan, ev.run_id, parent_id=ev.parent_id, task=ev.data.get("task", ""))
             run.event_seq = ev.seq
             continue
         if run is None:

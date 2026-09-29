@@ -1,6 +1,6 @@
 [project]
 name = "prodagent"
-description = "A teaching-grade agent framework kernel in ~1800 lines: small enough to read in a weekend, structured like a production runtime"
+description = "A tiny, legible agent runtime with zero third-party deps: a LangGraph-like kernel and ADK-like agents, small enough to read in a weekend"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -28,9 +28,12 @@ classifiers = [
   "Topic :: Education",
 ]
 dependencies = []
-# Version lives in src/__init__.py (single source of truth), read via
+# Version lives in prodagent/__init__.py (single source of truth), read via
 # [tool.setuptools.dynamic] — a release can never drift between repo and PyPI.
 dynamic = ["version"]
+
+[project.scripts]
+prodagent = "src.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/limenagent/prodagent"
@@ -57,13 +60,13 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"examples/*" = ["N999"]        # 示例按 01_ 前缀排序展示，命名有意为之
 "**/__init__.py" = ["F401"]    # __init__ 里 import 即再出口，不需要逐个引用
-"src/playground/server.py" = ["RUF006"]  # 会话驱动任务有意 fire-and-forget，状态在 _SESSIONS
+"src/playground/server.py" = ["RUF006"]  # 会话驱动有意 fire-and-forget，状态在 _SESSIONS
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+pythonpath = ["."]
 
 [build-system]
 # setuptools>=77: PEP 639 SPDX license-expression support.
@@ -75,3 +78,8 @@ version = { attr = "src.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["src*"]
+
+[tool.setuptools.package-data]
+# Ship the ADK-style builtin skills (markdown) so an installed code_detective
+# sees the same skills as the source tree — no source/install drift.
+"src.runtime" = ["builtin_skills/*/*.md"]

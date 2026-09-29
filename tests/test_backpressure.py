@@ -48,9 +48,10 @@ async def test_node_can_stream_events_through_context():
             await ctx.emit("token", piece=piece)
         return "完成"
 
-    wf = Workflow(bus=bus)
+    wf = Workflow()
     wf.add_node("s", streamer, terminal=True)
     wf.entry("s")
+    wf.host(bus=bus)  # inject the observable bus; the following run reuses it
     sub = bus.subscribe("token")
     r = await wf.run("")
     async for item in sub:

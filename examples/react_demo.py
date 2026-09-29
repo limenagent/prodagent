@@ -71,7 +71,7 @@ async def think(_input, ctx):
         )
     # No tool calls = the final answer is out; the static conditional edge
     # routes to final on exactly this message shape.
-    return Outcome(state_delta={"messages": [{"role": "assistant", "text": reply.text}]})
+    return Outcome(state_delta={"messages": [{"role": "assistant", "content": reply.text}]})
 
 
 async def tools(_input, ctx):
@@ -90,7 +90,7 @@ def build_react_plan() -> Plan:
         Node("tools", FnBody(tools)),
         Node(
             "final",
-            FnBody(lambda x, ctx: Outcome.ok(_last_assistant(ctx.shared).get("text"))),
+            FnBody(lambda x, ctx: Outcome.ok(_last_assistant(ctx.shared).get("content"))),
             terminal=True,
         ),
     )

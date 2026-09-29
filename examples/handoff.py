@@ -32,6 +32,7 @@ import asyncio
 
 from src import Agent, Workflow, append, go
 from src.kernel import ToolCall
+from src.runtime.agent import spawn_agent
 from src.runtime.llm import ScriptedLlm, env_llm
 
 
@@ -90,8 +91,11 @@ def specialist_node(agent: Agent):
 
     async def body(incoming, ctx):
         brief = incoming if isinstance(incoming, str) else str(incoming or "")
-        verdict = await agent.delegate(brief)  # verdict format lives in the system instruction
-        nxt, summary = parse_verdict(verdict)
+        # run the specialist on this host scheduler (shared ledger); its verdict
+        # (a model-made routing decision) names the next holder.
+        result = await spawn_agent(ctx, agent, brief)
+        nxt, summary = parse_verdict(result.get("output"))
+        # go with no edge back to this node = hand off and never return.
         return go(nxt, summary, trail=[f"{agent.name} -> {nxt}"])
 
     return body

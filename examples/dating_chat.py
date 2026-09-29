@@ -29,6 +29,7 @@ import sys
 
 from src import Agent, Workflow, append, go, last
 from src.kernel import LlmReply, ToolCall
+from src.runtime.agent import spawn_agent
 from src.runtime.context import CompressionLevel, TieredCompactionContext
 from src.runtime.llm import ScriptedLlm
 from src.runtime.memory import InMemoryMemory
@@ -209,7 +210,7 @@ class ConstSummary:
         return LlmReply(text=self.text)
 
 
-async def build_date(lang: str = "en"):
+async def build(lang: str = "en"):
     """Assemble the date; returns (workflow, assets) where assets exposes the
     scripted models, her context/memory, and the language table for tests."""
     t = L[lang]
@@ -258,6 +259,8 @@ async def build_date(lang: str = "en"):
     wf.channel("niu_msgs", last(None))  # his only "memory": the truncated list
     wf.channel("mei_history", last(None))  # her multi-turn state, caller-held
 
+    # mei runs on the Workflow's host Scheduler when her turn spawns her (see
+    # mei_turn) — no bus is wired here; the shared ledger carries her events.
     mei_agent = Agent(
         name="mei",
         model=mei_llm,
@@ -265,7 +268,6 @@ async def build_date(lang: str = "en"):
         tools=[check_restaurant_reviews],
         memory=memory,
         context=mei_context,
-        bus=wf.bus,  # the agent's events feed the workflow's bus
     )
 
     async def niu_turn(_, ctx):
@@ -291,14 +293,19 @@ async def build_date(lang: str = "en"):
 
     async def mei_turn(_, ctx):
         niu_line = next(e for e in reversed(ctx.shared["floor"]) if e["by"] == "niu")
-        result = await mei_agent.run(niu_line["text"], history=ctx.shared["mei_history"])
+        # Spawn mei on THIS scheduler (shared ledger/bus), continuing her dialogue.
+        result = await spawn_agent(
+            ctx, mei_agent, niu_line["text"], history=ctx.shared["mei_history"]
+        )
+        output = result.get("output")
+        messages = result.get("shared", {}).get("messages", [])
         r = ctx.shared["round"]
         if r + 1 >= MAX_ROUNDS:  # the date has said all it needs to
-            return go("final", floor=[{"by": "mei", "round": r, "text": result.output}])
+            return go("final", floor=[{"by": "mei", "round": r, "text": output}])
         return go(
             "niu_turn",
-            floor=[{"by": "mei", "round": r, "text": result.output}],
-            mei_history=result.messages,
+            floor=[{"by": "mei", "round": r, "text": output}],
+            mei_history=messages,
             round=r + 1,
         )
 
@@ -324,7 +331,7 @@ async def build_date(lang: str = "en"):
     wf.add_node("final", final, terminal=True)
     wf.entry("niu_turn")
 
-    assets = {
+    wf._assets = {
         "niu_llm": niu_llm,
         "mei_llm": mei_llm,
         "mei_context": mei_context,
@@ -332,12 +339,13 @@ async def build_date(lang: str = "en"):
         "mei_agent": mei_agent,
         "t": t,
     }
-    return wf, assets
+    return wf
 
 
 async def main():
     lang = sys.argv[1] if len(sys.argv) > 1 else "en"
-    wf, a = await build_date(lang)
+    wf = await build(lang)
+    a = wf._assets
     t = a["t"]
 
     print(

@@ -26,10 +26,11 @@ prodagent 是一个**刻意做小、但保留生产级要点的教学型 Agent �
 | 运行时跳转 / 散开 | `Goto` / `Send` | LangGraph 的 `Command(goto/send)`；ADK 的 transfer；OpenAI 的 handoff |
 | 停下来等人 | `Interrupt`，之后 resume | LangGraph 的 `interrupt()` + `Command(resume)`；ADK 的人工输入 |
 | 事实源 / 重放 / 时间旅行 | 只追加的 `EventLog`，状态是折叠出来的 | LangGraph 的 checkpointer + time travel；ADK 的会话重放 |
+| 运行轨迹 / 产出文件 | `build_trace`；`BlobStore` + 指针事件 | OpenTelemetry spans；ADK 会话 artifacts |
 | 多 Agent | 子 Run（委派）/ 不回头的 `Goto`（交棒）/ 黑板 | LangGraph 子图 + `Send`；ADK 子 Agent 与 transfer；CrewAI 层级制 |
 | 对外挂能力 | `Bus`：旁观 / 裁决 / 订阅 | LangGraph 的 callbacks 与 stream；ADK 的 EventBus |
 
-没有魔法，也没有藏起来的东西：12 个文件，一个周末就能读完。
+没有魔法，也没有藏起来的东西：14 个文件，一个周末就能读完。
 
 ## 它长什么样
 
@@ -52,10 +53,11 @@ flowchart TB
 
 ```bash
 git clone https://github.com/limenagent/prodagent && cd prodagent
+pip install -e .
 
-PYTHONPATH=. python examples/greeter.py       # 最小 Agent：只有一个工具的 ReAct
-PYTHONPATH=. python examples/graph_demo.py    # 看并发波次怎么一波波推进
-make play                                      # 网页版：事件时间线 + 人工审批暂停
+prodagent run            # 离线跑通完整流程，在终端里答一次人工审批
+prodagent run --trace    # 同一次运行，渲染成父子 Run 的因果树
+make play                # 网页版：轨迹 / 事件 / 状态 / 文件 / 图
 ```
 
 每个示例都用一个“按脚本扮演模型”的 `ScriptedLlm` 驱动，完全离线、结果确定，可以放心反复跑；

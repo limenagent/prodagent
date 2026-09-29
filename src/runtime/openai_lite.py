@@ -61,7 +61,8 @@ def _wire(messages: list) -> list[dict]:
             out.append(
                 {
                     "role": "assistant",
-                    "content": m.get("text")
+                    "content": m.get("content")
+                    or m.get("text")
                     or "",  # strict gateways reject null; "" works everywhere
                     "tool_calls": calls,
                 }
@@ -84,6 +85,41 @@ def _wire(messages: list) -> list[dict]:
         else:
             out.append({"role": role or "user", "content": str(m.get("content", ""))})
     return out
+
+
+class _InlineThink:
+    """Splits inline ``<think>…</think>`` reasoning out of a content stream.
+
+    Some gateways (GLM occasionally) ship the reasoning inside the content
+    channel wrapped in literal tags instead of the reasoning_content field;
+    leaving the tags in place leaks ``</think>`` into agent answers."""
+
+    def __init__(self) -> None:
+        self._open = False
+
+    def feed(self, piece: str) -> list[tuple[str, bool]]:
+        out: list[tuple[str, bool]] = []
+        while piece:
+            if self._open:
+                end = piece.find("</think>")
+                if end < 0:
+                    out.append((piece, True))
+                    piece = ""
+                else:
+                    out.append((piece[:end], True))
+                    piece = piece[end + 8 :]
+                    self._open = False
+            else:
+                start = piece.find("<think>")
+                if start < 0:
+                    out.append((piece, False))
+                    piece = ""
+                else:
+                    if start:
+                        out.append((piece[:start], False))
+                    piece = piece[start + 7 :]
+                    self._open = True
+        return [(p, r) for p, r in out if p]
 
 
 class OpenAICompatibleLlm:
@@ -171,6 +207,7 @@ class OpenAICompatibleLlm:
         # returning to this loop after each line to call on_delta.
         resp = await asyncio.to_thread(self._open, payload)
         text, reasoning, calls, usage, saw_sse = "", "", {}, {}, False
+        think = _InlineThink()  # some gateways inline reasoning as <think>…</think> in content
         raws: list[bytes] = []  # diagnostics: keep a few raw SSE lines
         try:
             while True:
@@ -209,8 +246,13 @@ class OpenAICompatibleLlm:
                     reasoning += delta["reasoning_content"]
                     await on_delta(delta["reasoning_content"], "reasoning")
                 if delta.get("content"):
-                    text += delta["content"]
-                    await on_delta(delta["content"])
+                    for piece, is_reasoning in think.feed(delta["content"]):
+                        if is_reasoning:
+                            reasoning += piece
+                            await on_delta(piece, "reasoning")
+                        else:
+                            text += piece
+                            await on_delta(piece)
                 for tc in delta.get("tool_calls") or []:  # arrives in fragments; assemble by index
                     slot = calls.setdefault(tc.get("index", 0), {"id": "", "name": "", "args": ""})
                     slot["id"] = slot["id"] or tc.get("id", "")
@@ -252,4 +294,8 @@ class OpenAICompatibleLlm:
                 args = {}
             tool_calls.append(ToolCall(slot["name"], args, slot["id"]))
         tokens = int((raw.get("usage") or {}).get("total_tokens", 0))
-        return LlmReply(text=msg.get("content") or "", tool_calls=tool_calls, tokens=tokens)
+        content = msg.get("content") or ""
+        if "<think>" in content or "</think>" in content:
+            sp = _InlineThink()
+            content = "".join(x for x, is_r in sp.feed(content) if not is_r)
+        return LlmReply(text=content, tool_calls=tool_calls, tokens=tokens)

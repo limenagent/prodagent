@@ -1,5 +1,11 @@
 """src.kernel — public surface of the teaching-grade agent kernel."""
 
+from src.kernel.blob import (
+    BlobStore,
+    InMemoryBlobStore,
+    artifacts_from_events,
+    latest_artifacts,
+)
 from src.kernel.body import (
     FnBody,
     LLMBody,
@@ -21,6 +27,7 @@ from src.kernel.channels import (
 )
 from src.kernel.command import Command, Goto, Send
 from src.kernel.eventlog import (
+    DELEGATED,
     CheckpointStore,
     Event,
     EventLog,
@@ -34,6 +41,7 @@ from src.kernel.ports import LlmPort, LlmReply, SubagentPort, ToolPort
 from src.kernel.replay import replay
 from src.kernel.run import Interrupt, NodeRuntimeState, Run
 from src.kernel.scheduler import InProcessActivator, Scheduler
+from src.kernel.trace import Span, build_trace, render_trace
 from src.kernel.types import (
     NodeStatus,
     RunState,
@@ -42,7 +50,9 @@ from src.kernel.types import (
 )
 
 __all__ = [
+    "DELEGATED",
     "AmbiguousWrite",
+    "BlobStore",
     "BlockingResult",
     # bus / port types
     "Bus",
@@ -56,6 +66,7 @@ __all__ = [
     "EventLog",
     "FnBody",
     "Goto",
+    "InMemoryBlobStore",
     "InMemoryEventLog",
     "InMemoryStore",
     "InProcessActivator",
@@ -79,6 +90,7 @@ __all__ = [
     # engine
     "Scheduler",
     "Send",
+    "Span",
     "SubPlanBody",
     "SubagentPort",
     "Subscription",
@@ -90,8 +102,13 @@ __all__ = [
     "add",
     "append",
     "apply_event",
+    # artifacts
+    "artifacts_from_events",
+    "build_trace",
     "fold_events",
     "last",
+    "latest_artifacts",
     "merge",
+    "render_trace",
     "replay",
 ]

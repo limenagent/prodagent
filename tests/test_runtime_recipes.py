@@ -1,27 +1,14 @@
-"""Recipe-layer tests: ReAct multi-round tools, tool governance, plan-first, multi-agent collaboration."""
+"""Recipe-layer tests: ReAct multi-round tools, tool governance, and the two
+public composition faces — Workflow (static graph) and Agent.sub_agents (runtime
+delegation). Every multi-agent/pattern test drives the public API, so the tests
+double as usage docs and never depend on an internal plan-builder.
+"""
 
-from src.kernel import (
-    FnBody,
-    Node,
-    Outcome,
-    Plan,
-    Scheduler,
-    ToolCall,
-)
+from src import Agent, Workflow, send
+from src.kernel import FnBody, Node, Outcome, Plan, Scheduler, ToolCall
 from src.runtime.llm import ScriptedLlm
-from src.runtime.multiagent import (
-    build_pipeline,
-    build_supervisor,
-)
-from src.runtime.plan_first import build_plan_execute
 from src.runtime.react import build_react_plan, start_react_run
 from src.runtime.tools import ToolRegistry
-
-
-def simple_plan(text):
-    p = Plan()
-    p.add(Node("n", FnBody(lambda x, ctx: Outcome.ok(f"{text}:{x}")), terminal=True))
-    return p
 
 
 async def test_react_multiple_tool_rounds():
@@ -84,41 +71,63 @@ async def test_write_tool_goes_through_approval_gate():
     assert not result.ok and "approved" in result.error
 
 
-async def test_plan_first_fan_out():
-    async def make_steps(task, ctx):
-        return [{"id": "s1", "instruction": "A"}, {"id": "s2", "instruction": "B"}]
-
-    worker = FnBody(lambda step, ctx: Outcome.ok(step["instruction"]))
-    plan = build_plan_execute(make_steps=make_steps, worker=worker)
-    run = await Scheduler().run(plan, task="拆两步")
-    assert sorted(run.final_output) == ["A", "B"]
-
-
 async def test_pipeline_runs_in_order():
-    plan = build_pipeline([("a", simple_plan("甲")), ("b", simple_plan("乙"))])
-    run = await Scheduler().run(plan, task="输入")
-    assert run.final_output == "乙:甲:输入"
+    wf = Workflow()
+
+    async def a(x, ctx):
+        return f"甲:{x}"
+
+    async def b(x, ctx):
+        return f"乙:{x}"
+
+    wf.add_node("a", a)
+    wf.add_node("b", b, terminal=True)
+    wf.add_edge("a", "b")
+    wf.entry("a")
+    r = await wf.run("输入")
+    assert r.output == "乙:甲:输入"
+
+
+async def test_plan_first_fan_out():
+    wf = Workflow()
+
+    async def planner(task, ctx):
+        steps = [{"id": "s1", "instruction": "A"}, {"id": "s2", "instruction": "B"}]
+        return [send("worker", step, key=step["id"]) for step in steps]
+
+    async def worker(step, ctx):
+        return step["instruction"]
+
+    wf.add_node("planner", planner)
+    wf.add_node("worker", worker, template=True)
+    wf.add_node("synth", lambda x, ctx: Outcome.ok(x), terminal=True)
+    wf.add_edge("worker", "synth")
+    wf.entry("planner")
+    r = await wf.run("拆两步")
+    # the template predecessor's instances are aggregated into the join point
+    assert sorted(r.output) == ["A", "B"]
 
 
 async def test_supervisor_delegates_to_workers():
-    reg = ToolRegistry()
-    workers = {
-        "researcher": (simple_plan("调研"), "查资料"),
-        "writer": (simple_plan("写作"), "写稿"),
-    }
-    plan = build_supervisor(workers, registry=reg)
-    llm = ScriptedLlm(
-        [
-            ToolCall("researcher", {"task": "查 X"}),
-            ToolCall("writer", {"task": "写 Y"}),
-            "汇总完成",
-        ]
+    researcher = Agent("researcher", model=ScriptedLlm(["调研结果"]), instruction="查资料")
+    writer = Agent("writer", model=ScriptedLlm(["写稿结果"]), instruction="写稿")
+    sup = Agent(
+        "sup",
+        model=ScriptedLlm(
+            [
+                ToolCall("researcher", {"task": "查 X"}),
+                ToolCall("writer", {"task": "写 Y"}),
+                "汇总完成",
+            ]
+        ),
+        instruction="主管，自己不执行",
+        sub_agents=[researcher, writer],
     )
-    sch = Scheduler(llm=llm, tools=reg)
-    run = start_react_run(plan, "做课题")
-    await sch.drive(plan, run)
-    assert run.final_output == "汇总完成"
-    assert run.metrics["tool_calls"] == 2
+    r = await sup.run("做课题")
+    assert r.output == "汇总完成"
+    assert (
+        r.metrics["tool_calls"] == 2
+    )  # the two delegations, each specialist's own think underneath
 
 
 async def test_goto_carries_payload_to_target():
@@ -134,22 +143,20 @@ async def test_goto_carries_payload_to_target():
 
 
 async def test_supervisor_worker_runs_are_named():
-    researcher = simple_plan("调研")
-    assert researcher.name == ""  # precondition: the worker blueprint starts anonymous
-    reg = ToolRegistry()
-    plan = build_supervisor({"researcher": (researcher, "查资料")}, registry=reg)
-    llm = ScriptedLlm([ToolCall("researcher", {"task": "查 X"}), "汇总完成"])
-    sch = Scheduler(llm=llm, tools=reg)
+    researcher = Agent("researcher", model=ScriptedLlm(["调研结果"]), instruction="查资料")
+    sup = Agent(
+        "sup",
+        model=ScriptedLlm([ToolCall("researcher", {"task": "查 X"}), "汇总完成"]),
+        instruction="主管",
+        sub_agents=[researcher],
+    )
+    sch = sup.host()  # host first, then observe the live stream
     started = []
     sch.bus.on("run_started", lambda evt: started.append(evt))
 
-    run = start_react_run(plan, "做课题")
-    await sch.drive(plan, run)
-
-    assert run.final_output == "汇总完成"
-    # Registration lends the anonymous blueprint the delegation-tool name, and
-    # the spawned worker Run really carries it on run_started — not just the
-    # field, the observable event.
-    assert researcher.name == "researcher"
+    r = await sup.run("做课题")
+    assert r.output == "汇总完成"
+    # A sub-agent is an Agent with its own name, and the spawned worker Run really
+    # carries it on run_started — not just the field, the observable event.
     names = [e.data.get("name") for e in started]
     assert "researcher" in names
