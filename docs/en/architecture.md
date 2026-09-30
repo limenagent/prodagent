@@ -88,11 +88,29 @@ Each in one plain sentence:
 | Part | The problem it solves |
 |---|---|
 | **Plan** (Node / Edge / Channel inside) | a reusable static blueprint: which steps exist, how they connect, how concurrent state writes merge |
-| **Run** | how far *this* execution got — dynamic, one-shot, persistable and resumable |
+| **Run** | how far *this* execution got — dynamic, one-shot, rebuildable from the event stream at any time |
 | **Scheduler** | the single engine that repeatedly computes "who is ready now", wave by wave |
 | **EventLog** | append-only facts; state isn't stored, it's folded out of the event stream |
 | **Bus** | the engine announces every move; observability, audit, approval, backpressure all attach here |
 | **Interrupt** | at any node, say "stop, wait for a human/external", persist and let go, then continue intact |
+
+## One thread to hold on to: a single ledger
+
+Of the six parts, the one worth memorizing first is the `EventLog`, because it
+is the only thing the whole machine persists — one ledger:
+
+- every step the engine takes **appends a fact to the ledger first** ("this
+  node completed", "a human approved"), and only then folds that fact into the
+  `Run`'s state — through a single entry point, `apply()`. The live run and a
+  later replay go through the very same door, so the two can never drift apart;
+- recovery is not loading a snapshot; it is replaying the ledger from the top,
+  and the Run comes back on its own;
+- the question asked at a suspension and the human's answer are both facts in
+  the same ledger — the answer is recorded exactly like the question.
+
+Hold that thread, and everything that follows — the scheduler, replay, the
+multi-agent Run tree — turns out to be a different way of reading the same
+ledger.
 
 ## The most important dividing line: mechanism inside, strategy outside
 
@@ -108,15 +126,15 @@ lines cover so many forms.
 
 ## The intuition you should leave with
 
-An agent engine sounds complex, but at the bottom it is six parts, derived one
-after another by the same problem: to recover you need an explicit Run; to
-orchestrate flexibly you need an explicit Plan (nodes, edges, channels inside);
-to drive the blueprint you need a scheduler; to audit and travel back, to pause
-at any point, and to be visible and interceptable from outside, you grow an
-event log, an interrupt, and a bus in that order. **No one invented six concepts
-on a whim — the problems themselves demanded them.**
+An agent engine sounds complex, but at the bottom it is six parts, forced into
+existence one after another by the same problem: to recover you need an explicit
+Run; to orchestrate flexibly you need an explicit Plan (nodes, edges, channels
+inside); to drive the blueprint you need a scheduler; to audit and travel back,
+to pause at any point, and to be visible and interceptable from outside, you
+grow an event log, an interrupt, and a bus. **No one invented six concepts on a
+whim — the problems themselves demanded them.**
 
-The next five [design notes](README.md)
-walk through the key trade-off behind each: why it has to be this way, and what
-you pay if you choose differently. How to write each one from scratch, line by
-line, is built with you in the companion column.
+The next five [design notes](README.md) walk through the key trade-off behind
+each part: why it has to be this way, and what you pay if you choose
+differently. How to write each one from scratch, line by line, is built with
+you in the companion column.

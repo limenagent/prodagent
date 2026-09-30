@@ -1,14 +1,14 @@
 # prodagent documentation
 
-These docs do not teach an API — for that, see the [repository README](https://github.com/limenagent/prodagent)
+These pages do not teach an API — for that, see the [repository README](https://github.com/limenagent/prodagent)
 and `examples/`. They answer a different question: **why is this kernel shaped
 the way it is, what tension does each part resolve, and what else could we have
 chosen?**
 
-The pages are ordered the way the machine "grows", each building on the
-previous one, so a beginner can read them in sequence. You don't need to know
-LangGraph first, and you don't need to memorize jargon — every term is explained
-in plain language the first time it appears.
+The pages are ordered the way the machine "grows", each one standing on the
+previous, so a beginner can read straight through. You don't need to know
+LangGraph first, and you don't need to memorize jargon — every term gets a
+plain-language explanation the first time it appears.
 
 ## Suggested order
 
@@ -20,7 +20,8 @@ in plain language the first time it appears.
 **Then make it stick by hand (~30 min, strongly recommended):**
 [Build a minimal kernel](build-a-minimal-kernel.md) — about 80 lines using only
 the standard library, nothing to install. Type out the wave loop once yourself,
-and the design notes below read like a recap instead of new abstractions.
+and the design notes below read like a recap instead of a pile of new
+abstractions.
 
 **Step 2 — the five key design trade-offs (5–8 min each)**
 
@@ -32,27 +33,28 @@ and the design notes below read like a recap instead of new abstractions.
 
 **Step 3 — cross-reference and Q&A**
 
-7. [Concept map vs LangGraph / ADK / CrewAI](comparison.md) — fastest path if
-   you already use another framework.
-8. [Example guide](examples.md) — what each example demonstrates and what to watch.
+7. [Concept map vs LangGraph / ADK / CrewAI](comparison.md) — the fastest path
+   if you already use another framework.
+8. [Example guide](examples.md) — what each example demonstrates and what to
+   watch for.
 9. [FAQ](faq.md)
 10. [Glossary](glossary.md)
 
 ## Three kinds of reader, three routes
 
 - **New to agent frameworks**: follow the order above strictly; don't chase the
-  code at first, focus on *why each part is needed*.
+  code at first — focus on *why each part is needed*.
 - **You know LangGraph / ADK and want the internals**: read the architecture
   overview, jump to the concept map, then read the design note closest to what
   you already know.
-- **Reading source**: pair the README's reading order with these notes — when
-  you open a file, come back here for the *why*.
+- **Reading source**: the kernel's module reading order is in the header of
+  `src/__init__.py`; when you open a file, come back here for the *why*.
 
 ## What these docs deliberately don't cover
 
 To stay small enough to finish, these pages cover mechanism and trade-offs, not
 line-by-line implementation, and not the algorithms of replaceable strategies
-such as compression or retrieval. Those are built step by step in the companion
+like compression or retrieval. Those are built step by step in the companion
 GeekTime column *Designing and Building a Production-Grade Agent Framework*,
 starting from a six-line loop. These docs give you the **map and the scenery**;
 the column is the **guided tour**.

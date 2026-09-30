@@ -17,7 +17,7 @@ steps per wave:
 ```text
 1) ready: along the edges, compute the set of nodes whose prerequisites are now met
 2) run concurrently: this wave's nodes run together, but none touches shared state — each only produces an Outcome
-3) barrier: wait for all of them, then fold state deltas, apply control commands, write one checkpoint
+3) barrier: wait for all of them; each settled node becomes a fact appended to the log, then state deltas fold and control commands apply
 ```
 
 The key is step 2: while running, shared state is a **read-only snapshot** to a
@@ -28,7 +28,9 @@ the step-3 barrier, folded deterministically by reducers. As a result:
   is always the consistent state at the previous wave's end**;
 - merge order doesn't matter, the result is deterministic;
 - every barrier is naturally a **commit point**: this wave either takes effect
-  completely or not at all, and the checkpoint lands exactly here.
+  completely or not at all. And the commit order is **log first, projection
+  second** — facts are appended before state moves, so a crash at any instant
+  still replays to exactly that moment.
 
 Dynamic fan-out fits the same rhythm: a node produces `Send`s in step 2, and
 those new instances enter the **next** wave's ready set instead of cutting in
@@ -56,7 +58,7 @@ consistency boundary.
 - `WaveWrites` in `src/kernel/channels.py`: buffers this wave's deltas and folds
   them once at the barrier.
 
-> Why "fold state, apply Goto/Send, write checkpoint" must happen in exactly
+> Why "append the facts, fold the state, apply Goto/Send" must happen in exactly
 > that order at the barrier is taken apart line by line in the companion column.
 > Next, a decision about *doing less*: [why there is no ReAct in the
 > kernel](04-no-pattern-in-kernel.md).

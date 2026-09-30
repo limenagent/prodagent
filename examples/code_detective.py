@@ -3,8 +3,8 @@
 - The repo capabilities (read, grep, patch, run tests) are provided by an
   in-process MCP server, normalized at the boundary into ordinary tools that go
   through the one scheduling pipeline;
-- the "how to debug" skill is not hard-coded — it loads from a SKILL.md in the
-  builtin_skills directory, so skills can be added/removed independently and
+- the "how to debug" skill is not hard-coded — it loads from a SKILL.md in this
+  example's skills directory, so skills can be added/removed independently and
   disclosed progressively, with zero framework change;
 - the model's first patch doesn't fix it; after the test feedback it patches
   again and the second run goes green (fix-fail-rerun).
@@ -16,7 +16,6 @@ English. Run: PYTHONPATH=. python3 examples/code_detective.py
 import asyncio
 import os
 
-import src.runtime as runtime_pkg
 from src import Agent
 from src.kernel import ToolCall
 from src.runtime.llm import ScriptedLlm, env_llm
@@ -94,7 +93,7 @@ async def build(lang: str = "en") -> Agent:
 
     # The bundled skill is Chinese, so the match query stays Chinese in both
     # UI languages (word-overlap matching would miss it in English).
-    skills_dir = os.path.join(os.path.dirname(runtime_pkg.__file__), "builtin_skills")
+    skills_dir = os.path.join(os.path.dirname(__file__), "skills")
     skills = SkillRegistry()
     skills.load_dir(skills_dir)
     skill = skills.match("测试失败 排障 补丁 重跑")

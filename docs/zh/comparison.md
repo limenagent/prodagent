@@ -16,7 +16,7 @@
 | Outcome.state_delta | 节点 return / Command(update) | EventActions.state_delta | 节点对状态的增量 |
 | `Goto` | `Command(goto=...)` | 路由 / transfer_to_agent | 运行时选边、回边、交接 |
 | `Send` | `Send(node, arg)` | 动态子任务 | 运行时才知道份数的扇出 |
-| Interrupt / resume | `interrupt()` + `Command(resume=)` | 需自行用外部状态实现 | 暂停等人、再从断点继续 |
+| Interrupt / resume | `interrupt()` + `Command(resume=)` | 人工输入（human input） | 暂停等人、再从断点继续 |
 | Bus（fire/check/subscribe） | 回调/中间件、LangSmith 观测、stream | 回调与事件 | 观测、审批、预算等横切能力的挂载点；subscribe 用有界队列支撑流式与背压 |
 | 子 Run / SubPlanBody | subgraph | sub_agents / AgentTool | 一个节点里递归跑另一张图 |
 | call（委派要返回） | 子图作为节点、结果返回 | AgentTool / task 模式 | 父始终在控 |

@@ -502,7 +502,7 @@ const GROUPS=["start","ok","state","route","file","wait","fail"];
 
 /* ════════ i18n ════════ */
 const I18N={
- en:{scenes:"Scenarios",crumb:"Pick a scenario and run it",run:"Run",send:"Send",
+ en:{scenes:"Scenarios",run:"Run",send:"Send",
    ph:"Message the agent…",phOnce:"Input for this scenario…",empty:"Nothing has run yet.<br/>Pick a scenario and press Run.",
    idle:"idle",running:"running",suspended:"suspended",completed:"completed",failed:"failed",
    replay:"Session replay",replayDesc:"Replaying a finished session from its event ledger — nothing is re-run.",
@@ -524,7 +524,7 @@ const I18N={
           resumed:"resumed",run_completed:"run_completed",run_failed:"run_failed",
           node_failed:"node_failed",user_turn:"user"},
    counts:"events",children:"children"},
- zh:{scenes:"场景",crumb:"选一个场景，点「运行」",run:"运行",send:"发送",
+ zh:{scenes:"场景",run:"运行",send:"发送",
    ph:"给 Agent 留言…",phOnce:"给这个场景的输入…",empty:"还没有运行。<br/>选一个场景，点「运行」。",
    idle:"空闲",running:"运行中",suspended:"已挂起",completed:"已完成",failed:"失败",
    replay:"会话回放",replayDesc:"正在从事件账本回放一个已结束的会话——不会重新运行。",
@@ -866,10 +866,7 @@ function showSpanDetail(row,s){
     `<span class="lnk" data-run="${esc(s.run_id)}">${esc(t("filterRun"))} →</span>`;
   det.querySelector(".lnk").onclick=e=>{
     e.stopPropagation();
-    runFilter=s.run_id;$("runchips").innerHTML="";
-    const x=el("span","chip run");x.innerHTML=`${esc(s.name||short(s.run_id))} <span class="x">✕</span>`;
-    x.querySelector(".x").onclick=()=>{runFilter=null;$("runchips").innerHTML="";renderLedger();};
-    $("runchips").appendChild(x);
+    setRunFilter(s.run_id);
     renderLedger();showTab("events");
   };
   det.classList.add("show");
@@ -892,6 +889,15 @@ function buildChips(){
     c.onclick=()=>{kindFilter=g;buildChips();renderLedger();};
     box.appendChild(c);
   });
+}
+function setRunFilter(rid){
+  /* one law, one birthplace: the waterfall drill-down and a graph-node click
+     both land here — filter state and its escape chip are set together */
+  runFilter=rid;$("runchips").innerHTML="";
+  const x=el("span","chip run");
+  x.innerHTML=`${esc(runs[rid]?.name||short(rid))} <span class="x">✕</span>`;
+  x.querySelector(".x").onclick=()=>{runFilter=null;$("runchips").innerHTML="";renderLedger();};
+  $("runchips").appendChild(x);
 }
 function brief(ev){
   const d=ev.data||{};
@@ -1147,11 +1153,7 @@ function renderGraph(){
   box.innerHTML=s;
   box.querySelectorAll(".gnode").forEach(node=>{
     node.onclick=()=>{
-      const n=node.dataset.node;
-      runFilter=g.rid;$("runchips").innerHTML="";
-      const x=el("span","chip run");x.innerHTML=`${esc(runs[g.rid]?.name||short(g.rid))} <span class="x">✕</span>`;
-      x.querySelector(".x").onclick=()=>{runFilter=null;$("runchips").innerHTML="";renderLedger();};
-      $("runchips").appendChild(x);
+      setRunFilter(g.rid);
       kindFilter="all";buildChips();renderLedger();showTab("events");
     };
   });
@@ -1267,7 +1269,7 @@ async function poll(){
     else renderEvent(ev);
   });
   if(d.question)lastQuestion=d.question;
-  if(fresh.length){endStreamsIfIdle(d.status);renderLedger();renderState();renderGraph();}
+  if(fresh.length){if(d.status!=="running")endStreams();renderLedger();renderState();renderGraph();}
   spans=d.trace||[];spanById={};
   renderWaterfall();
   if(spanFocus&&spanById[spanFocus]){ /* a deep-linked span opens once its bar exists */
@@ -1294,7 +1296,6 @@ async function poll(){
     }
   }
 }
-function endStreamsIfIdle(status){if(status!=="running")endStreams();}
 
 /* ════════ actions ════════ */
 $("run").onclick=async()=>{

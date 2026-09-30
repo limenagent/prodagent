@@ -186,14 +186,13 @@ class Plan:
         self, run: Any, source: str, *, empty_fanout: bool = False, skipped: Any = ()
     ) -> bool:
         """A predecessor "completed successfully": a normal node is COMPLETED;
-        a template needs all its instances in a terminal state. Keys in
-        ``skipped`` count as done — sweep_skipped's not-yet-committed
+        a template needs all its instances in a terminal state — which is
+        exactly _predecessor_terminal, so say so instead of restating it. Keys
+        in ``skipped`` count as done — sweep_skipped's not-yet-committed
         candidates behave exactly as their facts soon will."""
-        keys = self._instance_keys(run, source)
-        if keys is None:
-            return empty_fanout
-        done = run.is_completed if not self._nodes[source].template else run.is_terminal
-        return all(done(k) or k in skipped for k in keys)
+        if not self._nodes[source].template:
+            return run.is_completed(source) or source in skipped
+        return self._predecessor_terminal(run, source, empty_fanout=empty_fanout, skipped=skipped)
 
     def _predecessor_terminal(
         self, run: Any, source: str, *, empty_fanout: bool = False, skipped: Any = ()
@@ -220,9 +219,7 @@ class Plan:
         for key in self._all_keys(run):
             if not run.is_pending(key):
                 continue
-            if run.is_instance(
-                key
-            ):  # dynamic instance: Send activated it directly, pending is enough to run
+            if run.is_instance(key):  # a Send copy: pending is enough to run
                 ready.append(key)
                 continue
             preds = self._incoming.get(key, ())

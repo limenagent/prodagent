@@ -3,7 +3,7 @@
 # Local preview:  pip install mkdocs-material && mkdocs serve
 
 site_name: prodagent
-site_description: A minimal, readable agent-framework kernel in under 2000 lines — understand how LangGraph/ADK work under the hood.
+site_description: A minimal, readable agent-framework kernel in about 1800 lines — understand how LangGraph/ADK work under the hood.
 site_author: Haoshuang Li
 repo_url: https://github.com/limenagent/prodagent
 repo_name: limenagent/prodagent

@@ -101,7 +101,7 @@ class NodeContext:
     """The "service wiring" a body can use while running.
 
     Note this is wiring, not data: it holds live objects like the model port
-    and tool port, so it is never serialized. A run's data travels via
+    and tool port, so it never becomes a fact. A run's data travels via
     input / state_delta and is never smuggled into context — that boundary keeps
     the event stream clean.
     """
@@ -191,7 +191,6 @@ class NodeContext:
         self,
         spec: Any,
         task: str,
-        payload: Any = None,
         *,
         input: dict | None = None,
         llm: Any = None,
@@ -207,14 +206,7 @@ class NodeContext:
         if self._subagent is None:
             raise RuntimeError("no SubagentPort injected; cannot activate a sub-agent")
         return await self._subagent.activate(
-            spec,
-            task,
-            self.run,
-            payload,
-            self.node_id,
-            input=input,
-            llm=llm,
-            tools=tools,
+            spec, task, self.run, self.node_id, input=input, llm=llm, tools=tools
         )
 
     async def save_artifact(

@@ -85,7 +85,7 @@ rather than trusting the model to "behave":
    of the teaching kernel. So a turn mixing several delegation calls with a
    suspension is refused outright rather than silently mis-routed
    (plain-tool siblings still pass: their re-run is honest at-least-once).
-   Teammates delegation (the facade) shares these semantics.
+   `sub_agents` delegation on the facade shares these semantics.
 
 ## In the code
 

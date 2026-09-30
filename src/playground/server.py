@@ -16,10 +16,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import json
 import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs
 
 from src import Agent
 from src.kernel.trace import Span, build_trace
@@ -44,6 +46,7 @@ def span_to_dict(span: Span) -> dict:
 
 # —— the background event loop (every agent runs on this one loop) ——
 _LOOP: asyncio.AbstractEventLoop | None = None
+_LOOP_READY = threading.Event()
 _SESSIONS: dict[str, dict] = {}
 
 
@@ -51,6 +54,7 @@ def _start_background_loop():
     global _LOOP
     _LOOP = asyncio.new_event_loop()
     asyncio.set_event_loop(_LOOP)
+    _LOOP_READY.set()
     _LOOP.run_forever()
 
 
@@ -92,12 +96,18 @@ def _serialize(item: dict) -> dict:
     }
 
 
+def _take(sess: dict, item: dict) -> None:
+    """One queued item -> the session's serialized events, plus the raw fact
+    (so the trace can fold Runs with timestamps)."""
+    sess["events"].append(_serialize(item))
+    evt = item.get("evt")
+    if evt is not None:
+        sess["raw_events"].append(evt)
+
+
 async def _pump(sess: dict):
     async for item in sess["sub"]:
-        sess["events"].append(_serialize(item))
-        evt = item.get("evt")
-        if evt is not None:  # keep the raw facts so the trace can fold Runs with timestamps
-            sess["raw_events"].append(evt)
+        _take(sess, item)
 
 
 async def _drive(sess: dict, user_input: str, resume_value=None):
@@ -133,11 +143,7 @@ async def _drive(sess: dict, user_input: str, resume_value=None):
         await asyncio.sleep(0)
         q = sess["sub"].queue
         while not q.empty():
-            item = q.get_nowait()
-            sess["events"].append(_serialize(item))
-            evt = item.get("evt")
-            if evt is not None:
-                sess["raw_events"].append(evt)
+            _take(sess, q.get_nowait())
         sess["sub"].close()
         pump.cancel()
 
@@ -290,8 +296,6 @@ class _Handler(BaseHTTPRequestHandler):
                 ]
             )
         if path == "/api/events":
-            from urllib.parse import parse_qs
-
             q = parse_qs(self.path.split("?", 1)[1])
             sid = q.get("sid", [""])[0]
             since = int(q.get("since", ["0"])[0])
@@ -299,8 +303,6 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._send({"error": "session not found"}, code=404)
             return self._send(_submit(_events(sid, since)))
         if path == "/api/artifact":
-            from urllib.parse import parse_qs
-
             q = parse_qs(self.path.split("?", 1)[1])
             sid, uri = q.get("sid", [""])[0], q.get("uri", [""])[0]
             if sid not in _SESSIONS:
@@ -318,8 +320,7 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._send(
                     {"mime": mime, "filename": filename, "text": data.decode("utf-8", "replace")}
                 )
-            import base64  # binary: hand the browser data it can show or link
-
+            # binary: hand the browser data it can show or link
             return self._send(
                 {"mime": mime, "filename": filename, "b64": base64.b64encode(data).decode()}
             )
@@ -352,8 +353,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 def serve(host: str = "127.0.0.1", port: int = 8000):
     threading.Thread(target=_start_background_loop, daemon=True).start()
-    while _LOOP is None:  # wait for the background loop to be ready
-        pass
+    _LOOP_READY.wait()  # the background loop can take submissions
     httpd = ThreadingHTTPServer((host, port), _Handler)
     url = f"http://{host}:{port}"
     print(f"prodagent playground running at: {url}  (Ctrl+C to stop)")

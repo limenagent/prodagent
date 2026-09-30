@@ -67,7 +67,6 @@ class SubagentPort(Protocol):
         spec: Any,
         task: str,
         parent_run: Any,
-        payload: Any = None,
         node_id: str = "",
         *,
         input: dict | None = None,

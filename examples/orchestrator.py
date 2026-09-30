@@ -3,9 +3,10 @@
 The graph has ONE reviewer node; how many times it runs is decided at runtime.
 The planner agent calls the catalog tool, writes a numbered plan, and dispatch
 turns each line into a Send — one copy of the reviewer template per service, all
-concurrent in one wave. synth joins every copy (join="all") and summarizes. Add
-a fifth service to the catalog tomorrow and the same graph runs five reviewers
-without a line changed.
+concurrent in one wave. synth waits for every copy (the template-predecessor
+rule, not join) and summarizes. Add a fifth service to the catalog tomorrow and
+the same graph runs five reviewers without a line changed — with a real model;
+the offline catalog/plan/findings fixtures do change together.
 
 ``build(lang)`` is the single assembly point (bilingual); ``main`` runs English.
 Run: PYTHONPATH=. python3 examples/orchestrator.py
@@ -78,13 +79,16 @@ def build(lang: str = "en") -> Workflow:
         return [send("reviewer", step, key=step["id"]) for step in steps]
 
     async def reviewer(step, ctx):
+        # Offline fixture: `findings` covers exactly the catalog's four services
+        # and the parser assumes 'audit <service>' — a real model that phrases a
+        # line differently will miss the table (KeyError, by design: fail loud).
         service = step["instruction"].split(maxsplit=1)[1]
         return f"{service}: {t['findings'][service]}"
 
     wf.add_node("planner", planner)
     wf.add_node("dispatch", dispatch)
     wf.add_node("reviewer", reviewer, template=True)
-    wf.add_node("synth", synth, terminal=True)  # join="all": waits for every copy
+    wf.add_node("synth", synth, terminal=True)  # template-predecessor rule (not join) waits for every copy
     wf.add_edge("planner", "dispatch")
     wf.add_edge("reviewer", "synth")
     wf.entry("planner")

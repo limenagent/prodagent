@@ -36,7 +36,7 @@ Just two: `Goto` re-arms a node (back-edges, jumps, handoffs), and `Send`
 instantiates a template node at runtime (dynamic fan-out).
 
 **Scheduler**: the single engine that loops over three things — compute
-readiness, run a wave concurrently, fold at the barrier and checkpoint.
+readiness, run a wave concurrently, fold into the ledger at the barrier.
 
 **ready set**: the nodes whose prerequisites are all satisfied and that can run
 immediately in the current wave.
@@ -51,10 +51,18 @@ folded and commands applied there.
 projection folded from the event stream.
 
 **EventLog**: the append-only, sole source of truth for events. Audit, recovery,
-and time travel all work by replaying it.
+and time travel all work by replaying it. There is deliberately no snapshot
+store beside it — the stream alone rebuilds every Run.
 
-**Checkpoint**: a snapshot of a Run taken at a wave boundary for fast recovery;
-it is a disposable cache — the truth still lives in the events.
+**Apply**: the Run's single mutation entry point. The live commit and the
+replay both go through the same `apply`, so the two cannot drift apart by
+discipline; `metrics` counters are an explicitly exempted piece of engine
+telemetry — never recorded as facts, never faked.
+
+**Replay**: the "second reader" that rebuilds a Run from its event stream — it
+runs no nodes and touches no model, it just `apply`s each fact in order.
+Recovery is replay plus feeding the answer back: the log is the only durable
+thing; there is nothing else to load.
 
 **Bus (event bus)**: the kernel's single outward seam with three protocols —
 `fire` to observe/broadcast, `check` to adjudicate, and `subscribe` to consume an

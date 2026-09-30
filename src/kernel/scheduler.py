@@ -16,9 +16,9 @@ Three key properties:
   barrier is naturally a commit point;
 - suspension is "letting go": when a node requests an Interrupt, the wave lets
   the other nodes finish, then parks as a whole (its facts are already durable
-  in the log); on resume only
-  that one node re-runs with the external input fed back; failure keeps the
-  same discipline — the wave settles, then the Run stops;
+  in the log); on resume the parked nodes re-run with the external values fed
+  back; failure keeps the same discipline — the wave settles, then the Run
+  stops;
 - multi-agent adds no new engine: SubPlanBody recursively runs a child Run via
   the activation port — still right here.
 """
@@ -103,7 +103,6 @@ class InProcessActivator:
         spec: Plan,
         task: str,
         parent_run: Run,
-        payload: Any = None,
         node_id: str = "",
         *,
         input: dict | None = None,
@@ -327,7 +326,7 @@ class Scheduler:
                 await self._commit(run, RUN_FAILED, {"reason": f"{reason} (from node {writer!r})"})
                 break
 
-            await self._apply_controls(plan, run, controls)
+            await self._apply_controls(run, controls)
 
             if parked:
                 break  # the suspension facts are already durable in the log
@@ -448,7 +447,7 @@ class Scheduler:
         return upstream
 
     # — control commands: they change "the next wave's ready set" —
-    async def _apply_controls(self, plan: Plan, run: Run, controls: list[tuple[str, Any]]) -> None:
+    async def _apply_controls(self, run: Run, controls: list[tuple[str, Any]]) -> None:
         for _writer, control in controls:
             commands = control if isinstance(control, list) else [control]
             for cmd in commands:

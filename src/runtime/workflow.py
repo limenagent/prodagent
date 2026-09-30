@@ -35,7 +35,6 @@ from src.kernel import (
     NodeBody,
     Outcome,
     Plan,
-    Run,
     Scheduler,
     SubPlanBody,
     last,
@@ -94,13 +93,9 @@ class _FacadeBody:
 
 
 class Workflow:
-    def __init__(
-        self, *, model: Any = None, tools: Any = None, max_waves: int = 64, concurrency: int = 8
-    ):
+    def __init__(self, *, model: Any = None, tools: Any = None):
         self._model = model
         self._tools = tools
-        self.max_waves = max_waves
-        self.concurrency = concurrency
 
         self._nodes: dict[str, tuple[Any, dict]] = {}
         self._edges: list[tuple[str, str, Any]] = []
@@ -212,8 +207,6 @@ class Workflow:
             bus=bus,
             eventlog=eventlog,
             blobs=blobs,
-            max_waves=self.max_waves,
-            concurrency=self.concurrency,
         )
         for body, _ in self._nodes.values():
             if isinstance(body, Agent):
@@ -239,14 +232,13 @@ class Workflow:
         if isinstance(input, dict):
             for k in input:
                 plan.channels.setdefault(k, last(None))
-        run = Run.start(
+        # Born through Scheduler.run — the same public door Agent.run uses; the
+        # engine door resolves identity ports to the ones host() bound.
+        run = await scheduler.run(
             plan,
             task=input if isinstance(input, str) else "",
             input=input if isinstance(input, dict) else None,
-            llm=self._model,
-            tools=self._tools,
         )
-        await scheduler.drive(plan, run)
         return RunResult._from(run)
 
     async def resume(self, run_id: str, value: Any = None) -> RunResult:
