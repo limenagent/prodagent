@@ -28,11 +28,9 @@ from src.kernel.channels import (
 from src.kernel.command import Command, Goto, Send
 from src.kernel.eventlog import (
     DELEGATED,
-    CheckpointStore,
     Event,
     EventLog,
     InMemoryEventLog,
-    InMemoryStore,
     apply_event,
     fold_events,
 )
@@ -54,40 +52,31 @@ __all__ = [
     "AmbiguousWrite",
     "BlobStore",
     "BlockingResult",
-    # bus / port types
     "Bus",
     "Channel",
-    "CheckpointStore",
-    # commands
     "Command",
     "Edge",
-    # events / storage
     "Event",
     "EventLog",
     "FnBody",
     "Goto",
     "InMemoryBlobStore",
     "InMemoryEventLog",
-    "InMemoryStore",
     "InProcessActivator",
     "Interrupt",
     "LLMBody",
     "LlmPort",
     "LlmReply",
     "Node",
-    # body
     "NodeBody",
     "NodeContext",
     "NodeRuntimeState",
     "NodeStatus",
     "Outcome",
-    # graph and state
     "Plan",
     "RetryPolicy",
-    # run
     "Run",
     "RunState",
-    # engine
     "Scheduler",
     "Send",
     "Span",
@@ -102,7 +91,6 @@ __all__ = [
     "add",
     "append",
     "apply_event",
-    # artifacts
     "artifacts_from_events",
     "build_trace",
     "fold_events",

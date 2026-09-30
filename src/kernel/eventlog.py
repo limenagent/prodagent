@@ -5,8 +5,10 @@ Three pieces:
 - Event: an immutable "fact that happened", append-only, never modified;
 - apply_event: a pure function that folds one event into shared state —
   replaying the stream rebuilds state;
-- EventLog / CheckpointStore storage protocols plus in-process defaults; in
-  production swap in Redis/Postgres.
+- EventLog storage protocol plus the in-process default; in production swap in
+  Redis/Postgres. There is deliberately no snapshot store beside it: the
+  stream alone rebuilds every Run (see replay), so a cache would be a second
+  truth, not a speedup the kernel owes anyone.
 
 Why fold state from events instead of storing one latest dict? Because the
 event stream gives you audit (how we got here), time travel (back to any
@@ -86,11 +88,6 @@ class EventLog(Protocol):
         ...
 
 
-class CheckpointStore(Protocol):
-    async def save(self, run_id: str, snapshot: dict) -> None: ...
-    async def load(self, run_id: str) -> dict | None: ...
-
-
 class InMemoryEventLog:
     """In-process event log, the default implementation; its interface is the
     contract a production backend must satisfy."""
@@ -110,18 +107,3 @@ class InMemoryEventLog:
         for stream in self._streams.values():
             out.extend(stream)
         return out
-
-
-class InMemoryStore:
-    """In-process checkpoint store, the default; swapping in a database only
-    touches this layer."""
-
-    def __init__(self) -> None:
-        self._snapshots: dict[str, dict] = {}
-
-    async def save(self, run_id: str, snapshot: dict) -> None:
-        self._snapshots[run_id] = snapshot
-
-    async def load(self, run_id: str) -> dict | None:
-        snap = self._snapshots.get(run_id)
-        return None if snap is None else dict(snap)

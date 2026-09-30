@@ -65,7 +65,7 @@ make play                # browser playground: trace, events, state, files, grap
 Every example is driven by a *scripted* model that plays back from a script —
 fully offline and deterministic, run it as often as you like. Set `OPENAI_API_KEY`
 to swap in any OpenAI-compatible model and nothing else changes. More scenarios
-(plan-first, blackboard, checkpoint/resume, backpressure, memory) live under
+(plan-first, blackboard, log-based resume, backpressure, memory) live under
 `examples/`.
 
 ## The API in 15 lines
@@ -89,7 +89,8 @@ await wf.run("incident")
 Inside a node: `go(target, value)` routes — loops, back-edges, handoffs (no return
 edge = transfer, control never comes back); `send(template, x)` fans out however
 many copies the runtime decides, concurrently in one wave; `wait_human(...)`
-suspends and later resumes from its checkpoint.
+suspends — the question and later the answer are both facts in the log —
+and resumes from them.
 
 ## Go deeper
 

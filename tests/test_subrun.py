@@ -7,7 +7,6 @@ from src.kernel import (
     Node,
     Outcome,
     Plan,
-    Run,
     RunState,
     Scheduler,
     SubPlanBody,
@@ -180,8 +179,8 @@ async def test_run_name_is_blueprint_identity_not_state():
     names = [e.data.get("name") for e in started]
     assert "child-expert" in names and "" in names  # the anonymous parent stays nameless
     assert run.name == ""
-    # Static identity is never run state: it rides the blueprint, not the
-    # snapshot; restore always has the plan at hand.
-    snap = run.snapshot()
-    assert "name" not in snap
-    assert Run.restore(parent, snap).name == ""
+    # Static identity is never run state: it derives from the blueprint, and a
+    # replay of the same stream keeps deriving it (the plan is at hand).
+    from src.kernel import replay
+
+    assert replay(parent, await sch.eventlog.events(run.run_id)).name == ""

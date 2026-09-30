@@ -29,7 +29,6 @@ from src.kernel import (
     Node,
     Outcome,
     Plan,
-    Run,
     append,
 )
 from src.runtime.tools import DelegationSuspendedError, HardToolError
@@ -109,8 +108,16 @@ def build_react_plan(
         # re-arms tools on later rounds (a static edge never re-enters a completed
         # node). state_delta carries the message, Goto moves control.
         if reply.tool_calls:
+            # The messages channel is JSON-native end to end: the call list is
+            # encoded as plain dicts at the source, so one shape travels shared
+            # state, the event log, and the wire. The log is the only durable
+            # thing — a live-object format here would fork the two truths.
+            calls = [
+                {"name": tc.name, "arguments": tc.arguments, "id": tc.call_id}
+                for tc in reply.tool_calls
+            ]
             return Outcome(
-                state_delta={"messages": [{"role": "assistant", "tool_calls": reply.tool_calls}]},
+                state_delta={"messages": [{"role": "assistant", "tool_calls": calls}]},
                 control=Goto("tools"),
             )
         # "content", not a bespoke "text" — the messages channel stays one
@@ -123,7 +130,7 @@ def build_react_plan(
         # settle together, and the results land in the order they were asked.
         calls = _last_assistant(ctx.shared).get("tool_calls", [])
         results = await asyncio.gather(
-            *(ctx.call_tool(call.name, call.arguments) for call in calls),
+            *(ctx.call_tool(c["name"], c.get("arguments") or {}) for c in calls),
             return_exceptions=True,
         )
         # Cancellation is never a "result": it propagates unchanged (the law).
@@ -147,7 +154,7 @@ def build_react_plan(
             # park time and the single resume value cannot route back — that
             # needs a persisted call cursor, out of the teaching kernel.
             # Plain-tool siblings re-run honestly at-least-once, so they pass.
-            delegations = sum(1 for c in calls if tools.is_delegation(c.name))
+            delegations = sum(1 for c in calls if tools.is_delegation(c["name"]))
             if len(suspended) > 1 or delegations > 1:
                 raise HardToolError(
                     "a turn mixing several delegation calls with a suspension "
@@ -160,7 +167,7 @@ def build_react_plan(
                 question=s.question,
             )
         outputs = []
-        for call, result in zip(calls, results, strict=True):
+        for c, result in zip(calls, results, strict=True):
             # A tool failure is fed back as a tool message, not raised into the
             # graph: the model sees it and can correct itself on the next think.
             content = result.output if result.ok else f"[tool error] {result.error}"
@@ -169,8 +176,8 @@ def build_react_plan(
             outputs.append(
                 {
                     "role": "tool",
-                    "name": call.name,
-                    "tool_call_id": call.call_id,
+                    "name": c["name"],
+                    "tool_call_id": c.get("id", ""),
                     "content": content,
                 }
             )
@@ -200,28 +207,3 @@ def build_react_plan(
     plan.edge("think", "final", when=_has_answer)
     plan.entry = ("think",)
     return plan
-
-
-def start_react_run(
-    plan: Plan,
-    task: str,
-    history: list | None = None,
-    parent: Run | None = None,
-    *,
-    llm: Any = None,
-    tools: Any = None,
-) -> Run:
-    """Create a ReAct run with this turn's opening user message, then drive it.
-
-    history holds prior dialogue for multi-turn continuation; omit it for a
-    fresh conversation. parent is the delegating Run when this agent runs as a
-    sub-agent — the child is born through Run.child_of, so the depth ledger
-    needs no caller cooperation. ``llm``/``tools`` bind the run to its Agent
-    identity. The opening state (``opening``) is folded through messages and
-    logged on the first drive, so even the first message is in the event log
-    and survives replay — the host Scheduler holds state, the Agent is pure.
-    """
-    initial = opening(task, history) if task else None
-    if parent is not None:
-        return Run.child_of(parent, plan, task=task, input=initial, llm=llm, tools=tools)
-    return Run.start(plan, task=task, input=initial, llm=llm, tools=tools)

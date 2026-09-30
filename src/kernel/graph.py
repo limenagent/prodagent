@@ -182,21 +182,27 @@ class Plan:
         keys = run.instances.get(source, ())
         return list(keys) if keys else None
 
-    def _predecessor_done(self, run: Any, source: str, *, empty_fanout: bool = False) -> bool:
+    def _predecessor_done(
+        self, run: Any, source: str, *, empty_fanout: bool = False, skipped: Any = ()
+    ) -> bool:
         """A predecessor "completed successfully": a normal node is COMPLETED;
-        a template needs all its instances in a terminal state."""
+        a template needs all its instances in a terminal state. Keys in
+        ``skipped`` count as done — sweep_skipped's not-yet-committed
+        candidates behave exactly as their facts soon will."""
         keys = self._instance_keys(run, source)
         if keys is None:
             return empty_fanout
         done = run.is_completed if not self._nodes[source].template else run.is_terminal
-        return all(done(k) for k in keys)
+        return all(done(k) or k in skipped for k in keys)
 
-    def _predecessor_terminal(self, run: Any, source: str, *, empty_fanout: bool = False) -> bool:
+    def _predecessor_terminal(
+        self, run: Any, source: str, *, empty_fanout: bool = False, skipped: Any = ()
+    ) -> bool:
         """Whether the predecessor reached any terminal state (done/skipped/failed)."""
         keys = self._instance_keys(run, source)
         if keys is None:
             return empty_fanout
-        return all(run.is_terminal(k) for k in keys)
+        return all(run.is_terminal(k) or k in skipped for k in keys)
 
     # — core: who is ready this wave —
     def ready(self, run: Any, *, empty_fanout: bool = False) -> list[str]:
@@ -263,29 +269,37 @@ class Plan:
         return done >= total if join == "all" else True
 
     def sweep_skipped(self, run: Any) -> list[str]:
-        """Dead-branch cleanup: mark pending nodes whose predecessors are all
-        terminal but which have no live edge as skipped. Cascades to a fixed
-        point. Called only when "no node is ready this wave", so it cannot kill
-        a branch that may be activated later (e.g. one driven by a back-edge).
-        Returns the nodes newly skipped, in order, so the scheduler can record
-        each as a fact (a node_skipped event)."""
+        """Dead-branch cleanup: pending nodes whose predecessors are all
+        terminal but which have no live edge. Cascades to a fixed point.
+        Called only when "no node is ready this wave", so it cannot kill a
+        branch that may be activated later (e.g. one driven by a back-edge).
+
+        Pure: returns the keys in order without touching the Run — committing
+        their node_skipped facts (Run.apply) is what marks them, so the engine
+        keeps one mutation throat. Swept-but-uncommitted keys count as
+        terminal for the cascade, exactly as their facts soon will.
+        """
         swept: list[str] = []
+        skipped: set[str] = set()
         changed = True
         while changed:
             changed = False
             for key in self._static_keys():
-                if not run.is_pending(key) or key in self.entry:
+                if key in skipped or not run.is_pending(key) or key in self.entry:
                     continue
                 preds = self._incoming.get(key, ())
                 if not preds:
                     continue
-                all_terminal = all(self._predecessor_terminal(run, e.source) for e in preds)
+                all_terminal = all(
+                    self._predecessor_terminal(run, e.source, skipped=skipped) for e in preds
+                )
                 any_live = any(
-                    self._predecessor_done(run, e.source) and self.edge_live(e, run.shared)
+                    self._predecessor_done(run, e.source, skipped=skipped)
+                    and self.edge_live(e, run.shared)
                     for e in preds
                 )
                 if all_terminal and not any_live:
-                    run.mark_skipped(key)
+                    skipped.add(key)
                     swept.append(key)
                     changed = True
         return swept

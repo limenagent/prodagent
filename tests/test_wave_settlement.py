@@ -20,6 +20,7 @@ from src.kernel.eventlog import (
     INTERRUPTED,
     NODE_COMPLETED,
     NODE_FAILED,
+    RUN_COMPLETED,
     RUN_FAILED,
     STATE_DELTA,
 )
@@ -97,8 +98,8 @@ async def test_failure_wins_over_a_same_wave_park_but_the_ask_is_logged():
     assert kinds.index(INTERRUPTED) < kinds.index(RUN_FAILED)
     parked = next(e for e in events if e.kind == INTERRUPTED).data["parked"]
     assert parked["ask"]["question"] == "approve?"
-    assert (await sch.store.load(run.run_id))["state"] == "failed"
-    with pytest.raises(RuntimeError, match="only a suspended run can resume"):
+    assert kinds[-1] == RUN_FAILED  # the terminal fact closes the stream
+    with pytest.raises(RuntimeError, match="only a suspended or crashed"):
         await sch.resume(plan, run.run_id, "y")  # history, not something to resume
 
 
@@ -133,9 +134,9 @@ async def test_a_goto_payload_survives_a_park():
     assert inputs == ["hand-off brief", "hand-off brief"]
 
 
-async def test_terminal_states_are_durable():
-    """Even the cheap durability mode records the outcome: a Run found in a
-    store is never left claiming RUNNING after it finished."""
+async def test_terminal_states_close_the_stream():
+    """A finished Run's outcome is a fact in the log — the only durable thing.
+    Nothing is left claiming RUNNING after it finished."""
 
     def ok(_x, _ctx):
         return "fine"
@@ -143,11 +144,15 @@ async def test_terminal_states_are_durable():
     async def boom(_x, _ctx):
         raise RuntimeError("boom")
 
-    for body, expect in ((FnBody(ok), "completed"), (FnBody(boom), "failed")):
-        sch = Scheduler(durability="exit")
+    for body, expect, kind in (
+        (FnBody(ok), "completed", RUN_COMPLETED),
+        (FnBody(boom), "failed", RUN_FAILED),
+    ):
+        sch = Scheduler()
         run = await sch.run(Plan().add(Node("n", body, terminal=True)))
         assert str(run.state) == expect
-        assert (await sch.store.load(run.run_id))["state"] == expect
+        events = await sch.eventlog.events(run.run_id)
+        assert events[-1].kind == kind
 
 
 async def test_external_cancellation_propagates_not_fails():

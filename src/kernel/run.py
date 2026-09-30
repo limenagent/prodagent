@@ -14,6 +14,21 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.kernel.channels import Channel
+from src.kernel.eventlog import (
+    CONTROL,
+    INTERRUPTED,
+    NODE_COMPLETED,
+    NODE_FAILED,
+    NODE_SKIPPED,
+    NODE_STARTED,
+    RESUMED,
+    RUN_COMPLETED,
+    RUN_FAILED,
+    RUN_STARTED,
+    STATE_DELTA,
+    Event,
+    apply_event,
+)
 from src.kernel.types import _ALLOWED_TRANSITIONS, NodeStatus, RunState
 
 
@@ -114,8 +129,8 @@ class Run:
     @property
     def name(self) -> str:
         """The blueprint's name — static identity derived from the plan, never
-        run state: it does not change per execution and never enters a
-        snapshot; restore(plan, snap) always has the plan at hand."""
+        run state: it does not change per execution and is not a fact; the
+        plan is always at hand wherever the name is needed."""
         return self.plan.name
 
     # — convenient construction —
@@ -194,9 +209,6 @@ class Run:
         self.resume_values = dict(values or {})
         self.interrupts = {}
         self._transition(RunState.RUNNING)
-
-    def take_resume(self, key: str) -> Any:
-        return self.resume_values.pop(key, None)
 
     @property
     def running(self) -> bool:
@@ -287,89 +299,80 @@ class Run:
         # consumes the previous step's output (passed separately by the scheduler).
         return self.instance_inputs.get(key)
 
-    # — wave barrier: fold this wave's deltas with channel reducers —
-    def fold_writes(self, writes: list[Any], channels: dict[str, Channel]) -> dict[str, Any]:
-        """Fold this wave's deltas into shared state and return the "wave delta"
-        (for the event log to record).
-
-        Two steps, in this order: first aggregate the multiple writes to a
-        channel within the wave from the identity element into one wave delta,
-        then fold that wave delta into historical state. This way an event
-        stores "what this wave added", and replaying the whole stream wave by
-        wave rebuilds the final state without double-counting.
+    # — wave barrier: aggregate this wave's deltas into one fact —
+    def wave_delta(self, writes: list[Any], channels: dict[str, Channel]) -> dict[str, Any]:
+        """Aggregate the wave's writes into the "wave delta" — pure, mutates
+        nothing. Multiple writes to one channel within the wave fold from the
+        channel's identity element first, so the event stores "what this wave
+        added" and replaying wave by wave rebuilds state without
+        double-counting. Folding it into shared state is apply(STATE_DELTA)'s
+        job — the one throat.
         """
-        wave_delta: dict[str, Any] = {}
+        out: dict[str, Any] = {}
         for w in writes:
             channel = channels[w.key]
-            base = wave_delta.get(w.key, channel.empty)
-            wave_delta[w.key] = channel.reducer(base, w.value)
-        for key, delta in wave_delta.items():
-            channel = channels[key]
-            self.shared[key] = channel.reducer(self.shared.get(key, channel.init), delta)
-        return wave_delta
+            base = out.get(w.key, channel.empty)
+            out[w.key] = channel.reducer(base, w.value)
+        return out
 
-    # — snapshot and restore: store only data, not the blueprint or live ports —
-    def snapshot(self) -> dict[str, Any]:
-        # A snapshot is detached history: every mutable container is copied
-        # here (shallow is enough — reducers never mutate channel values in
-        # place), so a run's later writes cannot silently rewrite what a
-        # checkpoint store already holds. restore() copies again on its side
-        # for the same reason: the resumed run must not alias the store's copy.
-        return {
-            "run_id": self.run_id,
-            "parent_id": self.parent_id,
-            "depth": self.depth,
-            "task": self.task,
-            "state": str(self.state),
-            "shared": dict(self.shared),
-            "node_states": {
-                k: {"status": str(v.status), "output": v.output, "attempts": v.attempts}
-                for k, v in self.node_states.items()
-            },
-            "instances": {k: list(v) for k, v in self.instances.items()},
-            "instance_inputs": dict(self.instance_inputs),
-            "deliveries": dict(self.deliveries),
-            "instance_seq": self._instance_seq,
-            "activated": list(self.activated),
-            "interrupts": {k: v.__dict__ for k, v in self.interrupts.items()},
-            "final_output": self.final_output,
-            "metrics": dict(self.metrics),
-            "event_seq": self.event_seq,
-        }
+    # — the single mutation throat —
+    def apply(self, ev: Event) -> None:
+        """Fold one recorded fact into this Run — the ONLY way ledger state
+        (everything scheduling needs: node statuses, shared state, instances,
+        deliveries, suspensions, resume values, the terminal state) ever
+        changes. The live scheduler commits through here and replay replays
+        through here, so the two cannot drift apart by discipline.
 
-    @classmethod
-    def restore(cls, plan: Any, snap: dict[str, Any]) -> Run:
-        run = cls(
-            plan,
-            run_id=snap["run_id"],
-            parent_id=snap.get("parent_id"),
-            depth=snap.get("depth", 0),
-            task=snap.get("task", ""),
-        )
-        run.shared = dict(snap["shared"])
-        run.node_states = {
-            k: NodeRuntimeState(NodeStatus(v["status"]), v.get("output"), v.get("attempts", 0))
-            for k, v in snap["node_states"].items()
-        }
-        # A snapshot belongs to its blueprint: static node ids must match exactly
-        # ("template#3" instance keys are dynamic and exempt), or resume mis-wires.
-        static = {k for k in run.node_states if "#" not in k}
-        if static != set(plan.nodes):
-            raise ValueError(
-                f"checkpoint does not match this Plan: {sorted(static)} vs {sorted(plan.nodes)}"
+        Two honest exemptions, stated as law, not apology: identity is born
+        from the opening fact at construction (unborn has nothing to mutate);
+        ``metrics`` is engine telemetry — never a fact, never rebuilt, never
+        faked. Facts for other projections (DELEGATED, ARTIFACT_WRITTEN,
+        NODE_RETRY) change no ledger state and pass through as no-ops.
+        """
+        if ev.run_id != self.run_id:
+            raise ValueError(f"fact belongs to run {ev.run_id!r}, not {self.run_id!r}")
+        d = ev.data
+        if ev.kind == RUN_STARTED:
+            if self.event_seq != 0:
+                raise ValueError("run_started may only open a fresh stream")
+        elif ev.kind == NODE_STARTED:
+            self.mark_running(d["node"])
+            self.resume_values.pop(d["node"], None)  # the re-run consumes its answer
+        elif ev.kind == NODE_COMPLETED:
+            self.mark_completed(d["node"], d.get("output"))
+            self.deliveries.pop(d["node"], None)  # a Goto input dies at terminal state
+        elif ev.kind == NODE_FAILED:
+            self.mark_failed(d["node"], d.get("error", ""))
+            self.deliveries.pop(d["node"], None)
+        elif ev.kind == NODE_SKIPPED:
+            self.mark_skipped(d["node"])
+        elif ev.kind == STATE_DELTA:
+            apply_event(self.shared, ev, self.plan.channels)
+        elif ev.kind == CONTROL:
+            if d["op"] == "goto":
+                self.rearm(d["target"], immediate=d.get("immediate", True))
+                if d.get("payload") is not None:
+                    self.deliveries[d["target"]] = d["payload"]
+            else:  # "send": instantiate a template copy (full key derives in order)
+                self.add_instance(d["template"], d.get("payload"), d.get("key"))
+        elif ev.kind == INTERRUPTED:
+            self.suspend(
+                {
+                    node: Interrupt(
+                        p.get("kind", "external"),
+                        p.get("payload"),
+                        p.get("question", ""),
+                        node,
+                    )
+                    for node, p in d.get("parked", {}).items()
+                }
             )
-        run.instances = {k: list(v) for k, v in snap.get("instances", {}).items()}
-        run.instance_inputs = dict(snap.get("instance_inputs", {}))
-        run.deliveries = dict(snap.get("deliveries", {}))
-        run._instance_seq = snap.get("instance_seq", 0)
-        run.activated = set(snap.get("activated", ()))
-        run.final_output = snap.get("final_output")
-        run.metrics = dict(snap.get("metrics", run.metrics))
-        run.event_seq = snap.get("event_seq", 0)
-        # Restore lands directly on the saved state, bypassing construction-time RUNNING.
-        run.state = RunState(snap["state"])
-        run.interrupts = {
-            k: Interrupt(d["kind"], d.get("payload"), d.get("question", ""), d.get("node_id", ""))
-            for k, d in snap.get("interrupts", {}).items()
-        }
-        return run
+        elif ev.kind == RESUMED:
+            self.resume(d.get("values") or None)
+            for node in d.get("nodes", []):
+                self.rearm(node, immediate=True)
+        elif ev.kind == RUN_COMPLETED:
+            self.complete(d.get("output"))
+        elif ev.kind == RUN_FAILED:
+            self.fail(d.get("reason", ""))
+        self.event_seq = ev.seq

@@ -199,13 +199,13 @@ async def test_hosting_before_declaration_does_not_freeze_the_graph():
     import asyncio
 
     from src import Workflow
-    from src.kernel import InMemoryStore
+    from src.kernel import InMemoryEventLog
 
     async def one(x, ctx):
         return "ran"
 
     wf = Workflow()
-    wf.host(store=InMemoryStore())
+    wf.host(eventlog=InMemoryEventLog())
     wf.add_node("one", one, terminal=True)
     wf.entry("one")
     r = await asyncio.wait_for(wf.run(), timeout=10)

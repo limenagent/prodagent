@@ -1,46 +1,39 @@
-"""file_store — local-file checkpoints and event log for cross-process resume.
+"""file_store — the local-file EventLog: the .jsonl IS the database.
 
-The kernel only defines the CheckpointStore / EventLog ports and ships in-memory
-defaults. Here is the file-backed version:
-- checkpoints: one .json per run; writes use "temp file + os.replace" atomic
-  replacement, so a crash at any instant never leaves a half-written checkpoint;
-- event log: one .jsonl per run, append-only — a natural audit trail.
-
-Swapping in Redis/Postgres is just writing two more classes that satisfy the
-same protocols; the kernel and recipes don't change a line.
+The kernel defines only the EventLog port and ships an in-memory default; this
+is the file-backed version for cross-process resume. One append-only .jsonl per
+run — a natural audit trail and the single durable thing a resume needs: the
+next process replays it and continues (see kernel.replay). Swapping in
+Redis/Postgres is one more class satisfying the same protocol; the kernel and
+recipes don't change a line.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import pathlib
 
 from src.kernel import Event
 
 
-def _atomic_write_json(path: pathlib.Path, obj) -> None:
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(obj, ensure_ascii=False, default=str), encoding="utf-8")
-    os.replace(tmp, path)  # same-directory rename is atomic on both POSIX and NT
+def _assert_native(value: object, path: str) -> None:
+    """Event payloads must be JSON-native (dict/list/str/number/bool/None).
 
-
-class FileCheckpointStore:
-    def __init__(self, directory: str):
-        self.dir = pathlib.Path(directory)
-        self.dir.mkdir(parents=True, exist_ok=True)
-
-    def _path(self, run_id: str) -> pathlib.Path:
-        return self.dir / f"{run_id}.json"
-
-    async def save(self, run_id: str, snapshot: dict) -> None:
-        _atomic_write_json(self._path(run_id), snapshot)
-
-    async def load(self, run_id: str) -> dict | None:
-        path = self._path(run_id)
-        if not path.exists():
-            return None
-        return json.loads(path.read_text(encoding="utf-8"))
+    The log is the only durable thing; a live object serialized via
+    default=str would silently become a repr string — unreadable on replay.
+    Fail at the boundary, where the fact is made, never at the reader.
+    """
+    if isinstance(value, dict):
+        for k, v in value.items():
+            _assert_native(v, f"{path}.{k}")
+    elif isinstance(value, (list, tuple)):
+        for i, v in enumerate(value):
+            _assert_native(v, f"{path}[{i}]")
+    elif value is not None and not isinstance(value, (str, int, float, bool)):
+        raise TypeError(
+            f"event data must be JSON-native at {path}: got {type(value).__name__}; "
+            "encode live objects at the source (the log is the only truth)"
+        )
 
 
 class FileEventLog:
@@ -52,6 +45,7 @@ class FileEventLog:
         return self.dir / f"{run_id}.jsonl"
 
     async def append(self, event: Event) -> None:
+        _assert_native(event.data, "data")  # loud now, not a silent repr later
         line = json.dumps(
             {
                 "seq": event.seq,

@@ -278,7 +278,15 @@ async def build(lang: str = "en"):
         del msgs[:-NIU_KEEP]  # the whole "strategy": hard truncation
         reply = await niu_llm.chat(msgs, system=t["niu_system"])
         while reply.tool_calls:  # his loop: run it, paste it verbatim, ask again
-            msgs.append({"role": "assistant", "tool_calls": reply.tool_calls})
+            msgs.append(
+                {
+                    "role": "assistant",
+                    "tool_calls": [
+                        {"name": c.name, "arguments": c.arguments, "id": c.call_id}
+                        for c in reply.tool_calls
+                    ],
+                }
+            )
             for call in reply.tool_calls:
                 raw = await search_restaurant(**call.arguments)
                 msgs.append({"role": "tool", "name": call.name, "content": raw})

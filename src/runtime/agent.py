@@ -35,6 +35,7 @@ from src.runtime.tools import (
     HardToolError,
     ToolRegistry,
     ToolSpec,
+    attach_host_bus,
     delegate_to,
 )
 
@@ -46,8 +47,11 @@ _TASK_PARAM = {
 
 
 @dataclass
-class AgentResult:
-    """The result of one agent run; output is the final user-facing answer, the rest aids debugging."""
+class RunResult:
+    """One finished (or parked) drive's result. ``output`` is the final
+    user-facing answer; ``messages`` is the conversation channel (empty for
+    graphs that never open one); the rest aids debugging. One shape for both
+    facades — Agent and Workflow host the same kernel, so they report alike."""
 
     output: Any
     messages: list
@@ -58,7 +62,7 @@ class AgentResult:
     run: Any = None
 
     @classmethod
-    def _from(cls, run: Any) -> AgentResult:
+    def _from(cls, run: Any) -> RunResult:
         return cls(
             output=run.final_output,
             messages=list(run.shared.get("messages", [])),
@@ -79,8 +83,9 @@ async def spawn_agent(ctx: Any, agent: Agent, task: Any, *, history: list | None
     in delegate_to. The opening state is built here from the task (and any
     prior ``history``) by ReAct's ``opening``; the ledger stays the host
     scheduler's."""
+    attach_host_bus(ctx, agent.registry)
     try:
-        return await ctx.spawn(
+        result = await ctx.spawn(
             agent.plan,
             str(task or ""),
             input=opening(str(task or ""), history),
@@ -97,6 +102,13 @@ async def spawn_agent(ctx: Any, agent: Agent, task: Any, *, history: list | None
         # agent-tool paths instead feed the error string back to the model, and
         # it has no recursion guard at that boundary at all.
         raise HardToolError(str(exc)) from exc
+    if result.get("state") == "failed":
+        # One law across the three delegation surfaces: a failed child never
+        # becomes a value the caller would read as output=None. A suspended
+        # child stays raw — callers of the raw form branch on it themselves
+        # (delegate_to lifts it; parallel gathers decide their own policy).
+        raise HardToolError(str(result.get("error") or result.get("output")))
+    return result
 
 
 def _sub_agent_tool(agent: Agent):
@@ -172,14 +184,6 @@ class Agent:
     def registry(self) -> ToolRegistry:
         return self._registry
 
-    def add_tool(self, fn: Any, *, side_effect: str = "read", **kw) -> Agent:
-        """Add one more tool before running; with side_effect="write" it passes an approval gate first."""
-        if isinstance(fn, ToolSpec):
-            self._registry.add(fn)
-        else:
-            self._registry.function(fn, side_effect=side_effect, **kw)
-        return self
-
     def add_sub_agent(self, agent: Agent) -> Agent:
         """Register a sub-agent as a delegation tool (call semantics). Use this to
         wire agents that reference each other — a constructor cannot pass a cycle."""
@@ -225,16 +229,16 @@ class Agent:
         return scheduler
 
     # ---- main outward entry points ----
-    async def run(self, task: str, *, history: list | None = None) -> AgentResult:
+    async def run(self, task: str, *, history: list | None = None) -> RunResult:
         """Run one turn; pass history to continue a prior conversation (caller holds multi-turn state)."""
         scheduler = self.host()
         run = await scheduler.run(self._plan, task=task, input=opening(task, history))
-        return AgentResult._from(run)
+        return RunResult._from(run)
 
-    async def resume(self, run_id: str, value: Any = None) -> AgentResult:
+    async def resume(self, run_id: str, value: Any = None) -> RunResult:
         """Resume from a suspension (e.g. awaiting approval); value is the external reply."""
         scheduler = self._runtime or self.host()
         run = await scheduler.resume(
             self._plan, run_id, value, llm=self.model, tools=self._registry
         )
-        return AgentResult._from(run)
+        return RunResult._from(run)

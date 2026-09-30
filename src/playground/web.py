@@ -479,7 +479,7 @@ let spanById={};
 let liveText={};           /* "run:node:epoch" -> streaming block; a node re-armed for a new ReAct round opens a new block at the end, so text never jumps above the tool cards born between rounds */
 let pendingTools={};       /* run_id -> [tool card elements awaiting a result] */
 let gseq=0, kindFilter="all", runFilter=null, graphRun=null, stateRun=null, streamEpoch={}, spanFocus=null, tabFocus=null;
-let lastQuestion="", lastDelta=null, artifacts=[], statusWas="";
+let lastQuestion="", artifacts=[], statusWas="";
 
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const $=id=>document.getElementById(id);
@@ -491,7 +491,6 @@ const svg=(p,s=15)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="n
 const G={
   send:'<path d="M12 19V5M6 11l6-6 6 6"/>',
   file:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
-  dl:'<path d="M12 3v12M7 11l5 5 5-5"/><path d="M5 21h14"/>',
   spark:'<path d="M12 3l1.9 5.7L20 10l-5 3.6L16.4 20 12 16.6 7.6 20 9 13.6 4 10l6.1-1.3z"/>',
   branch:'<circle cx="6" cy="5" r="2.4"/><circle cx="6" cy="19" r="2.4"/><circle cx="18" cy="12" r="2.4"/><path d="M6 7.4v9.2M8.4 5.7c4 .8 5.4 2.7 7.2 5.1M8.4 18.3c4-.8 5.4-2.7 7.2-5.1"/>',
 };
@@ -595,7 +594,7 @@ async function loadScenes(){
 }
 function resetViews(){
   EV=[];runs={};spans=[];spanById={};liveText={};pendingTools={};
-  gseq=0;runFilter=null;graphRun=null;lastDelta=null;artifacts=[];statusWas="";
+  gseq=0;runFilter=null;graphRun=null;artifacts=[];statusWas="";
   $("transcript").innerHTML=`<div class="empty">${svg('<circle cx="12" cy="12" r="8"/><path d="M12 8v4M12 16h.01"/>',22)}<br/>${t("empty")}</div>`;
   renderWaterfall();renderLedger();renderState();renderFiles();renderGraph();
 }
@@ -804,16 +803,13 @@ function renderEvent(ev){
     case "run_started":{
       const parent=ev.parent;
       runs[ev.run_id]={name:d.name||"",parent,depth:parent&&runs[parent]?runs[parent].depth+1:0};
-      addTurn(ev.run_id);
       /* patch any delegation card still holding the short id */
       document.querySelectorAll(`.tc.deleg[data-child="${ev.run_id}"] .bd`).forEach(b=>{
         b.innerHTML=`→ ${esc(d.name||short(ev.run_id))} <span style="color:var(--ink-4)">${short(ev.run_id)}</span>`;});
       break;}
-    case "state_delta":{
-      const delta=d.delta||{};
-      messageFacts(ev.run_id,delta);
-      lastDelta=delta;
-      break;}
+    case "state_delta":
+      messageFacts(ev.run_id,d.delta||{});
+      break;
     case "artifact_written": addFile(ev.run_id,d);break;
     case "delegated": addDeleg(ev.run_id,d.child_run_id);break;
     case "node_failed": addSys(`${t("failedAt")} ${d.node||""} — ${d.error||""}`,true);break;
@@ -932,7 +928,6 @@ function renderLedger(){
       if(!runFilter){
         const info=runs[ev.run_id]||{};
         const h=el("div","ev run-head");
-        h.style.setProperty("--d",info.depth||0);
         h.innerHTML=`<span class="seq"></span><span class="dot"></span>`+
           `<span class="tx"><span class="b">${esc(info.name||"run")} · ${short(ev.run_id)}</span></span>`;
         h.style.paddingLeft=(8+(info.depth||0)*14)+"px";
@@ -1030,11 +1025,6 @@ function stateValueHtml(v,chat,full){
   }).join("");
   return (more?`<div class="m-more">\u2026 ${more} ${esc(t("earlier"))}</div>`:"")+rows;
 }
-function lastDeltaOf(rid){
-  let out=null;
-  for(const ev of EV){if(ev.kind==="state_delta"&&ev.run_id===rid)out=(ev.data||{}).delta||null;}
-  return out;
-}
 function showDelta(delta,quiet){
   const box=$("stateview");
   let top=box.querySelector(".st-delta");
@@ -1130,7 +1120,6 @@ function renderGraph(){
   names.forEach(n=>{if(level[n]===undefined)level[n]=0;});
   const byLvl={};names.forEach(n=>{(byLvl[level[n]]=byLvl[level[n]]||[]).push(n);});
   const NW=118,NH=34,GG=26,VL=64;
-  const W=Math.max(...Object.entries(byLvl).map(([l,ns])=>0))+1;
   const cols=Math.max(...Object.values(byLvl).map(a=>a.length));
   const width=Math.max(NW*cols+GG*(cols-1),200),height=Object.keys(byLvl).length*(NH+VL)+14;
   const pos={};
@@ -1275,8 +1264,6 @@ async function poll(){
   fresh.forEach(ev=>{
     since++;EV.push(ev);
     if(ev.kind==="llm_delta")feedStream(ev.data);
-    else if(ev.kind==="state_delta"&&ev.data?.question)lastQuestion=ev.data.question;
-    else if(ev.kind==="interrupted"&&ev.data?.question)lastQuestion=ev.data.question;
     else renderEvent(ev);
   });
   if(d.question)lastQuestion=d.question;

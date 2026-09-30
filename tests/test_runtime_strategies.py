@@ -1,6 +1,6 @@
-"""Strategy-layer tests: memory, skills, MCP normalization, backpressure, file-level checkpoint resume."""
+"""Strategy-layer tests: memory, skills, MCP normalization, backpressure, file-log resume."""
 
-from src.backends.file_store import FileCheckpointStore
+from src.backends.file_store import FileEventLog
 from src.kernel import (
     Bus,
     FnBody,
@@ -63,7 +63,8 @@ async def test_bus_backpressure_drop():
 
 
 async def test_file_store_resume_across_schedulers(tmp_path):
-    # simulates a process restart: two Scheduler instances share the same file directory, and can continue after suspending.
+    # simulates a process restart: two Scheduler instances share one .jsonl
+    # event log — the only durable thing — and continue after suspending.
     def build():
         p = Plan()
 
@@ -75,12 +76,12 @@ async def test_file_store_resume_across_schedulers(tmp_path):
         p.add(Node("approve", FnBody(approve), terminal=True))
         return p
 
-    store = FileCheckpointStore(str(tmp_path))
-    sch1 = Scheduler(store=store)
+    log = FileEventLog(str(tmp_path))
+    sch1 = Scheduler(eventlog=log)
     run = await sch1.run(build())
     assert str(run.state) == "suspended"
 
-    sch2 = Scheduler(store=store)
+    sch2 = Scheduler(eventlog=log)
     run2 = await sch2.resume(build(), run.run_id, {"ok": True})
     assert str(run2.state) == "completed"
     assert run2.final_output == {"ok": True}

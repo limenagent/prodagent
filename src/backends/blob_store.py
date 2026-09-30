@@ -26,7 +26,14 @@ class LocalBlobStore:
         self.root.mkdir(parents=True, exist_ok=True)
 
     def _path(self, uri: str) -> pathlib.Path:
-        return self.root / uri
+        # Clamp to the store root: a caller-supplied uri (an absolute path, or
+        # one carrying "..") can never address outside it — load and delete
+        # take uris straight off the wire in the playground, so this is a
+        # security boundary, not tidiness.
+        pure = pathlib.PurePosixPath(uri)
+        if pure.is_absolute() or ".." in pure.parts:
+            raise ValueError(f"invalid artifact uri: {uri!r}")
+        return self.root.joinpath(*pure.parts)
 
     async def save(self, run_id: str, filename: str, data, mime: str = "") -> dict:
         filename = os.path.basename(filename)  # confine writes to the run directory

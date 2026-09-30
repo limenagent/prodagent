@@ -12,6 +12,8 @@ Two layers are tested, each at its own level:
 import asyncio
 import contextlib
 
+from conftest import start_react_run
+
 from src.kernel import (
     FnBody,
     Node,
@@ -24,7 +26,7 @@ from src.kernel import (
     ToolCall,
 )
 from src.runtime.llm import ScriptedLlm
-from src.runtime.react import build_react_plan, start_react_run
+from src.runtime.react import build_react_plan
 from src.runtime.tools import (
     DelegationSuspendedError,
     HardToolError,
@@ -49,7 +51,7 @@ def _parking_child():
 # ════════════ Kernel: child Plan as a graph node (SubPlanBody) ════════════
 
 
-async def test_cancelled_parent_resumes_from_snapshot():
+async def test_cancelled_parent_resumes_from_the_log():
     # sync snapshots land at wave ends, so the interrupted wave's nodes are
     # PENDING in the last snapshot: restore + drive simply re-runs that wave
     gate = asyncio.Event()
@@ -73,14 +75,13 @@ async def test_cancelled_parent_resumes_from_snapshot():
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await task
-    snap = await sch.store.load(run.run_id)
-    assert snap is not None  # wave 1 ("a") was checkpointed before the cancel
+    events = await sch.eventlog.events(run.run_id)
+    assert any(e.kind == "node_completed" for e in events)  # wave 1 ("a") settled before the cancel
     gate.set()
-    run2 = Run.restore(plan, snap)
-    await sch.drive(plan, run2)
+    run2 = await sch.resume(plan, run.run_id)  # replay + crash-continue, one verb
     assert run2.state == RunState.COMPLETED
     assert run2.final_output == "done"
-    # falsifiable: "a" must NOT have re-run after the restore (attempts stays 1)
+    # falsifiable: "a" must NOT have re-run after the resume (attempts stays 1)
     assert run2.state_of("a").attempts == 1
 
 
@@ -100,8 +101,9 @@ async def test_child_suspension_parks_parent_with_delegation_fact():
     # the delegation fact is on the parent's stream, attributed to the node
     assert facts and facts[0].data["node"] == "delegate"
     assert facts[0].data["child_run_id"] == child_run_id
-    # the parked child has its own snapshot: it can be resumed on its own
-    assert await sch.store.load(child_run_id) is not None
+    # the parked child has its own stream of facts: it can be resumed on its own
+    child_events = await sch.eventlog.events(child_run_id)
+    assert child_events and child_events[-1].kind == "interrupted"
 
 
 async def test_two_step_resume_completes_the_chain_without_respawn():

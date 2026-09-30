@@ -56,23 +56,6 @@ class Span:
         return max(0, round((self.end_ts - self.start_ts) * 1000))
 
 
-def span_to_dict(span: Span) -> dict[str, Any]:
-    """JSON-safe view for the web UI (events stay in the Events tab; the trace
-    carries identity, status, timing and the spawned children). ``start_ts``/
-    ``end_ts`` are the same monotonic clock the Event stream stamps, so a
-    client can lay the Run tree out as a time-axis waterfall by subtraction."""
-    return {
-        "run_id": span.run_id,
-        "name": span.name,
-        "task": span.task,
-        "status": span.status,
-        "duration_ms": span.duration_ms,
-        "start_ts": span.start_ts,
-        "end_ts": span.end_ts,
-        "children": [span_to_dict(c) for c in span.children],
-    }
-
-
 def build_trace(events: list[Any]) -> list[Span]:
     """Group a flat (possibly multi-Run) event list into a tree of Spans.
 

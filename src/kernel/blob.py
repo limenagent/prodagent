@@ -12,8 +12,7 @@ event stream:
 Three pieces:
 - BlobStore: the port — save assigns the next version and uri, load fetches;
 - InMemoryBlobStore: the zero-side-effect default (same spirit as the in-memory
-  event log and checkpoint store); a durable local-directory implementation
-  lives in backends;
+  event log); a durable local-directory implementation lives in backends;
 - artifacts_from_events / latest_artifacts: pure projections over the stream.
 
 Versioning is the store's job (it is what actually holds the bytes): each save

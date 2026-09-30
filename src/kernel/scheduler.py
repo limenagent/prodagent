@@ -7,7 +7,7 @@ complexity:
     while running:
         ready   = plan.ready(run)           # 1) along edges, who is ready this wave
         results = run ready concurrently    # 2) wave concurrency (bounded), no direct shared-state mutation
-        barrier: fold deltas / apply commands / checkpoint  # 3) commit together at wave end
+        barrier: fold deltas / apply commands  # 3) commit together at wave end (facts already durable)
 
 Three key properties:
 - the wave is a consistency boundary: while running, nodes only produce
@@ -15,7 +15,8 @@ Three key properties:
   reducers at the barrier, so concurrent results are deterministic and the
   barrier is naturally a commit point;
 - suspension is "letting go": when a node requests an Interrupt, the wave lets
-  the other nodes finish, then persists and pauses as a whole; on resume only
+  the other nodes finish, then parks as a whole (its facts are already durable
+  in the log); on resume only
   that one node re-runs with the external input fed back; failure keeps the
   same discipline — the wave settles, then the Run stops;
 - multi-agent adds no new engine: SubPlanBody recursively runs a child Run via
@@ -49,9 +50,9 @@ from src.kernel.eventlog import (
     STATE_DELTA,
     Event,
     InMemoryEventLog,
-    InMemoryStore,
 )
 from src.kernel.graph import Plan
+from src.kernel.replay import replay
 from src.kernel.run import Run
 from src.kernel.types import NodeStatus, RunState
 
@@ -116,7 +117,7 @@ class InProcessActivator:
         child = Run.child_of(parent_run, spec, task=task, input=input, llm=llm, tools=tools)
         # the delegation fact, on the parent's log: after a crash the child's
         # run_id lives here, so the child can be re-attached instead of orphaned
-        await self.scheduler._emit(
+        await self.scheduler._commit(
             parent_run, DELEGATED, {"node": node_id, "child_run_id": child.run_id}
         )
         await self.scheduler.drive(spec, child)
@@ -147,26 +148,19 @@ class Scheduler:
         tools: Any = None,
         bus: Bus | None = None,
         eventlog: Any = None,
-        store: Any = None,
         blobs: Any = None,
         max_waves: int = 64,
         concurrency: int = 8,
-        durability: str = "sync",
     ):
-        if durability not in ("sync", "exit"):
-            raise ValueError("durability must be 'sync' or 'exit'")
         self.llm = llm
         self.tools = tools
         self.bus = bus or Bus()
         self.eventlog = eventlog or InMemoryEventLog()
-        self.store = store or InMemoryStore()
         # Artifact bytes; in-memory by default (zero side effect), swap in a
         # local-directory store from backends for durable files.
         self.blobs = blobs if blobs is not None else InMemoryBlobStore()
         self.max_waves = max_waves
         self.concurrency = concurrency  # per-Run cap on nodes running at once
-        # sync: checkpoint after every wave; exit: only when suspended or finished.
-        self.durability = durability
         self.subagent = InProcessActivator(self)
 
     # — main public entry —
@@ -180,25 +174,40 @@ class Scheduler:
     async def resume(
         self, plan: Plan, run_id: str, value: Any = None, *, llm: Any = None, tools: Any = None
     ) -> Run:
-        """Resume from a checkpoint: feed back one value per parked node, then
-        re-run just those nodes and continue.
+        """Resume an unfinished run from its recorded facts: rebuild the Run by
+        replaying its event stream, feed back one value per parked node, then
+        re-drive. The log is the only durable thing — there is no snapshot to
+        load; resume is a pure function of (events, value).
 
         ``value`` is normally the bare payload for the one parked node. If
         several nodes parked in the same wave, pass a ``{node_id: value}``
         dict whose keys exactly match the parked set. ``llm``/``tools`` rebind
-        the restored Run to its Agent identity (ports are wiring, not snapshotted).
+        the restored Run to its Agent identity (ports are wiring, never logged).
+
+        A run that crashed mid-wave also lands here: its replayed state is
+        RUNNING with in-flight nodes, which are re-armed and re-driven —
+        at-least-once, so a side effect may re-execute (the ToolCall contract
+        says the same). Finished runs refuse: their facts are history.
         """
-        snap = await self.store.load(run_id)
-        if snap is None:
-            raise KeyError(f"no checkpoint for {run_id}; cannot resume")
-        run = Run.restore(plan, snap)
+        run = replay(plan, await self.eventlog.events(run_id))
         # Re-attach explicit identity (the Agent's own model/registry); an
         # unbound Run inherits the host ports when drive begins — one rule.
         run.llm = llm
         run.tools = tools
-        if run.state != RunState.SUSPENDED:
+        if run.state not in (RunState.SUSPENDED, RunState.RUNNING):
             # fail-wins waves leave parked facts on a finished Run — history, not to resume
-            raise RuntimeError(f"run {run_id} is {run.state}; only a suspended run can resume")
+            raise RuntimeError(
+                f"run {run_id} is {run.state}; only a suspended or crashed (running) run can resume"
+            )
+        if run.state == RunState.RUNNING:
+            # crash continue: re-arm what was in flight — a derived recovery
+            # adaptation (their node_started facts already say "was running"),
+            # not a new fact, so it stays scheduler-side.
+            for key, st in run.node_states.items():
+                if st.status == NodeStatus.RUNNING:
+                    run.rearm(key, immediate=True)  # faithful: it was in flight
+            await self.drive(plan, run)
+            return run
         parked = list(run.interrupts)
         # A dict is only a {node_id: value} mapping if its keys are exactly the
         # parked set; otherwise (including a single parked node whose own
@@ -209,10 +218,9 @@ class Scheduler:
             values = {parked[0]: value}
         else:
             raise KeyError(f"resume value(s) must cover every parked node: {parked}")
-        run.resume(values)
-        for node_id in parked:
-            run.rearm(node_id, immediate=True)
-        await self._emit(run, RESUMED, {"nodes": parked})
+        # the answer is a fact like the question: apply(RESUMED) resumes with
+        # the values and re-arms every parked node — one fact, whole transition
+        await self._commit(run, RESUMED, {"nodes": parked, "values": values})
         await self.drive(plan, run)
         return run
 
@@ -229,31 +237,43 @@ class Scheduler:
             run.tools = self.tools
         # one pool per Run: a delegation chain never waits on its own slots
         sem = asyncio.Semaphore(self.concurrency)
-        if run.metrics["waves"] == 0 and run.state == RunState.RUNNING:
-            await self._emit(run, RUN_STARTED, {"task": run.task, "name": run.name})
-            if run.seed:  # fold initial input through the same reducers and log it as a fact
+        if run.event_seq == 0 and run.state == RunState.RUNNING:
+            # A ledger fact decides ledger facts: event_seq == 0 means this
+            # stream has not opened yet (a replayed run never re-opens — and
+            # apply would refuse a second opening besides). depth rides the
+            # fact so a cross-process resume keeps the tree guard.
+            await self._commit(
+                run, RUN_STARTED, {"task": run.task, "name": run.name, "depth": run.depth}
+            )
+            if run.seed:  # the opening state update becomes one fact like any other
                 seed_writes = WaveWrites(plan.channels)
                 for key, value in run.seed.items():
                     seed_writes.buffer(key, value, "<seed>")
-                folded = run.fold_writes(seed_writes.drain(), plan.channels)
+                delta = run.wave_delta(seed_writes.drain(), plan.channels)
                 run.seed = {}
-                if folded:
-                    await self._emit(run, STATE_DELTA, {"delta": folded})
+                if delta:
+                    await self._commit(run, STATE_DELTA, {"delta": delta})
 
         while run.running:
             ready, swept = self._next_ready(plan, run)
-            for key in swept:  # record each structurally-skipped branch as a fact
-                await self._emit(run, NODE_SKIPPED, {"node": key})
+            for key in swept:  # each structurally-skipped branch is a fact
+                await self._commit(run, NODE_SKIPPED, {"node": key})
             if not ready:
+                if swept:
+                    continue  # a fresh skip can free a join — recompute before settling
                 await self._settle(plan, run)
                 break
 
             run.metrics["waves"] += 1
             if run.metrics["waves"] > self.max_waves:
-                run.fail(
-                    f"exceeded max waves {self.max_waves}; suspected spin (check that a back-edge makes progress)"
+                await self._commit(
+                    run,
+                    RUN_FAILED,
+                    {
+                        "reason": f"exceeded max waves {self.max_waves}; suspected spin "
+                        "(check that a back-edge makes progress)"
+                    },
                 )
-                await self._emit(run, RUN_FAILED, {"reason": run.final_output})
                 break
 
             # 2) Wave concurrency: nodes share no mutable state, each yields an Outcome.
@@ -261,6 +281,8 @@ class Scheduler:
 
             # 3) Barrier: handle results together. Failure is fail-fast: it stops
             # the Run, not the settlement — every started node still settles.
+            # Each settled node becomes exactly one fact; apply is what marks
+            # it (and consumes its Goto input at terminal states).
             parked: dict[str, Any] = {}
             controls: list[tuple[str, Any]] = []
             writes = WaveWrites(plan.channels)
@@ -271,34 +293,29 @@ class Scheduler:
                     # str form, not repr: a delegation cascade embeds this text
                     # again at each level, and repr would re-escape the quotes
                     err = f"{type(error).__name__}: {error}"
-                    run.mark_failed(key, err)
-                    await self._emit(run, NODE_FAILED, {"node": key, "error": err})
+                    await self._commit(run, NODE_FAILED, {"node": key, "error": err})
                     failed = failed or (key, err)
                 elif outcome.suspend is not None:
                     parked[key] = dataclasses.replace(outcome.suspend, node_id=key)
                     continue  # a park keeps its Goto input for the re-run
                 else:
-                    run.mark_completed(key, outcome.value)
                     for k, v in outcome.state_delta.items():
                         writes.buffer(k, v, key)
                     if outcome.control is not None:
                         controls.append((key, outcome.control))
-                    await self._emit(run, NODE_COMPLETED, {"node": key, "output": outcome.value})
-                run.deliveries.pop(key, None)  # a terminal state consumes its Goto input
+                    await self._commit(run, NODE_COMPLETED, {"node": key, "output": outcome.value})
 
             if failed is None:
                 writes.check_ambiguous()  # an already-failing wave still folds what succeeded
-            folded = run.fold_writes(writes.drain(), plan.channels)
-            if folded:
-                await self._emit(run, STATE_DELTA, {"delta": folded})
+            delta = run.wave_delta(writes.drain(), plan.channels)
+            if delta:
+                await self._commit(run, STATE_DELTA, {"delta": delta})
 
             if parked:  # the ask is a fact whether the run then parks or fails
-                run.suspend(parked)
-                await self._emit(run, INTERRUPTED, _parked_facts(parked))
+                await self._commit(run, INTERRUPTED, _parked_facts(parked))
 
             if failed is not None:
-                run.fail(failed[1])
-                await self._emit(run, RUN_FAILED, {"node": failed[0], "reason": failed[1]})
+                await self._commit(run, RUN_FAILED, {"node": failed[0], "reason": failed[1]})
                 break
 
             invalid = _invalid_control(plan, controls)
@@ -307,45 +324,37 @@ class Scheduler:
                 # A run-level failure: the writer node itself completed, it only
                 # emitted an illegal command, so the event carries no failed node
                 # (unlike a node that raised, which is marked failed).
-                run.fail(f"{reason} (from node {writer!r})")
-                await self._emit(run, RUN_FAILED, {"reason": run.final_output})
+                await self._commit(run, RUN_FAILED, {"reason": f"{reason} (from node {writer!r})"})
                 break
 
             await self._apply_controls(plan, run, controls)
 
             if parked:
-                await self._checkpoint(run)  # a suspended run must always be durable
-                break
-
-            if self.durability == "sync":
-                await self._checkpoint(run)
-
-        if run.state in (RunState.COMPLETED, RunState.FAILED):
-            await self._checkpoint(run)  # the terminal fact is always durable
+                break  # the suspension facts are already durable in the log
 
     def _next_ready(self, plan: Plan, run: Run) -> tuple[list[str], list[str]]:
-        """Who can run now, plus any nodes newly swept as dead branches. If
-        nobody is ready, first sweep untaken conditional edges (the sweep
-        cascades), recompute, then finally let an empty fan-out converge."""
+        """Who can run now, plus any nodes newly swept as dead branches. The
+        sweep is pure: its marks land only when the caller commits the
+        node_skipped facts, so a skip that frees a join shows up on the next
+        loop turn, not this one. An empty fan-out converges last."""
         # Deliberately simple: recompute readiness from scratch each wave —
         # O(nodes x preds), up to 3x on the stall path — clarity wins at scale 0.
         ready = plan.ready(run)
         if ready:
             return ready, []
         swept = plan.sweep_skipped(run)
-        ready = plan.ready(run)
-        return (ready or plan.ready(run, empty_fanout=True)), swept
+        return plan.ready(run, empty_fanout=True), swept
 
     # — executing a single node —
     async def _run_node(
         self, plan: Plan, run: Run, key: str, sem: asyncio.Semaphore
     ) -> tuple[str, Outcome | None, BaseException | None]:
-        run.mark_running(key)
-        await self._emit(run, NODE_STARTED, {"node": key})
+        resume_value = run.resume_values.get(key)  # peek before the fact consumes it
+        await self._commit(run, NODE_STARTED, {"node": key})  # apply marks + consumes
 
         async def record(kind: str, data: dict | None = None) -> None:
             # Record a durable fact on this run's log (used for artifact pointers).
-            await self._emit(run, kind, data)
+            await self._commit(run, kind, data)
 
         ctx = NodeContext(
             run,
@@ -356,7 +365,7 @@ class Scheduler:
             bus=self.bus,
             blobs=self.blobs,
             record=record,
-            resume_value=run.take_resume(key),
+            resume_value=resume_value,
         )
         try:
             async with sem:  # this Run's wave concurrency cap
@@ -398,7 +407,7 @@ class Scheduler:
                 if not can_retry:
                     raise
                 backoff = policy.delay_for(attempt)
-                await self._emit(
+                await self._commit(
                     run,
                     NODE_RETRY,
                     {"node": key, "attempt": attempt + 1, "error": repr(exc), "backoff": backoff},
@@ -446,14 +455,8 @@ class Scheduler:
                 if isinstance(cmd, Goto):
                     # immediate: re-arm + release now (back-edge/jump/handover);
                     # otherwise only re-arm — readiness is still decided by
-                    # incoming edges and join (an iterative convergence point
-                    # waits for preds).
-                    run.rearm(cmd.target, immediate=cmd.immediate)
-                    if cmd.payload is not None:
-                        run.deliveries[cmd.target] = (
-                            cmd.payload
-                        )  # transition input, symmetric with Send
-                    await self._emit(
+                    # incoming edges and join. The fact says it; apply does it.
+                    await self._commit(
                         run,
                         CONTROL,
                         {
@@ -464,8 +467,7 @@ class Scheduler:
                         },
                     )
                 elif isinstance(cmd, Send):
-                    run.add_instance(cmd.template, cmd.payload, cmd.key)
-                    await self._emit(
+                    await self._commit(
                         run,
                         CONTROL,
                         {
@@ -483,8 +485,7 @@ class Scheduler:
         # The terminal fact goes into the event stream too: a replay must be
         # able to tell that — and how — the run ended, not just how it went.
         if plan.is_done(run):
-            run.complete(self._final_output(plan, run))
-            await self._emit(run, RUN_COMPLETED, {"output": run.final_output})
+            await self._commit(run, RUN_COMPLETED, {"output": self._final_output(plan, run)})
         else:
             pending = [
                 k
@@ -492,10 +493,14 @@ class Scheduler:
                 if s.status == NodeStatus.PENDING
                 and not (k in plan.nodes and plan.nodes[k].template)
             ]
-            run.fail(
-                f"graph stalled: no ready node but unfinished nodes remain {pending} (an edge is likely mis-wired)"
+            await self._commit(
+                run,
+                RUN_FAILED,
+                {
+                    "reason": f"graph stalled: no ready node but unfinished nodes remain "
+                    f"{pending} (an edge is likely mis-wired)"
+                },
             )
-            await self._emit(run, RUN_FAILED, {"reason": run.final_output})
 
     def _final_output(self, plan: Plan, run: Run) -> Any:
         # Take only convergence nodes that actually completed; branches
@@ -506,12 +511,16 @@ class Scheduler:
             return next(iter(values.values()))
         return values
 
-    # — events and checkpoints —
-    async def _emit(self, run: Run, kind: str, data: dict | None = None) -> None:
-        run.event_seq += 1
-        event = Event(run.event_seq, run.run_id, kind, data or {}, parent_id=run.parent_id)
-        await self.eventlog.append(event)
-        await self.bus.fire(kind, evt=event)
+    # — commit: the only way facts are born —
+    async def _commit(self, run: Run, kind: str, data: dict | None = None) -> None:
+        """Append one fact durably, then apply it, then announce it.
 
-    async def _checkpoint(self, run: Run) -> None:
-        await self.store.save(run.run_id, run.snapshot())
+        The log precedes its projection, and Run.apply is the single mutation
+        path — the replay side runs the very same apply, so a live Run and its
+        replay cannot diverge by discipline. A rejected apply (e.g. a second
+        run_started) fails loudly right where the fact is made.
+        """
+        ev = Event(run.event_seq + 1, run.run_id, kind, data or {}, parent_id=run.parent_id)
+        await self.eventlog.append(ev)
+        run.apply(ev)
+        await self.bus.fire(kind, evt=ev)

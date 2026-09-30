@@ -22,9 +22,25 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from src import Agent
-from src.kernel.trace import build_trace, span_to_dict
+from src.kernel.trace import Span, build_trace
 from src.playground.scenarios import SCENARIOS, get_scenario
 from src.playground.web import PAGE
+
+
+def span_to_dict(span: Span) -> dict:
+    """A UI projection of one Span (identity, status, timing, children) — the
+    client lays the Run tree out as a time-axis waterfall by ts subtraction."""
+    return {
+        "run_id": span.run_id,
+        "name": span.name,
+        "task": span.task,
+        "status": span.status,
+        "duration_ms": span.duration_ms,
+        "start_ts": span.start_ts,
+        "end_ts": span.end_ts,
+        "children": [span_to_dict(c) for c in span.children],
+    }
+
 
 # —— the background event loop (every agent runs on this one loop) ——
 _LOOP: asyncio.AbstractEventLoop | None = None
@@ -200,7 +216,8 @@ async def _events(sid: str, since: int):
     else:
         for ev in reversed(sess["events"]):
             if ev["kind"] == "interrupted":
-                question = ev["data"].get("question", "")
+                parked = ev["data"].get("parked", {})
+                question = next(iter(parked.values()), {}).get("question", "")
                 break
     return {
         "events": sess["events"][since:],

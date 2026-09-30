@@ -57,12 +57,6 @@ class Outcome:
         return cls(control=Send(template, payload, key))
 
     @classmethod
-    def fan_out(cls, *sends: Send, **delta: Any) -> Outcome:
-        """Dynamically fan out to several instances at once; delta may also
-        write shared state (e.g. the step list)."""
-        return cls(state_delta=dict(delta), control=list(sends))
-
-    @classmethod
     def park(cls, kind: str, payload: Any = None, question: str = "") -> Outcome:
         return cls(suspend=Interrupt(kind, payload, question))
 
@@ -109,7 +103,7 @@ class NodeContext:
     Note this is wiring, not data: it holds live objects like the model port
     and tool port, so it is never serialized. A run's data travels via
     input / state_delta and is never smuggled into context — that boundary keeps
-    checkpoints clean.
+    the event stream clean.
     """
 
     def __init__(
@@ -146,6 +140,12 @@ class NodeContext:
     @property
     def run_id(self) -> str:
         return self.run.run_id
+
+    @property
+    def bus(self):
+        """The host scheduler's bus (read-only wiring). Runtime helpers use it
+        to bind a spawned registry's approval gate onto the host bus."""
+        return self._bus
 
     async def emit(self, event: str, **data: Any) -> None:
         if self._bus is not None:

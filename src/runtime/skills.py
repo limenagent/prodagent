@@ -13,6 +13,7 @@ package selected on demand. Like memory and context, it stays out of the kernel:
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 
@@ -85,8 +86,6 @@ class SkillRegistry:
 
     def load_dir(self, root: str) -> list[Skill]:
         """Load every subdirectory under root that contains SKILL.md; root itself may be one skill."""
-        import os
-
         loaded: list[Skill] = []
         direct = os.path.join(root, "SKILL.md")
         candidates = []

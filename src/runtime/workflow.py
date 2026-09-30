@@ -27,7 +27,6 @@ only makes declaration more ergonomic.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any
 
 from src.kernel import (
@@ -41,7 +40,7 @@ from src.kernel import (
     SubPlanBody,
     last,
 )
-from src.runtime.agent import Agent
+from src.runtime.agent import Agent, RunResult
 from src.runtime.react import opening
 from src.runtime.tools import DelegationSuspendedError
 
@@ -92,27 +91,6 @@ class _FacadeBody:
             if k not in plan.channels:
                 plan.channels[k] = last(None)
         return outcome
-
-
-@dataclass
-class WorkflowResult:
-    output: Any
-    state: dict
-    run_id: str
-    status: str
-    metrics: dict
-    run: Any = None
-
-    @classmethod
-    def _from(cls, run: Run) -> WorkflowResult:
-        return cls(
-            output=run.final_output,
-            state=dict(run.shared),
-            run_id=run.run_id,
-            status=str(run.state),
-            metrics=dict(run.metrics),
-            run=run,
-        )
 
 
 class Workflow:
@@ -216,25 +194,22 @@ class Workflow:
         self,
         *,
         bus: Any = None,
-        store: Any = None,
         eventlog: Any = None,
         blobs: Any = None,
     ) -> Scheduler:
         """Create (and bind onto) the runtime Scheduler that owns the ledger.
 
         Use this instead of run() to observe the live stream (``host(bus=...)``)
-        or inject durable stores; a following run/resume reuses it. Agent nodes
-        bind onto it (their registries point at its bus) but keep their identity.
+        or inject the durable event log; a following run/resume reuses it. Agent
+        nodes bind onto it (their registries point at its bus) but keep their
+        identity.
         """
-        if self._runtime is not None and not any(
-            x is not None for x in (bus, store, eventlog, blobs)
-        ):
+        if self._runtime is not None and not any(x is not None for x in (bus, eventlog, blobs)):
             return self._runtime  # already hosted; run/resume share the one ledger
         scheduler = Scheduler(
             llm=self._model,
             tools=self._tools,
             bus=bus,
-            store=store,
             eventlog=eventlog,
             blobs=blobs,
             max_waves=self.max_waves,
@@ -255,19 +230,26 @@ class Workflow:
             self.host()
         return self._compiled, self._runtime
 
-    async def run(self, input: Any = None) -> WorkflowResult:
+    async def run(self, input: Any = None) -> RunResult:
         plan, scheduler = self._ensure()
-        run = Run.start(plan, task="", llm=self._model, tools=self._tools)
-        if isinstance(input, dict):  # a dict seeds initial shared state
-            for k, v in input.items():
+        # One throat for openings: a dict becomes the Run's seed — auto-declaring
+        # a last channel for undeclared keys, then folded through reducers and
+        # logged as the opening STATE_DELTA — and a str becomes the task. Never
+        # a side-door write into shared state.
+        if isinstance(input, dict):
+            for k in input:
                 plan.channels.setdefault(k, last(None))
-                run.shared[k] = v
-        elif isinstance(input, str):
-            run.task = input
+        run = Run.start(
+            plan,
+            task=input if isinstance(input, str) else "",
+            input=input if isinstance(input, dict) else None,
+            llm=self._model,
+            tools=self._tools,
+        )
         await scheduler.drive(plan, run)
-        return WorkflowResult._from(run)
+        return RunResult._from(run)
 
-    async def resume(self, run_id: str, value: Any = None) -> WorkflowResult:
+    async def resume(self, run_id: str, value: Any = None) -> RunResult:
         plan, scheduler = self._ensure()
         run = await scheduler.resume(plan, run_id, value, llm=self._model, tools=self._tools)
-        return WorkflowResult._from(run)
+        return RunResult._from(run)

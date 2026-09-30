@@ -37,14 +37,16 @@
 ## 代价是什么，怎么补
 
 诚实地说，纯靠重放有成本：一个跑了很久的 Run 可能攒下成千上万事件，每次恢复都从头折叠会慢。
-办法是**快照 + 增量重放**：每隔一段把折叠结果存成快照（它只是个可丢弃的缓存），恢复时从最近快照
-出发，只重放之后的事件。删掉所有快照，光靠事件日志依然能完整恢复——真相永远在事件里。
+教学内核干脆连这个缓存也不带：恢复永远是整段重放，教学规模下成本为零。langgraph 反着选（只有
+快照、没有日志，恢复变成版本算术）；DeepSeek Harness 留着投影冷读缓存。三家在这个“缓存要不要”
+上的取舍，恰好是“状态是不是投影”贯彻到什么程度的标尺。真到生产需要 O(1) 恢复时再补缓存也不迟——
+它仍然只是缓存，不是第二真相。
 
 ## 对应代码
 
 - `src/kernel/channels.py`：四种 reducer（`last/append/add/merge`）与波次写入缓冲。
-- `src/kernel/eventlog.py`：`Event`、`apply_event / fold_events`、日志与检查点端口。
-- `src/kernel/run.py`：`fold_writes()` 如何把“这一波的增量”折进历史状态。
+- `src/kernel/eventlog.py`：`Event`、`apply_event / fold_events` 与 EventLog 端口（没有第二个存储端口）。
+- `src/kernel/run.py`：`wave_delta()` 把这一波的写聚合成一个事实，`apply()` 把它折进历史状态。
 
 > reducer 为什么必须是纯函数、波增量为什么要先在波内聚合一次再入日志（否则重放会重复计数），
-> 这些细节配套专栏会对着 `fold_writes` 逐行讲。下一篇：[波次为什么是一致性边界](03-waves.md)。
+> 这些细节配套专栏会对着 `wave_delta` 逐行讲。下一篇：[波次为什么是一致性边界](03-waves.md)。
