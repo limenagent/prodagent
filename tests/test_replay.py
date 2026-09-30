@@ -185,10 +185,12 @@ async def test_replay_recovers_the_opening_user_message():
     # The ReAct seed (opening user message) is folded through a state_delta event,
     # not written straight to shared state, so a pure replay rebuilds the dialogue
     # from its very first line.
+    from conftest import start_react_run
+
     from src.kernel import ToolCall
     from src.kernel.eventlog import STATE_DELTA
     from src.runtime.llm import ScriptedLlm
-    from src.runtime.react import build_react_plan, start_react_run
+    from src.runtime.react import build_react_plan
     from src.runtime.tools import ToolRegistry
 
     reg = ToolRegistry()

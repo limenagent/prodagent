@@ -91,11 +91,9 @@ async def test_dynamic_fanout_fanin():
     p.add(
         Node(
             "fan",
-            FnBody(
-                lambda x, ctx: Outcome.fan_out(
-                    Send("worker", 1, key="w1"), Send("worker", 2, key="w2")
-                )
-            ),
+            # a bare list of Sends is coerced into a control group — fan out
+            # without bespoke vocabulary
+            FnBody(lambda x, ctx: [Send("worker", 1, key="w1"), Send("worker", 2, key="w2")]),
         ),
         Node("worker", FnBody(lambda x, ctx: Outcome.ok(None, outs=[x * 10])), template=True),
         Node("join", FnBody(lambda x, ctx: Outcome.ok(sorted(ctx.shared["outs"]))), terminal=True),
@@ -211,3 +209,56 @@ async def test_activated_bypass_is_one_shot_not_permanent():
     run.mark_running("slow")
     run.mark_completed("slow", "S")
     assert "gate" in p.ready(run)
+
+
+# —— fail-wins over fan-out: one failed instance fails the whole Run —
+#    the wave settles (the sibling's output is a fact), then the Run stops ——
+async def test_failed_instance_fails_the_run():
+    p = Plan(channels={"outs": append()})
+    p.add(
+        Node(
+            "fan", FnBody(lambda x, ctx: [Send("w", "ok", key="good"), Send("w", "bad", key="bad")])
+        )
+    )
+    p.add(
+        Node(
+            "w",
+            FnBody(lambda x, ctx: Outcome.ok(None, outs=[x]) if x != "bad" else 1 / 0),
+            template=True,
+        )
+    )
+    p.add(
+        Node("join", FnBody(lambda x, ctx: Outcome.ok(sorted(ctx.shared["outs"]))), terminal=True)
+    )
+    p.edge("w", "join")
+    run = await run_plan(p)
+    assert run.state == RunState.FAILED
+    assert run.state_of("w#bad").status.value == "failed"
+    assert run.shared["outs"] == ["ok"]  # the sibling still settled as a fact
+
+
+# —— the L1/L2 rungs of the built-in body ladder (kept honest with coverage) ——
+async def test_tool_body_and_llm_body_rungs():
+    from src.kernel import LLMBody, Scheduler, ToolBody
+    from src.runtime.llm import ScriptedLlm
+    from src.runtime.tools import ToolRegistry
+
+    reg = ToolRegistry()
+
+    async def shout(text, ctx):
+        return text.upper()
+
+    reg.function(shout, description="shout it")
+
+    p = Plan()
+    p.add(
+        Node("prep", FnBody(lambda x, ctx: Outcome.ok({"text": "quiet"})))
+    )  # dict value = tool args
+    p.add(Node("call", ToolBody("shout")))
+    p.add(Node("ask", LLMBody("say the word"), terminal=True))
+    p.edge("prep", "call")
+    p.edge("call", "ask")
+    run = await Scheduler(llm=ScriptedLlm(["the word"]), tools=reg).run(p, task="t")
+    assert run.final_output == "the word"
+    result = run.state_of("call").output  # a governed ToolResult as the value
+    assert result.ok and result.output == "QUIET"

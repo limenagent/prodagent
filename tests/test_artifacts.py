@@ -105,3 +105,20 @@ async def test_version_gap_after_delete_never_overwrites(tmp_path):
     await local.delete("r/f.txt.v2")
     assert (await local.save("r", "f.txt", "four"))["version"] == 4
     assert await local.load("r/f.txt.v3") == b"three"
+
+
+async def test_local_store_clamps_uris_to_its_root(tmp_path):
+    """Security, not tidiness: load/delete take uris straight off the wire in
+    the playground, so "../" or an absolute path must never address outside the
+    store's root directory."""
+    import pytest
+
+    from src.backends.blob_store import LocalBlobStore
+
+    local = LocalBlobStore(str(tmp_path))
+    await local.save("r", "f.txt", "x")
+    for evil in ("../../etc/passwd", "/etc/passwd", "r/../../../etc/passwd"):
+        with pytest.raises(ValueError):
+            await local.load(evil)
+        with pytest.raises(ValueError):
+            await local.delete(evil)

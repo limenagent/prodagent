@@ -1,20 +1,21 @@
 """replay — project a Run back out of its recorded event stream.
 
-It is a second *reader* of the same facts, never a second scheduler. The live
-Scheduler drives Run's bookkeeping from the edges (it computes readiness, runs
-bodies, calls the model and tools); replay drives the very same bookkeeping
-methods from the log, in order, and never touches any of those:
+It is a second *reader* of the same facts, never a second scheduler: identity
+is born from the opening fact, and every subsequent fact goes through
+``Run.apply`` — the very same single mutation throat the live scheduler
+commits through. There is nothing else here to drift:
 
-    no ready(), no body, no LLM, no tool — only mark_*/add_instance/suspend/...
+    no ready(), no body, no LLM, no tool — construct + for ev: run.apply(ev)
 
 What the stream reproduces: shared state, every node's status/output/attempts,
 dynamic instances and their inputs, goto deliveries, suspensions (with their
-questions), and how the run ended. Two things are deliberately not fabricated:
+questions), the answers fed back on resume, and how the run ended. Two things
+are deliberately not fabricated:
 
-- coarse counters (waves / llm / tool / tokens) live in checkpoints, not the
-  stream, so a replayed run leaves them at their defaults;
-- crash "continue from here" is snapshot restore's job (scheduler.resume).
-  Replay is for audit, time travel, and understanding what happened.
+- coarse counters (waves / llm / tool / tokens) are engine telemetry, not
+  facts: a replayed run leaves them at their defaults;
+- crash "continue from here" is this same function's job — scheduler.resume
+  replays the stream and re-drives, so there is one recovery verb, not two.
 """
 
 from __future__ import annotations
@@ -22,87 +23,28 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from src.kernel.eventlog import (
-    CONTROL,
-    INTERRUPTED,
-    NODE_COMPLETED,
-    NODE_FAILED,
-    NODE_SKIPPED,
-    NODE_STARTED,
-    RESUMED,
-    RUN_COMPLETED,
-    RUN_FAILED,
-    RUN_STARTED,
-    STATE_DELTA,
-    Event,
-    apply_event,
-)
-from src.kernel.run import Interrupt, Run
-
-# Events that only annotate (no settled bookkeeping): NODE_RETRY leaves the node
-# running and is consumed by observers/tests, so projection ignores it.
+from src.kernel.eventlog import RUN_STARTED, Event
+from src.kernel.run import Run
 
 
 def replay(plan: Any, events: Iterable[Event]) -> Run:
     """Rebuild a Run by folding its event stream. The plan is the same blueprint
     that produced the run (its static nodes/edges/channels are not in the log)."""
     plan.validate()
-    run: Run | None = None
-
-    for ev in events:
-        if ev.kind == RUN_STARTED:
-            # Reconstruct rather than start fresh: the run_id/parent come from
-            # the fact and the opening state is already a state_delta event in
-            # the stream, so nothing is seeded a second time.
-            run = Run(plan, ev.run_id, parent_id=ev.parent_id, task=ev.data.get("task", ""))
-            run.event_seq = ev.seq
-            continue
-        if run is None:
-            continue
-        run.event_seq = ev.seq
-        d = ev.data
-
-        if ev.kind == NODE_STARTED:
-            run.mark_running(d["node"])
-        elif ev.kind == NODE_COMPLETED:
-            run.mark_completed(d["node"], d.get("output"))
-            run.deliveries.pop(d["node"], None)  # a Goto input dies at terminal state
-        elif ev.kind == NODE_FAILED:
-            run.mark_failed(d["node"], d.get("error", ""))
-            run.deliveries.pop(d["node"], None)
-        elif ev.kind == NODE_SKIPPED:
-            run.mark_skipped(d["node"])
-        elif ev.kind == STATE_DELTA:
-            apply_event(run.shared, ev, plan.channels)
-        elif ev.kind == CONTROL:
-            if d["op"] == "goto":
-                run.rearm(d["target"], immediate=d.get("immediate", True))
-                if d.get("payload") is not None:
-                    run.deliveries[d["target"]] = d["payload"]
-            else:  # "send": instantiate a template copy (full key derives in order)
-                run.add_instance(d["template"], d.get("payload"), d.get("key"))
-        elif ev.kind == INTERRUPTED:
-            run.suspend(
-                {
-                    node: Interrupt(
-                        p.get("kind", "external"),
-                        p.get("payload"),
-                        p.get("question", ""),
-                        node,
-                    )
-                    for node, p in d.get("parked", {}).items()
-                }
-            )
-        elif ev.kind == RESUMED:
-            # Flip the state back to running; the parked nodes' own node_started
-            # events follow and re-mark them, so no rearm is needed here.
-            run.resume(None)
-        elif ev.kind == RUN_COMPLETED:
-            run.complete(d.get("output"))
-        elif ev.kind == RUN_FAILED:
-            # node failures were marked at their node_failed events; this is the Run-level end
-            run.fail(d.get("reason", ""))
-
-    if run is None:
+    events = list(events)
+    opened = next((e for e in events if e.kind == RUN_STARTED), None)
+    if opened is None:
         raise ValueError("cannot replay: the event stream has no run_started event")
+    # Identity is born from the opening fact (run_id/parent/depth/task); the
+    # opening state is already a state_delta event in the stream, so nothing is
+    # seeded a second time.
+    run = Run(
+        plan,
+        opened.run_id,
+        parent_id=opened.parent_id,
+        depth=opened.data.get("depth", 0),
+        task=opened.data.get("task", ""),
+    )
+    for ev in events:
+        run.apply(ev)  # the single throat: same path the live commits took
     return run

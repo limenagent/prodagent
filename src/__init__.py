@@ -22,7 +22,6 @@ from src.kernel import (
     FnBody,
     Goto,
     InMemoryEventLog,
-    InMemoryStore,
     Interrupt,
     LLMBody,
     Node,
@@ -43,10 +42,9 @@ from src.kernel import (
 )
 
 # ---- Ergonomic facade layer (mechanism inside, ergonomics outside) ----
-from src.runtime.agent import Agent, AgentResult
+from src.runtime.agent import Agent, RunResult
 from src.runtime.workflow import (
     Workflow,
-    WorkflowResult,
     go,
     send,
     wait_human,
@@ -58,7 +56,6 @@ __version__ = "2.0.1"
 __all__ = [
     # facade
     "Agent",
-    "AgentResult",
     "Bus",
     "Channel",
     "Command",
@@ -66,7 +63,6 @@ __all__ = [
     "FnBody",
     "Goto",
     "InMemoryEventLog",
-    "InMemoryStore",
     "Interrupt",
     "LLMBody",
     "Node",
@@ -75,13 +71,13 @@ __all__ = [
     "Outcome",
     "Plan",
     "Run",
+    "RunResult",
     "RunState",
     "Scheduler",
     "Send",
     "SubPlanBody",
     "ToolBody",
     "Workflow",
-    "WorkflowResult",
     "add",
     "append",
     "go",

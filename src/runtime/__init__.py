@@ -9,10 +9,9 @@ The friendlier facades for users (Agent / Workflow) live in agent.py and
 workflow.py.
 """
 
-from src.runtime.agent import Agent, AgentResult
+from src.runtime.agent import Agent, RunResult
 from src.runtime.workflow import (
     Workflow,
-    WorkflowResult,
     go,
     send,
     wait_human,
@@ -20,9 +19,8 @@ from src.runtime.workflow import (
 
 __all__ = [
     "Agent",
-    "AgentResult",
+    "RunResult",
     "Workflow",
-    "WorkflowResult",
     "go",
     "send",
     "wait_human",

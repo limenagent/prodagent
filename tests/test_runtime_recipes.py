@@ -4,10 +4,12 @@ delegation). Every multi-agent/pattern test drives the public API, so the tests
 double as usage docs and never depend on an internal plan-builder.
 """
 
+from conftest import start_react_run
+
 from src import Agent, Workflow, send
 from src.kernel import FnBody, Node, Outcome, Plan, Scheduler, ToolCall
 from src.runtime.llm import ScriptedLlm
-from src.runtime.react import build_react_plan, start_react_run
+from src.runtime.react import build_react_plan
 from src.runtime.tools import ToolRegistry
 
 

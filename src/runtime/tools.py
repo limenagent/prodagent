@@ -56,6 +56,20 @@ class DelegationSuspendedError(HardToolError):
         self.task = task
 
 
+def attach_host_bus(ctx: Any, tools: Any) -> None:
+    """Bind a registry that reaches the tool boundary onto the host bus.
+
+    A registry passed to spawn/delegation never went through Agent.host()
+    (where ``_bind`` attaches the bus), so its write-approval gate would be
+    silently dead — a None bus means "no gate", never "deny". Attaching here is
+    idempotent: the host scheduler owns the one bus for the whole Run tree.
+    """
+    attach = getattr(tools, "attach_bus", None)
+    bus = getattr(ctx, "bus", None)
+    if attach is not None and bus is not None:
+        attach(bus)
+
+
 async def delegate_to(
     ctx: Any,
     plan: Any,
@@ -82,6 +96,7 @@ async def delegate_to(
     """
     if getattr(ctx, "resume_value", None) is not None:
         return ctx.resume_value  # two-step resume: the child already ran
+    attach_host_bus(ctx, tools)
     try:
         result = await ctx.spawn(plan, str(task or ""), input=input, llm=llm, tools=tools)
     except RecursionError as exc:  # the depth guard speaks RecursionError; same carve-out

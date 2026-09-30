@@ -46,15 +46,25 @@ def _wire(messages: list) -> list[dict]:
         if role == "assistant" and m.get("tool_calls"):
             calls = []
             for j, tc in enumerate(m["tool_calls"]):
-                cid = getattr(tc, "call_id", "") or f"call_{i}_{j}"
-                pending_ids.setdefault(tc.name, []).append(cid)
+                # The channel is JSON-native (plain dicts); ToolCall objects are
+                # still accepted for hand-built histories.
+                if isinstance(tc, dict):
+                    name, args, cid = (
+                        tc.get("name", ""),
+                        tc.get("arguments") or {},
+                        tc.get("id", ""),
+                    )
+                else:
+                    name, args, cid = tc.name, tc.arguments, tc.call_id
+                cid = cid or f"call_{i}_{j}"
+                pending_ids.setdefault(name, []).append(cid)
                 calls.append(
                     {
                         "id": cid,
                         "type": "function",
                         "function": {
-                            "name": tc.name,
-                            "arguments": json.dumps(tc.arguments, ensure_ascii=False),
+                            "name": name,
+                            "arguments": json.dumps(args, ensure_ascii=False),
                         },
                     }
                 )
@@ -81,7 +91,7 @@ def _wire(messages: list) -> list[dict]:
                 }
             )
         elif role == "assistant":
-            out.append({"role": "assistant", "content": m.get("text", "") or ""})
+            out.append({"role": "assistant", "content": m.get("content") or m.get("text") or ""})
         else:
             out.append({"role": role or "user", "content": str(m.get("content", ""))})
     return out
