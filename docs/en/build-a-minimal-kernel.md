@@ -229,8 +229,12 @@ this skeleton with one capability added per problem you would hit next:
 
 Each row is one part of the six, and each is derived the same way you just derived
 the first three: hit a concrete wall, add the smallest thing that removes it, and
-nothing more. The companion column walks through every one of those steps with the
-real code.
+nothing more. One more thing the table doesn't show: when the real kernel commits
+at the barrier, it doesn't mutate in-memory state directly — it **appends a fact
+to the log first, then folds the fact into state**. That ordering is exactly why
+a post-crash replay and a live run can take the same path; [design note
+02](design/02-state-from-events.md) unpacks it. The companion column walks
+through every one of those steps with the real code.
 
 ## Where to go next
 

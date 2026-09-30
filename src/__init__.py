@@ -5,7 +5,7 @@ The reading order is the construction order (matching the column's modules):
     types → command → channels          immutable values and state merge rules
     graph                               static blueprint: nodes / edges / Plan
     body                                the single composable interface and four built-in bodies
-    run                                 one dynamic execution: state machine / suspend / snapshot
+    run                                 one dynamic execution: state machine / apply / suspend
     eventlog                            events are the source of truth, state is a folded projection
     bus / ports                         outward observe/adjudicate/inject and replaceable ports
     scheduler                           the wave engine that assembles all the above into a machine
@@ -42,13 +42,7 @@ from src.kernel import (
 )
 
 # ---- Ergonomic facade layer (mechanism inside, ergonomics outside) ----
-from src.runtime.agent import Agent, RunResult
-from src.runtime.workflow import (
-    Workflow,
-    go,
-    send,
-    wait_human,
-)
+from src.runtime import Agent, RunResult, Workflow, go, send, wait_human
 
 # Version single source of truth: pyproject reads it dynamically for releases.
 __version__ = "2.0.1"

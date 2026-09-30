@@ -17,7 +17,7 @@ they handle the same set of problems.
 | Outcome.state_delta | node return / Command(update) | EventActions.state_delta | a node's state increment |
 | `Goto` | `Command(goto=...)` | routing / transfer_to_agent | runtime edge choice, back-edge, handoff |
 | `Send` | `Send(node, arg)` | dynamic sub-task | fan-out whose count is known only at runtime |
-| Interrupt / resume | `interrupt()` + `Command(resume=)` | built from external state yourself | pause for a human, resume from checkpoint |
+| Interrupt / resume | `interrupt()` + `Command(resume=)` | human input | pause for a human, resume from the breakpoint |
 | Bus (fire/check/subscribe) | callbacks/middleware, LangSmith observability, stream | callbacks and events | mount point for observability, approval, budget; subscribe adds bounded-queue streaming and backpressure |
 | child Run / SubPlanBody | subgraph | sub_agents / AgentTool | recursively run another graph inside a node |
 | call (delegation, returns) | subgraph-as-node, returns a result | AgentTool / task mode | parent stays in control |

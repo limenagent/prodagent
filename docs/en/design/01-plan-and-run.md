@@ -23,8 +23,9 @@ So we split into two objects:
   analysis (e.g. detecting a dangling edge). One Plan can be reused by thousands
   of Runs at once.
 - **Run (one execution)** answers dynamic questions: how far this run got, each
-  node's status, the current shared data. It is one-shot and serializable; on
-  crash you recover from its snapshot.
+  node's status, the current shared data. It is one-shot; on crash you replay
+  its event stream and the Run comes back — the Run is just the ledger's
+  in-memory projection.
 
 A useful analogy: the Plan is the score, a Run is one particular performance.
 The same score is performed countless times; each performance has its own
@@ -36,7 +37,7 @@ Once drawing and performance are split, several hard things become natural:
 
 - **Concurrency**: many Runs share one read-only Plan with independent state, so
   they can't leak into each other.
-- **Recovery**: snapshot only the Run and reload the Plan — clean responsibilities.
+- **Recovery**: replay the Run's event stream and reload the Plan — clean responsibilities.
 - **Sub-flow reuse**: a node's body can be "run another blueprint", because a
   blueprint is already independent, nestable data.
 - **Visualization and validation**: the blueprint is plain data you can draw and
@@ -53,10 +54,10 @@ testing later.
 ## In the code
 
 - `src/kernel/graph.py`: `Plan / Node / Edge` and the pure `ready()`.
-- `src/kernel/run.py`: the Run's runtime state, state machine, and
-  `snapshot()/restore()`.
+- `src/kernel/run.py`: the Run's runtime state, state machine, and `apply()` —
+  the single throat through which a recorded fact mutates the Run.
 
-> Why state belongs on the Run rather than on an Agent object, and exactly what a
-> snapshot should and shouldn't store, are developed against the code in the
+> Why state belongs on the Run rather than on an Agent object, and why mutation
+> is allowed only through `apply`, are developed against the code in the
 > companion column. Next, a more counter-intuitive and crucial decision:
 > [why state is folded from events](02-state-from-events.md).

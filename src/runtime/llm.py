@@ -23,15 +23,14 @@ class ScriptedLlm:
     - LlmReply: returned as-is (the most complete form).
     """
 
-    def __init__(self, script: list[Any], *, system_reply: str | None = None):
+    def __init__(self, script: list[Any]):
         self.script = list(script)
-        self.system_reply = system_reply
         self.messages_seen: list[list[dict]] = []
 
     async def chat(self, messages, *, tools=None, system=None, on_delta=None) -> LlmReply:
         self.messages_seen.append(list(messages))
         if not self.script:
-            reply = LlmReply(text=self.system_reply or "(script exhausted)")
+            reply = LlmReply(text="(script exhausted)")
         else:
             item = self.script.pop(0)
             if isinstance(item, LlmReply):

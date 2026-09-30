@@ -1,10 +1,11 @@
 """run — one dynamic execution: node runtime states, the Interrupt token, the
-Run state machine, and snapshots.
+Run state machine, and apply — the single mutation throat.
 
 The Plan is the drawing; a Run is one execution of it. It holds current shared
 state, how far each node got, parent/child relations, and the four states
 RUNNING/SUSPENDED/COMPLETED/FAILED. State transitions have a single entry
-point _transition; an illegal jump raises immediately.
+point _transition; an illegal jump raises immediately. Ledger state changes
+only by applying a fact (Run.apply) — never by discipline.
 """
 
 from __future__ import annotations
@@ -32,8 +33,13 @@ from src.kernel.eventlog import (
 from src.kernel.types import _ALLOWED_TRANSITIONS, NodeStatus, RunState
 
 
-def _new_id(prefix: str = "run") -> str:
-    return f"{prefix}-{uuid.uuid4().hex[:8]}"
+def _new_id() -> str:
+    return f"run-{uuid.uuid4().hex[:8]}"
+
+
+def _is_instance_key(key: str) -> bool:
+    # dynamic fan-out instances are named "template#key"
+    return "#" in key
 
 
 # Safety backstop, not a tuning knob: performance limits (max_waves,
@@ -85,15 +91,15 @@ class Run:
         self.depth = depth
         self.task = task
         # Port binding = *who* this Run acts as (an Agent's model/tools). It is
-        # live wiring, like NodeContext: never snapshotted. The shared ledger
-        # (event log / stores) instead belongs to the Scheduler that drives it,
-        # so a child Run keeps the parent's ledger with its own identity.
+        # live wiring, like NodeContext: never a fact. The shared ledger (event
+        # log / stores) instead belongs to the Scheduler that drives it, so a
+        # child Run keeps the parent's ledger with its own identity.
         self.llm = llm
         self.tools = tools
-        # Initial input to fold into shared state on the first drive, emitted as
-        # a state_delta event so the event log is the complete truth (a replay
-        # reconstructs the opening user message too). Applied exactly once and
-        # never snapshotted on its own — after the first wave it lives in shared.
+        # Initial input to fold into shared state on the first drive, committed
+        # as the opening state_delta fact so the log is the complete truth (a
+        # replay reconstructs the opening user message too). Consumed by that
+        # one fact — afterwards it lives in shared.
         self.seed: dict[str, Any] = dict(seed or {})
         self.event_seq = 0
 
@@ -218,15 +224,11 @@ class Run:
     def state_of(self, key: str) -> NodeRuntimeState:
         return self.node_states[key]
 
-    @staticmethod
-    def is_instance_key(key: str) -> bool:
-        return "#" in key
-
     def is_instance(self, key: str) -> bool:
-        return self.is_instance_key(key) and key in self.instance_inputs
+        return _is_instance_key(key) and key in self.instance_inputs
 
     def template_of(self, key: str) -> str:
-        return key.split("#", 1)[0] if self.is_instance_key(key) else key
+        return key.split("#", 1)[0] if _is_instance_key(key) else key
 
     def is_pending(self, key: str) -> bool:
         st = self.node_states.get(key)
@@ -244,7 +246,7 @@ class Run:
             NodeStatus.FAILED,
         )
 
-    # — node state changes (the single throat; the scheduler only calls these) —
+    # — node state changes (the single throat; only Run.apply calls these in production) —
     def mark_running(self, key: str) -> None:
         st = self.node_states[key]
         st.status = NodeStatus.RUNNING

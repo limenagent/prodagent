@@ -130,10 +130,10 @@ SCENARIOS = [
     {
         "key": "10",
         "title": "Proposal review · blackboard",
-        "desc": "Experts only write to a shared board; the moderator reads it — not converged, re-arm everyone for another round.",
+        "desc": "Experts read the shared board and write their opinions back; the moderator reads it — not converged, re-arm everyone for another round.",
         "default": "Should we roll out the new pricing engine next week?",
         "title_zh": "方案评审·黑板",
-        "desc_zh": "专家只往共享黑板写意见，裁判读板裁决；未收敛就重开一轮。",
+        "desc_zh": "专家读前轮意见、往黑板写回立场，裁判读板裁决；未收敛就重开一轮。",
         "default_zh": "新定价引擎下周上线，行吗？",
         "build": blackboard.build,
         "is_async": False,

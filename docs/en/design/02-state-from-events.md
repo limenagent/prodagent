@@ -47,21 +47,25 @@ consequences of the single decision "events are the source of truth".
 ## The cost, and how we cover it
 
 Honestly, pure replay has a cost: a long run may accumulate thousands of events,
-and folding from scratch on every resume is slow. The answer is **snapshot plus
-incremental replay**: periodically store the folded result as a snapshot (a
-disposable cache); on resume, start from the latest snapshot and replay only the
-events after it. Delete every snapshot and you can still fully recover from the
-event log alone — the truth always lives in the events.
+and folding from scratch on every resume could get slow. The teaching kernel
+simply does without a cache: resume is always a full replay, and at teaching
+scale that costs nothing. LangGraph chose the opposite corner (snapshots only,
+no log — recovery becomes version arithmetic); DeepSeek Harness keeps a
+projection cold-read cache. Where the three land on "cache or not" is a neat
+ruler for how far "state is a projection" is carried. When production genuinely
+needs O(1) resume, add the cache then — it would still be a cache, never a
+second truth.
 
 ## In the code
 
 - `src/kernel/channels.py`: the four reducers (`last/append/add/merge`) and the
   wave-write buffer.
-- `src/kernel/eventlog.py`: `Event`, `apply_event / fold_events`, the log and
-  checkpoint protocols.
-- `src/kernel/run.py`: `fold_writes()` folds "this wave's delta" into history.
+- `src/kernel/eventlog.py`: `Event`, `apply_event / fold_events`, and the
+  EventLog port (there is no second storage port).
+- `src/kernel/run.py`: `wave_delta()` aggregates this wave's writes into one
+  fact, and `apply()` folds it into the historical state.
 
 > Why a reducer must be pure, and why the wave delta is aggregated inside the
 > wave before entering the log (otherwise replay double-counts), are walked
-> line by line through `fold_writes` in the companion column. Next:
+> line by line through `wave_delta` in the companion column. Next:
 > [the wave as a consistency boundary](03-waves.md).

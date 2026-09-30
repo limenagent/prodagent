@@ -74,20 +74,27 @@ what to watch for in the code.
 
 ## Finally, three "production capability" examples
 
-- **persistence.py**: after checkpoints hit disk, a brand-new process resumes
-  from the breakpoint. Watch what a Run snapshot stores and which live objects
-  (connections, credentials) are never serialized.
+- **persistence.py**: with the event log (.jsonl) on disk, a brand-new process
+  resumes from the breakpoint — replay the facts, feed the answer back; there
+  is no second durable thing. Watch what never becomes a fact (connections,
+  credentials, identity ports).
 - **retry_timeout.py**: per-node timeout and exponential-backoff retry. Watch
   "a timeout counts as one failure; whether to retry is a replaceable policy".
 - **backpressure.py**: a node streams high-frequency events through the Bus;
   the subscriber uses a bounded queue with block/drop backpressure. Watch how
   pressure is pushed all the way back to the producer.
+- **long_term_memory.py**: long-term memory. Before think, relevant memories
+  are recalled and spliced into the system prompt, so the model "remembers
+  you"; the memory bank exists independently of this conversation, sedimented
+  from earlier chats. Watch how "remembering you" isn't a longer context but
+  an explicit recall-and-inject each turn.
 
 ## See it all at once: the Playground
 
-`make play` starts a UI where you switch scenarios on the left (the business
-scenarios 01-10 in browser form, plus a cross-session-memory bonus; run the
-mechanism demos 11-13 in a terminal) and see the event timeline from the same
-Bus on the right — parallelism, suspended approvals, delegation and handoff are
-all visible. It runs the very same kernel as these examples; it just draws the
-process.
+`make play` starts a UI where you switch between twelve scenarios on the left
+(the ten business scenarios plus the "agent blind date" and "long-term memory"
+verification scenarios, all running in the browser; raw mechanism demos like
+graph_demo and react_demo are best run in a terminal) and see the event
+timeline from the same Bus on the right — parallelism, suspended approvals,
+delegation and handoff are all visible. It runs the very same kernel as these
+examples; it just draws the process.
