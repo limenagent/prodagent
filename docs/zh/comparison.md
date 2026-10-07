@@ -20,7 +20,7 @@
 | Bus（fire/check/subscribe） | 回调/中间件、LangSmith 观测、stream | 回调与事件 | 观测、审批、预算等横切能力的挂载点；subscribe 用有界队列支撑流式与背压 |
 | 子 Run / SubPlanBody | subgraph | sub_agents / AgentTool | 一个节点里递归跑另一张图 |
 | call（委派要返回） | 子图作为节点、结果返回 | AgentTool / task 模式 | 父始终在控 |
-| transfer（接力不返回） | 图内 `goto` 到另一智能体 | transfer_to_agent | 控制权一去不返 |
+| transfer（交棒不返回） | 图内 `goto` 到另一智能体 | transfer_to_agent | 控制权一去不返 |
 | 黑板 blackboard | 共享通道 + 条件边 | 共享 session.state | 谁数据齐谁动 |
 | Agent / Workflow 门面 | `create_react_agent` 等预构建 | LlmAgent / Workflow | 内核之外的好用封装 |
 

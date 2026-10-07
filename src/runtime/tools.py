@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.kernel import ToolCall, ToolResult
+from src.kernel import RunState, ToolCall, ToolResult, classify_child_result
 
 _PY_TO_JSON = {
     str: "string",
@@ -101,14 +101,13 @@ async def delegate_to(
         result = await ctx.spawn(plan, str(task or ""), input=input, llm=llm, tools=tools)
     except RecursionError as exc:  # the depth guard speaks RecursionError; same carve-out
         raise HardToolError(str(exc)) from exc
-    state = result.get("state")
-    if state == "suspended":
-        raise DelegationSuspendedError(
-            result["run_id"], result.get("question", ""), str(task or "")
-        )
-    if state == "failed":
-        raise HardToolError(str(result.get("error") or result.get("output")))
-    return result.get("output")
+    # The shared decision table; this tool surface renders it as exceptions/value.
+    verdict = classify_child_result(result)
+    if verdict.state == RunState.SUSPENDED:
+        raise DelegationSuspendedError(verdict.run_id, verdict.question, str(task or ""))
+    if verdict.state == RunState.FAILED:
+        raise HardToolError(verdict.error)
+    return verdict.output
 
 
 def infer_schema(fn: Callable) -> dict:

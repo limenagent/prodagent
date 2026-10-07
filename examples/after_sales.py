@@ -1,12 +1,14 @@
 """After-sales refund — a supervisor whose "tools" are other agents.
 
-The supervisor never executes itself. Each sub-agent is registered as a
-delegation tool: calling it runs that agent's own loop — its instruction, tools,
-context — and returns only the final answer (call semantics: dispatched out,
-result comes back). The risk specialist is itself a supervisor of a smaller
-expert, so one run grows a three-level delegation tree; every level runs the same
-loop, there is no multi-agent engine. Each specialist sees only its own
-read-only tools: the tool set is the permission boundary between roles.
+What this file shows (two shapes of *call/delegation*):
+- Supervisor (flat star): the supervisor never executes itself; each sub-agent
+  is registered as a delegation tool — calling it runs that agent's own loop
+  (its instruction, tools, context) and returns only the final answer (call
+  semantics: dispatched out, result comes back).
+- Hierarchical (tree): the risk specialist is itself a supervisor of a smaller
+  expert, so one run grows a three-level delegation tree. Every level runs the
+  same loop, there is no multi-agent engine, and each specialist sees only its
+  own read-only tools — the tool set is the permission boundary between roles.
 
 ``build(lang)`` is the single assembly point (bilingual); ``main`` runs English.
 Run: PYTHONPATH=. python3 examples/after_sales.py

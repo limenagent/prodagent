@@ -30,7 +30,7 @@ from src.kernel.blob import resolve_artifact
 from src.kernel.command import Command, Goto, Send
 from src.kernel.eventlog import ARTIFACT_WRITTEN
 from src.kernel.run import Interrupt
-from src.kernel.types import ToolCall
+from src.kernel.types import RunState, ToolCall
 
 
 @dataclass(frozen=True)
@@ -258,6 +258,47 @@ class NodeContext:
         return await self._blobs.load(pointer["uri"])
 
 
+# ════════════ Child-Run verdict (one table for every delegation surface) ════════════
+
+
+@dataclass(frozen=True)
+class ChildVerdict:
+    """The activation result reduced to one of three terminal verdicts.
+
+    - state=SUSPENDED: the child parked; ``question`` must be lifted to the caller;
+    - state=FAILED: the child failed; ``error`` must hard-fail the caller;
+    - state=COMPLETED: ``output`` is the value to carry back.
+    """
+
+    run_id: str
+    state: RunState
+    output: Any = None
+    question: str = ""
+    error: str = ""
+
+
+def classify_child_result(result: dict) -> ChildVerdict:
+    """Normalize an activation result dict into a ChildVerdict.
+
+    This is the single decision table behind all three delegation surfaces —
+    the kernel's SubPlanBody (renders it as an Outcome), and the runtime's
+    delegate_to / spawn_agent (render it across the tool boundary). Each layer
+    only chooses how to *present* the verdict; the suspended/failed/done
+    branching lives here once, so the surfaces cannot drift apart.
+    """
+    state = result.get("state")
+    run_id = result["run_id"]  # a missing id is a broken activator: fail here, not far away
+    if state == RunState.SUSPENDED:
+        return ChildVerdict(run_id, RunState.SUSPENDED, question=result.get("question", ""))
+    if state == RunState.FAILED:
+        return ChildVerdict(
+            run_id,
+            RunState.FAILED,
+            error=str(result.get("error") or result.get("output") or ""),
+        )
+    return ChildVerdict(run_id, RunState.COMPLETED, output=result.get("output"))
+
+
 # ════════════ Four built-in bodies ════════════
 
 
@@ -339,18 +380,20 @@ class SubPlanBody:
             llm=self.llm,
             tools=self.tools,
         )
-        if result.get("state") == "suspended":
+        # One shared decision table; this kernel surface renders it as an Outcome.
+        verdict = classify_child_result(result)
+        if verdict.state == RunState.SUSPENDED:
             # a parked child parks the caller too: the question travels up and
             # the payload carries the child's run_id so resume can find it
             return Outcome.park(
                 "delegation",
-                payload={"child_run_id": result["run_id"], "task": str(input or "")},
-                question=result.get("question", ""),
+                payload={"child_run_id": verdict.run_id, "task": task},
+                question=verdict.question,
             )
-        if result.get("state") == "failed":
+        if verdict.state == RunState.FAILED:
             # call semantics: a failed child Run fails this node — it is never
             # folded as a value (the runtime raises HardToolError for the same fact).
-            raise RuntimeError(str(result.get("error") or result.get("output")))
+            raise RuntimeError(verdict.error)
         # Call semantics: by default return only the child Run's final output; a
         # custom body can pull the full result.
-        return Outcome.ok(result.get("output"))
+        return Outcome.ok(verdict.output)

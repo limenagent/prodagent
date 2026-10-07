@@ -17,15 +17,19 @@ ink-green accent; serif/sans/mono pairing; hairline rules; inline SVG glyphs;
 every scrolling region actually scrolls. UI strings live in the I18N table;
 the header button toggles EN/中文 (persisted, and it travels with /api/start so
 scripted dialogs follow it too).
+
+PAGE is assembled below from focused parts (STYLE, MARKUP, and one chunk per tab/fold) so each piece is locatable; the parts are plain raw strings concatenated at import — zero build step.
 """
 
-PAGE = r"""<!doctype html>
+HEAD_OPEN = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>prodagent playground</title>
-<style>
+"""
+
+STYLE = r"""<style>
   :root{
     --bg:#f3f1ea; --surface:#fbfaf5; --raised:#ffffff; --sunken:#eeebe2;
     --ink:#1e2925; --ink-2:#4d574f; --ink-3:#8f968c; --ink-4:#b4b9ad;
@@ -384,7 +388,9 @@ PAGE = r"""<!doctype html>
   }
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
-</head>
+"""
+
+MARKUP = r"""</head>
 <body>
 <header>
   <span class="wordmark">
@@ -468,9 +474,12 @@ PAGE = r"""<!doctype html>
   </div>
 </div>
 
-<script>
+"""
+
+JS_CORE = r"""<script>
 /* ════════ state ════════ */
 let current=null, sid=null, since=0, timer=null, chat=false, running=false;
+let SPK="spawnC";           /* i18n key for spawn cards: spawnC=委派, spawnT=交棒 */
 let EV=[];                 /* every serialized event, in arrival order */
 
 let runs={};               /* run_id -> {name, parent, depth, head:el, ...} */
@@ -514,7 +523,7 @@ const I18N={
    fHint:"Pointers recorded by artifact_written; bytes live in the BlobStore. Click to preview.",
    gHint:"Edges appear as control facts record them — the plan as it was actually walked.",
    gEmpty:"No node has started in this Run yet.",
-   filterRun:"filter events",you:"you",spawn:"spawn",toolCall:"tool",fileWritten:"artifact",
+   filterRun:"filter events",you:"you",spawnC:"delegate",spawnT:"handoff",toolCall:"tool",fileWritten:"artifact",
    parked:"waiting for you",resumed:"resumed",failedAt:"failed at",done:"completed",runDone:"run completed",
    runFail:"run failed",approve:"Approve",reject:"Reject",dl:"Download",insp:"Panels",
    evHint:"The ledger — grouped by Run. Click any row for the raw fact.",
@@ -536,7 +545,7 @@ const I18N={
    fHint:"artifact_written 记录的指针；字节在 BlobStore 里。点击预览。",
    gHint:"边在 control 事实记录时才出现——这是实际走过来的图，不是声明的图。",
    gEmpty:"这个 Run 还没有节点启动。",
-   filterRun:"只看该 Run 事件",you:"你",spawn:"委派",toolCall:"工具",fileWritten:"产物",
+   filterRun:"只看该 Run 事件",you:"你",spawnC:"委派",spawnT:"交棒",toolCall:"工具",fileWritten:"产物",
    parked:"等你决定",resumed:"已恢复",failedAt:"失败于",done:"完成",runDone:"运行完成",
    runFail:"运行失败",approve:"批准",reject:"拒绝",dl:"下载",insp:"投影面板",
    evHint:"账本本身——按 Run 分组。点任意行看原始事实。",
@@ -551,7 +560,9 @@ let LANG=localStorage.getItem("pg-lang")||"en";
 const t=k=>I18N[LANG][k];
 const L=(s,k)=>LANG==="zh"?s[k+"_zh"]:s[k];
 async function api(url,opts){const r=await fetch(url,opts);return r.json();}
+"""
 
+JS_SCENES = r"""
 /* ════════ chrome ════════ */
 function setStatus(st){
   const p=$("hstatus");
@@ -600,6 +611,7 @@ function resetViews(){
 }
 function select(s,btn){
   const prev=current;current=s;since=0;sid=null;clearInterval(timer);chat=false;running=false;
+  SPK = s.spawn==="transfer" ? "spawnT" : "spawnC";  /* label this scenario's spawn cards */
   setStatus("");
   document.querySelectorAll(".scn").forEach(x=>x.classList.remove("active"));
   if(btn)btn.classList.add("active");
@@ -611,7 +623,9 @@ function select(s,btn){
   resetViews();
 }
 
-/* ════════ transcript: the run as a conversation ════════ */
+"""
+
+JS_TRANSCRIPT = r"""/* ════════ transcript: the run as a conversation ════════ */
 function clearEmpty(){const e=$("transcript").querySelector(".empty");if(e)e.remove();}
 function card(cls){clearEmpty();const c=el("div","tc "+cls);$("transcript").appendChild(c);return c;}
 function stick(){const b=$("transcript");
@@ -723,7 +737,7 @@ function addDeleg(run,child){
   const c=card("deleg"+((runs[run]||{}).depth>0?" child":""));
   c.dataset.child=child;
   const nm=runs[child]?runs[child].name:short(child);
-  c.innerHTML=`<div class="h">${svg(G.branch,13)} ${esc(t("spawn"))}</div>`+
+  c.innerHTML=`<div class="h">${svg(G.branch,13)} ${esc(t(SPK))}</div>`+
     `<div class="bd">→ ${esc(nm)} <span style="color:var(--ink-4)">${short(child)}</span></div>`;
   c.onclick=()=>{showTab("trace");selectSpan(child);if(innerWidth<=1230)$("insp").classList.add("open");};
   stick();
@@ -791,7 +805,9 @@ function addSys(text,bad){
   c.innerHTML=`<span style="color:${bad?"var(--red)":"var(--ink-4)"}">${bad?"✕":"·"}</span>${esc(text)}`;
 }
 
-/* one event -> transcript cards */
+"""
+
+JS_WATERFALL = r"""/* one event -> transcript cards */
 function renderEvent(ev){
   const d=ev.data||{};
   switch(ev.kind){
@@ -878,7 +894,9 @@ function selectSpan(runId){
     row.scrollIntoView({block:"center",behavior:"smooth"});}
 }
 
-/* ════════ fold 2: the ledger ════════ */
+"""
+
+JS_LEDGER = r"""/* ════════ fold 2: the ledger ════════ */
 const FILTERS=[["all",null],["start",["start"]],["state",["state"]],["route",["route"]],
                ["file",["file"]],["wait",["wait"]],["fail",["fail"]]];
 function buildChips(){
@@ -963,7 +981,9 @@ function renderLedger(){
   gseq=0;box.querySelectorAll(".ev:not(.run-head) .seq").forEach(s=>s.textContent=String(++gseq));
 }
 
-/* ════════ fold 3: state channels ════════ */
+"""
+
+JS_STATE = r"""/* ════════ fold 3: state channels ════════ */
 function foldState(rid){
   const st={};
   for(const ev of EV){
@@ -1048,7 +1068,9 @@ function showDelta(delta,quiet){
 
 /* ════════ fold 4: artifact pointers ════════ */
 function fmtSize(n){return n<1024?n+" B":(n/1024).toFixed(1)+" KB";}
-function renderFiles(){
+"""
+
+JS_FILES = r"""function renderFiles(){
   const box=$("files");box.innerHTML="";
   if(!artifacts.length){box.innerHTML=`<div class="empty">${t("fHint")}</div>`;return;}
   artifacts.forEach(p=>{
@@ -1060,7 +1082,9 @@ function renderFiles(){
   });
 }
 
-/* ════════ fold 5: the walked graph ════════ */
+"""
+
+JS_GRAPH = r"""/* ════════ fold 5: the walked graph ════════ */
 function graphData(){
   const rid=graphRun||(spans[0]?spans[0].run_id:null);
   if(!rid)return null;
@@ -1219,7 +1243,9 @@ function mdToHtml(src){
   return root.innerHTML;
 }
 
-async function openArtifact(p){
+"""
+
+JS_OVERLAY = r"""async function openArtifact(p){
   const d=await api(`/api/artifact?sid=${sid}&uri=${encodeURIComponent(p.uri)}`);
   if(d.error)return;
   let body="";
@@ -1241,7 +1267,9 @@ async function openArtifact(p){
 $("m-close").onclick=()=>$("overlay").style.display="none";
 $("overlay").onclick=e=>{if(e.target.id==="overlay")e.currentTarget.style.display="none";};
 document.addEventListener("keydown",e=>{if(e.key==="Escape")$("overlay").style.display="none";});
+"""
 
+JS_TABS = r"""
 /* ════════ tabs ════════ */
 function showTab(name){
   document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("active",b.dataset.t===name));
@@ -1259,7 +1287,9 @@ function renderAll(){
   renderWaterfall();renderLedger();renderState();renderFiles();renderGraph();
 }
 
-/* ════════ poll loop ════════ */
+"""
+
+JS_POLL = r"""/* ════════ poll loop ════════ */
 async function poll(){
   const d=await api(`/api/events?sid=${sid}&since=${since}`);
   const fresh=d.events||[];
@@ -1317,7 +1347,9 @@ $("run").onclick=async()=>{
     clearInterval(timer);timer=setInterval(poll,400);await poll();
   }finally{running=false;}
 };
-async function decide(approved,cardEl){
+"""
+
+JS_DECIDE = r"""async function decide(approved,cardEl){
   if(cardEl)cardEl.remove();
   await api("/api/resume",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({sid,approved})});
@@ -1355,7 +1387,28 @@ FINS_OK=[];FINS_BAD=[];
   const btn=$("scenes").children[i];
   if(btn){select(list[i],btn);$("msg").value=L(list[i],"default");$("run").click();}
 })();
-</script>
+"""
+
+PAGE_CLOSE = r"""</script>
 </body>
 </html>
 """
+
+PAGE = (
+    HEAD_OPEN
+    + STYLE
+    + MARKUP
+    + JS_CORE
+    + JS_SCENES
+    + JS_TRANSCRIPT
+    + JS_WATERFALL
+    + JS_LEDGER
+    + JS_STATE
+    + JS_FILES
+    + JS_GRAPH
+    + JS_OVERLAY
+    + JS_TABS
+    + JS_POLL
+    + JS_DECIDE
+    + PAGE_CLOSE
+)
