@@ -156,6 +156,41 @@ async def test_file_log_refuses_non_native_payloads(tmp_path):
         await log.append(Event(1, "r", STATE_DELTA, {"delta": {"messages": [ToolCall("x", {})]}}))
 
 
+async def test_file_log_skips_a_torn_tail_but_not_midfile_corruption(tmp_path):
+    """Crash-safety of the ledger's tail: an append that died mid-write is not
+    a fact — reading skips it and replays to the last durable fact. A bad line
+    anywhere else is real corruption and must fail loudly instead of silently
+    dropping a fact replay would then miss."""
+    import json as _json
+
+    from src.kernel.eventlog import Event
+
+    log = FileEventLog(str(tmp_path))
+    for seq in (1, 2):
+        await log.append(Event(seq, "r", "node_started", {"node": f"n{seq}"}))
+
+    path = tmp_path / "r.jsonl"
+    with path.open("a", encoding="utf-8") as f:
+        f.write('{"seq": 3, "run_id": "r", "kind": "node_st')  # torn mid-write, no \n
+
+    events = await log.events("r")
+    assert [e.seq for e in events] == [1, 2]  # the torn tail is not a fact
+
+    with path.open("a", encoding="utf-8") as f:
+        f.write(
+            "\n"
+            + _json.dumps({"seq": 4, "run_id": "r", "kind": "node_started", "data": {"node": "n4"}})
+            + "\n"
+        )
+    with path.open("r", encoding="utf-8") as f:
+        lines = f.read().split("\n")
+    torn_at = next(i for i, ln in enumerate(lines) if ln.startswith('{"seq": 3'))
+    lines[torn_at] = "not json at all"  # same garbage, now mid-file
+    path.write_text("\n".join(lines), encoding="utf-8")
+    with pytest.raises(_json.JSONDecodeError):
+        await log.events("r")
+
+
 async def test_model_visible_means_logged():
     """Every window the model saw equals a prefix of the folded facts, landing
     exactly on a fact boundary: the request is a projection of the log, never

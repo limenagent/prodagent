@@ -26,6 +26,7 @@ import inspect
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+from src.kernel.blob import resolve_artifact
 from src.kernel.command import Command, Goto, Send
 from src.kernel.eventlog import ARTIFACT_WRITTEN
 from src.kernel.run import Interrupt
@@ -117,6 +118,7 @@ class NodeContext:
         bus: Any = None,
         blobs: Any = None,
         record: Any = None,
+        facts: Any = None,
         resume_value: Any = None,
     ):
         self.run = run
@@ -126,9 +128,11 @@ class NodeContext:
         self._subagent = subagent
         self._bus = bus
         self._blobs = blobs
-        # record(kind, data) appends a durable fact to this run's event log;
-        # the scheduler injects it so a body can record facts other than state.
+        # The ledger's write/read pair, injected by the scheduler so a body can
+        # speak to the log without holding it: record(kind, data) appends one
+        # durable fact; facts() reads this run's facts back, oldest first.
         self._record = record
+        self._facts = facts
         self.resume_value = resume_value
 
     @property
@@ -234,6 +238,24 @@ class NodeContext:
             fact["title"] = title
         await self._record(ARTIFACT_WRITTEN, fact)
         return pointer
+
+    async def load_artifact(self, filename: str, version: int | None = None) -> bytes:
+        """Read back what save_artifact wrote — the twin of the write path,
+        composed from the same injected pieces: the pointer folds from this
+        run's recorded facts (the stream is the only index; ``version=None``
+        means latest), then the bytes come from the BlobStore. Reading writes
+        no fact and changes no state, so replay never depends on it. A save
+        fact commits when it is made — unlike state_delta, which folds at the
+        barrier — so a same-wave sibling may not see it yet: chain writer and
+        reader with an edge when the read is meant. Scope is this run's own
+        artifacts — cross-run reads would need a Run-tree law, deliberately
+        not smuggled in here."""
+        if self._blobs is None:
+            raise RuntimeError("no BlobStore injected; cannot load an artifact")
+        if self._facts is None:
+            raise RuntimeError("no ledger reader injected; cannot load an artifact")
+        pointer = resolve_artifact(await self._facts(), filename, version)
+        return await self._blobs.load(pointer["uri"])
 
 
 # ════════════ Four built-in bodies ════════════

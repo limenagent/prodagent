@@ -69,10 +69,21 @@ class FileEventLog:
         # Split on "\n" only: splitlines() would also cut on U+0085/U+2028/U+2029,
         # which json.dumps(ensure_ascii=False) writes raw — a record boundary must
         # never fall inside a JSON string.
-        for line in path.read_text(encoding="utf-8").split("\n"):
+        lines = path.read_text(encoding="utf-8").split("\n")
+        for i, line in enumerate(lines):
             if not line.strip():
                 continue
-            d = json.loads(line)
+            try:
+                d = json.loads(line)
+            except json.JSONDecodeError:
+                if i == len(lines) - 1:
+                    # A torn final line is an append that crashed mid-write: it
+                    # never completed, so it is not a fact — skip it and the
+                    # log replays up to the last durable fact.
+                    break
+                # A bad line anywhere else is real corruption; failing loudly
+                # beats silently dropping a fact the replay would then miss.
+                raise
             # ts round-trips with the record; a log written before ts existed
             # reads as 0.0 — an unknown duration, never a fake read-time clock.
             events.append(

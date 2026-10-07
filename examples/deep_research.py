@@ -5,8 +5,11 @@ Two lessons in one flow:
   assembled fresh before every model call: untouched while it fits; past
   capacity, tool results are mechanically shortened first (no model spend), then
   summarized level by level — only the summary levels call the compressor model.
-- the study becomes a **versioned artifact**: bytes go to the BlobStore, a
-  pointer fact to the stream, so it shows in the Files panel and survives replay.
+- the **artifact law, both directions**: writing, the study's bytes go to the
+  BlobStore and a pointer fact to the stream (it shows in the Files panel and
+  survives replay); reading, a later node folds the pointer back, fetches the
+  bytes, and feeds one slice to a model — archived bytes reach the LLM only
+  through such a read, never riding in the messages themselves.
 
 ``build(lang)`` is the single assembly point (bilingual); ``main`` runs English.
 Run: PYTHONPATH=. python3 examples/deep_research.py
@@ -31,6 +34,8 @@ def build(lang: str = "en") -> Workflow:
             "the top players concentrate, and policy is friendly…",
             "artifact": "new-energy-report.md",
             "artifact_title": "New Energy Sector Report",
+            "verify_q": "The archived report opens with:\n{line}\nWhat is it about? One sentence.",
+            "verify_a": "A sector report: the market grows steadily, players concentrate, policy is friendly.",
         },
         "zh": {
             "instruction": "你是行业研究员。",
@@ -40,6 +45,8 @@ def build(lang: str = "en") -> Workflow:
             "final": "报告：综合四轮检索，市场规模稳步增长，头部集中，政策友好……",
             "artifact": "new-energy-report.md",
             "artifact_title": "新能源赛道研究报告",
+            "verify_q": "存档报告的开头是：\n{line}\n它讲的是什么？一句话回答。",
+            "verify_a": "一份行业报告：新能源市场稳步增长、头部集中、政策友好。",
         },
     }[lang]
 
@@ -67,10 +74,21 @@ def build(lang: str = "en") -> Workflow:
         pointer = await ctx.save_artifact(t["artifact"], text, title=t["artifact_title"])
         return f"Saved {pointer['filename']} (v{pointer['version']})"
 
-    wf = Workflow()
+    async def verify_report(saved, ctx):
+        """The read side of the artifact law: fold the pointer from this run's
+        facts, fetch the bytes, feed one slice to a model — the archive lives
+        again as context, while the messages stay small."""
+        report = await ctx.load_artifact(t["artifact"])
+        line = report.decode().strip().splitlines()[0]
+        answer = await ctx.llm_complete(t["verify_q"].format(line=line))
+        return f"{saved}; read back {len(report)} bytes — {answer}"
+
+    wf = Workflow(model=env_llm(ScriptedLlm([t["verify_a"]])))
     wf.add_node("researcher", researcher)
-    wf.add_node("write_report", write_report, terminal=True)
+    wf.add_node("write_report", write_report)
+    wf.add_node("verify_report", verify_report, terminal=True)
     wf.add_edge("researcher", "write_report")
+    wf.add_edge("write_report", "verify_report")
     wf.entry("researcher")
     return wf
 

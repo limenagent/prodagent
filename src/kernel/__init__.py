@@ -5,6 +5,7 @@ from src.kernel.blob import (
     InMemoryBlobStore,
     artifacts_from_events,
     latest_artifacts,
+    resolve_artifact,
 )
 from src.kernel.body import (
     FnBody,
@@ -99,4 +100,5 @@ __all__ = [
     "merge",
     "render_trace",
     "replay",
+    "resolve_artifact",
 ]

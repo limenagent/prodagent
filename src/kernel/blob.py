@@ -13,7 +13,8 @@ Three pieces:
 - BlobStore: the port — save assigns the next version and uri, load fetches;
 - InMemoryBlobStore: the zero-side-effect default (same spirit as the in-memory
   event log); a durable local-directory implementation lives in backends;
-- artifacts_from_events / latest_artifacts: pure projections over the stream.
+- artifacts_from_events / latest_artifacts / resolve_artifact: pure
+  projections and lookups over the stream.
 
 Versioning is the store's job (it is what actually holds the bytes): each save
 of the same filename in a run gets the next number, derived as one past the
@@ -122,15 +123,49 @@ class InMemoryBlobStore:
 
 # — projections: the artifact library is a fold of pointer events —
 def artifacts_from_events(events: Iterable[Any]) -> dict[str, list[dict[str, Any]]]:
-    """filename -> every version pointer, in the order they were saved."""
+    """filename -> every version pointer, in the order they were saved.
+
+    The fold asserts each filename's versions strictly increase along the
+    stream. A save's fact commits after the store assigned its number, so a
+    regression (or a repeat) means store order and commit order disagreed —
+    two writers racing one filename, or a number reused after a delete — and
+    "latest" would silently lie. The fold refuses to bless it: loud here, and
+    every reader (panel, latest, resolve) inherits the check. Sparse is legal
+    — a crash between the bytes landing and the fact committing skips a number."""
     out: dict[str, list[dict[str, Any]]] = {}
+    last: dict[str, int] = {}
     for ev in events:
         if ev.kind == ARTIFACT_WRITTEN:
             pointer = dict(ev.data)
-            out.setdefault(pointer["filename"], []).append(pointer)
+            name = pointer["filename"]
+            if name in last and pointer["version"] <= last[name]:
+                raise ValueError(
+                    f"artifact {name!r}: version {pointer['version']} arrives after "
+                    f"{last[name]} — versions must strictly increase along the stream "
+                    "(two writers racing one filename, or a number reused)"
+                )
+            last[name] = pointer["version"]
+            out.setdefault(name, []).append(pointer)
     return out
 
 
 def latest_artifacts(events: Iterable[Any]) -> dict[str, dict[str, Any]]:
     """filename -> its newest version pointer (what a "Files" panel shows)."""
     return {name: versions[-1] for name, versions in artifacts_from_events(events).items()}
+
+
+def resolve_artifact(
+    events: Iterable[Any], filename: str, version: int | None = None
+) -> dict[str, Any]:
+    """The pointer for ``filename`` (latest, or exactly ``version``), folded
+    from the stream — the read side of the artifact law: the stream is the
+    only index, so a read carries no bookkeeping of its own."""
+    versions = artifacts_from_events(events).get(filename)
+    if not versions:
+        raise FileNotFoundError(f"no artifact named {filename!r} in this run")
+    if version is None:
+        return versions[-1]
+    for pointer in versions:
+        if pointer["version"] == version:
+            return pointer
+    raise FileNotFoundError(f"artifact {filename!r} has no version {version}")
