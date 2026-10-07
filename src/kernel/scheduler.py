@@ -352,8 +352,14 @@ class Scheduler:
         await self._commit(run, NODE_STARTED, {"node": key})  # apply marks + consumes
 
         async def record(kind: str, data: dict | None = None) -> None:
-            # Record a durable fact on this run's log (used for artifact pointers).
+            # The ledger's write side: append one durable fact to this run's log.
             await self._commit(run, kind, data)
+
+        async def facts() -> list[Event]:
+            # The ledger's read side: this run's facts so far, oldest first.
+            # The log belongs to the Scheduler; a body reaches it only through
+            # this pair — it never holds the ledger itself.
+            return await self.eventlog.events(run.run_id)
 
         ctx = NodeContext(
             run,
@@ -364,6 +370,7 @@ class Scheduler:
             bus=self.bus,
             blobs=self.blobs,
             record=record,
+            facts=facts,
             resume_value=resume_value,
         )
         try:
