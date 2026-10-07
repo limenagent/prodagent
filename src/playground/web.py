@@ -480,6 +480,11 @@ JS_CORE = r"""<script>
 /* ════════ state ════════ */
 let current=null, sid=null, since=0, timer=null, chat=false, running=false;
 let SPK="spawnC";           /* i18n key for spawn cards: spawnC=委派, spawnT=交棒 */
+let lastEcho=null;          /* last user_turn marker text: the continuation run's seed delta
+                              re-carries that same message; messageFacts skips it so the
+                              chat turn is rendered exactly once */
+let sessByKey={};           /* scenario key -> live session id: switching away keeps the
+                              session running server-side; switching back re-attaches */
 let EV=[];                 /* every serialized event, in arrival order */
 
 let runs={};               /* run_id -> {name, parent, depth, head:el, ...} */
@@ -610,8 +615,14 @@ function resetViews(){
   renderWaterfall();renderLedger();renderState();renderFiles();renderGraph();
 }
 function select(s,btn){
-  const prev=current;current=s;since=0;sid=null;clearInterval(timer);chat=false;running=false;
+  const prev=current;
+  if(prev&&sid)sessByKey[prev.key]=sid; /* the session keeps running server-side; remember it */
+  const back=sessByKey[s.key];
+  current=s;chat=false;running=false;lastEcho=null;
   SPK = s.spawn==="transfer" ? "spawnT" : "spawnC";  /* label this scenario's spawn cards */
+  clearInterval(timer);endStreams();
+  $("run").disabled=false; /* the next poll that would re-enable it may never come */
+  sid=back||null;since=0;
   setStatus("");
   document.querySelectorAll(".scn").forEach(x=>x.classList.remove("active"));
   if(btn)btn.classList.add("active");
@@ -621,6 +632,7 @@ function select(s,btn){
   $("desc").textContent=L(s,"desc");
   $("crumb").textContent=L(s,"title");$("runid").textContent="";
   resetViews();
+  if(back){timer=setInterval(poll,400);poll();} /* re-attach: replay from 0 rebuilds the live view */
 }
 
 """
@@ -715,7 +727,7 @@ function messageFacts(run,delta){
       /* a child run's opening user message is the delegated TASK: a dim line
          inside its card, never a chat bubble from you */
       if(info.depth>0){if(!info.task)info.task=String(m.content??"");}
-      else addUser(m.content);
+      else if(String(m.content??"")!==lastEcho)addUser(m.content); /* the marker already echoed this turn */
       continue;
     }
     if(m.role==="assistant"){
@@ -811,7 +823,7 @@ JS_WATERFALL = r"""/* one event -> transcript cards */
 function renderEvent(ev){
   const d=ev.data||{};
   switch(ev.kind){
-    case "user_turn": addUser(d.text);break;
+    case "user_turn": addUser(d.text);lastEcho=String(d.text??"");break;
     case "node_started":{
       const k=ev.run_id+":"+(d.node||"?");
       streamEpoch[k]=(streamEpoch[k]||0)+1;
@@ -1342,7 +1354,7 @@ $("run").onclick=async()=>{
       resetViews();
       const d=await api("/api/start",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({scenario:current.key,input:text,lang:LANG})});
-      sid=d.sid;since=0;
+      sid=d.sid;since=0;sessByKey[current.key]=sid;
     }
     clearInterval(timer);timer=setInterval(poll,400);await poll();
   }finally{running=false;}
