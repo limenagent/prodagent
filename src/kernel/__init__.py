@@ -8,6 +8,7 @@ from src.kernel.blob import (
     resolve_artifact,
 )
 from src.kernel.body import (
+    ChildVerdict,
     FnBody,
     LLMBody,
     NodeBody,
@@ -15,6 +16,7 @@ from src.kernel.body import (
     Outcome,
     SubPlanBody,
     ToolBody,
+    classify_child_result,
 )
 from src.kernel.bus import BlockingResult, Bus, Subscription
 from src.kernel.channels import (
@@ -55,6 +57,7 @@ __all__ = [
     "BlockingResult",
     "Bus",
     "Channel",
+    "ChildVerdict",
     "Command",
     "Edge",
     "Event",
@@ -94,6 +97,7 @@ __all__ = [
     "apply_event",
     "artifacts_from_events",
     "build_trace",
+    "classify_child_result",
     "fold_events",
     "last",
     "latest_artifacts",

@@ -10,10 +10,11 @@ PYTHONPATH=. python examples/greeter.py
 
 The table order is the suggested reading order; `graph_demo.py` and
 `react_demo.py` are the two raw-kernel demos that precede the series.
-Scenarios 01-10 (the business ones) and 14 (the dating-chat verification
-scenario) also run in the browser via `make play`
+Scenarios 01-13 run in the browser via `make play`
 (see the [playground](../README.md#playground-one-command-every-business-scenario-in-the-browser));
-11-13 are mechanism demos whose point lands best in a terminal.
+the five demos not in the catalog (`graph_demo`, `react_demo`, `persistence`,
+`retry_timeout`, `backpressure`) are mechanism demos whose point lands best
+in a terminal.
 
 | File | What it demonstrates |
 |---|---|
@@ -26,7 +27,7 @@ scenario) also run in the browser via `make play`
 | `code_detective.py` | MCP tools normalized to ordinary tools at the boundary, and a debugging skill loaded from a `SKILL.md` on disk — fix, rerun, fix again until the tests go green. |
 | `after_sales.py` | The supervisor pattern: a supervisor agent whose "tools" are other agents — dispatch a specialist, its answer comes back, dispatch the next, then decide. The risk specialist delegates further, growing a three-level delegation tree where every level runs the same loop. |
 | `aiops.py` | Both multi-agent semantics in one workflow: parallel diagnosis via delegation (*call*), then a no-return-edge `go` hands off to the repair agent (*transfer*). |
-| `handoff.py` | Pure *transfer* in two shapes, with no supervisor in the flow: a fixed handoff **chain** (triage → billing → risk → close, each specialist hands a summary on and never runs again) and a **swarm net** where peers can hand the case *back* (billing ↔ risk) before settling. The graph declares the Agent nodes but draws no edges between them — every next holder is a runtime `go` chosen from the specialist's own verdict. |
+| `handoff.py` | Pure *transfer* in two shapes, with no supervisor in the flow: a fixed handoff **chain** (triage → billing → risk → close, each specialist hands a summary on and never runs again) and a **swarm net** where peers can hand the case *back* (billing ↔ risk) before settling. Every next holder is a runtime `go` read from the specialist's own verdict; the static in-edges are gated on the handover fact, so a peer the case never reached is swept as a dead branch and an early settle terminates cleanly. |
 | `write_review.py` | Generator–critic: a writer drafts, a critic reviews, and a conditional branch carries a failing review to a reviser for one rework pass; a passing one finalizes the draft itself — a conditional branch, not a loop, with agents in the nodes. |
 | `orchestrator.py` | Orchestrator-worker: the graph has ONE reviewer node. A planner agent reads a live catalog tool and writes a numbered plan; each line becomes a `Send` that stamps out a template copy — all copies run concurrently in one wave, and the synth waits for every one (the template-predecessor rule; `join` is moot with one in-edge). Fan-out width is data, not graph shape — with a real model; the offline fixtures change together. |
 | `blackboard.py` | Multi-round consensus: experts never call each other — each appends its opinion to one shared append channel; a `join="all"` moderator reads the board and, if not converged, `Goto.rejoin` re-arms everyone for another round. Opinions accumulate; nobody is overwritten. |

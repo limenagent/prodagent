@@ -46,9 +46,11 @@ what to watch for in the code.
 - **handoff.py**: pure *transfer* with no supervisor in the flow, in two
   shapes — a fixed handoff **chain** (triage → billing → risk → close) and a
   **swarm net** where peers can hand the case back (billing ↔ risk) before
-  settling. The graph registers the Agent nodes but draws no edges between
-  them: the next holder is a runtime `go` named in the specialist's own verdict.
-  Watch control leave for good while only a one-line summary travels forward.
+  settling. The next holder is a runtime `go` named in the specialist's own
+  verdict; the static in-edges are gated on the handover fact, so a peer the
+  case never reached is swept as a dead branch and an early settle terminates
+  cleanly. Watch control leave for good while only a one-line summary travels
+  forward.
 - **write_review.py**: a writer agent drafts, a critic agent reviews, and a
   conditional branch carries a failing review back for revision while a passing
   one goes straight to finalize. Watch quality iteration be an ordinary loop
@@ -91,8 +93,8 @@ what to watch for in the code.
 
 ## See it all at once: the Playground
 
-`make play` starts a UI where you switch between twelve scenarios on the left
-(the ten business scenarios plus the "agent blind date" and "long-term memory"
+`make play` starts a UI where you switch between thirteen scenarios on the left
+(the eleven business scenarios plus the "agent blind date" and "long-term memory"
 verification scenarios, all running in the browser; raw mechanism demos like
 graph_demo and react_demo are best run in a terminal) and see the event
 timeline from the same Bus on the right — parallelism, suspended approvals,

@@ -29,7 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from src.kernel import Plan, Scheduler
+from src.kernel import Plan, RunState, Scheduler, classify_child_result
 from src.runtime.react import build_react_plan, opening
 from src.runtime.tools import (
     HardToolError,
@@ -102,12 +102,14 @@ async def spawn_agent(ctx: Any, agent: Agent, task: Any, *, history: list | None
         # agent-tool paths instead feed the error string back to the model, and
         # it has no recursion guard at that boundary at all.
         raise HardToolError(str(exc)) from exc
-    if result.get("state") == "failed":
-        # One law across the three delegation surfaces: a failed child never
-        # becomes a value the caller would read as output=None. A suspended
-        # child stays raw — callers of the raw form branch on it themselves
-        # (delegate_to lifts it; parallel gathers decide their own policy).
-        raise HardToolError(str(result.get("error") or result.get("output")))
+    # A failed child never becomes a value the caller would read as output=None
+    # (one law across all delegation surfaces). Use the shared decision table
+    # only to catch failure; suspended/done stay raw so callers of this raw form
+    # branch on them themselves (delegate_to lifts a suspension; parallel
+    # gathers decide their own policy).
+    verdict = classify_child_result(result)
+    if verdict.state == RunState.FAILED:
+        raise HardToolError(verdict.error)
     return result
 
 

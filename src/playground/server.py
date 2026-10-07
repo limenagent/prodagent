@@ -291,6 +291,9 @@ class _Handler(BaseHTTPRequestHandler):
                         "title_zh": s["title_zh"],
                         "desc_zh": s["desc_zh"],
                         "default_zh": s["default_zh"],
+                        # how the transcript labels this scenario's spawn cards:
+                        # "call" (委派, default) or "transfer" (交棒)
+                        "spawn": s.get("spawn", "call"),
                     }
                     for s in SCENARIOS
                 ]
