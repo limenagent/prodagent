@@ -11,7 +11,7 @@ PYTHONPATH=. python examples/greeter.py
 The table order is the suggested reading order; `graph_demo.py` and
 `react_demo.py` are the two raw-kernel demos that precede the series.
 Scenarios 01-13 run in the browser via `make play`
-(see the [playground](../README.md#playground-one-command-every-business-scenario-in-the-browser));
+(see the [playground](../README.en.md#try-it-in-30-seconds--no-api-key-no-spend));
 the five demos not in the catalog (`graph_demo`, `react_demo`, `persistence`,
 `retry_timeout`, `backpressure`) are mechanism demos whose point lands best
 in a terminal.
